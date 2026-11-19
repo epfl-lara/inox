@@ -15,8 +15,6 @@ trait LambdaTemplates { self: Templates =>
 
   import lambdasManager._
 
-  private lazy val assumeChecked = options.findOptionOrDefault(optAssumeChecked)
-
   /** Represents a POTENTIAL application of a first-class function in the unfolding procedure
     *
     * The [[equals]] condition guards the application for equality of the concrete caller with
@@ -196,7 +194,7 @@ trait LambdaTemplates { self: Templates =>
         // Under `optAssumeChecked`, the front-end has checked that applications only receive
         // arguments in the domain, so the codomain is assumed directly. This spares a membership
         // check per application, which is costly when the domain is an ADT with refined fields.
-        val domainResults = if (assumeChecked) Seq.empty else (params zip app.args).collect {
+        val domainResults = if (modes.assumeChecked) Seq.empty else (params zip app.args).collect {
           case (vd, arg) if ContractUnrolling.unroll(vd.tpe) =>
             val domResult = encodeSymbol(Variable.fresh("dom", BooleanType(), true))
             val domClosures = typeOps.variablesOf(vd.tpe).toSeq.sortBy(_.id).map(subst)
@@ -282,16 +280,16 @@ trait LambdaTemplates { self: Templates =>
     }
 
     // Make sure `f` has a distinguishing input with every other function it differs from
-    if (free && functionWitnesses) {
+    if (free && modes.functionWitnesses) {
       val guard = mkAnd(active, isFree)
       recordFunctionDepth(f)
 
       for ((otherGuard, other) <- witnessedFunctions(ft).toSeq if other != f) {
-        clauses ++= registerWitness(mkAnd(guard, otherGuard), ft, f, other, onDemand = onDemandFreeWitnesses)
+        clauses ++= registerWitness(mkAnd(guard, otherGuard), ft, f, other, onDemand = modes.onDemandFreeWitnesses)
       }
 
       for (template <- byType(ft).values.toSeq) {
-        clauses ++= registerWitness(mkAnd(guard, template.start), ft, f, template.ids._2, onDemand = onDemandFreeWitnesses)
+        clauses ++= registerWitness(mkAnd(guard, template.start), ft, f, template.ids._2, onDemand = modes.onDemandFreeWitnesses)
       }
 
       registerWitnessedFunction(ft, guard, f)
@@ -303,7 +301,7 @@ trait LambdaTemplates { self: Templates =>
   /** The lambdas and the functions of their type that they capture, which the unrolling hasn't
     * related yet (see [[TypeTemplates.registerCapturedFunctions]]), as the lambda's start blocker,
     * the lambda and the function. A model that makes them equal must relate them first. */
-  def equalCaptures: Seq[(Encoded, Encoded, Encoded)] = for {
+  protected def equalCaptures: Seq[(Encoded, Encoded, Encoded)] = for {
     (ft, templates) <- byType.toSeq
     functions = (freeFunctions(ft).toSeq.map(_._2) ++ applications(ft).toSeq.map(_._2.caller)).distinct
     template <- templates.values.toSeq
@@ -312,7 +310,7 @@ trait LambdaTemplates { self: Templates =>
 
   /** Adds the clauses that follow from the equality of `lambda` and a function `f` that it captures,
     * which the unrolling left out (see [[equalCaptures]]). */
-  def relateCapture(lambda: Encoded, f: Encoded): Clauses = {
+  protected def relateCapture(lambda: Encoded, f: Encoded): Clauses = {
     relateCaptured(lambda, f)
     val template = byID(lambda)
     val ft = template.tpe
@@ -407,10 +405,10 @@ trait LambdaTemplates { self: Templates =>
       //
       // Otherwise, the unrolling only relates a lambda to the functions it captures once a model
       // makes them equal (see [[registerCapturedFunctions]]).
-      val orderingClauses = if (functionWitnesses) Seq.empty else newTemplate.closures.flatMap {
+      val orderingClauses = if (modes.functionWitnesses) Seq.empty else newTemplate.closures.flatMap {
         case (v, dep) => registerClosure(newTemplate.start, idT -> newTemplate.tpe, dep -> v.getType)
       }
-      if (functionWitnesses) registerCapturedFunctions(idT, newTemplate.closures.collect {
+      if (modes.functionWitnesses) registerCapturedFunctions(idT, newTemplate.closures.collect {
         case (v, dep) if v.getType.isInstanceOf[FunctionType] => dep
       })
 
@@ -450,7 +448,7 @@ trait LambdaTemplates { self: Templates =>
 
       // make sure free functions have a distinguishing input with the new lambda (if they differ)
       val witnessClauses = for ((guard, f) <- witnessedFunctions(newTemplate.tpe).toSeq) yield {
-        registerWitness(mkAnd(guard, newTemplate.start), newTemplate.tpe, f, idT, onDemand = onDemandFreeWitnesses)
+        registerWitness(mkAnd(guard, newTemplate.start), newTemplate.tpe, f, idT, onDemand = modes.onDemandFreeWitnesses)
       }
 
       (idT, clauses ++ witnessClauses.flatten)
@@ -465,7 +463,7 @@ trait LambdaTemplates { self: Templates =>
     if (!instantiated(key)) {
       instantiated += key
 
-      if (functionWitnesses && ft.to.isInstanceOf[FunctionType]) {
+      if (modes.functionWitnesses && ft.to.isInstanceOf[FunctionType]) {
         val active = resultGuards.cached(app.encoded)(encodeSymbol(Variable.fresh("b_active", BooleanType(), true)))
         clauses :+= mkImplies(blocker, active)
       }
@@ -603,21 +601,21 @@ trait LambdaTemplates { self: Templates =>
           }
 
         closuresEqual match {
-          case Some(eqs) if !functionWitnesses => clauses += mkImplies(blocker, mkEquals(eqs, equals))
-          case None if !functionWitnesses => clauses += mkImplies(blocker, mkNot(equals))
+          case Some(eqs) if !modes.functionWitnesses => clauses += mkImplies(blocker, mkEquals(eqs, equals))
+          case None if !modes.functionWitnesses => clauses += mkImplies(blocker, mkNot(equals))
           case _ =>
             for (eqs <- closuresEqual) clauses += mkImplies(mkAnd(blocker, eqs), equals)
-            clauses ++= registerWitness(blocker, template.tpe, template.ids._2, that.ids._2, onDemand = onDemandLambdaWitnesses)
+            clauses ++= registerWitness(blocker, template.tpe, template.ids._2, that.ids._2, onDemand = modes.onDemandLambdaWitnesses)
         }
       }
     }
     clauses.toSeq
   }
 
-  def getLambdaTemplates(tpe: FunctionType): Set[LambdaTemplate] = byType(tpe).values.toSet
+  protected def getLambdaTemplates(tpe: FunctionType): Set[LambdaTemplate] = byType(tpe).values.toSet
 
   /** The templates of all the lambdas that have been unrolled. */
-  def getLambdaTemplates: Seq[LambdaTemplate] = byType.values.toSeq.flatMap(_.values)
+  protected def getLambdaTemplates: Seq[LambdaTemplate] = byType.values.toSeq.flatMap(_.values)
 
 
   /** The template of the instantiated lambda whose identifier is `id`. */
@@ -772,7 +770,7 @@ trait LambdaTemplates { self: Templates =>
             registerImplication(b, lambdaBlocker)
             newCls += mkImplies(enabler, lambdaBlocker)
             // the application fails iff the body of the lambda it is dispatched to does
-            if (partialFunctions) newCls += mkImplies(enabler, mkEquals(appFailure(app._2), lambdaFailure))
+            if (modes.partialFunctions) newCls += mkImplies(enabler, mkEquals(appFailure(app._2), lambdaFailure))
 
             reporter.debug("Unrolling behind "+info+" ("+newCls.size+")")
             for (cl <- newCls) {

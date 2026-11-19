@@ -303,11 +303,11 @@ trait QuantificationTemplates { self: Templates =>
     }
   }
 
-  def hasAxioms: Boolean = axioms.nonEmpty
-  def getAxioms: Seq[Axiom] = axioms.toSeq
+  protected def hasAxioms: Boolean = axioms.nonEmpty
+  protected def getAxioms: Seq[Axiom] = axioms.toSeq
 
-  def getInstantiationsWithBlockers = axioms.toSeq.flatMap(_.instantiations.toSeq)
-  def hasInstantiationsWithBlockers = axioms.exists(_.instantiations.nonEmpty)
+  protected def getInstantiationsWithBlockers = axioms.toSeq.flatMap(_.instantiations.toSeq)
+  protected def hasInstantiationsWithBlockers = axioms.exists(_.instantiations.nonEmpty)
 
   protected sealed trait MatcherKey
   private case class FunctionKey(tfd: TypedFunDef) extends MatcherKey
@@ -761,7 +761,7 @@ trait QuantificationTemplates { self: Templates =>
     }
   }
 
-  def promoteQuantifications: Unit = {
+  protected def promoteQuantifications: Unit = {
     val optGen = quantificationsManager.unrollGeneration
     if (optGen.isEmpty)
       throw new InternalSolverError("Attempting to promote inexistent quantifiers")
@@ -786,10 +786,10 @@ trait QuantificationTemplates { self: Templates =>
     }
   }
 
-  def requiresFiniteRangeCheck: Boolean =
+  protected def requiresFiniteRangeCheck: Boolean =
     ignoredGrounds.nonEmpty || ignoredMatchers.nonEmpty || ignoredSubsts.exists(_._2.nonEmpty)
 
-  def getFiniteRangeClauses: Clauses = {
+  protected def getFiniteRangeClauses: Clauses = {
     val clauses = new scala.collection.mutable.ListBuffer[Encoded]
     val keyClause = MutableMap.empty[MatcherKey, (Clauses, Encoded)]
 
@@ -883,7 +883,7 @@ trait QuantificationTemplates { self: Templates =>
     clauses.toSeq
   }
 
-  def getGroundInstantiations(e: Encoded, tpe: Type): Seq[(Encoded, Seq[Encoded])] = {
+  protected def getGroundInstantiations(e: Encoded, tpe: Type): Seq[(Encoded, Seq[Encoded])] = {
     matcherBlockers.toList.flatMap { case (m, b) =>
       val optArgs = matcherKey(m) match {
         case tp: TypedKey if tpe == tp.tpe => Some(m.args.map(_.encoded))

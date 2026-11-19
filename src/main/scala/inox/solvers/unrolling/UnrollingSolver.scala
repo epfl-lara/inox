@@ -187,7 +187,7 @@ abstract class AbstractUnrollingSolver private
     }.toMap
 
     val newClauses = context.timers.solvers.declare.clauses.run {
-      templates.instantiateVariable(encode(vd.toVariable), freeBindings.map(p => encode(p._1) -> p._2))
+      templates.unfolding.instantiateVariable(encode(vd.toVariable), freeBindings.map(p => encode(p._1) -> p._2))
     }
 
     context.timers.solvers.declare.underlying.run {
@@ -238,7 +238,7 @@ abstract class AbstractUnrollingSolver private
     }.toMap
 
     val newClauses = context.timers.solvers.assert.clauses.run {
-      templates.instantiateExpr(
+      templates.unfolding.instantiateExpr(
         encode(expression),
         freeBindings.map(p => encode(p._1) -> p._2)
       )
@@ -285,15 +285,15 @@ abstract class AbstractUnrollingSolver private
 
       // The free functions that stand for uninterpreted functions give their models, and their
       // applications in values are calls to these functions again
-      val uninterpreted = templates.uninterpretedFunctions.toSeq.map { case ((id, tps), (f, fT)) =>
+      val uninterpreted = templates.model.uninterpretedFunctions.toSeq.map { case ((id, tps), (f, fT)) =>
         (id, tps.map(decode(_))) -> (decode(f).asInstanceOf[Variable], fT)
       }
       val byFunction = uninterpreted.map { case (key, (f, _)) => f -> key }.toMap
       // Their models are extracted at their full types, so that they lie in their codomains
-      val uninterpretedTypes = templates.uninterpretedTypes.toSeq.map { case ((id, tps), tpe) =>
+      val uninterpretedTypes = templates.model.uninterpretedTypes.toSeq.map { case ((id, tps), tpe) =>
         (id, tps.map(decode(_))) -> decode(tpe)
       }.toMap
-      val constants = templates.uninterpretedConstants.map { case (id, tps) => (id, tps.map(decode(_))) }
+      val constants = templates.model.uninterpretedConstants.map { case (id, tps) => (id, tps.map(decode(_))) }
       def restore(e: Expr): Expr = exprOps.postMap {
         case Application(f: Variable, args) if byFunction contains f =>
           val (id, tps) = byFunction(f)
@@ -334,7 +334,7 @@ abstract class AbstractUnrollingSolver private
 
       // The lambdas of the program that the model unblocks, with the values that they capture, or
       // only their types when these values can't be extracted
-      val active: Seq[Either[FunctionType, Lambda]] = templates.getLambdaTemplates
+      val active: Seq[Either[FunctionType, Lambda]] = templates.model.lambdaTemplates
         .filter(tmpl => modelEval(tmpl.start, t.BooleanType()) == Some(t.BooleanLiteral(true)))
         .map { tmpl =>
           val lambda = decode(tmpl.structure.body).asInstanceOf[Lambda]
@@ -635,7 +635,7 @@ abstract class AbstractUnrollingSolver private
     def modelEq(e1: Encoded, e2: Encoded): Boolean = e1 == e2 || modelEqualities.getOrElseUpdate(e1 -> e2,
       wrapped.modelEval(templates.mkEquals(e1, e2), BooleanType()) == Some(BooleanLiteral(true)))
 
-    lazy val onDemandWitnesses = templates.onDemandWitnesses.groupMap(_._1)(_._2)
+    lazy val onDemandWitnesses = templates.witnesses.onDemand.groupMap(_._1)(_._2)
     // the functions that show up in the model, by type
     val extractedFunctions = MutableMap.empty[FunctionType, Set[Encoded]]
 
@@ -795,7 +795,7 @@ abstract class AbstractUnrollingSolver private
       extractedFunctions += tpe -> (extractedFunctions.getOrElse(tpe, Set.empty) + f)
 
       def extractLambda(f: Encoded, tpe: FunctionType): Option[Lambda] = {
-        val optEqTemplate = templates.getLambdaTemplates(tpe).find { tmpl =>
+        val optEqTemplate = templates.model.lambdaTemplates(tpe).find { tmpl =>
           wrapped.modelEval(tmpl.start, BooleanType()) == Some(BooleanLiteral(true)) &&
           modelEq(tmpl.ids._2, f)
         }
@@ -826,7 +826,7 @@ abstract class AbstractUnrollingSolver private
 
         lazy val taken = lambdaExtractions.collect {
           case (_, img: Lambda) if img.getType == lambda.getType => normal(img)
-        }.toSet ++ templates.getLambdaTemplates(tpe).filter { tmpl =>
+        }.toSet ++ templates.model.lambdaTemplates(tpe).filter { tmpl =>
           wrapped.modelEval(tmpl.start, BooleanType()) == Some(BooleanLiteral(true)) &&
           !modelEq(tmpl.ids._2, f)
         }.map(tmpl => normal(templateLambda(tmpl)))
@@ -843,7 +843,7 @@ abstract class AbstractUnrollingSolver private
 
       // Whether the application of `caller` to `args` fails in the model (see [[Templates.appFailure]])
       def failsAt(caller: Encoded, ft: FunctionType, args: Seq[Encoded]): Boolean =
-        templates.appFailureLiterals(ft).exists { case ((c, as), literal) =>
+        templates.model.appFailureLiterals(ft).exists { case ((c, as), literal) =>
           modelEq(c, caller) && as.size == args.size && (as zip args).forall(modelEq(_, _)) &&
             wrapped.modelEval(literal, BooleanType()) == Some(BooleanLiteral(true))
         }
@@ -860,9 +860,9 @@ abstract class AbstractUnrollingSolver private
 
       // Applications to distinguishing inputs come last, so that they don't determine the default
       // value of the extracted function (which must agree with quantifier instantiations).
-      val arguments = templates.getGroundInstantiations(f, tpe).flatMap { case (b, eArgs) =>
+      val arguments = templates.model.groundInstantiations(f, tpe).flatMap { case (b, eArgs) =>
         wrapped.modelEval(b, BooleanType()).filter(_ == BooleanLiteral(true)).map(_ => eArgs)
-      }.distinct.sortBy(_.exists(templates.isWitnessArgument))
+      }.distinct.sortBy(_.exists(templates.witnesses.isArgument))
 
       // Unless equality is intensional, a lambda can be equal to a function that it captures, such
       // as `() => f()` and `f`. The model of `f` is then that of its applications, as its lambda's
@@ -936,7 +936,7 @@ abstract class AbstractUnrollingSolver private
 
               case ft: FunctionType =>
                 // a distinguishing input may be one where only one of `a` and `b` fails
-                val inputs = templates.distinguishingInputs.collectFirst {
+                val inputs = templates.witnesses.distinguishingInputs.collectFirst {
                   case ((f1, f2), (tpe, ws)) if tpe == ft &&
                     ((modelEq(f1, a) && modelEq(f2, b)) || (modelEq(f1, b) && modelEq(f2, a))) &&
                     (failsAt(a, ft, ws) || failsAt(b, ft, ws) ||
@@ -1083,7 +1083,7 @@ abstract class AbstractUnrollingSolver private
     for {
       (tpe, ws) <- onDemandWitnesses
       fs <- extractedFunctions.get(tpe).toSeq
-      lambdas = templates.getLambdaTemplates(tpe).map(tmpl => tmpl.ids._2 -> tmpl.start).toMap
+      lambdas = templates.model.lambdaTemplates(tpe).map(tmpl => tmpl.ids._2 -> tmpl.start).toMap
       (f1, f2, equality, _) <- ws
       if !lambdas.contains(f1) && fs.exists(modelEq(_, f1)) && (lambdas.get(f2) match {
         case Some(start) => wrapped.modelEval(start, BooleanType()) == Some(BooleanLiteral(true))
@@ -1153,7 +1153,7 @@ abstract class AbstractUnrollingSolver private
     private def equalCaptures(umodel: underlying.Model): Seq[(Encoded, Encoded)] = modelCaptures match {
       case Some((m, captures)) if m.asInstanceOf[AnyRef] eq umodel.asInstanceOf[AnyRef] => captures
       case _ =>
-        val candidates = templates.equalCaptures
+        val candidates = templates.model.equalCaptures
         val captures = if (candidates.isEmpty) Seq.empty else {
           val wrapped = wrapModel(umodel)
           def holds(e: Encoded): Boolean = wrapped.modelEval(e, t.BooleanType()) == Some(t.BooleanLiteral(true))
@@ -1239,7 +1239,7 @@ abstract class AbstractUnrollingSolver private
       * that the extracted model may still hold where nothing reaches them, such as the default
       * results of functions into it, become errors. */
     private def withEmptyTypes(model: program.Model, umodel: underlying.Model): program.Model = {
-      val flags = templates.typesManager.typeParameterFlags
+      val flags = templates.model.typeParameterFlags
       val emptyTypes = if (flags.isEmpty) Set.empty else {
         val wrapped = wrapModel(umodel)
         flags.collect {
@@ -1263,7 +1263,7 @@ abstract class AbstractUnrollingSolver private
     }
 
     private def witnessEqualities: Map[Encoded, Int] =
-      if (witnessLevel > 0) templates.witnessEqualities else Map.empty
+      if (witnessLevel > 0) templates.witnesses.equalities else Map.empty
 
     /* The equalities between functions without distinguishing inputs that appear in the unsat core
      * of `res`, or all of them if the solver gave no core. Cores aren't necessarily reported as
@@ -1288,7 +1288,7 @@ abstract class AbstractUnrollingSolver private
       val current = needed.filter(_._2 <= witnessLevel).keySet
       if (current.nonEmpty) {
         reporter.debug(" - Instantiating distinguishing function inputs")
-        for (cl <- templates.instantiateWitnesses(current)) {
+        for (cl <- templates.witnesses.instantiate(current)) {
           underlying.assertCnstr(cl)
         }
         ModelCheck
@@ -1328,15 +1328,15 @@ abstract class AbstractUnrollingSolver private
       reporter.debug(" - Running search...")
 
       val equalities = witnessEqualities
-      val getModel = !templates.requiresFiniteRangeCheck || checkModels || templates.hasAxioms || config.withModel
-      val getAssumptions = (unrollAssumptions && templates.canUnroll) || config.withUnsatAssumptions ||
+      val getModel = !templates.quantifiers.requiresFiniteRangeCheck || checkModels || templates.quantifiers.hasAxioms || config.withModel
+      val getAssumptions = (unrollAssumptions && templates.unfolding.canUnroll) || config.withUnsatAssumptions ||
         equalities.nonEmpty
       val checkConfig = Configuration(model = getModel && !ignoreModels, unsatAssumptions = getAssumptions)
 
       def check(equalities: Iterable[Encoded]): Response =
         context.timers.solvers.unrolling.check.run {
           underlying.checkAssumptions(checkConfig)(
-            encodedAssumptions.toSet ++ templates.satisfactionAssumptions ++ equalities
+            encodedAssumptions.toSet ++ templates.unfolding.satisfactionAssumptions ++ equalities
           )
         }
 
@@ -1361,11 +1361,11 @@ abstract class AbstractUnrollingSolver private
 
           // distinguishing inputs only matter once we have a model, in which distinct functions
           // may still agree on every input: check again with these assumed equal
-          case _: Satisfiable if witnessLevel == 0 && templates.witnessEqualities.nonEmpty =>
+          case _: Satisfiable if witnessLevel == 0 && templates.witnesses.equalities.nonEmpty =>
             witnessLevel = 1
             ModelCheck
 
-          case _: Satisfiable if templates.requiresFiniteRangeCheck =>
+          case _: Satisfiable if templates.quantifiers.requiresFiniteRangeCheck =>
             FiniteRangeCheck
 
           case Sat =>
@@ -1382,11 +1382,11 @@ abstract class AbstractUnrollingSolver private
           // Satisfaction assumptions that remain once nothing can be unrolled
           // (such as type parameters being inhabited) must still be dropped
           // before the query can be deemed unsatisfiable.
-          case _: Unsatisfiable if !templates.canUnroll && templates.satisfactionAssumptions.isEmpty =>
+          case _: Unsatisfiable if !templates.unfolding.canUnroll && templates.unfolding.satisfactionAssumptions.isEmpty =>
             CheckResult.cast(res)
 
           case UnsatWithAssumptions(assumptions) if unrollAssumptions =>
-            for (b <- assumptions) templates.promoteBlocker(b)
+            for (b <- assumptions) templates.unfolding.promoteBlocker(b)
             ProofCheck
 
           case _ =>
@@ -1400,7 +1400,7 @@ abstract class AbstractUnrollingSolver private
     private def finiteRangeCheck(): CheckState = {
       reporter.debug(" - Verifying finite ranges")
 
-      val clauses = templates.getFiniteRangeClauses
+      val clauses = templates.quantifiers.finiteRangeClauses
 
       // the model must have distinguishing inputs as well (see [[modelCheck]])
       val equalities = witnessEqualities
@@ -1408,7 +1408,7 @@ abstract class AbstractUnrollingSolver private
       val next: Either[CheckState, Response] =
         context.timers.solvers.unrolling.check.run {
           underlying.push()
-          for (cl <- encodedAssumptions.toSeq ++ templates.satisfactionAssumptions ++ clauses) {
+          for (cl <- encodedAssumptions.toSeq ++ templates.unfolding.satisfactionAssumptions ++ clauses) {
             underlying.assertCnstr(cl)
           }
           def check(equalities: Iterable[Encoded]) =
@@ -1459,11 +1459,11 @@ abstract class AbstractUnrollingSolver private
         // the unrolling left out the clauses that relate these lambdas to the functions they capture
         // (see [[LambdaTemplates.equalCaptures]]), so the model needs them before it can be trusted
         reporter.debug(" - Relating lambdas to the captured functions that the model makes equal")
-        for ((lambda, f) <- equalCaptures(umodel); cl <- templates.relateCapture(lambda, f)) {
+        for ((lambda, f) <- equalCaptures(umodel); cl <- templates.model.relateCapture(lambda, f)) {
           underlying.assertCnstr(cl)
         }
         // the applications of the functions are then related to the lambdas by unrolling them
-        if (templates.canUnroll) Unroll else ModelCheck
+        if (templates.unfolding.canUnroll) Unroll else ModelCheck
       } else {
         requestedWitnesses = Map.empty
         exposedWitnesses = Set.empty
@@ -1491,7 +1491,7 @@ abstract class AbstractUnrollingSolver private
       val requested = requestedWitnesses.filter(_._2 <= (witnessLevel max 1)).keySet
       if (requested.nonEmpty && !abort && !pause) {
         reporter.debug(" - Instantiating requested distinguishing function inputs")
-        for (cl <- templates.instantiateWitnesses(requested)) {
+        for (cl <- templates.witnesses.instantiate(requested)) {
           underlying.assertCnstr(cl)
         }
         ModelCheck
@@ -1503,7 +1503,7 @@ abstract class AbstractUnrollingSolver private
         ProofCheck
       } else if (exposedWitnesses.nonEmpty && !abort && !pause) {
         reporter.debug(" - Unfolding the distinguishing inputs of the functions in the model")
-        for (cl <- templates.promoteWitnesses(exposedWitnesses)) {
+        for (cl <- templates.witnesses.promote(exposedWitnesses)) {
           underlying.assertCnstr(cl)
         }
         ModelCheck
@@ -1518,11 +1518,11 @@ abstract class AbstractUnrollingSolver private
           reporter.error("for formula " + andJoin(assumptionsSeq ++ constraints).asString)
         }
         unknown
-      } else if (templates.hasAxioms) {
+      } else if (templates.quantifiers.hasAxioms) {
         val wrapped = wrapModel(umodel)
         def modelEq(e1: Encoded, e2: Encoded): Boolean =
           wrapped.modelEval(templates.mkEquals(e1, e2), t.BooleanType()) == Some(t.BooleanLiteral(true))
-        val axioms = templates.getAxioms.filter { q =>
+        val axioms = templates.quantifiers.axioms.filter { q =>
           wrapped.modelEval(q.guard, t.BooleanType()) != Some(t.BooleanLiteral(false))
         }
         val optError = axioms.view.flatMap(q => q.checkForall(modelEq).map(err => q.body -> err)).headOption
@@ -1552,13 +1552,13 @@ abstract class AbstractUnrollingSolver private
     }
 
     private def instantiateQuantifiers(): CheckState = {
-      if (templates.quantificationsManager.unrollGeneration.isEmpty) {
+      if (!templates.quantifiers.hasPendingInstantiations) {
         if (!silentErrors) {
           reporter.error("Something went wrong. The model is not transitive yet we can't instantiate!?")
         }
         CheckResult.cast(Unknown)
       } else {
-        templates.promoteQuantifications
+        templates.quantifiers.promote()
         Unroll
       }
     }
@@ -1567,7 +1567,7 @@ abstract class AbstractUnrollingSolver private
     private def proofCheck(): CheckState = {
       // The model of a proof check only serves to test whether we got lucky and to
       // prioritize blockers during unrolling, so we don't request it when neither applies.
-      if (ignoreModels || !(feelingLucky || modelFinding || templates.hasInstantiationsWithBlockers)) {
+      if (ignoreModels || !(feelingLucky || modelFinding || templates.quantifiers.hasInstantiationsWithBlockers)) {
         proofCheckWithoutModel()
       } else {
         proofCheckWithModel()
@@ -1580,7 +1580,7 @@ abstract class AbstractUnrollingSolver private
 
       val res = context.timers.solvers.unrolling.check.run {
           underlying.checkAssumptions(Configuration(model = false, unsatAssumptions = config.withUnsatAssumptions))(
-            encodedAssumptions.toSet ++ templates.refutationAssumptions
+            encodedAssumptions.toSet ++ templates.unfolding.refutationAssumptions
           )
         }
 
@@ -1614,7 +1614,7 @@ abstract class AbstractUnrollingSolver private
       val res: Response =
         context.timers.solvers.unrolling.check.run {
           underlying.checkAssumptions(config `max` Configuration(model = true))(
-            encodedAssumptions.toSet ++ templates.refutationAssumptions
+            encodedAssumptions.toSet ++ templates.unfolding.refutationAssumptions
           )
         }
 
@@ -1640,17 +1640,17 @@ abstract class AbstractUnrollingSolver private
 
             if (modelFinding) {
               for {
-                b <- templates.satisfactionAssumptions
+                b <- templates.unfolding.satisfactionAssumptions
                 v = templates.extractNot(b).getOrElse(b)
                 if wrapped.eval(v, BooleanType()) == Some(BooleanLiteral(true))
-              } templates.promoteBlocker(v)
+              } templates.unfolding.promoteBlocker(v)
             }
 
             for {
-              (inst, bs) <- templates.getInstantiationsWithBlockers
+              (inst, bs) <- templates.quantifiers.instantiationsWithBlockers
               if wrapped.eval(inst, BooleanType()) == Some(BooleanLiteral(false))
               b <- bs
-            } templates.promoteBlocker(b, force = true)
+            } templates.unfolding.promoteBlocker(b, force = true)
 
             Unroll
           }
@@ -1663,7 +1663,7 @@ abstract class AbstractUnrollingSolver private
         reporter.debug(s"- We need to keep going, but reached unroll bound ($unrollBound)")
         unrollBoundHit = true
         CheckResult.cast(Unknown)
-      } else if (!templates.canUnroll) {
+      } else if (!templates.unfolding.canUnroll) {
         // Only satisfaction assumptions that unrolling cannot discharge are left
         reporter.debug("- We need to keep going, but nothing is left to unroll")
         CheckResult.cast(Unknown)
@@ -1671,8 +1671,8 @@ abstract class AbstractUnrollingSolver private
         reporter.debug("- We need to keep going")
 
         // Unrolling `unrollFactor` times
-        for (i <- 1 to unrollFactor.toInt if templates.canUnroll && !abort && !pause) {
-          val newClauses = templates.unroll
+        for (i <- 1 to unrollFactor.toInt if templates.unfolding.canUnroll && !abort && !pause) {
+          val newClauses = templates.unfolding.unroll
           for (ncl <- newClauses) {
             underlying.assertCnstr(ncl)
           }
@@ -1749,9 +1749,9 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
     // The functions of the program call the uninterpreted functions that free functions stand for,
     // whose values the model gives
     private lazy val evalModel: targetProgram.Model = {
-      val functions = templates.uninterpretedFunctions.toSeq.flatMap {
+      val functions = templates.model.uninterpretedFunctions.toSeq.flatMap {
         case (key, (_, fT: t.Variable)) => model.vars.get(fT.toVal).map { value =>
-          key -> (if (templates.uninterpretedConstants(key)) t.Lambda(Seq.empty, value) else value)
+          key -> (if (templates.model.uninterpretedConstants(key)) t.Lambda(Seq.empty, value) else value)
         }
         case _ => None
       }

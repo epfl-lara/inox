@@ -58,7 +58,7 @@ trait PartialFunctions { self: Templates =>
   }
 
   /** The failure literals of the applications of type `tpe`, by caller and arguments. */
-  def appFailureLiterals(tpe: FunctionType): Seq[((Encoded, Seq[Encoded]), Encoded)] =
+  protected def appFailureLiterals(tpe: FunctionType): Seq[((Encoded, Seq[Encoded]), Encoded)] =
     appFailures.toSeq.collect { case ((caller, `tpe`, args), fails) => (caller, args) -> fails }
 
   private[unrolling] def callFailure(call: Call): Encoded = callFailure(call.callee, call.args.map(_.encoded))

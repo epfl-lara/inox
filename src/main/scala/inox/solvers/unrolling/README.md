@@ -52,6 +52,8 @@ between the two:
 | Custom equality on datatypes (`ADTSort.equality`), unfolded like calls | `EqualityTemplates.scala` |
 | Uninterpreted calls, as applications of free functions (constants when nullary) | `TemplateGenerator.uninterpretedFunction` |
 | The check/unroll loop and model extraction | `UnrollingSolver.scala` |
+| What the solver sees of the templates: `unfolding`, `witnesses`, `quantifiers` and `model` | `SolverFacades.scala` |
+| The modes that the options select (function equality, partial functions, assume-checked) | `UnfoldingModes.scala` |
 
 ### First-class functions (thesis Chapter 2)
 
@@ -110,7 +112,7 @@ the keys and elements that the query reads.
 
 Both templates are in `QuantificationTemplates.scala`. A quantifier that is
 assumed true only gives a counterexample when the model satisfies it
-everywhere. `getFiniteRangeClauses` (the `FiniteRangeCheck` state) and
+everywhere. `quantifiers.finiteRangeClauses` (the `FiniteRangeCheck` state) and
 `checkForall` together decide that, for the essentially uninterpreted fragment
 of the thesis (`model_i`). A model outside that fragment is reported as
 `Unknown`, unless evaluating the query in the model shows that it holds, which
