@@ -42,6 +42,9 @@ class SemanticsSuite extends AnyFunSuite {
     case FunctionType(f, t) => for (a <- types(f); b <- tpe(t)) yield S.FunctionType(a, b)
     case ADTType(id, tps) => types(tps).map(S.ADTType(id, _))
     case RefinementType(vd, prop) => for (b <- tpe(vd.tpe); p <- expr(prop)) yield S.RefinementType(vd.id, b, p)
+    case PropType() => Some(S.PropType())
+    case PiType(ps, to) => for (a <- paramList(ps); b <- tpe(to)) yield S.PiType(a, b)
+    case SigmaType(ps, to) => for (a <- paramList(ps); b <- tpe(to)) yield S.SigmaType(a, b)
     case _ => None
   }
 
@@ -190,6 +193,9 @@ class SemanticsSuite extends AnyFunSuite {
     case ADTType(_, tps) => tps.forall(supported)
     case TupleType(ts) => ts.forall(supported)
     case FunctionType(from, to) => (from :+ to).forall(supported)
+    case PropType() => true
+    case PiType(ps, to) => (ps.map(_.tpe) :+ to).forall(supported)
+    case SigmaType(ps, to) => (ps.map(_.tpe) :+ to).forall(supported)
     case SetType(b) => supported(b)
     case BagType(b) => supported(b)
     case MapType(f, t) => supported(f) && supported(t)
@@ -232,10 +238,18 @@ class SemanticsSuite extends AnyFunSuite {
   final class Unsupported extends Exception
 
   /** The generated evaluator, with oracles for the functions that quantify: here, quantifiers are
-    * enumerated over small finite types only. */
+    * enumerated over small finite types only, the fuel of predicates is the tests' fuel, and the
+    * types of functions aren't checked. */
   object Sem extends S.Evaluator {
+    private def product(ds: Seq[Seq[S.Value]]): Seq[Seq[S.Value]] =
+      ds.foldRight(Seq(Seq.empty[S.Value]))((d, rest) => for (v <- d; vs <- rest) yield v +: vs)
+    /** Values that include those of `t`, which `has-type` then filters. */
     private def domain(t: S.Type): Seq[S.Value] = t match {
-      case S.BooleanType() => Seq(S.BoolV(false), S.BoolV(true))
+      case S.BooleanType() | S.PropType() => Seq(S.BoolV(false), S.BoolV(true))
+      case S.TupleType(ts) => product(toSeq(ts).map(domain)).map(vs => S.TupleV(list(vs)))
+      case S.SigmaType(ps, to) =>
+        product(toSeq(ps).map { case S.Param(_, t) => domain(t) } :+ domain(to)).map(vs => S.TupleV(list(vs)))
+      case S.RefinementType(_, b, _) => domain(b)
       case S.UnitType() => Seq(S.UnitV())
       case S.BVType(s, w) if w <= 4 => (BigInt(0) until BigInt(2).pow(w.toInt)).map(S.BVV(s, w, _))
       case _ => throw Unsupported()
@@ -245,15 +259,19 @@ class SemanticsSuite extends AnyFunSuite {
       case S.Cons(h, t) => h +: toSeq(t)
     }
     def forall_result(P: S.Program, fuel: BigInt, env: S.Env, params: S.List[S.Param], body: S.Expr): S.Result[S.Value] = {
-      val domains = toSeq(params).map { case S.Param(_, t) => domain(t) }
-      val inputs = domains.foldRight(Seq(Seq.empty[S.Value]))((d, rest) => for (v <- d; vs <- rest) yield v +: vs)
+      val inputs = product(toSeq(params).map { case S.Param(_, t) => domain(t) })
+        .filter(vs => params_have_types(P, env, list(vs), params))
       val results = inputs.map(vs => instance(P, fuel, env, params, list(vs), body))
       if (results.contains(S.Ok(S.BoolV(false)))) S.Ok(S.BoolV(false))
       else if (results.contains(S.OutOfFuel())) S.OutOfFuel()
       else if (results.forall(_ == S.Ok(S.BoolV(true)))) S.Ok(S.BoolV(true))
       else S.Stuck()
     }
-    def has_type(P: S.Program, tenv: S.List[S.TypeBinding], v: S.Value, t: S.Type): Boolean = throw Unsupported()
+    def holds(P: S.Program, env: S.Env, prop: S.Expr): Boolean = eval(P, fuel, env, prop) == S.Ok(S.BoolV(true))
+    def invariant_holds(P: S.Program, f: Identifier, args: S.List[S.Type], tenv: S.List[S.TypeBinding], v: S.Value): Boolean =
+      call(P, fuel, f, args, tenv, S.Cons(v, S.Nil())) == S.Ok(S.BoolV(true))
+    def function_has_type(P: S.Program, env: S.Env, f: S.Value, from: S.List[S.Type], to: S.Type): Boolean = throw Unsupported()
+    def pi_has_type(P: S.Program, env: S.Env, f: S.Value, ps: S.List[S.Param], to: S.Type): Boolean = throw Unsupported()
     def closures_equal(P: S.Program, f: S.Value, g: S.Value): Boolean = throw Unsupported()
   }
 
@@ -571,6 +589,54 @@ class SemanticsSuite extends AnyFunSuite {
     for (e <- Seq(Forall(Seq(b), Or(v, Not(v))), Forall(Seq(b), v),
                   Forall(Seq(x, b), Implies(v, LessEquals(x.toVariable, BVLiteral(true, 3, 3))))))
       assert(compare(e, sp, "forall") == Outcome.Value)
+  }
+
+  test("Dependent types, propositions, and refinements of variables") {
+    given Symbols = NoSymbols
+    val sp = program(Map())
+    val empty = S.Env(S.Nil(), S.Nil())
+    def run(e: Expr) = Sem.eval(sp, fuel, empty, expr(e).get)
+    def ty(t: Type) = tpe(t).get
+    def bv(i: Int) = BVLiteral(true, i, 3)
+    val bv3 = BVType(true, 3)
+
+    // the second element is at least the first one
+    val x = ValDef.fresh("x", bv3)
+    val y = ValDef.fresh("y", bv3)
+    val ordered = SigmaType(Seq(x), RefinementType(y, GreaterEquals(y.toVariable, x.toVariable)))
+    val p = ValDef.fresh("p", ordered)
+    val q = ValDef.fresh("q", TupleType(Seq(bv3, bv3)))
+    assert(run(Forall(Seq(p), GreaterEquals(TupleSelect(p.toVariable, 2), TupleSelect(p.toVariable, 1)))) == S.Ok(S.BoolV(true)))
+    assert(run(Forall(Seq(q), GreaterEquals(TupleSelect(q.toVariable, 2), TupleSelect(q.toVariable, 1)))) == S.Ok(S.BoolV(false)))
+    def pair(a: Int, b: Int) = S.TupleV(list(Seq(S.BVV(true, 3, a), S.BVV(true, 3, b))))
+    assert(Sem.has_type(sp, empty, pair(1, 2), ty(ordered)))
+    assert(Sem.has_type(sp, empty, pair(2, 2), ty(ordered)))
+    assert(!Sem.has_type(sp, empty, pair(3, 2), ty(ordered)))
+    assert(!Sem.has_type(sp, empty, S.TupleV(list(Seq(S.BVV(true, 3, 1)))), ty(ordered)))
+
+    // a refinement can refer to the variables in scope
+    val n = ValDef.fresh("n", bv3)
+    val above = RefinementType(y, GreaterEquals(y.toVariable, n.toVariable))
+    val withN = S.Env(S.Nil(), S.Cons(S.Binding(n.id, S.BVV(true, 3, 2)), S.Nil()))
+    assert(Sem.has_type(sp, withN, S.BVV(true, 3, 3), ty(above)))
+    assert(!Sem.has_type(sp, withN, S.BVV(true, 3, 1), ty(above)))
+    val z = ValDef.fresh("z", above)
+    assert(run(Let(n, bv(2), Forall(Seq(z), GreaterEquals(z.toVariable, bv(2))))) == S.Ok(S.BoolV(true)))
+    assert(run(Let(n, bv(1), Forall(Seq(z), GreaterEquals(z.toVariable, bv(2))))) == S.Ok(S.BoolV(false)))
+
+    // propositions are Booleans
+    assert(Sem.has_type(sp, empty, S.BoolV(false), S.PropType()))
+    assert(!Sem.has_type(sp, empty, S.IntV(0), S.PropType()))
+
+    // values of dependent function types are applied as other functions
+    val i = ValDef.fresh("i", IntegerType())
+    val j = ValDef.fresh("j", IntegerType())
+    val increasing = PiType(Seq(i), RefinementType(j, GreaterThan(j.toVariable, i.toVariable)))
+    val f = ValDef.fresh("f", increasing)
+    val succ = Lambda(Seq(i), Plus(i.toVariable, IntegerLiteral(1)))
+    val e = Application(Lambda(Seq(f), Application(f.toVariable, Seq(IntegerLiteral(41)))), Seq(succ))
+    assert(run(e) == S.Ok(S.IntV(42)))
+    assert(compare(e, sp, "pi") == Outcome.Value)
   }
 
   test("Assumptions, errors, invariants, selectors and fuel") {
