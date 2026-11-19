@@ -83,8 +83,8 @@ likely Inox is to succeed, as solver capabilities are often complementary.
 In addition to these external binaries, Inox can call Z3 in-process through its
 native API, which should work out of the box (although having an external Z3
 binary is a good idea in any case). It is provided by the
-[ScalaZ3](https://github.com/epfl-lara/ScalaZ3) jar in [unmanaged](./unmanaged/),
-which bundles the official Z3 Java distribution, with the native libraries of Z3
+[ScalaZ3](https://github.com/epfl-lara/ScalaZ3) dependency (`ch.epfl.lara:scalaz3_3`, on Maven
+Central), which bundles the official Z3 Java distribution, with the native libraries of Z3
 for Linux (x64 and ARM64, glibc 2.39 or later), macOS (ARM64) and Windows (x64).
 If you [build](#building-inox) yourself, the generated script puts it onto your
 classpath. Otherwise, you will have to make sure it is on your runtime classpath.
@@ -92,8 +92,7 @@ The native libraries are extracted once to `~/.z3/native`
 (`-Dz3.nativeCacheDir=<dir>` moves that cache). On other platforms, the native
 API is unavailable and Inox falls back to the other solvers.
 
-To move to another version of Z3, package ScalaZ3 for it, copy its jar to
-[unmanaged](./unmanaged/) and update `z3Version` in `build.sbt`.
+To move to another version of Z3, release ScalaZ3 for it, and update `z3Version` in `build.sbt`.
 
 ### Solver Defaults
 
