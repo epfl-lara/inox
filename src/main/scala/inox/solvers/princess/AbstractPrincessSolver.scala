@@ -419,8 +419,10 @@ abstract class AbstractPrincessSolver(override val program: Program,
         def postVisit(t: IExpression, arg: Unit, subres: Seq[IExpression]) : IExpression =
           IExpression.updateAndSimplify(t, subres) match {
             case app @ IFunApp(fun, Seq(arg)) if selectors `containsB` fun =>
+              // The selector of another constructor than that of `arg` has no value
+              val (cons, i) = selectors.toA(fun)
               evalToTerm(arg)(model) match {
-                case Some(IFunApp(_, args)) => args(selectors.toA(fun)._2)
+                case Some(IFunApp(c, args)) if constructors.getA(c) == Some(cons) => args(i)
                 case _ => app
               }
             // The model interprets applications in terms of the integer representations of
