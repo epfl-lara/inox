@@ -233,21 +233,21 @@ trait LambdaTemplates { self: Templates =>
     // Add non-free blocker clause
     val isFree = encodeSymbol(Variable.fresh("b_free", BooleanType(), true))
     locally {
-      val nextB = encodeSymbol(Variable.fresh("b_next", BooleanType(), true))
-      nonFreeBlockers += f -> ((isFree, nextB))
+      val equalLambdas = OpenOr("b_next", AssumedComplete.Always)
+      nonFreeBlockers += f -> ((isFree, equalLambdas))
 
-      clauses += mkImplies(active, mkEquals(isFree, mkNot(mkOr((for {
+      clauses += mkImplies(active, mkEquals(isFree, mkNot(equalLambdas.withOperands((for {
         template <- byType(ft).values
         if canBeEqual(template.ids._2, f)
       } yield {
         mkAnd(template.start, mkEquals(template.ids._2, f))
-      }).toSeq :+ nextB*))))
+      }).toSeq))))
     }
 
     // Add type blocker clause
     locally {
-      val nextB  = encodeSymbol(Variable.fresh("b_and", BooleanType(), true))
-      freeBlockers += ft -> (freeBlockers(ft) + ((nextB, b, tpe, f, closures, free)))
+      val typedResults = OpenAnd("b_and", AssumedComplete.Always)
+      freeBlockers += ft -> (freeBlockers(ft) + ((typedResults, b, tpe, f, closures, free)))
 
       val blockedResults = for {
         (bApp, app @ App(caller, _, _, _)) <- applications(ft)
@@ -259,7 +259,7 @@ trait LambdaTemplates { self: Templates =>
         mkImplies(typeBlocker, appResult)
       }
 
-      clauses += mkImplies(b, mkEquals(r, mkAnd(blockedResults.toSeq :+ nextB*)))
+      clauses += mkImplies(b, mkEquals(r, typedResults.withOperands(blockedResults.toSeq)))
     }
 
     if (ft.from.isEmpty) clauses ++= (for {
@@ -321,10 +321,10 @@ trait LambdaTemplates { self: Templates =>
         clauses += arglessEquality(b, nonFreeBlockers(f)._1, f, ft, template)
       }
 
-      val (blocker, lastB) = nonFreeBlockers(f)
-      val nextB = encodeSymbol(Variable.fresh("b_next", BooleanType(), true))
-      nonFreeBlockers += f -> ((blocker, nextB))
-      clauses += mkImplies(b, mkEquals(lastB, mkOr(mkAnd(template.start, mkEquals(lambda, f)), nextB)))
+      val (isFree, equalLambdas) = nonFreeBlockers(f)
+      val (next, definition) = equalLambdas.extend(Seq(mkAnd(template.start, mkEquals(lambda, f))))
+      nonFreeBlockers += f -> ((isFree, next))
+      clauses += mkImplies(b, definition)
     }
 
     // the model that made them equal is only checked again once these applications are unrolled
@@ -360,17 +360,17 @@ trait LambdaTemplates { self: Templates =>
     appInfos.register(key, gen, Set(TemplateAppInfo(template, equals, args)))
   }
 
-  private def registerAppBlocker(app: (Encoded, App), blocker: Encoded): Unit = {
-    appBlockers.get(app).foreach(blockerToApps -= _)
-    appBlockers += app -> blocker
-    blockerToApps += blocker -> app
+  private def registerAppBlocker(app: (Encoded, App), dispatch: OpenOr): Unit = {
+    appBlockers.get(app).foreach(j => blockerToApps -= j.rest)
+    appBlockers += app -> dispatch
+    blockerToApps += dispatch.rest -> app
   }
 
-  private def nextAppBlocker(app: (Encoded, App)): (Encoded, Encoded) = {
-    val nextB = encodeSymbol(Variable.fresh("b_lambda", BooleanType(), true))
-    val lastB = appBlockers(app)
-    registerAppBlocker(app, nextB)
-    (lastB, nextB)
+  private def nextAppBlocker(app: (Encoded, App)): (OpenOr, OpenOr) = {
+    val last = appBlockers(app)
+    val next = last.next
+    registerAppBlocker(app, next)
+    (last, next)
   }
 
   def registerLambda(pointer: Encoded, target: Encoded): Boolean = byID.get(target) match {
@@ -422,11 +422,11 @@ trait LambdaTemplates { self: Templates =>
       }
 
       val nonFreeClauses = for ((b,f) <- freeFunctions(newTemplate.tpe).toSeq if canBeEqual(idT, f)) yield {
-        val (blocker, lastB) = nonFreeBlockers(f)
-        val nextB = encodeSymbol(Variable.fresh("b_next", BooleanType(), true))
-        nonFreeBlockers += f -> ((blocker, nextB))
+        val (isFree, equalLambdas) = nonFreeBlockers(f)
+        val (next, definition) = equalLambdas.extend(Seq(mkAnd(newTemplate.start, mkEquals(newTemplate.ids._2, f))))
+        nonFreeBlockers += f -> ((isFree, next))
 
-        mkImplies(b, mkEquals(lastB, mkOr(mkAnd(newTemplate.start, mkEquals(newTemplate.ids._2, f)), nextB)))
+        mkImplies(b, definition)
       }
 
       // make sure we have sound equality between the new lambda and previously defined ones
@@ -469,9 +469,9 @@ trait LambdaTemplates { self: Templates =>
       }
 
       if (!appBlockers.isDefinedAt(key)) {
-        val firstB = encodeSymbol(Variable.fresh("b_lambda", BooleanType(), true))
-        registerAppBlocker(key, firstB)
-        clauses :+= mkImplies(mkNot(firstB), mkNot(blocker))
+        val dispatch = OpenOr("b_lambda", AssumedComplete.ForModels)
+        registerAppBlocker(key, dispatch)
+        clauses :+= mkImplies(mkNot(dispatch.rest), mkNot(blocker))
       }
 
       if (byID `contains` caller) {
@@ -501,7 +501,7 @@ trait LambdaTemplates { self: Templates =>
         /* Make sure that if `app` correspond to an input function, then the ADT
          * invariants are asserted on its return values. */
         for {
-          old @ (oldB, b, tpe, f, closures, free) <- freeBlockers(ft).toList
+          old @ (typedResults, b, tpe, f, closures, free) <- freeBlockers(ft).toList
           if canBeEqual(caller, f)
           (typeBlocker, appResult, appClauses) <- registerApplication(b, f, app, tpe, closures, free)
         } {
@@ -510,10 +510,9 @@ trait LambdaTemplates { self: Templates =>
           registerImplication(blocker, typeBlocker)
           clauses :+= mkImplies(blocker, typeBlocker)
 
-          val nextB  = encodeSymbol(Variable.fresh("b_and", BooleanType(), true))
-          val ext = mkAnd(mkImplies(typeBlocker, appResult), nextB)
-          freeBlockers += ft -> (freeBlockers(ft) - old + ((nextB, b, tpe, f, closures, free)))
-          clauses :+= mkEquals(oldB, ext)
+          val (next, definition) = typedResults.extend(Seq(mkImplies(typeBlocker, appResult)))
+          freeBlockers += ft -> (freeBlockers(ft) - old + ((next, b, tpe, f, closures, free)))
+          clauses :+= definition
         }
 
         clauses ++= congruenceClauses(blocker, app)
@@ -634,7 +633,16 @@ trait LambdaTemplates { self: Templates =>
     // The lambdas (or free functions) that each application may be dispatched to, which are
     // unfolded with it, under the application's current blocker (see [[appBlockers]])
     private[LambdaTemplates] val appInfos      = new UnrollingQueue[(Encoded, App), TemplateAppInfo]
-    private[LambdaTemplates] val appBlockers   = new IncrementalMap[(Encoded, App), Encoded]()
+
+    /** The dispatch of each application: the disjunction of the conditions under which it is
+      * dispatched to each lambda or free function found so far. The application's blocker implies
+      * the disjunction (see [[instantiateApp]]), and each unrolling of the application extends it.
+      *
+      * Assumed complete only in model checks: until then, the application may be dispatched to a
+      * lambda that is still to come, and a model must not rely on an application whose target
+      * isn't unrolled yet. Its rest is also the blocker under which the application is promoted
+      * (see [[blockerToApps]]). */
+    private[LambdaTemplates] val appBlockers   = new IncrementalMap[(Encoded, App), OpenOr]()
     private[LambdaTemplates] val blockerToApps = new IncrementalMap[Encoded, (Encoded, App)]()
 
     /** This map holds the mapping from lambda identifiers to the corresponding template.
@@ -670,13 +678,22 @@ trait LambdaTemplates { self: Templates =>
       * We rely on this mapping to keep track of an instrumentation that makes sure that quantifying
       * over empty function types won't lead to invalid proofs (see [[TypeTemplates.ConstraintTemplate]]).
       */
-    private[LambdaTemplates] val freeBlockers = new IncrementalMap[FunctionType, Set[(Encoded, Encoded, Type, Encoded, Seq[Arg], Boolean)]].withDefaultValue(Set.empty)
+    /** Each entry holds the conjunction of the typings of the function's application results
+      * found so far, which defines the function's typing result (see [[registerFunction]]). It is
+      * extended with each new application, and is assumed complete in every check: the typing holds when the
+      * results of the applications unrolled so far are typed. */
+    private[LambdaTemplates] val freeBlockers = new IncrementalMap[FunctionType, Set[(OpenAnd, Encoded, Type, Encoded, Seq[Arg], Boolean)]].withDefaultValue(Set.empty)
 
     /** This mapping is used to keep track of functions that ARE NOT equal to some lambda in the
       * program. We need this to make sure that applications of free functions that are equal to
       * some lambda are correctly dispatched to their actual bodies.
+      *
+      * Each free function maps to its `isFree` literal and the disjunction of its equalities to the
+      * lambdas of its type found so far: `isFree` holds iff the function equals none of them (see
+      * [[registerFunction]]). The disjunction is extended with each new lambda, and is assumed
+      * complete in every check, so that `isFree` means "equal to none of the lambdas unrolled so far".
       */
-    private[LambdaTemplates] val nonFreeBlockers = new IncrementalMap[Encoded, (Encoded, Encoded)]
+    private[LambdaTemplates] val nonFreeBlockers = new IncrementalMap[Encoded, (Encoded, OpenOr)]
 
     /** This mapping is used for
       * 1. to cache datatype unfoldings of free function application results, and
@@ -707,12 +724,11 @@ trait LambdaTemplates { self: Templates =>
 
     def unrollGeneration: Option[Int] = appInfos.generation
 
-    private def assumptions: Seq[Encoded] =
-      freeBlockers.toSeq.flatMap(_._2.map(_._1)) ++
-      nonFreeBlockers.toSeq.map(p => mkNot(p._2._2))
+    private def junctions: Seq[OpenJunction[?]] =
+      freeBlockers.toSeq.flatMap(_._2.map(_._1)) ++ nonFreeBlockers.toSeq.map(_._2._2)
 
-    def satisfactionAssumptions = appBlockers.map(p => mkNot(p._2)).toSeq ++ assumptions
-    def refutationAssumptions = assumptions
+    def satisfactionAssumptions = completenessAssumptions(appBlockers.map(_._2).toSeq ++ junctions, refuting = false)
+    def refutationAssumptions = completenessAssumptions(junctions, refuting = true)
 
     def promoteBlocker(b: Encoded): Boolean = blockerToApps.get(b).exists(appInfos.promote)
 
@@ -724,25 +740,23 @@ trait LambdaTemplates { self: Templates =>
 
       val remainingApps = MutableSet.empty ++ apps
 
-      blockerToApps --= apps.map(appBlockers)
+      blockerToApps --= apps.map(appBlockers(_).rest)
 
       val newBlockers = (for ((app, (_, infos)) <- thisAppInfos if infos.nonEmpty) yield {
         app -> nextAppBlocker(app)
       }).toMap
 
       for ((app @ (b, _), (gen, infos)) <- thisAppInfos if infos.nonEmpty && !abort) {
-        val (lastB, nextB) = newBlockers(app)
+        val (last, next) = newBlockers(app)
         if (pause) {
-          newClauses += mkEquals(lastB, nextB)
+          newClauses += last.link(next, Seq.empty)
         } else {
           remainingApps -= app
 
-          val extension = mkOr((infos.map(info => info.template match {
+          val clause = last.link(next, infos.map(info => info.template match {
             case Left(template) => mkAnd(template.start, info.equals)
             case Right(_) => info.equals
-          }).toSeq :+ nextB)*)
-
-          val clause = mkEquals(lastB, extension)
+          }).toSeq)
           reporter.debug(" -> extending lambda blocker: " + clause)
           newClauses += clause
 
@@ -784,7 +798,7 @@ trait LambdaTemplates { self: Templates =>
 
       // the applications that an interruption left out are unfolded later
       for ((app, (gen, infos)) <- thisAppInfos if remainingApps(app)) {
-        if (!appInfos.contains(app)) blockerToApps += appBlockers(app) -> app
+        if (!appInfos.contains(app)) blockerToApps += appBlockers(app).rest -> app
         appInfos.register(app, gen, infos)
       }
 

@@ -19,6 +19,7 @@ trait Templates
      with WitnessTemplates
      with BlockerGraph
      with PartialFunctions
+     with OpenJunctions
      with SolverFacades
      with IncrementalStateWrapper {
 
