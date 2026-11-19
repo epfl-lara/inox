@@ -11,6 +11,25 @@ object optSilentErrors extends FlagOptionDef("silent-errors", true)
 
 case object DebugSectionSolver extends DebugSection("solver")
 
+/** The resources that a solver spent in its checks, in the units of its resource limit
+  * (`--z3-rlimit`, `--cvc5-rlimit`).
+  *
+  * @param perCheck what each check spent, in the order of the checks
+  */
+case class ResourceUsage(perCheck: Seq[Long]) {
+  /** What the solver spent, as counted by the limit that the user can set: the maximum over the
+    * checks, as the limits of z3 (`rlimit`) and of cvc5 (`--rlimit-per`) bound each check. `None`
+    * when no check was recorded.
+    */
+  def usage: Option[Long] = if (perCheck.isEmpty) None else Some(perCheck.max)
+
+  def ++(that: ResourceUsage): ResourceUsage = ResourceUsage(perCheck ++ that.perCheck)
+}
+
+object ResourceUsage {
+  val empty: ResourceUsage = ResourceUsage(Seq.empty)
+}
+
 trait AbstractSolver extends Interruptible {
   def name: String
   val program: Program
@@ -36,6 +55,10 @@ trait AbstractSolver extends Interruptible {
   // Whether the last `check` returned Unknown because the solver exhausted its
   // resource limit (e.g. --z3-rlimit or --cvc5-rlimit)
   def resourceLimitReached: Boolean = false
+
+  // The resources spent by each `check` of this solver so far, for the solvers that count them
+  // (z3 and cvc5). A check that was interrupted may be missing.
+  def resourceUsage: ResourceUsage = ResourceUsage.empty
 
   // Whether the last `check` returned Unknown because unrolling reached its
   // bound (--unroll-bound)
