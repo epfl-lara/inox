@@ -100,7 +100,7 @@ object ScalaBackend {
       s"${ind(d + 1)}case OutOfFuel() => OutOfFuel()\n" +
       s"${ind(d)}}"
     case Term.If(c, a, b) =>
-      s"if (${term(c, d)}) {\n${ind(d + 1)}${term(a, d + 1)}\n${ind(d)}} else {\n${ind(d + 1)}${term(b, d + 1)}\n${ind(d)}}"
+      s"(if (${term(c, d)}) {\n${ind(d + 1)}${term(a, d + 1)}\n${ind(d)}} else {\n${ind(d + 1)}${term(b, d + 1)}\n${ind(d)}})"
     case Term.Quant(_, _, _) => throw SpecError("a quantifier can't be executed")
     case Term.Match(s, cases) =>
       val cs = cases.map { case (p, b) => s"${ind(d + 1)}case ${pattern(p)} => ${term(b, d + 2)}\n" }.mkString
