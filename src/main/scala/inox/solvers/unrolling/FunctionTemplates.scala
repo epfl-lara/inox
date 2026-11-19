@@ -302,9 +302,10 @@ trait FunctionTemplates { self: Templates =>
       val thisCallInfos = callInfos.dequeue()
       val remainingBlockers = MutableSet.empty ++ thisCallInfos.map(_._1)
 
-      for ((blocker, gen, calls) <- thisCallInfos if calls.nonEmpty && !abort && !pause;
+      // an interruption stops the unrolling between blockers, never within the calls of one
+      for ((blocker, gen, calls) <- thisCallInfos if calls.nonEmpty && !interrupted;
            _ = remainingBlockers -= blocker;
-           call @ Call(callee, args, tpSubst) <- calls if !abort) {
+           call @ Call(callee, args, tpSubst) <- calls) {
         val newCls = new scala.collection.mutable.ListBuffer[Encoded]
 
         val defBlocker = defBlockers.get(call) match {
