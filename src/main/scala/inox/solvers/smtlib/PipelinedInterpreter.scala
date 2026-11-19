@@ -209,7 +209,32 @@ class PipelinedCVC4Interpreter(executable: String, args: Array[String])
   extends CVC4Interpreter(executable, args) with PipelinedInterpreter
 
 class PipelinedCVC5Interpreter(executable: String, args: Array[String])
-  extends CVC5Interpreter(executable, args) with PipelinedInterpreter
+  extends CVC5Interpreter(executable, args) with PipelinedInterpreter {
+
+  /** The resource units that the process spent so far (what `--rlimit-per` bounds), if it tells.
+    *
+    * cvc5 only gives this counter among all its statistics, which it answers on one line and
+    * which aren't valid SMT-LIB s-expressions (`{ }`, `0ms`): the line is read as text rather than
+    * parsed.
+    */
+  def resourceUnitsUsed(): Option[Long] = {
+    flush()
+    try {
+      in.write("(get-info :all-statistics)\n")
+      in.flush()
+      // the end of the line of the previous answer may not have been read yet
+      val answer = Iterator.continually(out.readLine()).dropWhile(line => line != null && line.isBlank).next()
+      Option(answer).flatMap(PipelinedCVC5Interpreter.resourceUnits.findFirstMatchIn).map(_.group(1).toLong)
+    } catch {
+      // for instance once the process was killed by an interrupt
+      case _: Exception => None
+    }
+  }
+}
+
+object PipelinedCVC5Interpreter {
+  private val resourceUnits = """"resource::resourceUnitsUsed" (\d+)""".r
+}
 
 class PipelinedBitwuzlaInterpreter(executable: String, args: Array[String])
   extends BitwuzlaInterpreter(executable, args) with PipelinedInterpreter

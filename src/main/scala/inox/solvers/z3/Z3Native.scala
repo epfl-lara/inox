@@ -41,13 +41,31 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
 
   override def resourceLimitReached: Boolean = resourceOut
 
-  /** Runs a check of Z3 and records whether it gave up (`None`) because of the resource limit.
+  // What each check spent, see `resourceUsage`
+  private val resourceCounts = new scala.collection.mutable.ArrayBuffer[Long]
+
+  override def resourceUsage: ResourceUsage = ResourceUsage(resourceCounts.toSeq)
+
+  // The counter that `rlimit` bounds, among the statistics of a solver
+  private def resourceCount(statistics: => Map[String, Any]): Option[Long] =
+    tryZ3(statistics).flatMap(_.get("rlimit count")).collect {
+      case i: Int => i.toLong & 0xFFFFFFFFL
+      case l: Long => l & 0xFFFFFFFFL
+      case d: Double => d.toLong & 0xFFFFFFFFL
+    }
+
+  /** Runs a check of Z3 and records what it spent, and whether it gave up (`None`) because of the resource limit.
     * Z3 gives the same reason ("canceled") when it is interrupted, e.g. by a timeout, which is
     * not a resource-out.
     */
-  protected def recordResourceOut(reasonUnknown: => String)(check: => Option[Boolean]): Option[Boolean] = {
+  protected def recordResourceOut(reasonUnknown: => String, statistics: => Map[String, Any])
+                                 (check: => Option[Boolean]): Option[Boolean] = {
     resourceOut = false
-    val res = check
+    val before = resourceCount(statistics)
+    val res = try check finally {
+      // Z3 counts in an unsigned 32-bit integer, which a check can't wrap more than once
+      for (b <- before; a <- resourceCount(statistics)) resourceCounts += ((a - b) & 0xFFFFFFFFL)
+    }
     if (res.isEmpty && rlimit.exists(_ > 0) && !interrupted) {
       val reason = tryZ3(reasonUnknown).getOrElse("").toLowerCase
       resourceOut = reason.contains("canceled") || reason.contains("resource")

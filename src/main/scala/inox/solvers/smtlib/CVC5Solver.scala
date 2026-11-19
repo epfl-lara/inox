@@ -27,6 +27,15 @@ trait CVC5Solver extends CVCSolver with CVC5Target {
     super.interpreterOpts ++ (if (rlimit >= 0) Seq(s"--rlimit-per=$rlimit") else Seq())
   }
 
+  // cvc5 only starts spending on the assertions of a check once it runs it, so that a check is
+  // charged all that was spent since the previous one
+  override protected def resourcesSinceLastCheck: Boolean = true
+
+  override protected def resourceCount(): Option[Long] = interpreter match {
+    case cvc5: PipelinedCVC5Interpreter => cvc5.resourceUnitsUsed()
+    case _ => None
+  }
+
   // Under `--strings-bmp`, restrict the string alphabet to the BMP (by default, cvc5 uses all
   // 0x30000 SMT-LIB characters).
   override protected def targetOpts: Seq[String] =
