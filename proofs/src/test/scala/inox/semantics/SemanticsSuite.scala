@@ -17,6 +17,10 @@ class SemanticsSuite extends AnyFunSuite {
 
   private def list[A](xs: Seq[A]): S.List[A] = xs.foldRight(S.Nil(): S.List[A])(S.Cons(_, _))
 
+  private def bits(bv: BVLiteral): BigInt = bv.value.foldLeft(BigInt(0))((acc, i) => acc.setBit(i - 1))
+
+  private def chars(s: Seq[Int]): S.List[BigInt] = list(s.map(BigInt(_)))
+
   /** An Inox expression in the semantics, if it is in its fragment. */
   def expr(e: Expr): Option[S.Expr] = {
     def all(es: Seq[Expr]): Option[S.List[S.Expr]] = {
@@ -29,6 +33,32 @@ class SemanticsSuite extends AnyFunSuite {
       case IntegerLiteral(i) => Some(S.IntegerLiteral(i))
       case BooleanLiteral(b) => Some(S.BooleanLiteral(b))
       case UnitLiteral() => Some(S.UnitLiteral())
+      case CharLiteral(c) => Some(S.CharLiteral(BigInt(c.toInt)))
+      case bv: BVLiteral => Some(S.BVLiteral(bv.signed, BigInt(bv.size), bits(bv)))
+      case FractionLiteral(n, d) => Some(S.FractionLiteral(n, d))
+      case s: StringLiteral => Some(S.StringLiteral(chars(s.value)))
+      // the values of type parameters are integers in the semantics
+      case GenericValue(_, id) => Some(S.IntegerLiteral(BigInt(id)))
+      case Lambda(params, body) => expr(body).map(S.Lambda(list(params.map(_.id)), _))
+      case Application(callee, args) => for (c <- expr(callee); as <- all(args)) yield S.Application(c, as)
+      case Tuple(es) => all(es).map(S.Tuple(_))
+      case TupleSelect(t, i) => expr(t).map(S.TupleSelect(_, BigInt(i)))
+      case StringConcat(l, r) => two(l, r)(S.StringConcat(_, _))
+      case SubString(a, b, c) => for (x <- expr(a); y <- expr(b); z <- expr(c)) yield S.SubString(x, y, z)
+      case StringLength(a) => expr(a).map(S.StringLength(_))
+      case BVNot(a) => expr(a).map(S.BVNot(_))
+      case BVAnd(l, r) => two(l, r)(S.BVAnd(_, _))
+      case BVOr(l, r) => two(l, r)(S.BVOr(_, _))
+      case BVXor(l, r) => two(l, r)(S.BVXor(_, _))
+      case BVShiftLeft(l, r) => two(l, r)(S.BVShiftLeft(_, _))
+      case BVAShiftRight(l, r) => two(l, r)(S.BVAShiftRight(_, _))
+      case BVLShiftRight(l, r) => two(l, r)(S.BVLShiftRight(_, _))
+      case BVNarrowingCast(a, t) => expr(a).map(S.BVNarrowingCast(_, BigInt(t.size)))
+      case BVWideningCast(a, t) => expr(a).map(S.BVWideningCast(_, BigInt(t.size)))
+      case BVUnsignedToSigned(a) => expr(a).map(S.BVUnsignedToSigned(_))
+      case BVSignedToUnsigned(a) => expr(a).map(S.BVSignedToUnsigned(_))
+      case BVToInt(a) => expr(a).map(S.BVToInt(_))
+      case IntToBV(size, signed, a) => expr(a).map(S.IntToBV(BigInt(size), signed, _))
       case Let(vd, v, b) => two(v, b)(S.Let(vd.id, _, _))
       case IfExpr(c, t, f) => for (a <- expr(c); b <- expr(t); d <- expr(f)) yield S.IfExpr(a, b, d)
       case Assume(p, b) => two(p, b)(S.Assume(_, _))
@@ -57,22 +87,24 @@ class SemanticsSuite extends AnyFunSuite {
     }
   }
 
-  /** Whether the semantics covers the types of `e`'s values: the integer operations are also
-    * bit-vector and real operations in Inox. */
-  def firstOrder(e: Expr)(using Symbols): Boolean = exprOps.collect[Type] {
+  /** Whether the semantics covers the types of `e`'s subexpressions. */
+  def inFragment(e: Expr)(using Symbols): Boolean = exprOps.collect[Type] {
     case e => Set(e.getType)
   }(e).forall(supported)
 
   def supported(t: Type): Boolean = t match {
-    case IntegerType() | BooleanType() | UnitType() | _: TypeParameter => true
+    case IntegerType() | BooleanType() | UnitType() | CharType() | RealType() | StringType() |
+         _: BVType | _: TypeParameter => true
     case ADTType(_, tps) => tps.forall(supported)
+    case TupleType(ts) => ts.forall(supported)
+    case FunctionType(from, to) => (from :+ to).forall(supported)
     case _ => false
   }
 
   /** The functions of `symbols` in the fragment, with the functions they call. */
   def coveredFunctions(using symbols: Symbols): Map[Identifier, S.FunDef] = {
     val candidates = symbols.functions.values.flatMap { fd =>
-      if (!firstOrder(fd.fullBody) || !(fd.params.map(_.tpe) :+ fd.returnType).forall(supported)) None
+      if (!inFragment(fd.fullBody) || !(fd.params.map(_.tpe) :+ fd.returnType).forall(supported)) None
       else expr(fd.fullBody).map(b => fd.id -> S.FunDef(fd.id, list(fd.params.map(_.id)), b))
     }.toMap
     var covered = candidates
@@ -98,13 +130,29 @@ class SemanticsSuite extends AnyFunSuite {
       case scala.None => S.None()
     }))))
 
-  /** A value of Inox's evaluator in the semantics. */
-  def value(e: Expr): S.Value = e match {
-    case IntegerLiteral(i) => S.IntV(i)
-    case BooleanLiteral(b) => S.BoolV(b)
-    case UnitLiteral() => S.UnitV()
-    case ADT(id, _, args) => S.ADTV(id, list(args.map(value)))
-    case _ => fail(s"not a value of the semantics: $e")
+  /** A value of Inox's evaluator in the semantics, or `None` for one that contains a function,
+    * which the two evaluators represent differently. */
+  def value(e: Expr): scala.Option[S.Value] = {
+    def all(es: Seq[Expr]) = {
+      val vs = es.map(value)
+      if (vs.forall(_.isDefined)) scala.Some(list(vs.flatten)) else scala.None
+    }
+    e match {
+      case IntegerLiteral(i) => scala.Some(S.IntV(i))
+      case BooleanLiteral(b) => scala.Some(S.BoolV(b))
+      case UnitLiteral() => scala.Some(S.UnitV())
+      case CharLiteral(c) => scala.Some(S.CharV(BigInt(c.toInt)))
+      case FractionLiteral(n, d) =>
+        val g = n.gcd(d) * d.signum
+        scala.Some(S.RealV(n / g, d / g))
+      case s: StringLiteral => scala.Some(S.StringV(chars(s.value)))
+      case bv: BVLiteral => scala.Some(S.BVV(bv.signed, BigInt(bv.size), bits(bv)))
+      case GenericValue(_, id) => scala.Some(S.IntV(BigInt(id)))
+      case Tuple(es) => all(es).map(S.TupleV(_))
+      case ADT(id, _, args) => all(args).map(S.ADTV(id, _))
+      case _: Lambda => scala.None
+      case _ => fail(s"not a value of the semantics: $e")
+    }
   }
 
   val fuel = BigInt(40)
@@ -126,7 +174,7 @@ class SemanticsSuite extends AnyFunSuite {
       case (_, S.OutOfFuel()) => Outcome.Skipped
       case (evaluators.EvaluationResults.RuntimeError(msg), _) if msg.startsWith("Exceeded") => Outcome.Skipped
       case (evaluators.EvaluationResults.Successful(v), S.Ok(w)) =>
-        assert(value(v) == w, s"$label: ${e.asString}")
+        value(v).foreach(v => assert(v == w, s"$label: ${e.asString} gives ${v} and ${w} in the semantics"))
         Outcome.Value
       case (evaluators.EvaluationResults.RuntimeError(_), S.Stuck()) => Outcome.Stuck
       case (r, o) => fail(s"$label: ${e.asString} gives $r and $o in the semantics")
@@ -135,9 +183,22 @@ class SemanticsSuite extends AnyFunSuite {
 
   /** Small values of type `t`, of ADT depth at most `depth`. */
   def values(t: Type, depth: Int, rnd: scala.util.Random)(using symbols: Symbols): scala.Option[Expr] = t match {
+    case _ if depth < -3 => scala.None
     case IntegerType() => scala.Some(IntegerLiteral(Seq(-17, -3, -2, -1, 0, 1, 2, 3, 5, 100)(rnd.nextInt(10))))
     case BooleanType() => scala.Some(BooleanLiteral(rnd.nextBoolean()))
     case UnitType() => scala.Some(UnitLiteral())
+    case CharType() => scala.Some(CharLiteral("aZ0 é\u0000"(rnd.nextInt(6))))
+    case RealType() =>
+      scala.Some(FractionLiteral(BigInt(rnd.nextInt(21) - 10), BigInt(rnd.nextInt(4) + 1)))
+    case StringType() =>
+      scala.Some(StringLiteral(Seq.fill(rnd.nextInt(4))("ab "(rnd.nextInt(3)).toInt)))
+    case BVType(signed, size) => scala.Some(bvValue(signed, size, rnd))
+    case TupleType(ts) =>
+      val vs = ts.map(values(_, depth - 1, rnd))
+      if (vs.forall(_.isDefined)) scala.Some(Tuple(vs.flatten)) else scala.None
+    case FunctionType(from, to) =>
+      // a constant function
+      values(to, depth - 1, rnd).map(v => Lambda(from.map(t => ValDef.fresh("x", t)), v))
     case adt: ADTType =>
       val sort = adt.getSort
       val ctors = sort.constructors
@@ -147,6 +208,20 @@ class SemanticsSuite extends AnyFunSuite {
       val args = c.fields.map(f => values(f.tpe, depth - 1, rnd))
       if (args.forall(_.isDefined) && depth > -3) scala.Some(ADT(c.id, adt.tps, args.flatten)) else scala.None
     case _ => scala.None
+  }
+
+  /** A bit-vector, often at the edges of its range. */
+  def bvValue(signed: Boolean, size: Int, rnd: scala.util.Random): Expr = {
+    val (lo, hi) = if (signed) (-BigInt(2).pow(size - 1), BigInt(2).pow(size - 1) - 1) else (BigInt(0), BigInt(2).pow(size) - 1)
+    val v = rnd.nextInt(8) match {
+      case 0 => lo
+      case 1 => hi
+      case 2 => BigInt(0)
+      case 3 => if (signed) BigInt(-1) else BigInt(1)
+      case 4 => BigInt(rnd.nextInt(2 * size + 1))
+      case _ => lo + (BigInt(size + 8, rnd) mod (hi - lo + 1))
+    }
+    BVLiteral(signed, v, size)
   }
 
   test("The generated evaluator is up to date with proofs/semantics.md") {
@@ -171,6 +246,78 @@ class SemanticsSuite extends AnyFunSuite {
       assert(run(e) == S.Stuck())
       assert(compare(e, sp, "division by zero") == Outcome.Stuck)
     }
+  }
+
+  /** Compares the two evaluators on `count` random instances of each of `ops`, and checks that each
+    * op both succeeds and gets stuck (if `stuck`) at least once. */
+  def compareOps(label: String, ops: Seq[(String, scala.util.Random => Expr)], count: Int): Unit = {
+    given Symbols = NoSymbols
+    val sp = program(Map())
+    val rnd = new scala.util.Random(1)
+    for ((name, op) <- ops) {
+      val outcomes = (1 to count).map(_ => compare(op(rnd), sp, s"$label $name"))
+      assert(outcomes.contains(Outcome.Value), s"$label $name never gives a value")
+    }
+  }
+
+  test("Bit-vector arithmetic, bitwise operations and casts") {
+    val shapes = Seq((true, 8), (false, 8), (true, 32), (false, 32), (true, 1), (false, 3))
+    def two(f: (Expr, Expr) => Expr) = (rnd: scala.util.Random) => {
+      val (s, w) = shapes(rnd.nextInt(shapes.size))
+      f(bvValue(s, w, rnd), bvValue(s, w, rnd))
+    }
+    def one(f: Expr => Expr) = (rnd: scala.util.Random) => {
+      val (s, w) = shapes(rnd.nextInt(shapes.size))
+      f(bvValue(s, w, rnd))
+    }
+    def cast(rnd: scala.util.Random) = {
+      val (s, w) = shapes(rnd.nextInt(shapes.size))
+      val v = bvValue(s, w, rnd)
+      val to = Seq(1, 3, 8, 16, 32, 64)(rnd.nextInt(6))
+      if (to < w) BVNarrowingCast(v, BVType(s, to)) else if (to > w) BVWideningCast(v, BVType(s, to)) else v
+    }
+    compareOps("bit-vector", Seq(
+      "+" -> two(Plus(_, _)), "-" -> two(Minus(_, _)), "*" -> two(Times(_, _)),
+      "/" -> two(Division(_, _)), "rem" -> two(Remainder(_, _)), "mod" -> two(Modulo(_, _)),
+      "<" -> two(LessThan(_, _)), ">" -> two(GreaterThan(_, _)),
+      "<=" -> two(LessEquals(_, _)), ">=" -> two(GreaterEquals(_, _)), "==" -> two(Equals(_, _)),
+      "&" -> two(BVAnd(_, _)), "|" -> two(BVOr(_, _)), "^" -> two(BVXor(_, _)),
+      "<<" -> two(BVShiftLeft(_, _)), ">>" -> two(BVAShiftRight(_, _)), ">>>" -> two(BVLShiftRight(_, _)),
+      "~" -> one(BVNot(_)), "neg" -> one(UMinus(_)), "toInt" -> one(BVToInt(_)), "cast" -> cast,
+      "toSigned" -> one(e => if (e.asInstanceOf[BVLiteral].signed) BVSignedToUnsigned(e) else BVUnsignedToSigned(e)),
+      "fromInt" -> ((rnd: scala.util.Random) =>
+        IntToBV(Seq(1, 8, 32)(rnd.nextInt(3)), rnd.nextBoolean(), IntegerLiteral(BigInt(40, rnd) - BigInt(2).pow(39))))
+    ), 300)
+  }
+
+  test("Reals, characters, strings, tuples and functions") {
+    def real(rnd: scala.util.Random): Expr =
+      FractionLiteral(BigInt(rnd.nextInt(21) - 10), BigInt(rnd.nextInt(7) - 3) match { case d if d == 0 => BigInt(1); case d => d })
+    def str(rnd: scala.util.Random): Expr = StringLiteral(Seq.fill(rnd.nextInt(5))("abc"(rnd.nextInt(3)).toInt))
+    def int(rnd: scala.util.Random): Expr = IntegerLiteral(rnd.nextInt(9) - 2)
+    def chr(rnd: scala.util.Random): Expr = CharLiteral("ab"(rnd.nextInt(2)))
+    val x = ValDef.fresh("x", IntegerType())
+    val y = ValDef.fresh("y", IntegerType())
+    val tp = TypeParameter.fresh("T")
+    val f = ValDef.fresh("f", FunctionType(Seq(IntegerType()), IntegerType()))
+    compareOps("theories", Seq(
+      "real +" -> (r => Plus(real(r), real(r))), "real -" -> (r => Minus(real(r), real(r))),
+      "real *" -> (r => Times(real(r), real(r))), "real /" -> (r => Division(real(r), real(r))),
+      "real neg" -> (r => UMinus(real(r))), "real <" -> (r => LessThan(real(r), real(r))),
+      "real <=" -> (r => LessEquals(real(r), real(r))), "real ==" -> (r => Equals(real(r), real(r))),
+      "char <" -> (r => LessThan(chr(r), chr(r))), "char ==" -> (r => Equals(chr(r), chr(r))),
+      "concat" -> (r => StringConcat(str(r), str(r))), "length" -> (r => StringLength(str(r))),
+      "substring" -> (r => SubString(str(r), int(r), int(r))), "string ==" -> (r => Equals(str(r), str(r))),
+      "tuple" -> (r => TupleSelect(Tuple(Seq(int(r), str(r), real(r))), r.nextInt(3) + 1)),
+      "tuple ==" -> (r => Equals(Tuple(Seq(int(r), chr(r))), Tuple(Seq(int(r), chr(r))))),
+      // a closure captures its environment, and applying it evaluates its body there
+      "apply" -> (r => Let(x, int(r), Application(Lambda(Seq(y),
+        Plus(x.toVariable, y.toVariable)), Seq(int(r))))),
+      "higher order" -> (r => Let(f, Lambda(Seq(x), Times(x.toVariable, int(r))),
+        Application(f.toVariable, Seq(Application(f.toVariable, Seq(int(r))))))),
+      "lambda" -> (r => Lambda(Seq(x), Plus(x.toVariable, int(r)))),
+      "generic" -> (r => Equals(GenericValue(tp, r.nextInt(2)), GenericValue(tp, r.nextInt(2))))
+    ), 100)
   }
 
   test("Assumptions, errors, invariants, selectors and fuel") {
