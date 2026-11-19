@@ -19,6 +19,7 @@ trait Templates
      with WitnessTemplates
      with BlockerGraph
      with PartialFunctions
+     with SolverFacades
      with IncrementalStateWrapper {
 
   val program: Program
@@ -63,11 +64,12 @@ trait Templates
   private[unrolling] lazy val trueT = mkEncoder(Map.empty)(BooleanLiteral(true))
   private[unrolling] lazy val falseT = mkEncoder(Map.empty)(BooleanLiteral(false))
 
-  protected lazy val deferFactor =  3 * options.findOptionOrDefault(optModelFinding)
+  /** The modes of the unfolding that the options select. */
+  lazy val modes: UnfoldingModes = new UnfoldingModes(options)
 
   private var currentGen: Int = 0
   protected def currentGeneration: Int = currentGen
-  protected def nextGeneration(gen: Int): Int = gen + 3 + deferFactor
+  protected def nextGeneration(gen: Int): Int = gen + 3 + modes.deferFactor
 
   trait Manager extends IncrementalStateWrapper {
     def unrollGeneration: Option[Int]
@@ -143,23 +145,23 @@ trait Templates
     quantificationsManager
   )
 
-  def canUnroll: Boolean = managers.exists(_.unrollGeneration.isDefined)
-  def unroll: Clauses = {
+  protected def canUnroll: Boolean = managers.exists(_.unrollGeneration.isDefined)
+  protected def unroll: Clauses = {
     assert(canUnroll, "Impossible to unroll further")
     currentGen = managers.flatMap(_.unrollGeneration).min + 1
     reporter.debug("Unrolling generation [" + currentGen + "]")
     managers.flatMap(_.unroll)
   }
 
-  def satisfactionAssumptions = managers.flatMap(_.satisfactionAssumptions)
-  def refutationAssumptions = managers.flatMap(_.refutationAssumptions)
+  protected def satisfactionAssumptions: Seq[Encoded] = managers.flatMap(_.satisfactionAssumptions)
+  protected def refutationAssumptions: Seq[Encoded] = managers.flatMap(_.refutationAssumptions)
 
   // Set of variables that have already been declared in this solver
   private val declared = new IncrementalSet[(Variable, Encoded)]
 
   val incrementals: Seq[IncrementalState] = managers ++ Seq(witnessState, blockerGraph, partialFunctionState, declared)
 
-  def promoteBlocker(b: Encoded, force: Boolean = false): Boolean = {
+  protected def promoteBlocker(b: Encoded, force: Boolean = false): Boolean = {
     var seen: Set[Encoded] = Set.empty
     var promoted: Boolean = false
     var blockers: Seq[Set[Encoded]] = Seq(Set(b))
@@ -965,7 +967,7 @@ trait Templates
 
       // The calls and applications that may fail, under their blockers
       val failing = new scala.collection.mutable.ListBuffer[Encoded]
-      def mayFail(b: Encoded, fails: => Encoded): Unit = if (partialFunctions) {
+      def mayFail(b: Encoded, fails: => Encoded): Unit = if (modes.partialFunctions) {
         if (failure.isDefined) failing += mkAnd(b, fails) else allClauses += mkImplies(b, mkNot(fails))
       }
 
@@ -983,7 +985,7 @@ trait Templates
 
       // The body of a function or lambda fails iff one of its failure literals holds, or one of the
       // calls and applications on its paths fails
-      for (self <- failure if partialFunctions) {
+      for (self <- failure if modes.partialFunctions) {
         val sources = literals.map(substituter) ++ failing
         val fails = sources match {
           case Seq() => falseT
@@ -1031,7 +1033,7 @@ trait Templates
     allClauses
   }
 
-  def instantiateVariable(v: Variable, bindings: Map[Variable, Encoded]): Clauses = {
+  protected def instantiateVariable(v: Variable, bindings: Map[Variable, Encoded]): Clauses = {
     if (declared `contains` (v -> bindings(v))) {
       Seq.empty
     } else {
@@ -1067,10 +1069,10 @@ trait Templates
     val differ = Variable.fresh("differ", BooleanType(), true)
     val differT = encodeSymbol(differ)
     val wsT = ws.map(bindings)
-    // Only extensional equality observes where functions fail (see [[partialFunctions]]). Without
+    // Only extensional equality observes where functions fail (see [[UnfoldingModes.partialFunctions]]). Without
     // function equality, distinguishing inputs only tell apart the functions of models, whose tests
     // can't observe failures (applying a function where it fails fails the test).
-    val partial = partialFunctions
+    val partial = modes.partialFunctions
     def isWitnessApp(app: App): Boolean = partial &&
       (app.caller == f1 || app.caller == f2) && app.tpe == tpe && app.args.map(_.encoded) == wsT
 
@@ -1094,7 +1096,7 @@ trait Templates
       newFailureDefinitions()
   }
 
-  def instantiateExpr(expr: Expr, bindings: Map[Variable, Encoded]): Clauses = {
+  protected def instantiateExpr(expr: Expr, bindings: Map[Variable, Encoded]): Clauses = {
     instantiate(bindings, { (start, encodedStart) =>
       val instExpr = timers.solvers.simplify.run { simplifyFormula(expr) }
 

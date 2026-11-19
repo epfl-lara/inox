@@ -22,29 +22,6 @@ trait WitnessTemplates { self: Templates =>
 
   import witnessState._
 
-  /** Without function equality, the equality of two lambdas can't be observed, and their distinguishing
-    * input is only needed when model extraction must tell them apart (see [[onDemandWitnesses]]).
-    * Under extensional equality, lambdas that differ structurally are only equal when they agree on
-    * their distinguishing input, and nothing else can refute their equality. Their distinguishing
-    * input is then unfolded like those of free functions (see [[witnessEqualities]]): the lambdas are
-    * assumed equal when looking for a model, and the input is instantiated when that equality is
-    * part of an unsat core.
-    *
-    * Instantiating them with each new lambda instead doesn't terminate: distinguishing inputs can
-    * create lambdas on the spot (eg. in the typing constraints of applications), and each new lambda
-    * is compared to all the previous ones. */
-  private[unrolling] lazy val onDemandLambdaWitnesses: Boolean =
-    options.findOptionOrDefault(optFunctionEquality) == FunctionEquality.None
-
-  /** Unless function equality is extensional, whether two functions are equal never constrains their
-    * applications, so their distinguishing input is only needed when a model shows both of them. The
-    * pairs that involve a free function are therefore left out of the unfolding until then (see
-    * [[promoteWitnesses]]). Unfolding all of them instead can make queries much harder: each function
-    * term that the unrolling creates is paired with all the previous ones of its type, and the
-    * equalities of these pairs are assumed by every model check. */
-  private[unrolling] lazy val onDemandFreeWitnesses: Boolean =
-    options.findOptionOrDefault(optFunctionEquality) != FunctionEquality.Extensional
-
   /** The witness nesting depth of the symbols currently being instantiated (0 for regular inputs).
     *
     * Everything that descends from a distinguishing input inherits its depth: the free functions in
@@ -89,7 +66,7 @@ trait WitnessTemplates { self: Templates =>
     * up to a depth that grows by one with each unrolling. Each round stays finite: the free functions
     * and lambdas a distinguishing input creates on the spot inherit its depth, and the others are only
     * created by later unrollings. */
-  def witnessEqualities: Map[Encoded, Int] =
+  protected def witnessEqualities: Map[Encoded, Int] =
     pendingWitnesses.toSeq.filterNot(_.onDemand).map(w => w.equality -> w.depth).toMap
 
   /** The pending distinguishing inputs that are only unfolded when model extraction needs them,
@@ -99,13 +76,13 @@ trait WitnessTemplates { self: Templates =>
     * their equality is left open. Their distinguishing input is only needed when an extracted function
     * must tell them apart, and instantiating it for every pair of lambdas can make queries much harder.
     * Pairs that involve a free function are on demand as well unless equality is extensional (see
-    * [[onDemandFreeWitnesses]]), and join the regular unfolding once a model shows them. */
-  def onDemandWitnesses: Seq[(FunctionType, (Encoded, Encoded, Encoded, Int))] =
+    * [[UnfoldingModes.onDemandFreeWitnesses]]), and join the regular unfolding once a model shows them. */
+  protected def onDemandWitnesses: Seq[(FunctionType, (Encoded, Encoded, Encoded, Int))] =
     pendingWitnesses.toSeq.filter(_.onDemand).map(w => w.tpe -> (w.f1, w.f2, w.equality, w.depth))
 
   /** Turns the on-demand distinguishing inputs with the given equality literals into regular ones,
     * which are unfolded through their equality (see [[witnessEqualities]]). */
-  def promoteWitnesses(equalities: Set[Encoded]): Clauses = {
+  protected def promoteWitnesses(equalities: Set[Encoded]): Clauses = {
     pendingWitnesses.toSeq.filter(w => w.onDemand && equalities(w.equality)).map { w =>
       pendingWitnesses -= w
       pendingWitnesses += w.copy(onDemand = false)
@@ -114,31 +91,19 @@ trait WitnessTemplates { self: Templates =>
   }
 
   /** Instantiates the pending distinguishing inputs with the given equality literals. */
-  def instantiateWitnesses(equalities: Set[Encoded]): Clauses = {
+  protected def instantiateWitnesses(equalities: Set[Encoded]): Clauses = {
     pendingWitnesses.toSeq.filter(w => equalities(w.equality)).sortBy(_.depth).flatMap { w =>
       pendingWitnesses -= w
       withWitnessDepth(w.depth)(instantiateWitness(w.cond, w.tpe, w.f1, w.f2))
     }
   }
 
-  /** Whether distinct functions have a distinguishing input, that is whether function equality is
-    * extensional or unobservable (see [[optFunctionEquality]]).
-    *
-    * For a pair of functions `f` and `g`, we then introduce fresh witness arguments `ws` such that
-    * `f != g ==> f(ws) != g(ws)`, so that extracted models are meaningfully distinct, and lambdas
-    * aren't compared structurally. Witnesses of function type are themselves free functions, so the
-    * construction recurses on higher-order argument types (see `function-witnesses.md`). Under
-    * intensional equality, distinct functions may agree on every input, and models compare them
-    * structurally instead. */
-  protected lazy val functionWitnesses: Boolean =
-    options.findOptionOrDefault(optFunctionEquality) != FunctionEquality.Intensional
-
   /** Whether `e` is the argument of a distinguishing input (see [[Templates.instantiateWitness]]). */
-  def isWitnessArgument(e: Encoded): Boolean = witnessArguments(e)
+  protected def isWitnessArgument(e: Encoded): Boolean = witnessArguments(e)
 
   /** The instantiated distinguishing inputs, as the arguments on which each pair of functions
     * is compared (see [[Templates.instantiateWitness]]). */
-  def distinguishingInputs: Seq[((Encoded, Encoded), (FunctionType, Seq[Encoded]))] = witnessInputs.toSeq
+  protected def distinguishingInputs: Seq[((Encoded, Encoded), (FunctionType, Seq[Encoded]))] = witnessInputs.toSeq
 
   /** Records that the function `f` was introduced at the current witness depth. */
   private[unrolling] def recordFunctionDepth(f: Encoded): Unit =

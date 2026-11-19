@@ -64,13 +64,13 @@ trait TemplateGenerator { self: Templates =>
   /** The free functions that stand for the uninterpreted functions at their type arguments, whose
     * applications are the uninterpreted calls. They are shared by all templates, and their models are
     * those of the uninterpreted functions. */
-  private[unrolling] val uninterpretedFunctions: MutableMap[(Identifier, Seq[Type]), (Variable, Encoded)] = MutableMap.empty
+  protected val uninterpretedFunctions: MutableMap[(Identifier, Seq[Type]), (Variable, Encoded)] = MutableMap.empty
   private[unrolling] val uninterpretedSubst: MutableMap[Variable, Encoded] = MutableMap.empty
 
   /** The uninterpreted functions without parameters that the model doesn't interpret, which stand
     * for constants: their free functions are free variables of their result types, whose values are
     * the calls (as for any value, some solvers can't extract the results of nullary functions). */
-  private[unrolling] val uninterpretedConstants: MutableSet[(Identifier, Seq[Type])] = MutableSet.empty
+  protected val uninterpretedConstants: MutableSet[(Identifier, Seq[Type])] = MutableSet.empty
 
   /** The free functions of the uninterpreted functions that the model interprets, whose applications
     * are calls that unfold the interpretation, as calls of the functions of the program unfold their
@@ -79,7 +79,7 @@ trait TemplateGenerator { self: Templates =>
 
   /** The types of the uninterpreted functions, whose free functions only have their erased types,
     * so that their models are extracted within their codomains. */
-  private[unrolling] val uninterpretedTypes: MutableMap[(Identifier, Seq[Type]), Type] = MutableMap.empty
+  protected val uninterpretedTypes: MutableMap[(Identifier, Seq[Type]), Type] = MutableMap.empty
 
   private def uninterpretedFunction(uc: UninterpretedCall): Variable =
     uninterpretedFunctions.getOrElseUpdate(uc.id -> uc.tps, {
@@ -96,13 +96,8 @@ trait TemplateGenerator { self: Templates =>
       (f, fT)
     })._1
 
-  /** Unless the front-end has checked them (see `optAssumeChecked`), the partial operations that
-    * may fail make their path infeasible when they do, like errors, so that the solver agrees with
-    * the evaluator (see [[ast.SymbolOps.definedness]]). */
-  private lazy val guardPartialOperations: Boolean = !options.findOptionOrDefault(optAssumeChecked)
-
   private def guard(expr: Expr): Option[Expr] =
-    if (guardPartialOperations) definedness(expr) else None
+    if (modes.guardPartialOperations) definedness(expr) else None
 
   /** The facts that hold when `cond` holds. */
   private def conjuncts(cond: Expr): Set[Expr] = cond match {
@@ -143,7 +138,7 @@ trait TemplateGenerator { self: Templates =>
       es.exists(rec(_, facts))
     }
 
-    guardPartialOperations && rec(expr, facts)
+    modes.guardPartialOperations && rec(expr, facts)
   }
 
   private def isSimple(expr: Expr, facts: Set[Expr] = Set.empty): Boolean = {
@@ -173,14 +168,6 @@ trait TemplateGenerator { self: Templates =>
     * these literals and the failures of the calls and applications they reach (see [[Template.encode]]),
     * and only the templates of formulas assert that their evaluation doesn't fail. */
   private[unrolling] val failureSymbols: MutableSet[Variable] = MutableSet.empty
-
-  /** Whether functions are partial, i.e. whether the solver tells apart functions that fail from
-    * functions that don't. Only extensional equality observes where functions fail, and under
-    * `optAssumeChecked`, the front-end has checked that nothing fails, so functions are total and
-    * failures make their paths infeasible instead. */
-  private[unrolling] lazy val partialFunctions: Boolean =
-    options.findOptionOrDefault(optFunctionEquality) == FunctionEquality.Extensional &&
-      !options.findOptionOrDefault(optAssumeChecked)
 
   def mergeCalls(pathVar: Variable, condVar: Variable, substMap: Map[Variable, Encoded],
                 thenClauses: TemplateClauses, elseClauses: TemplateClauses): TemplateClauses = {
@@ -354,7 +341,7 @@ trait TemplateGenerator { self: Templates =>
 
     // Represents the failure of evaluation on the path `guardVar` when `cond` doesn't hold, as a
     // literal that holds exactly when the path is taken and `cond` doesn't hold (see [[failureSymbols]])
-    def storeFailure(guardVar: Variable, cond: Expr): Unit = if (!partialFunctions) storeGuarded(guardVar, cond) else {
+    def storeFailure(guardVar: Variable, cond: Expr): Unit = if (!modes.partialFunctions) storeGuarded(guardVar, cond) else {
       val fail = Variable.fresh("fail", BooleanType(), true)
       storeExpr(fail)
       failureSymbols += fail
@@ -483,7 +470,7 @@ trait TemplateGenerator { self: Templates =>
       case a @ Assume(cond, body) =>
         // The condition only holds positively unless the assumption may fail (see [[storeFailure]]),
         // where its failure literal is equal to its negation, so quantifiers need both polarities
-        val e = rec(pathVar, cond, if (partialFunctions) None else Some(true))
+        val e = rec(pathVar, cond, if (modes.partialFunctions) None else Some(true))
         storeFailure(pathVar, e)
         rec(pathVar, body, pol)
 

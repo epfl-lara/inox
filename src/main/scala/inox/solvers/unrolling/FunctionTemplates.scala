@@ -16,8 +16,6 @@ trait FunctionTemplates { self: Templates =>
 
   import functionsManager._
 
-  private lazy val assumeChecked = options.findOptionOrDefault(optAssumeChecked)
-
   protected def variableSeq(tpe: Type): Seq[Variable] = {
     val free = typeOps.variablesOf(tpe)
     val vars = new scala.collection.mutable.ListBuffer[Variable]
@@ -68,7 +66,7 @@ trait FunctionTemplates { self: Templates =>
           // it is assumed only once the arguments' membership in these types is shown.
           // Under `optAssumeChecked`, the front-end has checked the arguments of every call, so
           // the return type is assumed directly.
-          val (domains, domClauses) = if (assumeChecked) (Seq.empty[Expr], TemplateClauses()) else
+          val (domains, domClauses) = if (modes.assumeChecked) (Seq.empty[Expr], TemplateClauses()) else
             tfd.params.foldLeft((Seq.empty[Expr], TemplateClauses())) { case ((domains, domClauses), vd) =>
               mkTypeClauses(start, vd.tpe, vd.toVariable, substMap, inDomain = true)(using MembershipGenerator) match {
                 case (BooleanLiteral(true), _) => (domains, domClauses)
@@ -166,7 +164,7 @@ trait FunctionTemplates { self: Templates =>
     ranked.flatMap { case (b, fi, callee) =>
       // Calls whose arguments mention symbols that the template doesn't bind aren't ranked
       if (!exprOps.variablesOf(callee).forall(allSymbols.contains)) Seq.empty
-      else if (assumeChecked) Seq(mkImplies(encoder(b), encoder(GreaterThan(self, callee))))
+      else if (modes.assumeChecked) Seq(mkImplies(encoder(b), encoder(GreaterThan(self, callee))))
       else Seq(mkImplies(encoder(b), mkOr(encoder(GreaterThan(self, callee)), diverges)))
     }
   }

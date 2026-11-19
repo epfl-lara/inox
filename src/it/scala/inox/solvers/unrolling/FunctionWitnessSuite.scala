@@ -9,7 +9,7 @@ import evaluators.EvaluationResults
 
 /** Checks that distinct first-class functions in models have a distinguishing input.
   *
-  * @see [[WitnessTemplates.functionWitnesses]]
+  * @see [[UnfoldingModes.functionWitnesses]]
   */
 class FunctionWitnessSuite extends UnrollingTestSuite {
   import inox.trees._
