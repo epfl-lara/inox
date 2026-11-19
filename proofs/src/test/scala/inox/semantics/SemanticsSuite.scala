@@ -28,6 +28,10 @@ class SemanticsSuite extends AnyFunSuite {
       if (cs.forall(_.isDefined)) Some(list(cs.flatten)) else None
     }
     def two(l: Expr, r: Expr)(f: (S.Expr, S.Expr) => S.Expr) = for (a <- expr(l); b <- expr(r)) yield f(a, b)
+    def pairs(ps: Seq[(Expr, Expr)]): Option[S.List[S.ExprPair]] = {
+      val cs = ps.map { case (k, v) => for (a <- expr(k); b <- expr(v)) yield S.ExprPair(a, b) }
+      if (cs.forall(_.isDefined)) Some(list(cs.flatten)) else None
+    }
     e match {
       case v: Variable => Some(S.Variable(v.id))
       case IntegerLiteral(i) => Some(S.IntegerLiteral(i))
@@ -59,6 +63,23 @@ class SemanticsSuite extends AnyFunSuite {
       case BVSignedToUnsigned(a) => expr(a).map(S.BVSignedToUnsigned(_))
       case BVToInt(a) => expr(a).map(S.BVToInt(_))
       case IntToBV(size, signed, a) => expr(a).map(S.IntToBV(BigInt(size), signed, _))
+      case FiniteSet(es, _) => all(es).map(S.FiniteSet(_))
+      case SetAdd(a, b) => two(a, b)(S.SetAdd(_, _))
+      case ElementOfSet(a, b) => two(a, b)(S.ElementOfSet(_, _))
+      case SubsetOf(a, b) => two(a, b)(S.SubsetOf(_, _))
+      case SetIntersection(a, b) => two(a, b)(S.SetIntersection(_, _))
+      case SetUnion(a, b) => two(a, b)(S.SetUnion(_, _))
+      case SetDifference(a, b) => two(a, b)(S.SetDifference(_, _))
+      case FiniteBag(ps, _) => pairs(ps).map(S.FiniteBag(_))
+      case BagAdd(a, b) => two(a, b)(S.BagAdd(_, _))
+      case MultiplicityInBag(a, b) => two(a, b)(S.MultiplicityInBag(_, _))
+      case BagIntersection(a, b) => two(a, b)(S.BagIntersection(_, _))
+      case BagUnion(a, b) => two(a, b)(S.BagUnion(_, _))
+      case BagDifference(a, b) => two(a, b)(S.BagDifference(_, _))
+      case FiniteMap(ps, d, _, _) => for (xs <- pairs(ps); y <- expr(d)) yield S.FiniteMap(xs, y)
+      case MapApply(a, b) => two(a, b)(S.MapApply(_, _))
+      case MapUpdated(a, b, c) => for (x <- expr(a); y <- expr(b); z <- expr(c)) yield S.MapUpdated(x, y, z)
+      case MapMerge(a, b, c) => for (x <- expr(a); y <- expr(b); z <- expr(c)) yield S.MapMerge(x, y, z)
       case Let(vd, v, b) => two(v, b)(S.Let(vd.id, _, _))
       case IfExpr(c, t, f) => for (a <- expr(c); b <- expr(t); d <- expr(f)) yield S.IfExpr(a, b, d)
       case Assume(p, b) => two(p, b)(S.Assume(_, _))
@@ -98,6 +119,9 @@ class SemanticsSuite extends AnyFunSuite {
     case ADTType(_, tps) => tps.forall(supported)
     case TupleType(ts) => ts.forall(supported)
     case FunctionType(from, to) => (from :+ to).forall(supported)
+    case SetType(b) => supported(b)
+    case BagType(b) => supported(b)
+    case MapType(f, t) => supported(f) && supported(t)
     case _ => false
   }
 
@@ -150,6 +174,13 @@ class SemanticsSuite extends AnyFunSuite {
       case GenericValue(_, id) => scala.Some(S.IntV(BigInt(id)))
       case Tuple(es) => all(es).map(S.TupleV(_))
       case ADT(id, _, args) => all(args).map(S.ADTV(id, _))
+      case FiniteSet(es, _) => all(es).map(S.SetV(_))
+      case FiniteBag(ps, _) =>
+        val es = ps.map { case (k, IntegerLiteral(n)) => value(k).map(S.BagEntry(_, n)); case _ => scala.None }
+        if (es.forall(_.isDefined)) scala.Some(S.BagV(list(es.flatten))) else scala.None
+      case FiniteMap(ps, d, _, _) =>
+        val es = ps.map { case (k, v) => for (a <- value(k); b <- value(v)) yield S.MapEntry(a, b) }
+        if (es.forall(_.isDefined)) value(d).map(S.MapV(list(es.flatten), _)) else scala.None
       case _: Lambda => scala.None
       case _ => fail(s"not a value of the semantics: $e")
     }
@@ -174,7 +205,8 @@ class SemanticsSuite extends AnyFunSuite {
       case (_, S.OutOfFuel()) => Outcome.Skipped
       case (evaluators.EvaluationResults.RuntimeError(msg), _) if msg.startsWith("Exceeded") => Outcome.Skipped
       case (evaluators.EvaluationResults.Successful(v), S.Ok(w)) =>
-        value(v).foreach(v => assert(v == w, s"$label: ${e.asString} gives ${v} and ${w} in the semantics"))
+        // collections are compared by their contents
+        value(v).foreach(v => assert(S.value_eq(v, w) == S.Ok(true), s"$label: ${e.asString} gives ${v} and ${w} in the semantics"))
         Outcome.Value
       case (evaluators.EvaluationResults.RuntimeError(_), S.Stuck()) => Outcome.Stuck
       case (r, o) => fail(s"$label: ${e.asString} gives $r and $o in the semantics")
@@ -196,6 +228,19 @@ class SemanticsSuite extends AnyFunSuite {
     case TupleType(ts) =>
       val vs = ts.map(values(_, depth - 1, rnd))
       if (vs.forall(_.isDefined)) scala.Some(Tuple(vs.flatten)) else scala.None
+    case SetType(b) =>
+      val vs = Seq.fill(rnd.nextInt(4))(values(b, depth - 1, rnd))
+      if (vs.forall(_.isDefined)) scala.Some(FiniteSet(vs.flatten, b)) else scala.None
+    case BagType(b) =>
+      val vs = Seq.fill(rnd.nextInt(4))(values(b, depth - 1, rnd))
+      if (vs.forall(_.isDefined)) scala.Some(FiniteBag(vs.flatten.map(_ -> IntegerLiteral(rnd.nextInt(3) + 1)), b))
+      else scala.None
+    case MapType(f, t) =>
+      val ps = Seq.fill(rnd.nextInt(4))((values(f, depth - 1, rnd), values(t, depth - 1, rnd)))
+      val d = values(t, depth - 1, rnd)
+      if (d.isDefined && ps.forall((a, b) => a.isDefined && b.isDefined))
+        scala.Some(FiniteMap(ps.map((a, b) => a.get -> b.get), d.get, f, t))
+      else scala.None
     case FunctionType(from, to) =>
       // a constant function
       values(to, depth - 1, rnd).map(v => Lambda(from.map(t => ValDef.fresh("x", t)), v))
@@ -318,6 +363,33 @@ class SemanticsSuite extends AnyFunSuite {
       "lambda" -> (r => Lambda(Seq(x), Plus(x.toVariable, int(r)))),
       "generic" -> (r => Equals(GenericValue(tp, r.nextInt(2)), GenericValue(tp, r.nextInt(2))))
     ), 100)
+  }
+
+  test("Sets, bags and maps") {
+    def int(rnd: scala.util.Random): Expr = IntegerLiteral(rnd.nextInt(4))
+    def set(rnd: scala.util.Random): Expr = FiniteSet(Seq.fill(rnd.nextInt(4))(int(rnd)), IntegerType())
+    def bag(rnd: scala.util.Random): Expr =
+      FiniteBag(Seq.fill(rnd.nextInt(4))(int(rnd) -> IntegerLiteral(rnd.nextInt(5) - 1)), IntegerType())
+    def map(rnd: scala.util.Random): Expr =
+      FiniteMap(Seq.fill(rnd.nextInt(4))(int(rnd) -> int(rnd)), int(rnd), IntegerType(), IntegerType())
+    val f = Lambda(Seq(ValDef.fresh("x", IntegerType())), IntegerLiteral(0))
+    compareOps("collections", Seq(
+      "set" -> set, "set ==" -> (r => Equals(set(r), set(r))), "add" -> (r => SetAdd(set(r), int(r))),
+      "in" -> (r => ElementOfSet(int(r), set(r))), "subset" -> (r => SubsetOf(set(r), set(r))),
+      "inter" -> (r => SetIntersection(set(r), set(r))), "union" -> (r => SetUnion(set(r), set(r))),
+      "diff" -> (r => SetDifference(set(r), set(r))),
+      "bag" -> bag, "bag ==" -> (r => Equals(bag(r), bag(r))), "bag add" -> (r => BagAdd(bag(r), int(r))),
+      "multiplicity" -> (r => MultiplicityInBag(int(r), bag(r))),
+      "bag inter" -> (r => BagIntersection(bag(r), bag(r))), "bag union" -> (r => BagUnion(bag(r), bag(r))),
+      "bag diff" -> (r => BagDifference(bag(r), bag(r))),
+      "map" -> map, "map ==" -> (r => Equals(map(r), map(r))), "apply" -> (r => MapApply(map(r), int(r))),
+      "updated" -> (r => MapUpdated(map(r), int(r), int(r))),
+      "merge" -> (r => MapMerge(set(r), map(r), map(r))),
+      // maps whose values are functions can be built and read, but not compared
+      "function map" -> (r => MapApply(FiniteMap(Seq(int(r) -> f), f, IntegerType(), f.getType(using NoSymbols)), int(r))),
+      "nested ==" -> (r => Equals(FiniteSet(Seq(set(r), set(r)), SetType(IntegerType())),
+                                  FiniteSet(Seq(set(r), set(r)), SetType(IntegerType()))))
+    ), 200)
   }
 
   test("Assumptions, errors, invariants, selectors and fuel") {
