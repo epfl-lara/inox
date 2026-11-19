@@ -288,8 +288,10 @@ trait QuantificationTemplates { self: Templates =>
     private def unrollSubsts(): Clauses = {
       val clauses = new scala.collection.mutable.ListBuffer[Encoded]
       for (q <- axioms.toSeq if deferred.hasSubsts(q) && !interrupted) {
-        for ((_, bs, subst) <- deferred.releaseSubsts(q)) {
-          clauses ++= q.instantiateSubst(bs, subst, defer = true)
+        // an axiom can have hundreds of due substitutions, so an interruption stops between them
+        for ((gen, bs, subst) <- deferred.releaseSubsts(q)) {
+          if (interrupted) deferred.deferSubst(q, gen, bs, subst)
+          else clauses ++= q.instantiateSubst(bs, subst, defer = true)
         }
       }
       clauses.toSeq
