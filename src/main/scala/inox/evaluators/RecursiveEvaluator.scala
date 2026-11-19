@@ -49,31 +49,50 @@ abstract class RecursiveEvaluator(override val program: Program,
     FiniteBag(lastByKey(tpe)(els.toSeq).filter { case (_, IntegerLiteral(i)) => i > 0 case _ => false }.sortBy(_._1.toString), tpe)
   }
 
-  // `max` and `min` follow SMT-LIB's fp.max and fp.min: a NaN operand is ignored unless both are
-  // NaN. SMT-LIB leaves the result open for +0.0 and -0.0, which we order as the JVM does.
-  private val roundingModes: Set[Expr] =
-    Set(RoundNearestTiesToEven, RoundNearestTiesToAway, RoundTowardPositive, RoundTowardNegative, RoundTowardZero)
+  import FloatingPoint.{Format, Rounding}
 
-  /** Rounds `d` to an integral value with the rounding mode `rm`, keeping the sign of zeros. */
-  private def roundToIntegral(d: Double, rm: Expr): Double = rm match {
-    case RoundNearestTiesToEven => Math.rint(d)
-    case RoundTowardPositive => Math.ceil(d)
-    case RoundTowardNegative => Math.floor(d)
-    case RoundTowardZero => if (d < 0) Math.ceil(d) else Math.floor(d)
-    case RoundNearestTiesToAway =>
-      if (d.isNaN || d.isInfinite) d
-      else {
-        val abs = Math.abs(d)
-        val floor = Math.floor(abs)
-        Math.copySign(if (abs - floor >= 0.5) floor + 1 else floor, d)
-      }
-    case _ => throw EvalError(s"Unexpected rounding mode $rm")
+  /** The rounding mode that `rm` evaluates to. */
+  private def rounding(rm: Expr)(using RC, GC): Rounding = e(rm) match {
+    case RoundNearestTiesToEven => Rounding.NearestEven
+    case RoundNearestTiesToAway => Rounding.NearestAway
+    case RoundTowardPositive => Rounding.TowardPositive
+    case RoundTowardNegative => Rounding.TowardNegative
+    case RoundTowardZero => Rounding.TowardZero
+    case v => throw EvalError(typeErrorMsg(v, RoundingMode))
   }
 
-  private def fpMax(a: Double, b: Double): Double = if (a.isNaN) b else if (b.isNaN) a else a.max(b)
-  private def fpMin(a: Double, b: Double): Double = if (a.isNaN) b else if (b.isNaN) a else a.min(b)
-  private def fpMax(a: Float, b: Float): Float = if (a.isNaN) b else if (b.isNaN) a else a.max(b)
-  private def fpMin(a: Float, b: Float): Float = if (a.isNaN) b else if (b.isNaN) a else a.min(b)
+  /** A floating-point value, as its format and bits (see [[FloatingPoint]]). */
+  private object FP {
+    def unapply(v: Expr): Option[(Format, BigInt)] = v match {
+      case FPLiteral(e, s, bits) => Some((Format(e, s), bits.foldLeft(BigInt(0))((acc, i) => acc.setBit(i - 1))))
+      case _ => None
+    }
+    def apply(f: Format, x: BigInt): FPLiteral =
+      FPLiteral(f.e, f.s, scala.collection.immutable.BitSet((0 until f.width).filter(x.testBit).map(_ + 1)*))
+  }
+
+  /** The value of a floating-point operation on `args`: the JVM's, for the operations on `Float`s or
+    * `Double`s that it rounds as IEEE 754 does (to nearest, ties to even), and the exact one
+    * otherwise. */
+  private def fpOperation(name: String, args: Seq[Expr])
+                         (jvm: PartialFunction[Seq[Expr], Expr])
+                         (exact: PartialFunction[(Format, Seq[BigInt]), BigInt])(using RC, GC): Expr = {
+    val vs = args.map(e)
+    jvm.applyOrElse(vs, vs => {
+      val fps = vs.collect { case FP(f, x) => (f, x) }
+      if (fps.size == vs.size && fps.map(_._1).distinct.size == 1 && exact.isDefinedAt((fps.head._1, fps.map(_._2))))
+        FP(fps.head._1, exact((fps.head._1, fps.map(_._2))))
+      else throw EvalError("Unexpected operation: " + name + vs.map(_.asString).mkString("(", ", ", ")"))
+    })
+  }
+
+  /** A floating-point predicate on `args`. */
+  private def fpPredicate(name: String, args: Seq[Expr])(p: (Format, Seq[BigInt]) => Boolean)(using RC, GC): Expr = {
+    val vs = args.map(e)
+    val fps = vs.collect { case FP(f, x) => (f, x) }
+    if (fps.size == vs.size && fps.map(_._1).distinct.size == 1) BooleanLiteral(p(fps.head._1, fps.map(_._2)))
+    else throw EvalError("Unexpected operation: " + name + vs.map(_.asString).mkString("(", ", ", ")"))
+  }
 
   protected def finiteMap(els: Iterable[(Expr, Expr)], default: Expr, from: Type, to: Type)(using RC, GC): FiniteMap = {
     checkKeys(from)
@@ -711,239 +730,127 @@ abstract class RecursiveEvaluator(override val program: Program,
     case _ => unhandled
   }
 
+  /** Floating point, of any format and with every rounding mode (see [[FloatingPoint]]). */
   protected def eFloatingPoint(expr: Expr)(using rctx: RC, gctx: GC): Expr = expr match {
-    case FPEquals(lhs, rhs) =>
-      (e(lhs), e(rhs)) match {
-        case (Float32Literal(l1), Float32Literal(l2)) => BooleanLiteral(l1 == l2)
-        case (Float64Literal(l1), Float64Literal(l2)) => BooleanLiteral(l1 == l2)
-        case _ => throw EvalError("Unexpected operation: (" + lhs.asString + ") == (" + rhs.asString + ")")
-      }
+    case RoundNearestTiesToEven | RoundNearestTiesToAway | RoundTowardPositive | RoundTowardNegative | RoundTowardZero =>
+      expr
 
-    case FPAdd(RoundNearestTiesToEven, lhs, rhs) =>
-      (e(lhs), e(rhs)) match {
-        case (Float32Literal(l1), Float32Literal(l2)) => Float32Literal(l1 + l2)
-        case (Float64Literal(l1), Float64Literal(l2)) => Float64Literal(l1 + l2)
-        case _ => throw EvalError("Unexpected operation: (" + lhs.asString + ") + (" + rhs.asString + ")")
-      }
+    case FPEquals(lhs, rhs) => fpPredicate("==", Seq(lhs, rhs)) { case (f, Seq(x, y)) => f.equal(x, y) }
+    case FPLessThan(lhs, rhs) => fpPredicate("<", Seq(lhs, rhs)) { case (f, Seq(x, y)) => f.lessThan(x, y) }
+    case FPGreaterThan(lhs, rhs) => fpPredicate(">", Seq(lhs, rhs)) { case (f, Seq(x, y)) => f.lessThan(y, x) }
+    case FPLessEquals(lhs, rhs) => fpPredicate("<=", Seq(lhs, rhs)) { case (f, Seq(x, y)) => f.lessEquals(x, y) }
+    case FPGreaterEquals(lhs, rhs) => fpPredicate(">=", Seq(lhs, rhs)) { case (f, Seq(x, y)) => f.lessEquals(y, x) }
+    case FPIsZero(expr) => fpPredicate("isZero", Seq(expr)) { case (f, Seq(x)) => f.isZero(x) }
+    case FPIsInfinite(expr) => fpPredicate("isInfinite", Seq(expr)) { case (f, Seq(x)) => f.isInfinite(x) }
+    case FPIsNaN(expr) => fpPredicate("isNaN", Seq(expr)) { case (f, Seq(x)) => f.isNaN(x) }
+    case FPIsPositive(expr) => fpPredicate("isPositive", Seq(expr)) { case (f, Seq(x)) => f.isPositive(x) }
+    case FPIsNegative(expr) => fpPredicate("isNegative", Seq(expr)) { case (f, Seq(x)) => f.isNegative(x) }
+    case FPIsNormal(expr) => fpPredicate("isNormal", Seq(expr)) { case (f, Seq(x)) => f.isNormal(x) }
+    case FPIsSubnormal(expr) => fpPredicate("isSubnormal", Seq(expr)) { case (f, Seq(x)) => f.isSubnormal(x) }
 
-    case FPSub(RoundNearestTiesToEven, lhs, rhs) =>
-      (e(lhs), e(rhs)) match {
-        case (Float32Literal(l1), Float32Literal(l2)) => Float32Literal(l1 - l2)
-        case (Float64Literal(l1), Float64Literal(l2)) => Float64Literal(l1 - l2)
-        case _ => throw EvalError("Unexpected operation: (" + lhs.asString + ") - (" + rhs.asString + ")")
-      }
+    case FPAdd(rm, lhs, rhs) =>
+      val r = rounding(rm)
+      fpOperation("+", Seq(lhs, rhs)) {
+        case Seq(Float32Literal(a), Float32Literal(b)) if r == Rounding.NearestEven => Float32Literal(a + b)
+        case Seq(Float64Literal(a), Float64Literal(b)) if r == Rounding.NearestEven => Float64Literal(a + b)
+      } { case (f, Seq(x, y)) => f.add(r, x, y) }
 
-    case FPMul(RoundNearestTiesToEven, lhs, rhs) =>
-      (e(lhs), e(rhs)) match {
-        case (Float32Literal(l1), Float32Literal(l2)) => Float32Literal(l1 * l2)
-        case (Float64Literal(l1), Float64Literal(l2)) => Float64Literal(l1 * l2)
-        case _ => throw EvalError("Unexpected operation: (" + lhs.asString + ") * (" + rhs.asString + ")")
-      }
+    case FPSub(rm, lhs, rhs) =>
+      val r = rounding(rm)
+      fpOperation("-", Seq(lhs, rhs)) {
+        case Seq(Float32Literal(a), Float32Literal(b)) if r == Rounding.NearestEven => Float32Literal(a - b)
+        case Seq(Float64Literal(a), Float64Literal(b)) if r == Rounding.NearestEven => Float64Literal(a - b)
+      } { case (f, Seq(x, y)) => f.sub(r, x, y) }
 
-    case FPDiv(RoundNearestTiesToEven, lhs, rhs) =>
-      (e(lhs), e(rhs)) match {
-        case (Float32Literal(l1), Float32Literal(l2)) => Float32Literal(l1 / l2)
-        case (Float64Literal(l1), Float64Literal(l2)) => Float64Literal(l1 / l2)
-        case _ => throw EvalError("Unexpected operation: (" + lhs.asString + ") / (" + rhs.asString + ")")
-      }
+    case FPMul(rm, lhs, rhs) =>
+      val r = rounding(rm)
+      fpOperation("*", Seq(lhs, rhs)) {
+        case Seq(Float32Literal(a), Float32Literal(b)) if r == Rounding.NearestEven => Float32Literal(a * b)
+        case Seq(Float64Literal(a), Float64Literal(b)) if r == Rounding.NearestEven => Float64Literal(a * b)
+      } { case (f, Seq(x, y)) => f.mul(r, x, y) }
 
-    case FPFMA(RoundNearestTiesToEven, e1, e2, e3) =>
-      (e(e1), e(e2), e(e3)) match {
-        case (Float32Literal(l1), Float32Literal(l2), Float32Literal(l3)) => Float32Literal(java.lang.Math.fma(l1, l2, l3))
-        case (Float64Literal(l1), Float64Literal(l2), Float64Literal(l3)) => Float64Literal(java.lang.Math.fma(l1, l2, l3))
-        case _ => throw EvalError(f"Unexpected operation: FMA($e1, $e2, $e3)")
-      }
+    case FPDiv(rm, lhs, rhs) =>
+      val r = rounding(rm)
+      fpOperation("/", Seq(lhs, rhs)) {
+        case Seq(Float32Literal(a), Float32Literal(b)) if r == Rounding.NearestEven => Float32Literal(a / b)
+        case Seq(Float64Literal(a), Float64Literal(b)) if r == Rounding.NearestEven => Float64Literal(a / b)
+      } { case (f, Seq(x, y)) => f.div(r, x, y) }
 
-    case FPUMinus(expr) =>
-      e(expr) match {
-        case Float32Literal(l) => Float32Literal(-l)
-        case Float64Literal(l) => Float64Literal(-l)
-        case _ => throw EvalError("Unexpected operation: -" + expr.asString)
-      }
+    case FPFMA(rm, e1, e2, e3) =>
+      val r = rounding(rm)
+      fpOperation("fma", Seq(e1, e2, e3)) {
+        case Seq(Float32Literal(a), Float32Literal(b), Float32Literal(c)) if r == Rounding.NearestEven =>
+          Float32Literal(java.lang.Math.fma(a, b, c))
+        case Seq(Float64Literal(a), Float64Literal(b), Float64Literal(c)) if r == Rounding.NearestEven =>
+          Float64Literal(java.lang.Math.fma(a, b, c))
+      } { case (f, Seq(x, y, z)) => f.fma(r, x, y, z) }
 
-    case FPAbs(expr) =>
-      e(expr) match {
-        case Float32Literal(l) => Float32Literal(Math.abs(l))
-        case Float64Literal(l) => Float64Literal(Math.abs(l))
-        case _ => throw EvalError("Unexpected operation: Math.abs(" + expr.asString + ")")
-      }
-
-    case FPMin(lhs, rhs) =>
-      (e(lhs), e(rhs)) match {
-        case (Float32Literal(l1), Float32Literal(l2)) => Float32Literal(fpMin(l1, l2))
-        case (Float64Literal(l1), Float64Literal(l2)) => Float64Literal(fpMin(l1, l2))
-        case _ => throw EvalError(f"Unexpected operation: min($lhs, $rhs)")
-      }
-
-    case FPMax(lhs, rhs) =>
-      (e(lhs), e(rhs)) match {
-        case (Float32Literal(l1), Float32Literal(l2)) => Float32Literal(fpMax(l1, l2))
-        case (Float64Literal(l1), Float64Literal(l2)) => Float64Literal(fpMax(l1, l2))
-        case _ => throw EvalError(f"Unexpected operation: max($lhs, $rhs)")
-      }
-
-    case FPRound(rm, expr) if roundingModes.contains(rm) =>
-      e(expr) match {
-        case Float32Literal(l) => Float32Literal(roundToIntegral(l.toDouble, rm).toFloat)
-        case Float64Literal(l) => Float64Literal(roundToIntegral(l, rm))
-        case _ => throw EvalError(f"Unexpected operation: round($expr)")
-      }
-
-    case Sqrt(RoundNearestTiesToEven, expr) =>
-      e(expr) match {
+    case Sqrt(rm, expr) =>
+      val r = rounding(rm)
+      fpOperation("sqrt", Seq(expr)) {
         // The square root of a float, computed in double precision, rounds to the correctly
         // rounded float square root.
-        case Float32Literal(l) => Float32Literal(Math.sqrt(l.toDouble).toFloat)
-        case Float64Literal(l) => Float64Literal(Math.sqrt(l))
-        case _ => throw EvalError("Unexpected operation: Math.sqrt(" + expr.asString + ")")
-      }
+        case Seq(Float32Literal(a)) if r == Rounding.NearestEven => Float32Literal(Math.sqrt(a.toDouble).toFloat)
+        case Seq(Float64Literal(a)) if r == Rounding.NearestEven => Float64Literal(Math.sqrt(a))
+      } { case (f, Seq(x)) => f.sqrt(r, x) }
 
-    case FPToBV(size, signed, rm, expr) if roundingModes.contains(rm) =>
-      val d = e(expr) match {
-        case Float32Literal(l) => l.toDouble
-        case Float64Literal(l) => l
-        case _ => throw EvalError("Unexpected operation: fp.to_bv(" + expr.asString + ")")
+    case FPRound(rm, expr) =>
+      val r = rounding(rm)
+      fpOperation("roundToIntegral", Seq(expr))(PartialFunction.empty) { case (f, Seq(x)) => f.roundToIntegral(r, x) }
+
+    case FPUMinus(expr) => fpOperation("-", Seq(expr))(PartialFunction.empty) { case (f, Seq(x)) => f.neg(x) }
+    case FPAbs(expr) => fpOperation("abs", Seq(expr))(PartialFunction.empty) { case (f, Seq(x)) => f.abs(x) }
+
+    // `max` and `min` follow SMT-LIB's fp.max and fp.min: a NaN operand is ignored unless both are
+    // NaN. SMT-LIB leaves the result open for +0.0 and -0.0, which we order as the JVM does.
+    case FPMin(lhs, rhs) => fpOperation("min", Seq(lhs, rhs))(PartialFunction.empty) { case (f, Seq(x, y)) => f.max(x, y, false) }
+    case FPMax(lhs, rhs) => fpOperation("max", Seq(lhs, rhs))(PartialFunction.empty) { case (f, Seq(x, y)) => f.max(x, y, true) }
+
+    case FPToBV(size, signed, rm, expr) =>
+      val r = rounding(rm)
+      e(expr) match {
+        // SMT-LIB leaves the conversion of NaN, infinities and out-of-range values unspecified. As on
+        // the JVM, NaN converts to 0, and out-of-range values saturate.
+        case FP(f, x) =>
+          val (lo, hi) =
+            if (signed) (-BigInt(2).pow(size - 1), BigInt(2).pow(size - 1) - 1)
+            else (BigInt(0), BigInt(2).pow(size) - 1)
+          BVLiteral(signed, f.toInteger(r, x, lo, hi), size)
+        case v => throw EvalError("Unexpected operation: fp.to_bv(" + v.asString + ")")
       }
-      val r = roundToIntegral(d, rm)
-      // SMT-LIB leaves the conversion of NaN, infinities and out-of-range values unspecified. As on
-      // the JVM, NaN converts to 0, and out-of-range values saturate.
-      val (lo, hi) =
-        if (signed) (-BigInt(2).pow(size - 1), BigInt(2).pow(size - 1) - 1)
-        else (BigInt(0), BigInt(2).pow(size) - 1)
-      val i =
-        if (r.isNaN) BigInt(0)
-        else if (r == Double.PositiveInfinity) hi
-        else if (r == Double.NegativeInfinity) lo
-        else BigDecimal(r).toBigInt.max(lo).min(hi)
-      BVLiteral(signed, i, size)
 
     case FPToReal(expr) =>
-      val d = e(expr) match {
-        case Float32Literal(l) => l.toDouble
-        case Float64Literal(l) => l
-        case _ => throw EvalError("Unexpected operation: fp.to_real(" + expr.asString + ")")
-      }
-      // SMT-LIB leaves the real value of NaN and infinities unspecified
-      if (d.isNaN || d.isInfinite) throw RuntimeError(s"Unspecified conversion of $d to a real.")
-      val exact = new java.math.BigDecimal(d)
-      val unscaled = BigInt(exact.unscaledValue)
-      normalizeFraction(
-        if (exact.scale >= 0) FractionLiteral(unscaled, BigInt(10).pow(exact.scale))
-        else FractionLiteral(unscaled * BigInt(10).pow(-exact.scale), 1)
-      )
-
-    case FPFromBinary(11, 53, expr) =>
       e(expr) match {
-        case Int64Literal(l)   => Float64Literal(java.lang.Double.longBitsToDouble(l))
-        case _ => throw EvalError("Unexpected operation:" + expr.asString + ".toBinaryFP")
+        case FP(f, x) =>
+          // SMT-LIB leaves the real value of NaN and infinities unspecified
+          if (f.isNaN(x) || f.isInfinite(x)) throw RuntimeError(s"Unspecified conversion of ${expr.asString} to a real.")
+          val q = f.toRational(x)
+          normalizeFraction(FractionLiteral(q.n, q.d))
+        case v => throw EvalError("Unexpected operation: fp.to_real(" + v.asString + ")")
       }
 
-    case FPFromBinary(8, 24, expr) =>
+    case FPFromBinary(exponent, significand, expr) =>
+      val f = Format(exponent, significand)
       e(expr) match {
-        case Int32Literal(l)   => Float32Literal(java.lang.Float.intBitsToFloat(l))
-        case _ => throw EvalError("Unexpected operation:" + expr.asString + ".toBinaryFP")
+        case bv: BVLiteral if bv.size == f.width => FP(f, f.canonical(BVLiteral(false, bv.value, bv.size).toBigInt))
+        case v => throw EvalError("Unexpected operation: " + v.asString + ".toBinaryFP")
       }
 
-    case ToDouble(expr) =>
-      e(expr) match {
-        case Int8Literal(l)    => Float64Literal(l.toDouble)
-        case Int16Literal(l)   => Float64Literal(l.toDouble)
-        case Int32Literal(l)   => Float64Literal(l.toDouble)
-        case Int64Literal(l)   => Float64Literal(l.toDouble)
-        case Float32Literal(l) => Float64Literal(l.toDouble)
-        case Float64Literal(l) => Float64Literal(l)
-        // `BigInt.toDouble` and `BigInt.toFloat` round to the nearest value, ties to even
-        case bv @ BVLiteral(false, _, _) => Float64Literal(bv.toBigInt.toDouble)
-        case _ => throw EvalError("Unexpected operation:" + expr.asString + ".toDouble")
-      }
-
-    case ToFloat(expr) =>
-      e(expr) match {
-        case Int8Literal(l)    => Float32Literal(l.toFloat)
-        case Int16Literal(l)   => Float32Literal(l.toFloat)
-        case Int32Literal(l)   => Float32Literal(l.toFloat)
-        case Int64Literal(l)   => Float32Literal(l.toFloat)
-        case Float32Literal(l) => Float32Literal(l)
-        case Float64Literal(l) => Float32Literal(l.toFloat)
-        case bv @ BVLiteral(false, _, _) => Float32Literal(bv.toBigInt.toFloat)
-        case _ => throw EvalError("Unexpected operation:" + expr.asString + ".toFloat")
-      }
-
-    case FPLessThan(lhs, rhs) =>
-      (e(lhs), e(rhs)) match {
-        case (Float32Literal(l1), Float32Literal(l2)) => BooleanLiteral(l1 < l2)
-        case (Float64Literal(l1), Float64Literal(l2)) => BooleanLiteral(l1 < l2)
-        case _ => throw EvalError("Unexpected operation: (" + lhs.asString + ") < (" + rhs.asString + ")")
-      }
-
-    case FPGreaterThan(lhs, rhs) =>
-      (e(lhs), e(rhs)) match {
-        case (Float32Literal(l1), Float32Literal(l2)) => BooleanLiteral(l1 > l2)
-        case (Float64Literal(l1), Float64Literal(l2)) => BooleanLiteral(l1 > l2)
-        case _ => throw EvalError("Unexpected operation: (" + lhs.asString + ") > (" + rhs.asString + ")")
-      }
-
-    case FPLessEquals(lhs, rhs) =>
-      (e(lhs), e(rhs)) match {
-        case (Float32Literal(l1), Float32Literal(l2)) => BooleanLiteral(l1 <= l2)
-        case (Float64Literal(l1), Float64Literal(l2)) => BooleanLiteral(l1 <= l2)
-        case _ => throw EvalError("Unexpected operation: (" + lhs.asString + ") <= (" + rhs.asString + ")")
-      }
-
-    case FPGreaterEquals(lhs, rhs) =>
-      (e(lhs), e(rhs)) match {
-        case (Float32Literal(l1), Float32Literal(l2)) => BooleanLiteral(l1 >= l2)
-        case (Float64Literal(l1), Float64Literal(l2)) => BooleanLiteral(l1 >= l2)
-        case _ => throw EvalError("Unexpected operation: (" + lhs.asString + ") >= (" + rhs.asString + ")")
-      }
-
-    case FPIsZero(expr) =>
-      e(expr) match {
-        case Float32Literal(l) => BooleanLiteral(l == 0)
-        case Float64Literal(l) => BooleanLiteral(l == 0)
-        case _ => throw EvalError("Unexpected operation: (" + expr.asString + ") == 0")
-      }
-
-    case FPIsInfinite(expr) =>
-      e(expr) match {
-        case Float32Literal(l) => BooleanLiteral(l.isInfinite)
-        case Float64Literal(l) => BooleanLiteral(l.isInfinite)
-        case _ => throw EvalError("Unexpected operation: (" + expr.asString + ").isInfinite")
-      }
-
-    case FPIsNaN(expr) =>
-      e(expr) match {
-        case Float32Literal(l) => BooleanLiteral(l.isNaN)
-        case Float64Literal(l) => BooleanLiteral(l.isNaN)
-        case _ => throw EvalError("Unexpected operation: (" + expr.asString + ").isNaN")
-      }
-
-    case FPIsPositive(expr) =>
-      e(expr) match {
-        case Float32Literal(l) => BooleanLiteral(l > 0f || l.equals(+0.0f))
-        case Float64Literal(l) => BooleanLiteral(l > 0d || l.equals(+0.0d))
-        case _ => throw EvalError("Unexpected operation: (" + expr.asString + ").isPositive")
-      }
-
-    case FPIsNormal(expr) =>
-      e(expr) match {
-        case Float32Literal(l) => BooleanLiteral(!l.isNaN && !l.isInfinite && Math.abs(l) >= java.lang.Float.MIN_NORMAL)
-        case Float64Literal(l) => BooleanLiteral(!l.isNaN && !l.isInfinite && Math.abs(l) >= java.lang.Double.MIN_NORMAL)
-        case _ => throw EvalError("Unexpected operation: (" + expr.asString + ").isNormal")
-      }
-
-    case FPIsSubnormal(expr) =>
-      e(expr) match {
-        case Float32Literal(l) => BooleanLiteral(l != 0 && Math.abs(l) < java.lang.Float.MIN_NORMAL)
-        case Float64Literal(l) => BooleanLiteral(l != 0 && Math.abs(l) < java.lang.Double.MIN_NORMAL)
-        case _ => throw EvalError("Unexpected operation: (" + expr.asString + ").isSubnormal")
-      }
-
-    case FPIsNegative(expr) =>
-      e(expr) match {
-        case Float32Literal(l) => BooleanLiteral(l < 0f || l.equals(-0.0f))
-        case Float64Literal(l) => BooleanLiteral(l < 0d || l.equals(-0.0d))
-        case _ => throw EvalError("Unexpected operation: (" + expr.asString + ").isNegative")
+    case FPCast(exponent, significand, rm, expr) =>
+      val r = rounding(rm)
+      val f = Format(exponent, significand)
+      (e(expr), r, exponent, significand) match {
+        // the JVM's conversions round to nearest, ties to even
+        case (Int32Literal(l), Rounding.NearestEven, 11, 53) => Float64Literal(l.toDouble)
+        case (Int64Literal(l), Rounding.NearestEven, 11, 53) => Float64Literal(l.toDouble)
+        case (Float32Literal(l), Rounding.NearestEven, 11, 53) => Float64Literal(l.toDouble)
+        case (Int32Literal(l), Rounding.NearestEven, 8, 24) => Float32Literal(l.toFloat)
+        case (Int64Literal(l), Rounding.NearestEven, 8, 24) => Float32Literal(l.toFloat)
+        case (Float64Literal(l), Rounding.NearestEven, 8, 24) => Float32Literal(l.toFloat)
+        case (FP(g, x), _, _, _) => FP(f, f.cast(r, g, x))
+        case (bv: BVLiteral, _, _, _) => FP(f, f.fromRational(r, bv.toBigInt, 1))
+        case (FractionLiteral(n, d), _, _, _) => FP(f, f.fromRational(r, n, d))
+        case (v, _, _, _) => throw EvalError("Unexpected operation: " + v.asString + ".toFP")
       }
 
     case _ => unhandled

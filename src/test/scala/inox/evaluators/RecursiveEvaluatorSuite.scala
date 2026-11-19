@@ -372,4 +372,62 @@ class RecursiveEvaluatorSuite extends AnyFunSuite {
     assert(ev.eval(Equals(Application(g.toVariable, Seq()), ADT(consID, Seq(IntegerType()), Seq(IntegerLiteral(1), cons(IntegerType())))),
       withLambdas).result == Some(BooleanLiteral(true)))
   }
+
+  test("Floating point in every rounding mode and format") {
+    import java.lang.Math.{nextDown, nextUp}
+    def f(x: Float) = Float32Literal(x)
+    def d(x: Double) = Float64Literal(x)
+    val third = 0.33333334f // 1/3 rounded to nearest, which is above it
+
+    // the exact result, rounded in each mode
+    for ((rm, r) <- Seq(RoundNearestTiesToEven -> third, RoundNearestTiesToAway -> third,
+                        RoundTowardPositive -> third, RoundTowardNegative -> nextDown(third),
+                        RoundTowardZero -> nextDown(third))) {
+      assert(eval(FPDiv(rm, f(1f), f(3f))) == f(r))
+      assert(eval(FPCast(8, 24, rm, FractionLiteral(1, 3))) == f(r))
+      assert(eval(FPDiv(rm, f(-1f), f(3f))) == f(-(if (rm == RoundTowardPositive) nextDown(third)
+                                                    else if (rm == RoundTowardNegative) third else r)))
+    }
+    assert(eval(FPAdd(RoundTowardPositive, f(1f), f(1e-10f))) == f(nextUp(1f)))
+    assert(eval(FPAdd(RoundTowardNegative, f(1f), f(1e-10f))) == f(1f))
+    assert(eval(FPSub(RoundTowardZero, f(1f), f(1e-10f))) == f(nextDown(1f)))
+    // 0.1 * 3 rounds up to nearest
+    assert(eval(FPMul(RoundTowardPositive, d(0.1), d(3))) == d(0.1 * 3))
+    assert(eval(FPMul(RoundTowardZero, d(0.1), d(3))) == d(nextDown(0.1 * 3)))
+    assert(eval(Sqrt(RoundTowardPositive, f(2f))) == f(nextUp(Math.sqrt(2).toFloat)))
+    assert(eval(Sqrt(RoundTowardZero, f(2f))) == f(Math.sqrt(2).toFloat))
+    assert(eval(FPFMA(RoundTowardZero, f(1f), f(1f), f(1e-10f))) == f(1f))
+    assert(eval(FPFMA(RoundTowardPositive, f(1f), f(1f), f(1e-10f))) == f(nextUp(1f)))
+    assert(eval(FPCast(8, 24, RoundTowardZero, d(0.1))) == f(nextDown(0.1f)))
+    assert(eval(FPCast(8, 24, RoundTowardPositive, d(0.1))) == f(0.1f))
+    assert(eval(FPCast(8, 24, RoundTowardZero, Int32Literal(16777217))) == f(16777216f))
+    assert(eval(FPCast(8, 24, RoundTowardPositive, Int32Literal(16777217))) == f(16777218f))
+
+    // overflows round to infinity or to the largest finite number, as the mode says
+    assert(eval(FPMul(RoundNearestTiesToEven, f(Float.MaxValue), f(2f))) == f(Float.PositiveInfinity))
+    assert(eval(FPMul(RoundTowardZero, f(Float.MaxValue), f(2f))) == f(Float.MaxValue))
+    assert(eval(FPMul(RoundTowardPositive, f(-Float.MaxValue), f(2f))) == f(-Float.MaxValue))
+    assert(eval(FPMul(RoundTowardNegative, f(-Float.MaxValue), f(2f))) == f(Float.NegativeInfinity))
+
+    // an exact zero is -0 when rounding toward negative
+    assert(eval(FPSub(RoundTowardNegative, f(1f), f(1f))) == f(-0f))
+    assert(eval(FPSub(RoundTowardZero, f(1f), f(1f))) == f(0f))
+
+    // the rounding mode can be a variable
+    val rm = Variable.fresh("rm", RoundingMode)
+    assert(eval(Let(rm.toVal, RoundTowardZero, FPDiv(rm, f(1f), f(3f)))) == f(nextDown(third)))
+
+    // other formats than Float and Double: half precision, with 5 exponent and 11 significand bits
+    val one = FPCast(5, 11, RoundNearestTiesToEven, Int32Literal(1))
+    assert(eval(FPToBV(16, false, RoundTowardZero, FPFromBinary(5, 11, BVLiteral(false, 0x3E00, 16)))) == BVLiteral(false, 1, 16))
+    assert(eval(FPToReal(FPAdd(RoundNearestTiesToEven, one, FPCast(5, 11, RoundNearestTiesToEven, FractionLiteral(1, 2))))) == FractionLiteral(3, 2))
+    // 1/3 has 11 significant bits in half precision
+    assert(eval(FPToReal(FPDiv(RoundTowardZero, one, FPCast(5, 11, RoundNearestTiesToEven, Int32Literal(3))))) == FractionLiteral(1365, 4096))
+    assert(eval(FPIsSubnormal(FPCast(5, 11, RoundNearestTiesToEven, FractionLiteral(1, 1 << 20)))) == BooleanLiteral(true))
+    assert(eval(FPIsInfinite(FPCast(5, 11, RoundNearestTiesToEven, Int32Literal(70000)))) == BooleanLiteral(true))
+
+    // conversions to bit-vectors are exact, beyond the precision of decimal strings
+    val big = 1.2345678901234567e18
+    assert(eval(FPToBV(64, true, RoundNearestTiesToEven, d(big))) == BVLiteral(true, BigInt(new java.math.BigDecimal(big).toBigInteger), 64))
+  }
 }
