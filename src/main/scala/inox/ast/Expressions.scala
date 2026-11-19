@@ -458,7 +458,8 @@ trait Expressions { self: Trees =>
       s.leastUpperBound(lhs.getType, rhs.getType) match {
         case Untyped => Untyped
         // an equivalence between propositions, or between values that hold them
-        case tpe if s.containsProposition(tpe) => PropType()
+        case tpe if s.containsProposition(tpe) =>
+          if (s.hasPropositionalEquality(tpe)) PropType() else Untyped
         case _ => BooleanType()
       }
     }

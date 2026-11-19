@@ -279,6 +279,32 @@ class PropTypingSuite extends AnyFunSuite {
     propositional.ensureWellFormed
   }
 
+  test("Functions that return propositions are only compared on arguments without such functions") {
+    given Symbols = propositional
+    val predT = FunctionType(Seq(IntegerType()), PropType())
+    val pred = Lambda(Seq("y" :: IntegerType()), positive)
+    val p = "p" :: PropType()
+    val c = "c" :: ADTType(claimID, Seq())
+    // the propositions of the arguments are only true or false
+    val not = Lambda(Seq(p), Not(p.toVariable))
+    val holds = Lambda(Seq(c), ADTSelector(c.toVariable, holdsID))
+    val both = Lambda(Seq("t" :: TupleType(Seq(PropType(), IntegerType()))), positive)
+    typed(PropType(), Equals(not, not), Equals(holds, holds), Equals(both, both))
+    // but comparing functions that take predicates would quantify over all the predicates
+    val q = "q" :: predT
+    val at1 = Lambda(Seq(q), Application(q.toVariable, Seq(i)))
+    val curried = Lambda(Seq("x" :: IntegerType()), at1)
+    val inPair = Lambda(Seq("t" :: TupleType(Seq(predT, IntegerType()))), positive)
+    typed(FunctionType(Seq(predT), PropType()), at1)
+    typed(Untyped, Equals(at1, at1), Equals(curried, curried), Equals(inPair, inPair),
+      Equals(Tuple(Seq(at1, i)), Tuple(Seq(at1, i))))
+    // functions that take predicates but don't return propositions keep a boolean equality
+    val count = Lambda(Seq(q), i)
+    typed(BooleanType(), Equals(count, count))
+    // and predicates are still compared
+    typed(PropType(), Equals(pred, pred))
+  }
+
   test("Propositions can be refined") {
     given Symbols = propositional
     // { p: Prop | p ==> b }
