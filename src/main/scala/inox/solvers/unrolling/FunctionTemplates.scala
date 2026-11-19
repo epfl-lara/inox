@@ -164,8 +164,8 @@ trait FunctionTemplates { self: Templates =>
     ranked.flatMap { case (b, fi, callee) =>
       // Calls whose arguments mention symbols that the template doesn't bind aren't ranked
       if (!exprOps.variablesOf(callee).forall(allSymbols.contains)) Seq.empty
-      else if (modes.assumeChecked) Seq(mkImplies(encoder(b), encoder(GreaterThan(self, callee))))
-      else Seq(mkImplies(encoder(b), mkOr(encoder(GreaterThan(self, callee)), diverges)))
+      else Rule.Decreases(encoder(b), encoder(GreaterThan(self, callee)),
+        if (modes.assumeChecked) None else Some(diverges)).clauses
     }
   }
 
@@ -217,34 +217,16 @@ trait FunctionTemplates { self: Templates =>
       exprOps.exists { case _: UninterpretedCall => true case _ => false } (fd.fullBody)
     })
 
-  /** Clauses stating that the calls `call1` and `call2` of the same function on equal arguments
-    * have equal results, when some of its parameters or its result need equality unrolling.
-    *
-    * The results of calls are determined by the function body (whose uninterpreted calls are
-    * functions of their arguments), so these clauses are only shortcuts and their equalities need
-    * not be unrolled.
-    */
+  /** The [[Rule.Purity]] clauses of the calls `call1` and `call2` of the same function, when some
+    * of its parameters or its result need equality unrolling. Otherwise, the solver already knows
+    * that the calls are functions of their arguments. */
   private def purityClauses(call1: Call, blocker1: Encoded, call2: Call, blocker2: Encoded): Clauses = call1.callee match {
     // The calls of an interpreted function are applications of the same free function
     case _: Interpreted => Seq.empty
-    case Defined(tfd) => if (tfd.params.exists(vd => unrollEquality(vd.getType)) || unrollEquality(tfd.getType)) {
-      val clauses = new scala.collection.mutable.ListBuffer[Encoded]
-      val equalities = (tfd.params.map(_.getType) zip (call1.args zip call2.args)).map { case (tpe, (e1, e2)) =>
-        val (equality, eqClauses) = mkEqualities(blocker1, tpe, e1.encoded, e2.encoded, register = false)
-        clauses ++= eqClauses
-        equality
-      }
-
-      val (entail, entailClauses) = mkEqualities(blocker1, tfd.getType,
-        mkCall(tfd, call1.args.map(_.encoded)),
-        mkCall(tfd, call2.args.map(_.encoded)), register = false)
-      clauses ++= entailClauses
-
-      clauses += mkImplies(mkAnd(blocker1 +: blocker2 +: equalities*), entail)
-      clauses.toSeq
-    } else {
-      Seq.empty
-    }
+    case Defined(tfd) =>
+      if (tfd.params.exists(vd => unrollEquality(vd.getType)) || unrollEquality(tfd.getType))
+        Rule.Purity(tfd, call1.args.map(_.encoded), blocker1, call2.args.map(_.encoded), blocker2).clauses
+      else Seq.empty
   }
 
   /** The purity clauses between the calls unrolled so far, which [[equalitiesInstantiated]] delays.
@@ -327,7 +309,7 @@ trait FunctionTemplates { self: Templates =>
 
             callee match {
               case interpreted: Interpreted =>
-                newCls ++= InterpretedTemplate(interpreted).instantiate(defBlocker, args, callFailure(call))
+                newCls ++= Rule.Unfold(InterpretedTemplate(interpreted), defBlocker, args, Some(callFailure(call))).clauses
               case Defined(tfd) =>
                 // Ground calls are evaluated rather than unfolded, and unfolded when evaluation fails. A call is
                 // blocked if a ground argument that runs no functions gets stuck (e.g. `nil.tail`).
@@ -364,24 +346,13 @@ trait FunctionTemplates { self: Templates =>
                   (inlining, stuck)
                 }
 
-                if (skip) newCls += mkNot(defBlocker)
-                else newCls ++= inlining.flatMap(_.result).map { body =>
-                  val start = Variable.fresh("cs", BooleanType())
-                  val (p, cls) = mkExprClauses(start, body, Map(start -> defBlocker))
-                  val tmplClauses = cls + (start -> Equals(tfd.applied, p))
-
-                  val (contents, _) = Template.contents(
-                    start -> defBlocker,
-                    tfd.params.map(_.toVariable) zip args.map(_.encoded),
-                    tmplClauses,
-                    optCall = Some(Defined(tfd)),
-                    partial = true
-                  )
-
-                  contents.instantiation(defBlocker, Map.empty[Encoded, Arg]).clauses(failure = Some(callFailure(call)))
-                } getOrElse {
-                  FunctionTemplate(tfd).instantiate(defBlocker, args ++ tpSubst, callFailure(call))
-                }
+                val rule =
+                  if (skip) Rule.Unreachable(defBlocker)
+                  else inlining.flatMap(_.result) match {
+                    case Some(value) => Rule.UnfoldValue(tfd, value, defBlocker, args, callFailure(call))
+                    case None => Rule.Unfold(FunctionTemplate(tfd), defBlocker, args ++ tpSubst, Some(callFailure(call)))
+                  }
+                newCls ++= rule.clauses
             }
 
             defBlocker
@@ -390,7 +361,7 @@ trait FunctionTemplates { self: Templates =>
         // We connect it to the defBlocker: blocker => defBlocker
         if (defBlocker != blocker) {
           registerImplication(blocker, defBlocker)
-          newCls += mkImplies(blocker, defBlocker)
+          newCls ++= Rule.Enables(blocker, defBlocker).clauses
         }
 
         reporter.debug("Unrolling behind "+call+" ("+newCls.size+")")

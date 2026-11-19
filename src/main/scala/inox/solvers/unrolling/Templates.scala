@@ -20,6 +20,7 @@ trait Templates
      with BlockerGraph
      with PartialFunctions
      with OpenJunctions
+     with RuleKernel
      with SolverFacades
      with IncrementalStateWrapper {
 
