@@ -16,9 +16,9 @@ This version covers integers, Booleans, unit, characters, reals, strings,
 bit-vectors, tuples, algebraic datatypes (with their invariants), recursive
 functions, first-class functions, `let`, `if`, `assume` and
 `error`, sets, bags and maps, quantifiers, and the uninterpreted functions of
-models, and floating point. The dependent types (`PiType` and `SigmaType`) come
-later, and so does `--function-equality=intensional`, which compares
-normalized lambdas and stays outside the semantics.
+models, floating point, and the dependent types (`PiType` and `SigmaType`).
+`--function-equality=intensional`, which compares normalized lambdas, stays
+outside the semantics.
 
 ## Evaluation with fuel
 
@@ -134,7 +134,10 @@ refinement type `{x: base | prop}` holds the values of `base` for which
   (MapType (from Type) (to Type))
   (FunctionType (from (List Type)) (to Type))
   (ADTType (sort Id) (args (List Type)))
-  (RefinementType (id Id) (base Type) (prop Expr)))
+  (RefinementType (id Id) (base Type) (prop Expr))
+  (PropType)
+  (PiType (params (List Param)) (to Type))
+  (SigmaType (params (List Param)) (to Type)))
 
 (datatype Param
   (Param (id Id) (tpe Type)))
@@ -1979,7 +1982,14 @@ model rather than by the program.
     ((FunctionType ts u) (FunctionType (resolve-all tenv ts) (resolve tenv u)))
     ((ADTType s ts) (ADTType s (resolve-all tenv ts)))
     ((RefinementType x u prop) (RefinementType x (resolve tenv u) prop))
+    ((PiType ps u) (PiType (resolve-params tenv ps) (resolve tenv u)))
+    ((SigmaType ps u) (SigmaType (resolve-params tenv ps) (resolve tenv u)))
     (_ t)))
+
+(define (resolve-params (tenv (List TypeBinding)) (ps (List Param))) (List Param)
+  (match ps
+    ((Nil) (Nil))
+    ((Cons (Param x t) rest) (Cons (Param x (resolve tenv t)) (resolve-params tenv rest)))))
 
 (define (resolve-all (tenv (List TypeBinding)) (ts (List Type))) (List Type)
   (match ts
@@ -2014,6 +2024,7 @@ character code below 2^16, and string characters at most `0x2FFFF`, as in
 SMT-LIB. A value of an ADT type also satisfies its sort's invariant, and a
 value of a refinement type its predicate, for some fuel. A type parameter
 stands for the type it is bound to, and for the integers if it isn't bound.
+`PropType`, the type of propositions, has the Booleans as values.
 
 A value of a function type is a closure that, on every input of its parameter
 types, evaluates to a value of its result type, for some fuel. Function values
@@ -2021,11 +2032,24 @@ are total, as the functions of SMT-LIB's models are: Inox's lambdas can get
 stuck when applied, but quantifiers and free variables range over total
 functions only.
 
+Types are checked in an environment, as the predicates of refinements can
+refer to variables. The dependent types bind their parameters in it: a value
+of `(PiType params to)` is a closure that, on every input of the parameters'
+types, evaluates to a value of `to` with the parameters bound to the input,
+and a value of `(SigmaType params to)` is a tuple whose first elements have the
+parameters' types, each with the previous ones bound, and whose last element
+has type `to` with all of them bound. A type that a type parameter is bound to
+is checked in the environment of its binding, without variables.
+
+The quantifiers over values and fuel are in their own functions, so that
+`has-type` itself is computable from them.
+
 ```inox-sem
-(define (has-type (P Program) (tenv (List TypeBinding)) (v Value) (t Type)) Bool
+(define (has-type (P Program) (env Env) (v Value) (t Type)) Bool
   (match t
     ((IntegerType) (match v ((IntV _) true) (_ false)))
     ((BooleanType) (match v ((BoolV _) true) (_ false)))
+    ((PropType) (match v ((BoolV _) true) (_ false)))
     ((UnitType) (match v ((UnitV) true) (_ false)))
     ((CharType) (match v ((CharV c) (and (<= 0 c) (< c 65536))) (_ false)))
     ((RealType) (match v ((RealV n d) (and (< 0 d) (= (gcd (abs n) d) 1))) (_ false)))
@@ -2041,32 +2065,35 @@ functions only.
         (_ false)))
     ((RoundingModeType) (match v ((RoundingModeV _) true) (_ false)))
     ((TypeParameter x)
-      (match (lookup-type tenv x)
-        ((Some (TypeBinding _ u uenv)) (has-type P uenv v u))
+      (match (lookup-type (env-types env) x)
+        ((Some (TypeBinding _ u uenv)) (has-type P (Env uenv (Nil)) v u))
         ((None) (match v ((IntV _) true) (_ false)))))
-    ((TupleType ts) (match v ((TupleV vs) (have-types P tenv vs ts)) (_ false)))
+    ((TupleType ts) (match v ((TupleV vs) (have-types P env vs ts)) (_ false)))
     ((SetType u)
       (match v
-        ((SetV xs) (and (all-have-type P tenv xs u) (distinct-values P xs)))
+        ((SetV xs) (and (all-have-type P env xs u) (distinct-values P xs)))
         (_ false)))
     ((BagType u)
       (match v
-        ((BagV xs) (and (bag-has-type P tenv xs u) (distinct-values P (bag-elems xs))))
+        ((BagV xs) (and (bag-has-type P env xs u) (distinct-values P (bag-elems xs))))
         (_ false)))
     ((MapType u w)
       (match v
         ((MapV xs d)
-          (and (has-type P tenv d w)
-            (and (map-has-type P tenv xs u w) (distinct-values P (map-keys xs)))))
+          (and (has-type P env d w)
+            (and (map-has-type P env xs u w) (distinct-values P (map-keys xs)))))
         (_ false)))
     ((FunctionType from to)
       (match v
-        ((ClosureV params _ _)
-          (and (same-arity params from)
-            (forall ((vs (List Value)))
-              (or (not (have-types P tenv vs from))
-                (exists ((fuel Int) (r Value))
-                  (and (= (apply P fuel v vs) (Ok r)) (has-type P tenv r to)))))))
+        ((ClosureV params _ _) (and (same-arity params from) (function-has-type P env v from to)))
+        (_ false)))
+    ((PiType ps to)
+      (match v
+        ((ClosureV params _ _) (and (same-arity params (param-types ps)) (pi-has-type P env v ps to)))
+        (_ false)))
+    ((SigmaType ps to)
+      (match v
+        ((TupleV vs) (sigma-has-type P env vs ps to))
         (_ false)))
     ((ADTType s args)
       (match v
@@ -2078,51 +2105,82 @@ functions only.
                   (match (lookup-sort ss s)
                     ((Ok (Sort _ tparams inv))
                       (and (= s s2)
-                        (and (params-have-types P (bind-types tparams args tenv) vs fields)
+                        (and (params-have-types P (Env (bind-types tparams args (env-types env)) (Nil)) vs fields)
                           (match inv
                             ((None) true)
-                            ((Some f)
-                              (exists ((fuel Int))
-                                (= (call P fuel f args tenv (Cons v (Nil))) (Ok (BoolV true)))))))))
+                            ((Some f) (invariant-holds P f args (env-types env) v))))))
                     (_ false)))
                 (_ false)))))
         (_ false)))
     ((RefinementType x u prop)
-      (and (has-type P tenv v u)
-        (exists ((fuel Int))
-          (= (eval P fuel (Env tenv (Cons (Binding x v) (Nil))) prop) (Ok (BoolV true))))))))
+      (and (has-type P env v u) (holds P (env-bind env x v) prop)))))
 
-(define (have-types (P Program) (tenv (List TypeBinding)) (vs (List Value)) (ts (List Type))) Bool
+(define (holds (P Program) (env Env) (prop Expr)) Bool
+  (exists ((fuel Int))
+    (= (eval P fuel env prop) (Ok (BoolV true)))))
+
+(define (invariant-holds (P Program) (f Id) (args (List Type)) (tenv (List TypeBinding)) (v Value)) Bool
+  (exists ((fuel Int))
+    (= (call P fuel f args tenv (Cons v (Nil))) (Ok (BoolV true)))))
+
+(define (function-has-type (P Program) (env Env) (f Value) (from (List Type)) (to Type)) Bool
+  (forall ((vs (List Value)))
+    (or (not (have-types P env vs from))
+      (exists ((fuel Int) (r Value))
+        (and (= (apply P fuel f vs) (Ok r)) (has-type P env r to))))))
+
+(define (pi-has-type (P Program) (env Env) (f Value) (ps (List Param)) (to Type)) Bool
+  (forall ((vs (List Value)))
+    (or (not (params-have-types P env vs ps))
+      (exists ((fuel Int) (r Value) (bs (List Binding)))
+        (and (and (= (bind-all (param-ids ps) vs) (Ok bs)) (= (apply P fuel f vs) (Ok r)))
+          (has-type P (Env (env-types env) (append-env bs (env-vars env))) r to))))))
+
+(define (sigma-has-type (P Program) (env Env) (vs (List Value)) (ps (List Param)) (to Type)) Bool
+  (match ps
+    ((Nil) (match vs ((Cons v (Nil)) (has-type P env v to)) (_ false)))
+    ((Cons (Param x t) more)
+      (match vs
+        ((Cons v rest) (and (has-type P env v t) (sigma-has-type P (env-bind env x v) rest more to)))
+        (_ false)))))
+
+(define (param-types (ps (List Param))) (List Type)
+  (match ps
+    ((Nil) (Nil))
+    ((Cons (Param _ t) rest) (Cons t (param-types rest)))))
+
+(define (have-types (P Program) (env Env) (vs (List Value)) (ts (List Type))) Bool
   (match vs
     ((Nil) (match ts ((Nil) true) (_ false)))
     ((Cons v rest)
       (match ts
         ((Nil) false)
-        ((Cons t more) (and (has-type P tenv v t) (have-types P tenv rest more)))))))
+        ((Cons t more) (and (has-type P env v t) (have-types P env rest more)))))))
 
-(define (params-have-types (P Program) (tenv (List TypeBinding)) (vs (List Value)) (ps (List Param))) Bool
+;; each parameter is bound for the types of the next ones, which may depend on it
+(define (params-have-types (P Program) (env Env) (vs (List Value)) (ps (List Param))) Bool
   (match vs
     ((Nil) (match ps ((Nil) true) (_ false)))
     ((Cons v rest)
       (match ps
         ((Nil) false)
-        ((Cons (Param _ t) more) (and (has-type P tenv v t) (params-have-types P tenv rest more)))))))
+        ((Cons (Param x t) more) (and (has-type P env v t) (params-have-types P (env-bind env x v) rest more)))))))
 
-(define (all-have-type (P Program) (tenv (List TypeBinding)) (vs (List Value)) (t Type)) Bool
+(define (all-have-type (P Program) (env Env) (vs (List Value)) (t Type)) Bool
   (match vs
     ((Nil) true)
-    ((Cons v rest) (and (has-type P tenv v t) (all-have-type P tenv rest t)))))
+    ((Cons v rest) (and (has-type P env v t) (all-have-type P env rest t)))))
 
-(define (bag-has-type (P Program) (tenv (List TypeBinding)) (xs (List BagEntry)) (t Type)) Bool
+(define (bag-has-type (P Program) (env Env) (xs (List BagEntry)) (t Type)) Bool
   (match xs
     ((Nil) true)
-    ((Cons (BagEntry x n) rest) (and (and (< 0 n) (has-type P tenv x t)) (bag-has-type P tenv rest t)))))
+    ((Cons (BagEntry x n) rest) (and (and (< 0 n) (has-type P env x t)) (bag-has-type P env rest t)))))
 
-(define (map-has-type (P Program) (tenv (List TypeBinding)) (xs (List MapEntry)) (t Type) (u Type)) Bool
+(define (map-has-type (P Program) (env Env) (xs (List MapEntry)) (t Type) (u Type)) Bool
   (match xs
     ((Nil) true)
     ((Cons (MapEntry k v) rest)
-      (and (and (has-type P tenv k t) (has-type P tenv v u)) (map-has-type P tenv rest t u)))))
+      (and (and (has-type P env k t) (has-type P env v u)) (map-has-type P env rest t u)))))
 
 (define (valid-chars (cs (List Int))) Bool
   (match cs
@@ -2171,15 +2229,15 @@ else, since `false` takes precedence.
 
 (define (forall-result (P Program) (fuel Int) (env Env) (params (List Param)) (body Expr)) (Result Value)
   (if (exists ((vs (List Value)))
-        (and (params-have-types P (env-types env) vs params)
+        (and (params-have-types P env vs params)
           (= (instance P fuel env params vs body) (Ok (BoolV false)))))
     (Ok (BoolV false))
     (if (exists ((vs (List Value)))
-          (and (params-have-types P (env-types env) vs params)
+          (and (params-have-types P env vs params)
             (= (instance P fuel env params vs body) (OutOfFuel))))
       (OutOfFuel)
       (if (forall ((vs (List Value)))
-            (or (not (params-have-types P (env-types env) vs params))
+            (or (not (params-have-types P env vs params))
               (= (instance P fuel env params vs body) (Ok (BoolV true)))))
         (Ok (BoolV true))
         (Stuck)))))
@@ -2196,9 +2254,9 @@ them has a value, as in Inox.
 ```inox-sem
 (define (closures-equal (P Program) (f Value) (g Value)) Bool
   (match f
-    ((ClosureV params _ (Env tys _))
+    ((ClosureV params _ cenv)
       (forall ((vs (List Value)))
-        (or (not (params-have-types P tys vs params))
+        (or (not (params-have-types P cenv vs params))
           (or
             (forall ((fuel Int) (a Value))
               (and (not (= (apply P fuel f vs) (Ok a))) (not (= (apply P fuel g vs) (Ok a)))))

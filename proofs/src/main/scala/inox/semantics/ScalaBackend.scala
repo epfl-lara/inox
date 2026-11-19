@@ -104,7 +104,7 @@ object ScalaBackend {
     case Term.Quant(_, _, _) => throw SpecError("a quantifier can't be executed")
     case Term.Match(s, cases) =>
       val cs = cases.map { case (p, b) => s"${ind(d + 1)}case ${pattern(p)} => ${term(b, d + 2)}\n" }.mkString
-      s"(${term(s, d)}) match {\n$cs${ind(d)}}"
+      s"((${term(s, d)}) match {\n$cs${ind(d)}})"
   }
 
   private def function(f: Function, noncomputable: Boolean): String = {

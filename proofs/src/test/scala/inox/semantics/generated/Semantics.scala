@@ -67,6 +67,9 @@ object Semantics {
   final case class FunctionType(from: List[Type], to: Type) extends Type
   final case class ADTType(sort: Id, args: List[Type]) extends Type
   final case class RefinementType(id: Id, base: Type, prop: Expr) extends Type
+  final case class PropType() extends Type
+  final case class PiType(params: List[Param], to: Type) extends Type
+  final case class SigmaType(params: List[Param], to: Type) extends Type
 
   final case class Param(id: Id, tpe: Type)
 
@@ -246,139 +249,139 @@ object Semantics {
     * subclass gives them. */
   abstract class Evaluator {
     def lookup_var(vars: List[Binding], x: Id): Result[Value] =
-      (vars) match {
+      ((vars) match {
         case Nil() => Stuck()
         case Cons(Binding(y, v), rest) => (if ((x == y)) {
             Ok(v)
           } else {
             lookup_var(rest, x)
           })
-      }
+      })
 
     def lookup_type(types: List[TypeBinding], x: Id): Option[TypeBinding] =
-      (types) match {
+      ((types) match {
         case Nil() => None()
-        case Cons(b, rest) => (b) match {
+        case Cons(b, rest) => ((b) match {
             case TypeBinding(y, _, _) => (if ((x == y)) {
                 Some(b)
               } else {
                 lookup_type(rest, x)
               })
-          }
-      }
+          })
+      })
 
     def bind_types(ids: List[Id], tps: List[Type], env: List[TypeBinding]): List[TypeBinding] =
-      (ids) match {
+      ((ids) match {
         case Nil() => Nil()
-        case Cons(x, xs) => (tps) match {
+        case Cons(x, xs) => ((tps) match {
             case Nil() => Nil()
             case Cons(t, ts) => Cons(TypeBinding(x, t, env), bind_types(xs, ts, env))
-          }
-      }
+          })
+      })
 
     def env_types(env: Env): List[TypeBinding] =
-      (env) match {
+      ((env) match {
         case Env(tys, _) => tys
-      }
+      })
 
     def env_vars(env: Env): List[Binding] =
-      (env) match {
+      ((env) match {
         case Env(_, vars) => vars
-      }
+      })
 
     def env_bind(env: Env, x: Id, v: Value): Env =
-      (env) match {
+      ((env) match {
         case Env(tys, vars) => Env(tys, Cons(Binding(x, v), vars))
-      }
+      })
 
     def param_ids(ps: List[Param]): List[Id] =
-      (ps) match {
+      ((ps) match {
         case Nil() => Nil()
         case Cons(Param(x, _), rest) => Cons(x, param_ids(rest))
-      }
+      })
 
     def bind_all(ids: List[Id], vs: List[Value]): Result[List[Binding]] =
-      (ids) match {
-        case Nil() => (vs) match {
+      ((ids) match {
+        case Nil() => ((vs) match {
             case Nil() => Ok(Nil())
             case _ => Stuck()
-          }
-        case Cons(x, xs) => (vs) match {
+          })
+        case Cons(x, xs) => ((vs) match {
             case Nil() => Stuck()
             case Cons(v, rest) => bind_all(xs, rest) match {
                 case Ok(bs) => Ok(Cons(Binding(x, v), bs))
                 case Stuck() => Stuck()
                 case OutOfFuel() => OutOfFuel()
               }
-          }
-      }
+          })
+      })
 
     def lookup_fun(fs: List[FunDef], f: Id): Result[FunDef] =
-      (fs) match {
+      ((fs) match {
         case Nil() => Stuck()
-        case Cons(fd, rest) => (fd) match {
+        case Cons(fd, rest) => ((fd) match {
             case FunDef(g, _, _, _) => (if ((f == g)) {
                 Ok(fd)
               } else {
                 lookup_fun(rest, f)
               })
-          }
-      }
+          })
+      })
 
     def lookup_ctor(cs: List[Constructor], c: Id): Result[Constructor] =
-      (cs) match {
+      ((cs) match {
         case Nil() => Stuck()
-        case Cons(k, rest) => (k) match {
+        case Cons(k, rest) => ((k) match {
             case Constructor(d, _, _) => (if ((c == d)) {
                 Ok(k)
               } else {
                 lookup_ctor(rest, c)
               })
-          }
-      }
+          })
+      })
 
     def lookup_sort(ss: List[Sort], s: Id): Result[Sort] =
-      (ss) match {
+      ((ss) match {
         case Nil() => Stuck()
-        case Cons(srt, rest) => (srt) match {
+        case Cons(srt, rest) => ((srt) match {
             case Sort(t, _, _) => (if ((s == t)) {
                 Ok(srt)
               } else {
                 lookup_sort(rest, s)
               })
-          }
-      }
+          })
+      })
 
     def select_field(fields: List[Param], args: List[Value], sel: Id): Result[Value] =
-      (fields) match {
+      ((fields) match {
         case Nil() => Stuck()
-        case Cons(Param(f, _), fs) => (args) match {
+        case Cons(Param(f, _), fs) => ((args) match {
             case Nil() => Stuck()
             case Cons(v, vs) => (if ((f == sel)) {
                 Ok(v)
               } else {
                 select_field(fs, vs, sel)
               })
-          }
-      }
+          })
+      })
 
     def call(v_P: Program, fuel: BigInt, f: Id, tps: List[Type], tenv: List[TypeBinding], vs: List[Value]): Result[Value] =
       (if ((fuel <= BigInt(0))) {
         OutOfFuel()
       } else {
-        (v_P) match {
+        ((v_P) match {
           case Program(fs, _, _, _, _) => lookup_fun(fs, f) match {
-              case Ok(fd) => (fd) match {
+              case Ok(fd) => ((fd) match {
                 case FunDef(_, tparams, params, body) => bind_all(params, vs) match {
                     case Ok(bs) => eval(v_P, (fuel - BigInt(1)), Env(bind_types(tparams, tps, tenv), bs), body)
                     case Stuck() => Stuck()
                     case OutOfFuel() => OutOfFuel()
                   }
-              }
+              })
               case Stuck() => Stuck()
               case OutOfFuel() => OutOfFuel()
             }
-        }
+        })
       })
 
     def eval(v_P: Program, fuel: BigInt, env: Env, e: Expr): Result[Value] = e match {
@@ -416,19 +419,19 @@ object Semantics {
         forall_result(v_P, fuel, env, params, body)
       case UninterpretedCall(f, tps, args) =>
         eval_list(v_P, fuel, env, args) match {
-          case Ok(vs) => (v_P) match {
+          case Ok(vs) => ((v_P) match {
             case Program(_, _, _, is, _) => lookup_interpretation(is, f, resolve_all(env_types(env), tps)) match {
-                case Ok(i) => (i) match {
+                case Ok(i) => ((i) match {
                   case Interpretation(_, _, params, body) => bind_all(params, vs) match {
                       case Ok(bs) => eval(v_P, fuel, Env(Nil(), bs), body)
                       case Stuck() => Stuck()
                       case OutOfFuel() => OutOfFuel()
                     }
-                }
+                })
                 case Stuck() => Stuck()
                 case OutOfFuel() => OutOfFuel()
               }
-          }
+          })
           case Stuck() => Stuck()
           case OutOfFuel() => OutOfFuel()
         }
@@ -478,55 +481,55 @@ object Semantics {
         Ok(RoundingModeV(RTZ()))
       case ADT(c, tps, args) =>
         eval_list(v_P, fuel, env, args) match {
-          case Ok(vs) => (v_P) match {
+          case Ok(vs) => ((v_P) match {
             case Program(_, cs, ss, _, _) => lookup_ctor(cs, c) match {
-                case Ok(k) => (k) match {
+                case Ok(k) => ((k) match {
                   case Constructor(_, s, _) => lookup_sort(ss, s) match {
-                      case Ok(srt) => (srt) match {
+                      case Ok(srt) => ((srt) match {
                         case Sort(_, _, None()) => Ok(ADTV(c, vs))
                         case Sort(_, _, Some(inv)) => call(v_P, fuel, inv, tps, env_types(env), Cons(ADTV(c, vs), Nil())) match {
-                            case Ok(holds) => (holds) match {
+                            case Ok(holds) => ((holds) match {
                               case BoolV(true) => Ok(ADTV(c, vs))
                               case _ => Stuck()
-                            }
+                            })
                             case Stuck() => Stuck()
                             case OutOfFuel() => OutOfFuel()
                           }
-                      }
+                      })
                       case Stuck() => Stuck()
                       case OutOfFuel() => OutOfFuel()
                     }
-                }
+                })
                 case Stuck() => Stuck()
                 case OutOfFuel() => OutOfFuel()
               }
-          }
+          })
           case Stuck() => Stuck()
           case OutOfFuel() => OutOfFuel()
         }
       case IsConstructor(adt, c) =>
         eval(v_P, fuel, env, adt) match {
-          case Ok(v) => (v) match {
+          case Ok(v) => ((v) match {
             case ADTV(d, _) => Ok(BoolV((c == d)))
             case _ => Stuck()
-          }
+          })
           case Stuck() => Stuck()
           case OutOfFuel() => OutOfFuel()
         }
       case ADTSelector(adt, sel) =>
         eval(v_P, fuel, env, adt) match {
-          case Ok(v) => (v) match {
-            case ADTV(c, vs) => (v_P) match {
+          case Ok(v) => ((v) match {
+            case ADTV(c, vs) => ((v_P) match {
                 case Program(_, cs, _, _, _) => lookup_ctor(cs, c) match {
-                    case Ok(k) => (k) match {
+                    case Ok(k) => ((k) match {
                       case Constructor(_, _, fields) => select_field(fields, vs, sel)
-                    }
+                    })
                     case Stuck() => Stuck()
                     case OutOfFuel() => OutOfFuel()
                   }
-              }
+              })
             case _ => Stuck()
-          }
+          })
           case Stuck() => Stuck()
           case OutOfFuel() => OutOfFuel()
         }
@@ -726,10 +729,10 @@ object Semantics {
         }
       case BVNot(expr) =>
         eval(v_P, fuel, env, expr) match {
-          case Ok(a) => (a) match {
+          case Ok(a) => ((a) match {
             case BVV(s, w, x) => Ok(BVV(s, w, ((pow2(w) - BigInt(1)) - x)))
             case _ => Stuck()
-          }
+          })
           case Stuck() => Stuck()
           case OutOfFuel() => OutOfFuel()
         }
@@ -807,28 +810,28 @@ object Semantics {
         }
       case BVUnsignedToSigned(expr) =>
         eval(v_P, fuel, env, expr) match {
-          case Ok(a) => (a) match {
+          case Ok(a) => ((a) match {
             case BVV(false, w, x) => Ok(BVV(true, w, x))
             case _ => Stuck()
-          }
+          })
           case Stuck() => Stuck()
           case OutOfFuel() => OutOfFuel()
         }
       case BVSignedToUnsigned(expr) =>
         eval(v_P, fuel, env, expr) match {
-          case Ok(a) => (a) match {
+          case Ok(a) => ((a) match {
             case BVV(true, w, x) => Ok(BVV(false, w, x))
             case _ => Stuck()
-          }
+          })
           case Stuck() => Stuck()
           case OutOfFuel() => OutOfFuel()
         }
       case BVToInt(expr) =>
         eval(v_P, fuel, env, expr) match {
-          case Ok(a) => (a) match {
+          case Ok(a) => ((a) match {
             case BVV(s, w, x) => Ok(IntV(bv_int(s, w, x)))
             case _ => Stuck()
-          }
+          })
           case Stuck() => Stuck()
           case OutOfFuel() => OutOfFuel()
         }
@@ -878,10 +881,10 @@ object Semantics {
         }
       case FPUMinus(expr) =>
         eval(v_P, fuel, env, expr) match {
-          case Ok(a) => (a) match {
+          case Ok(a) => ((a) match {
             case FPV(e, s, x) => Ok(FPV(e, s, fp_neg(e, s, x)))
             case _ => Stuck()
-          }
+          })
           case Stuck() => Stuck()
           case OutOfFuel() => OutOfFuel()
         }
@@ -890,20 +893,20 @@ object Semantics {
           case Ok(m) => eval(v_P, fuel, env, e1) match {
             case Ok(a) => eval(v_P, fuel, env, e2) match {
               case Ok(b) => eval(v_P, fuel, env, e3) match {
-                case Ok(c) => (a) match {
-                  case FPV(e, s, x) => (b) match {
-                      case FPV(e2, s2, y) => (c) match {
+                case Ok(c) => ((a) match {
+                  case FPV(e, s, x) => ((b) match {
+                      case FPV(e2, s2, y) => ((c) match {
                           case FPV(e3, s3, z) => (if ((((e == e2) && (s == s2)) && ((e == e3) && (s == s3)))) {
                               Ok(FPV(e, s, fp_fma(m, e, s, x, y, z)))
                             } else {
                               Stuck()
                             })
                           case _ => Stuck()
-                        }
+                        })
                       case _ => Stuck()
-                    }
+                    })
                   case _ => Stuck()
-                }
+                })
                 case Stuck() => Stuck()
                 case OutOfFuel() => OutOfFuel()
               }
@@ -946,10 +949,10 @@ object Semantics {
         }
       case FPAbs(expr) =>
         eval(v_P, fuel, env, expr) match {
-          case Ok(a) => (a) match {
+          case Ok(a) => ((a) match {
             case FPV(e, s, x) => Ok(FPV(e, s, fp_abs(e, s, x)))
             case _ => Stuck()
-          }
+          })
           case Stuck() => Stuck()
           case OutOfFuel() => OutOfFuel()
         }
@@ -976,10 +979,10 @@ object Semantics {
       case FPRound(rm, expr) =>
         eval_rm(v_P, fuel, env, rm) match {
           case Ok(m) => eval(v_P, fuel, env, expr) match {
-            case Ok(a) => (a) match {
+            case Ok(a) => ((a) match {
               case FPV(e, s, x) => Ok(FPV(e, s, fp_round_integral(m, e, s, x)))
               case _ => Stuck()
-            }
+            })
             case Stuck() => Stuck()
             case OutOfFuel() => OutOfFuel()
           }
@@ -989,10 +992,10 @@ object Semantics {
       case Sqrt(rm, expr) =>
         eval_rm(v_P, fuel, env, rm) match {
           case Ok(m) => eval(v_P, fuel, env, expr) match {
-            case Ok(a) => (a) match {
+            case Ok(a) => ((a) match {
               case FPV(e, s, x) => Ok(FPV(e, s, fp_sqrt(m, e, s, x)))
               case _ => Stuck()
-            }
+            })
             case Stuck() => Stuck()
             case OutOfFuel() => OutOfFuel()
           }
@@ -1015,21 +1018,21 @@ object Semantics {
         }
       case FPFromBinary(e, s, expr) =>
         eval(v_P, fuel, env, expr) match {
-          case Ok(a) => (a) match {
+          case Ok(a) => ((a) match {
             case BVV(_, w, x) => (if ((w == (e + s))) {
                 Ok(FPV(e, s, fp_canonical(e, s, x)))
               } else {
                 Stuck()
               })
             case _ => Stuck()
-          }
+          })
           case Stuck() => Stuck()
           case OutOfFuel() => OutOfFuel()
         }
       case FPToBV(w, sg, rm, expr) =>
         eval_rm(v_P, fuel, env, rm) match {
           case Ok(m) => eval(v_P, fuel, env, expr) match {
-            case Ok(a) => (a) match {
+            case Ok(a) => ((a) match {
               case FPV(e, s, x) => {
                   val lo = (if (sg) {
                     (BigInt(0) - pow2((w - BigInt(1))))
@@ -1044,7 +1047,7 @@ object Semantics {
                   Ok(bv(sg, w, fp_to_int(m, e, s, x, lo, hi)))
                 }
               case _ => Stuck()
-            }
+            })
             case Stuck() => Stuck()
             case OutOfFuel() => OutOfFuel()
           }
@@ -1053,16 +1056,16 @@ object Semantics {
         }
       case FPToReal(expr) =>
         eval(v_P, fuel, env, expr) match {
-          case Ok(a) => (a) match {
+          case Ok(a) => ((a) match {
             case FPV(e, s, x) => (if ((fp_nan(e, s, x) || fp_inf(e, s, x))) {
                 Stuck()
               } else {
-                (fp_rat(e, s, x)) match {
+                ((fp_rat(e, s, x)) match {
                   case Rat(n, d) => real(n, d)
-                }
+                })
               })
             case _ => Stuck()
-          }
+          })
           case Stuck() => Stuck()
           case OutOfFuel() => OutOfFuel()
         }
@@ -1156,10 +1159,10 @@ object Semantics {
         }
       case TupleSelect(tuple, i) =>
         eval(v_P, fuel, env, tuple) match {
-          case Ok(t) => (t) match {
+          case Ok(t) => ((t) match {
             case TupleV(vs) => nth(vs, i)
             case _ => Stuck()
-          }
+          })
           case Stuck() => Stuck()
           case OutOfFuel() => OutOfFuel()
         }
@@ -1350,10 +1353,10 @@ object Semantics {
       case MapApply(map, key) =>
         eval(v_P, fuel, env, map) match {
           case Ok(m) => eval(v_P, fuel, env, key) match {
-            case Ok(k) => (m) match {
+            case Ok(k) => ((m) match {
               case MapV(xs, d) => map_get(v_P, xs, k, d)
               case _ => Stuck()
-            }
+            })
             case Stuck() => Stuck()
             case OutOfFuel() => OutOfFuel()
           }
@@ -1364,14 +1367,14 @@ object Semantics {
         eval(v_P, fuel, env, map) match {
           case Ok(m) => eval(v_P, fuel, env, key) match {
             case Ok(k) => eval(v_P, fuel, env, value) match {
-              case Ok(v) => (m) match {
+              case Ok(v) => ((m) match {
                 case MapV(xs, d) => map_put(v_P, xs, k, v) match {
                     case Ok(ys) => Ok(MapV(ys, d))
                     case Stuck() => Stuck()
                     case OutOfFuel() => OutOfFuel()
                   }
                 case _ => Stuck()
-              }
+              })
               case Stuck() => Stuck()
               case OutOfFuel() => OutOfFuel()
             }
@@ -1385,8 +1388,8 @@ object Semantics {
         eval_set(v_P, fuel, env, mask) match {
           case Ok(ks) => eval(v_P, fuel, env, map1) match {
             case Ok(m1) => eval(v_P, fuel, env, map2) match {
-              case Ok(m2) => (m1) match {
-                case MapV(xs, d1) => (m2) match {
+              case Ok(m2) => ((m1) match {
+                case MapV(xs, d1) => ((m2) match {
                     case MapV(ys, d2) => map_without(v_P, ys, ks) match {
                         case Ok(rest) => map_take(v_P, rest, ks, xs, d1) match {
                           case Ok(zs) => Ok(MapV(zs, d2))
@@ -1397,9 +1400,9 @@ object Semantics {
                         case OutOfFuel() => OutOfFuel()
                       }
                     case _ => Stuck()
-                  }
+                  })
                 case _ => Stuck()
-              }
+              })
               case Stuck() => Stuck()
               case OutOfFuel() => OutOfFuel()
             }
@@ -1412,7 +1415,7 @@ object Semantics {
     }
 
     def eval_list(v_P: Program, fuel: BigInt, env: Env, es: List[Expr]): Result[List[Value]] =
-      (es) match {
+      ((es) match {
         case Nil() => Ok(Nil())
         case Cons(e, rest) => eval(v_P, fuel, env, e) match {
             case Ok(v) => eval_list(v_P, fuel, env, rest) match {
@@ -1423,49 +1426,49 @@ object Semantics {
             case Stuck() => Stuck()
             case OutOfFuel() => OutOfFuel()
           }
-      }
+      })
 
     def eval_int(v_P: Program, fuel: BigInt, env: Env, e: Expr): Result[BigInt] =
       eval(v_P, fuel, env, e) match {
-        case Ok(v) => (v) match {
+        case Ok(v) => ((v) match {
           case IntV(i) => Ok(i)
           case _ => Stuck()
-        }
+        })
         case Stuck() => Stuck()
         case OutOfFuel() => OutOfFuel()
       }
 
     def eval_bool(v_P: Program, fuel: BigInt, env: Env, e: Expr): Result[Boolean] =
       eval(v_P, fuel, env, e) match {
-        case Ok(v) => (v) match {
+        case Ok(v) => ((v) match {
           case BoolV(b) => Ok(b)
           case _ => Stuck()
-        }
+        })
         case Stuck() => Stuck()
         case OutOfFuel() => OutOfFuel()
       }
 
     def value_eq(v_P: Program, a: Value, b: Value): Result[Boolean] =
-      (a) match {
-        case ClosureV(_, _, _) => (v_P) match {
-            case Program(_, _, _, _, eq) => (eq) match {
+      ((a) match {
+        case ClosureV(_, _, _) => ((v_P) match {
+            case Program(_, _, _, _, eq) => ((eq) match {
                 case NoFunctionEquality() => Stuck()
                 case ExtensionalEquality() => Ok(closures_equal(v_P, a, b))
-              }
-          }
-        case ADTV(c, xs) => (b) match {
+              })
+          })
+        case ADTV(c, xs) => ((b) match {
             case ADTV(d, ys) => (if ((c == d)) {
                 values_eq(v_P, xs, ys)
               } else {
                 Ok(false)
               })
             case _ => Ok(false)
-          }
-        case TupleV(xs) => (b) match {
+          })
+        case TupleV(xs) => ((b) match {
             case TupleV(ys) => values_eq(v_P, xs, ys)
             case _ => Ok(false)
-          }
-        case SetV(xs) => (b) match {
+          })
+        case SetV(xs) => ((b) match {
             case SetV(ys) => subset(v_P, xs, ys) match {
                 case Ok(sub) => (if (sub) {
                   subset(v_P, ys, xs)
@@ -1476,8 +1479,8 @@ object Semantics {
                 case OutOfFuel() => OutOfFuel()
               }
             case _ => Ok(false)
-          }
-        case BagV(xs) => (b) match {
+          })
+        case BagV(xs) => ((b) match {
             case BagV(ys) => sub_bag(v_P, xs, ys) match {
                 case Ok(sub) => (if (sub) {
                   sub_bag(v_P, ys, xs)
@@ -1488,8 +1491,8 @@ object Semantics {
                 case OutOfFuel() => OutOfFuel()
               }
             case _ => Ok(false)
-          }
-        case MapV(xs, d) => (b) match {
+          })
+        case MapV(xs, d) => ((b) match {
             case MapV(ys, e) => value_eq(v_P, d, e) match {
                 case Ok(same) => (if (same) {
                   same_entries(v_P, xs, xs, d, ys, e) match {
@@ -1508,17 +1511,17 @@ object Semantics {
                 case OutOfFuel() => OutOfFuel()
               }
             case _ => Ok(false)
-          }
+          })
         case _ => Ok((a == b))
-      }
+      })
 
     def values_eq(v_P: Program, xs: List[Value], ys: List[Value]): Result[Boolean] =
-      (xs) match {
-        case Nil() => (ys) match {
+      ((xs) match {
+        case Nil() => ((ys) match {
             case Nil() => Ok(true)
             case _ => Ok(false)
-          }
-        case Cons(x, xr) => (ys) match {
+          })
+        case Cons(x, xr) => ((ys) match {
             case Nil() => Ok(false)
             case Cons(y, yr) => value_eq(v_P, x, y) match {
                 case Ok(same) => (if (same) {
@@ -1529,11 +1532,11 @@ object Semantics {
                 case Stuck() => Stuck()
                 case OutOfFuel() => OutOfFuel()
               }
-          }
-      }
+          })
+      })
 
     def eval_and(v_P: Program, fuel: BigInt, env: Env, es: List[Expr]): Result[Value] =
-      (es) match {
+      ((es) match {
         case Nil() => Ok(BoolV(true))
         case Cons(e, rest) => eval_bool(v_P, fuel, env, e) match {
             case Ok(b) => (if (b) {
@@ -1544,10 +1547,10 @@ object Semantics {
             case Stuck() => Stuck()
             case OutOfFuel() => OutOfFuel()
           }
-      }
+      })
 
     def eval_or(v_P: Program, fuel: BigInt, env: Env, es: List[Expr]): Result[Value] =
-      (es) match {
+      ((es) match {
         case Nil() => Ok(BoolV(false))
         case Cons(e, rest) => eval_bool(v_P, fuel, env, e) match {
             case Ok(b) => (if (b) {
@@ -1558,10 +1561,10 @@ object Semantics {
             case Stuck() => Stuck()
             case OutOfFuel() => OutOfFuel()
           }
-      }
+      })
 
     def apply(v_P: Program, fuel: BigInt, f: Value, vs: List[Value]): Result[Value] =
-      (f) match {
+      ((f) match {
         case ClosureV(params, body, Env(tys, vars)) => (if ((fuel <= BigInt(0))) {
             OutOfFuel()
           } else {
@@ -1572,23 +1575,23 @@ object Semantics {
             }
           })
         case _ => Stuck()
-      }
+      })
 
     def append_env(bs: List[Binding], env: List[Binding]): List[Binding] =
-      (bs) match {
+      ((bs) match {
         case Nil() => env
         case Cons(b, rest) => Cons(b, append_env(rest, env))
-      }
+      })
 
     def nth(vs: List[Value], i: BigInt): Result[Value] =
-      (vs) match {
+      ((vs) match {
         case Nil() => Stuck()
         case Cons(v, rest) => (if ((i == BigInt(1))) {
             Ok(v)
           } else {
             nth(rest, (i - BigInt(1)))
           })
-      }
+      })
 
     def abs(a: BigInt): BigInt =
       (if ((a < BigInt(0))) {
@@ -1689,87 +1692,87 @@ object Semantics {
       ((s == t) && (w == v))
 
     def arith_plus(a: Value, b: Value): Result[Value] =
-      (a) match {
-        case IntV(x) => (b) match {
+      ((a) match {
+        case IntV(x) => ((b) match {
             case IntV(y) => Ok(IntV((x + y)))
             case _ => Stuck()
-          }
-        case RealV(n, d) => (b) match {
+          })
+        case RealV(n, d) => ((b) match {
             case RealV(m, e) => real(((n * e) + (m * d)), (d * e))
             case _ => Stuck()
-          }
-        case BVV(s, w, x) => (b) match {
+          })
+        case BVV(s, w, x) => ((b) match {
             case BVV(t, v, y) => (if (same_bv(s, w, t, v)) {
                 Ok(bv(s, w, (x + y)))
               } else {
                 Stuck()
               })
             case _ => Stuck()
-          }
+          })
         case _ => Stuck()
-      }
+      })
 
     def arith_minus(a: Value, b: Value): Result[Value] =
-      (a) match {
-        case IntV(x) => (b) match {
+      ((a) match {
+        case IntV(x) => ((b) match {
             case IntV(y) => Ok(IntV((x - y)))
             case _ => Stuck()
-          }
-        case RealV(n, d) => (b) match {
+          })
+        case RealV(n, d) => ((b) match {
             case RealV(m, e) => real(((n * e) - (m * d)), (d * e))
             case _ => Stuck()
-          }
-        case BVV(s, w, x) => (b) match {
+          })
+        case BVV(s, w, x) => ((b) match {
             case BVV(t, v, y) => (if (same_bv(s, w, t, v)) {
                 Ok(bv(s, w, (x - y)))
               } else {
                 Stuck()
               })
             case _ => Stuck()
-          }
+          })
         case _ => Stuck()
-      }
+      })
 
     def arith_times(a: Value, b: Value): Result[Value] =
-      (a) match {
-        case IntV(x) => (b) match {
+      ((a) match {
+        case IntV(x) => ((b) match {
             case IntV(y) => Ok(IntV((x * y)))
             case _ => Stuck()
-          }
-        case RealV(n, d) => (b) match {
+          })
+        case RealV(n, d) => ((b) match {
             case RealV(m, e) => real((n * m), (d * e))
             case _ => Stuck()
-          }
-        case BVV(s, w, x) => (b) match {
+          })
+        case BVV(s, w, x) => ((b) match {
             case BVV(t, v, y) => (if (same_bv(s, w, t, v)) {
                 Ok(bv(s, w, (x * y)))
               } else {
                 Stuck()
               })
             case _ => Stuck()
-          }
+          })
         case _ => Stuck()
-      }
+      })
 
     def arith_div(a: Value, b: Value): Result[Value] =
-      (a) match {
-        case IntV(x) => (b) match {
+      ((a) match {
+        case IntV(x) => ((b) match {
             case IntV(y) => (if ((y == BigInt(0))) {
                 Stuck()
               } else {
                 Ok(IntV(ediv(x, y)))
               })
             case _ => Stuck()
-          }
-        case RealV(n, d) => (b) match {
+          })
+        case RealV(n, d) => ((b) match {
             case RealV(m, e) => (if ((m == BigInt(0))) {
                 Stuck()
               } else {
                 real((n * e), (d * m))
               })
             case _ => Stuck()
-          }
-        case BVV(s, w, x) => (b) match {
+          })
+        case BVV(s, w, x) => ((b) match {
             case BVV(t, v, y) => (if (same_bv(s, w, t, v)) {
                 {
                   val i = bv_int(s, w, x)
@@ -1792,21 +1795,21 @@ object Semantics {
                 Stuck()
               })
             case _ => Stuck()
-          }
+          })
         case _ => Stuck()
-      }
+      })
 
     def arith_rem(a: Value, b: Value): Result[Value] =
-      (a) match {
-        case IntV(x) => (b) match {
+      ((a) match {
+        case IntV(x) => ((b) match {
             case IntV(y) => (if ((y == BigInt(0))) {
                 Stuck()
               } else {
                 Ok(IntV(emod(x, y)))
               })
             case _ => Stuck()
-          }
-        case BVV(s, w, x) => (b) match {
+          })
+        case BVV(s, w, x) => ((b) match {
             case BVV(t, v, y) => (if (same_bv(s, w, t, v)) {
                 {
                   val i = bv_int(s, w, x)
@@ -1821,21 +1824,21 @@ object Semantics {
                 Stuck()
               })
             case _ => Stuck()
-          }
+          })
         case _ => Stuck()
-      }
+      })
 
     def arith_mod(a: Value, b: Value): Result[Value] =
-      (a) match {
-        case IntV(x) => (b) match {
+      ((a) match {
+        case IntV(x) => ((b) match {
             case IntV(y) => (if ((y == BigInt(0))) {
                 Stuck()
               } else {
                 Ok(IntV(emod(x, y)))
               })
             case _ => Stuck()
-          }
-        case BVV(s, w, x) => (b) match {
+          })
+        case BVV(s, w, x) => ((b) match {
             case BVV(t, v, y) => (if (same_bv(s, w, t, v)) {
                 {
                   val i = bv_int(s, w, x)
@@ -1857,42 +1860,42 @@ object Semantics {
                 Stuck()
               })
             case _ => Stuck()
-          }
+          })
         case _ => Stuck()
-      }
+      })
 
     def arith_neg(a: Value): Result[Value] =
-      (a) match {
+      ((a) match {
         case IntV(x) => Ok(IntV((BigInt(0) - x)))
         case RealV(n, d) => Ok(RealV((BigInt(0) - n), d))
         case BVV(s, w, x) => Ok(bv(s, w, (BigInt(0) - x)))
         case _ => Stuck()
-      }
+      })
 
     def arith_lt(a: Value, b: Value): Result[Boolean] =
-      (a) match {
-        case IntV(x) => (b) match {
+      ((a) match {
+        case IntV(x) => ((b) match {
             case IntV(y) => Ok((x < y))
             case _ => Stuck()
-          }
-        case RealV(n, d) => (b) match {
+          })
+        case RealV(n, d) => ((b) match {
             case RealV(m, e) => Ok(((n * e) < (m * d)))
             case _ => Stuck()
-          }
-        case CharV(x) => (b) match {
+          })
+        case CharV(x) => ((b) match {
             case CharV(y) => Ok((x < y))
             case _ => Stuck()
-          }
-        case BVV(s, w, x) => (b) match {
+          })
+        case BVV(s, w, x) => ((b) match {
             case BVV(t, v, y) => (if (same_bv(s, w, t, v)) {
                 Ok((bv_int(s, w, x) < bv_int(s, w, y)))
               } else {
                 Stuck()
               })
             case _ => Stuck()
-          }
+          })
         case _ => Stuck()
-      }
+      })
 
     def arith_le(a: Value, b: Value): Result[Boolean] =
       arith_lt(b, a) match {
@@ -1911,68 +1914,68 @@ object Semantics {
     def bit_op(op: BitOp, s: Boolean, w: BigInt, x: BigInt, y: BigInt): Value =
       {
         val k = pow2(shift_amount(w, y))
-        (op) match {
+        ((op) match {
           case AndOp() => BVV(s, w, bit_and(x, y))
           case OrOp() => BVV(s, w, bit_or(x, y))
           case XorOp() => BVV(s, w, bit_xor(x, y))
           case ShiftLeftOp() => bv(s, w, (x * k))
           case AShiftRightOp() => bv(s, w, ediv(twos(w, x), k))
           case LShiftRightOp() => BVV(s, w, ediv(x, k))
-        }
+        })
       }
 
     def bv_binary(op: BitOp, a: Value, b: Value): Result[Value] =
-      (a) match {
-        case BVV(s, w, x) => (b) match {
+      ((a) match {
+        case BVV(s, w, x) => ((b) match {
             case BVV(t, v, y) => (if (same_bv(s, w, t, v)) {
                 Ok(bit_op(op, s, w, x, y))
               } else {
                 Stuck()
               })
             case _ => Stuck()
-          }
+          })
         case _ => Stuck()
-      }
+      })
 
     def bv_cast(a: Value, v: BigInt): Result[Value] =
-      (a) match {
+      ((a) match {
         case BVV(s, w, x) => Ok(bv(s, v, bv_int(s, w, x)))
         case _ => Stuck()
-      }
+      })
 
     def rat_add(a: Rat, b: Rat): Rat =
-      (a) match {
-        case Rat(n, d) => (b) match {
+      ((a) match {
+        case Rat(n, d) => ((b) match {
             case Rat(m, k) => Rat(((n * k) + (m * d)), (d * k))
-          }
-      }
+          })
+      })
 
     def rat_mul(a: Rat, b: Rat): Rat =
-      (a) match {
-        case Rat(n, d) => (b) match {
+      ((a) match {
+        case Rat(n, d) => ((b) match {
             case Rat(m, k) => Rat((n * m), (d * k))
-          }
-      }
+          })
+      })
 
     def rat_div(a: Rat, b: Rat): Rat =
-      (a) match {
-        case Rat(n, d) => (b) match {
+      ((a) match {
+        case Rat(n, d) => ((b) match {
             case Rat(m, k) => (if ((m < BigInt(0))) {
                 Rat((BigInt(0) - (n * k)), (BigInt(0) - (d * m)))
               } else {
                 Rat((n * k), (d * m))
               })
-          }
-      }
+          })
+      })
 
     def rat_num(a: Rat): BigInt =
-      (a) match {
+      ((a) match {
         case Rat(n, _) => n
-      }
+      })
 
     def rat_cmp(a: Rat, b: Rat): BigInt =
-      (a) match {
-        case Rat(n, d) => (b) match {
+      ((a) match {
+        case Rat(n, d) => ((b) match {
             case Rat(m, k) => (if (((n * k) < (m * d))) {
                 (BigInt(0) - BigInt(1))
               } else {
@@ -1982,8 +1985,8 @@ object Semantics {
                   BigInt(1)
                 })
               })
-          }
-      }
+          })
+      })
 
     def bitlen(n: BigInt): BigInt =
       (if ((n <= BigInt(0))) {
@@ -1993,7 +1996,7 @@ object Semantics {
       })
 
     def rat_ilog2(a: Rat): BigInt =
-      (a) match {
+      ((a) match {
         case Rat(n, d) => {
             val k = (bitlen(n) - bitlen(d))
             (if ((k < BigInt(0))) {
@@ -2010,7 +2013,7 @@ object Semantics {
               })
             })
           }
-      }
+      })
 
     def isqrt_from(n: BigInt, x: BigInt): BigInt =
       {
@@ -2108,13 +2111,13 @@ object Semantics {
       (if (!(inexact)) {
         false
       } else {
-        (rm) match {
+        ((rm) match {
           case RNE() => ((BigInt(0) < c) || ((c == BigInt(0)) && (emod(i, BigInt(2)) == BigInt(1))))
           case RNA() => (BigInt(0) <= c)
           case RTP() => !(neg)
           case RTN() => neg
           case RTZ() => false
-        }
+        })
       })
 
     def sign_cmp(a: BigInt, b: BigInt): BigInt =
@@ -2129,13 +2132,13 @@ object Semantics {
       })
 
     def fp_overflow(rm: RoundingMode, e: BigInt, s: BigInt, neg: Boolean): BigInt =
-      (if ((rm) match {
+      (if (((rm) match {
         case RNE() => true
         case RNA() => true
         case RTP() => !(neg)
         case RTN() => neg
         case RTZ() => false
-      }) {
+      })) {
         fp_inf_bits(e, s, neg)
       } else {
         fp_bits(e, s, neg, (fp_max_exp(e) - BigInt(1)), (pow2((s - BigInt(1))) - BigInt(1)))
@@ -2182,7 +2185,7 @@ object Semantics {
       })
 
     def fp_round(rm: RoundingMode, e: BigInt, s: BigInt, q: Rat): BigInt =
-      (q) match {
+      ((q) match {
         case Rat(n, d) => {
             val neg = (n < BigInt(0))
             {
@@ -2196,7 +2199,7 @@ object Semantics {
                   } else {
                     k
                   }) - (s - BigInt(1)))
-                  (scaled(abs(n), d, (BigInt(0) - qe))) match {
+                  ((scaled(abs(n), d, (BigInt(0) - qe))) match {
                     case Rat(sn, sd) => {
                         val i = ediv(sn, sd)
                         val r = emod(sn, sd)
@@ -2206,12 +2209,12 @@ object Semantics {
                           BigInt(0)
                         })))
                       }
-                  }
+                  })
                 }
               }
             }
           }
-      }
+      })
 
     def fp_of_rat(rm: RoundingMode, e: BigInt, s: BigInt, q: Rat): BigInt =
       (if ((rat_num(q) == BigInt(0))) {
@@ -2221,7 +2224,7 @@ object Semantics {
       })
 
     def round_rat_int(rm: RoundingMode, q: Rat): BigInt =
-      (q) match {
+      ((q) match {
         case Rat(n, d) => {
             val neg = (n < BigInt(0))
             {
@@ -2241,13 +2244,13 @@ object Semantics {
               }
             }
           }
-      }
+      })
 
     def is_rtn(rm: RoundingMode): Boolean =
-      (rm) match {
+      ((rm) match {
         case RTN() => true
         case _ => false
-      }
+      })
 
     def fp_add(rm: RoundingMode, e: BigInt, s: BigInt, x: BigInt, y: BigInt): BigInt =
       (if ((fp_nan(e, s, x) || fp_nan(e, s, y))) {
@@ -2391,7 +2394,7 @@ object Semantics {
             (if (fp_inf(e, s, x)) {
               x
             } else {
-              (fp_rat(e, s, x)) match {
+              ((fp_rat(e, s, x)) match {
                 case Rat(n, d) => {
                     val k = ediv(rat_ilog2(Rat(n, d)), BigInt(2))
                     val emin = (BigInt(1) - fp_bias(e))
@@ -2401,7 +2404,7 @@ object Semantics {
                       } else {
                         k
                       }) - (s - BigInt(1)))
-                      (scaled(n, d, (BigInt(2) - (BigInt(2) * qe)))) match {
+                      ((scaled(n, d, (BigInt(2) - (BigInt(2) * qe)))) match {
                         case Rat(sn, sd) => {
                             val m = ediv(sn, sd)
                             val exact = (emod(sn, sd) == BigInt(0))
@@ -2430,10 +2433,10 @@ object Semantics {
                               }
                             }
                           }
-                      }
+                      })
                     }
                   }
-              }
+              })
             })
           })
         })
@@ -2526,7 +2529,7 @@ object Semantics {
       })
 
     def fp_cast(rm: RoundingMode, e: BigInt, s: BigInt, v: Value): Result[BigInt] =
-      (v) match {
+      ((v) match {
         case FPV(e2, s2, x) => (if (fp_nan(e2, s2, x)) {
             Ok(fp_nan_bits(e, s))
           } else {
@@ -2543,71 +2546,71 @@ object Semantics {
         case BVV(sg, w, x) => Ok(fp_of_rat(rm, e, s, Rat(bv_int(sg, w, x), BigInt(1))))
         case RealV(n, d) => Ok(fp_of_rat(rm, e, s, Rat(n, d)))
         case _ => Stuck()
-      }
+      })
 
     def eval_rm(v_P: Program, fuel: BigInt, env: Env, e: Expr): Result[RoundingMode] =
       eval(v_P, fuel, env, e) match {
-        case Ok(v) => (v) match {
+        case Ok(v) => ((v) match {
           case RoundingModeV(rm) => Ok(rm)
           case _ => Stuck()
-        }
+        })
         case Stuck() => Stuck()
         case OutOfFuel() => OutOfFuel()
       }
 
     def fp_op(op: FPOp, rm: RoundingMode, e: BigInt, s: BigInt, x: BigInt, y: BigInt): BigInt =
-      (op) match {
+      ((op) match {
         case FPAddOp() => fp_add(rm, e, s, x, y)
         case FPSubOp() => fp_add(rm, e, s, x, fp_neg(e, s, y))
         case FPMulOp() => fp_mul(rm, e, s, x, y)
         case FPDivOp() => fp_div(rm, e, s, x, y)
         case FPMinOp() => fp_max(e, s, x, y, false)
         case FPMaxOp() => fp_max(e, s, x, y, true)
-      }
+      })
 
     def fp_binary(op: FPOp, rm: RoundingMode, a: Value, b: Value): Result[Value] =
-      (a) match {
-        case FPV(e, s, x) => (b) match {
+      ((a) match {
+        case FPV(e, s, x) => ((b) match {
             case FPV(e2, s2, y) => (if (((e == e2) && (s == s2))) {
                 Ok(FPV(e, s, fp_op(op, rm, e, s, x, y)))
               } else {
                 Stuck()
               })
             case _ => Stuck()
-          }
+          })
         case _ => Stuck()
-      }
+      })
 
     def fp_rel(rel: FPRel, a: Value, b: Value): Result[Value] =
-      (a) match {
-        case FPV(e, s, x) => (b) match {
+      ((a) match {
+        case FPV(e, s, x) => ((b) match {
             case FPV(e2, s2, y) => (if (((e == e2) && (s == s2))) {
                 (if ((fp_nan(e, s, x) || fp_nan(e, s, y))) {
                   Ok(BoolV(false))
                 } else {
                   {
                     val c = fp_cmp(e, s, x, y)
-                    (rel) match {
+                    ((rel) match {
                       case FPEqRel() => Ok(BoolV((c == BigInt(0))))
                       case FPLtRel() => Ok(BoolV((c < BigInt(0))))
                       case FPLeRel() => Ok(BoolV((c <= BigInt(0))))
-                    }
+                    })
                   }
                 })
               } else {
                 Stuck()
               })
             case _ => Stuck()
-          }
+          })
         case _ => Stuck()
-      }
+      })
 
     def fp_class(k: FPClass, v: Value): Result[Value] =
-      (v) match {
+      ((v) match {
         case FPV(e, s, x) => {
             val be = fp_exp(e, s, x)
             val nan = fp_nan(e, s, x)
-            (k) match {
+            ((k) match {
               case ZeroClass() => Ok(BoolV(fp_zero(e, s, x)))
               case InfiniteClass() => Ok(BoolV(fp_inf(e, s, x)))
               case NaNClass() => Ok(BoolV(nan))
@@ -2615,55 +2618,55 @@ object Semantics {
               case PositiveClass() => Ok(BoolV((!(nan) && !(fp_sign(e, s, x)))))
               case NormalClass() => Ok(BoolV((!((be == BigInt(0))) && !((be == fp_max_exp(e))))))
               case SubnormalClass() => Ok(BoolV(((be == BigInt(0)) && !(fp_zero(e, s, x)))))
-            }
+            })
           }
         case _ => Stuck()
-      }
+      })
 
     def append_chars(xs: List[BigInt], ys: List[BigInt]): List[BigInt] =
-      (xs) match {
+      ((xs) match {
         case Nil() => ys
         case Cons(x, rest) => Cons(x, append_chars(rest, ys))
-      }
+      })
 
     def length(xs: List[BigInt]): BigInt =
-      (xs) match {
+      ((xs) match {
         case Nil() => BigInt(0)
         case Cons(_, rest) => (BigInt(1) + length(rest))
-      }
+      })
 
     def take(n: BigInt, xs: List[BigInt]): List[BigInt] =
       (if ((n <= BigInt(0))) {
         Nil()
       } else {
-        (xs) match {
+        ((xs) match {
           case Nil() => Nil()
           case Cons(x, rest) => Cons(x, take((n - BigInt(1)), rest))
-        }
+        })
       })
 
     def drop(n: BigInt, xs: List[BigInt]): List[BigInt] =
       (if ((n <= BigInt(0))) {
         xs
       } else {
-        (xs) match {
+        ((xs) match {
           case Nil() => Nil()
           case Cons(_, rest) => drop((n - BigInt(1)), rest)
-        }
+        })
       })
 
     def eval_string(v_P: Program, fuel: BigInt, env: Env, e: Expr): Result[List[BigInt]] =
       eval(v_P, fuel, env, e) match {
-        case Ok(v) => (v) match {
+        case Ok(v) => ((v) match {
           case StringV(cs) => Ok(cs)
           case _ => Stuck()
-        }
+        })
         case Stuck() => Stuck()
         case OutOfFuel() => OutOfFuel()
       }
 
     def set_contains(v_P: Program, xs: List[Value], v: Value): Result[Boolean] =
-      (xs) match {
+      ((xs) match {
         case Nil() => Ok(false)
         case Cons(x, rest) => value_eq(v_P, x, v) match {
             case Ok(same) => (if (same) {
@@ -2674,7 +2677,7 @@ object Semantics {
             case Stuck() => Stuck()
             case OutOfFuel() => OutOfFuel()
           }
-      }
+      })
 
     def set_insert(v_P: Program, xs: List[Value], v: Value): Result[List[Value]] =
       set_contains(v_P, xs, v) match {
@@ -2688,17 +2691,17 @@ object Semantics {
       }
 
     def set_insert_all(v_P: Program, xs: List[Value], vs: List[Value]): Result[List[Value]] =
-      (vs) match {
+      ((vs) match {
         case Nil() => Ok(xs)
         case Cons(v, rest) => set_insert(v_P, xs, v) match {
             case Ok(ys) => set_insert_all(v_P, ys, rest)
             case Stuck() => Stuck()
             case OutOfFuel() => OutOfFuel()
           }
-      }
+      })
 
     def subset(v_P: Program, xs: List[Value], ys: List[Value]): Result[Boolean] =
-      (xs) match {
+      ((xs) match {
         case Nil() => Ok(true)
         case Cons(x, rest) => set_contains(v_P, ys, x) match {
             case Ok(in) => (if (in) {
@@ -2709,10 +2712,10 @@ object Semantics {
             case Stuck() => Stuck()
             case OutOfFuel() => OutOfFuel()
           }
-      }
+      })
 
     def set_filter(v_P: Program, xs: List[Value], ys: List[Value], keep: Boolean): Result[List[Value]] =
-      (xs) match {
+      ((xs) match {
         case Nil() => Ok(Nil())
         case Cons(x, rest) => set_contains(v_P, ys, x) match {
             case Ok(in) => set_filter(v_P, rest, ys, keep) match {
@@ -2727,20 +2730,20 @@ object Semantics {
             case Stuck() => Stuck()
             case OutOfFuel() => OutOfFuel()
           }
-      }
+      })
 
     def eval_set(v_P: Program, fuel: BigInt, env: Env, e: Expr): Result[List[Value]] =
       eval(v_P, fuel, env, e) match {
-        case Ok(v) => (v) match {
+        case Ok(v) => ((v) match {
           case SetV(xs) => Ok(xs)
           case _ => Stuck()
-        }
+        })
         case Stuck() => Stuck()
         case OutOfFuel() => OutOfFuel()
       }
 
     def bag_get(v_P: Program, xs: List[BagEntry], v: Value): Result[BigInt] =
-      (xs) match {
+      ((xs) match {
         case Nil() => Ok(BigInt(0))
         case Cons(BagEntry(x, n), rest) => value_eq(v_P, x, v) match {
             case Ok(same) => (if (same) {
@@ -2751,10 +2754,10 @@ object Semantics {
             case Stuck() => Stuck()
             case OutOfFuel() => OutOfFuel()
           }
-      }
+      })
 
     def bag_remove(v_P: Program, xs: List[BagEntry], v: Value): Result[List[BagEntry]] =
-      (xs) match {
+      ((xs) match {
         case Nil() => Ok(Nil())
         case Cons(BagEntry(x, n), rest) => value_eq(v_P, x, v) match {
             case Ok(same) => (if (same) {
@@ -2769,7 +2772,7 @@ object Semantics {
             case Stuck() => Stuck()
             case OutOfFuel() => OutOfFuel()
           }
-      }
+      })
 
     def bag_set(v_P: Program, xs: List[BagEntry], v: Value, n: BigInt): Result[List[BagEntry]] =
       bag_remove(v_P, xs, v) match {
@@ -2790,14 +2793,14 @@ object Semantics {
       })
 
     def bag_combine(op: BagOp, a: BigInt, b: BigInt): BigInt =
-      (op) match {
+      ((op) match {
         case IntersectionOp() => min(a, b)
         case UnionOp() => (a + b)
         case DifferenceOp() => (a - b)
-      }
+      })
 
     def bag_merge(v_P: Program, op: BagOp, acc: List[BagEntry], xs: List[BagEntry], ys: List[BagEntry]): Result[List[BagEntry]] =
-      (xs) match {
+      ((xs) match {
         case Nil() => Ok(acc)
         case Cons(BagEntry(x, n), rest) => bag_get(v_P, ys, x) match {
             case Ok(m) => bag_set(v_P, acc, x, bag_combine(op, n, m)) match {
@@ -2808,10 +2811,10 @@ object Semantics {
             case Stuck() => Stuck()
             case OutOfFuel() => OutOfFuel()
           }
-      }
+      })
 
     def bag_add_all(v_P: Program, acc: List[BagEntry], xs: List[BagEntry]): Result[List[BagEntry]] =
-      (xs) match {
+      ((xs) match {
         case Nil() => Ok(acc)
         case Cons(BagEntry(x, n), rest) => bag_get(v_P, acc, x) match {
             case Ok(m) => bag_set(v_P, acc, x, (m + n)) match {
@@ -2822,10 +2825,10 @@ object Semantics {
             case Stuck() => Stuck()
             case OutOfFuel() => OutOfFuel()
           }
-      }
+      })
 
     def sub_bag(v_P: Program, xs: List[BagEntry], ys: List[BagEntry]): Result[Boolean] =
-      (xs) match {
+      ((xs) match {
         case Nil() => Ok(true)
         case Cons(BagEntry(x, n), rest) => bag_get(v_P, ys, x) match {
             case Ok(m) => (if ((n == m)) {
@@ -2836,20 +2839,20 @@ object Semantics {
             case Stuck() => Stuck()
             case OutOfFuel() => OutOfFuel()
           }
-      }
+      })
 
     def eval_bag(v_P: Program, fuel: BigInt, env: Env, e: Expr): Result[List[BagEntry]] =
       eval(v_P, fuel, env, e) match {
-        case Ok(v) => (v) match {
+        case Ok(v) => ((v) match {
           case BagV(xs) => Ok(xs)
           case _ => Stuck()
-        }
+        })
         case Stuck() => Stuck()
         case OutOfFuel() => OutOfFuel()
       }
 
     def eval_bag_entries(v_P: Program, fuel: BigInt, env: Env, acc: List[BagEntry], es: List[ExprPair]): Result[List[BagEntry]] =
-      (es) match {
+      ((es) match {
         case Nil() => Ok(acc)
         case Cons(ExprPair(k, c), rest) => eval(v_P, fuel, env, k) match {
             case Ok(v) => eval_int(v_P, fuel, env, c) match {
@@ -2864,10 +2867,10 @@ object Semantics {
             case Stuck() => Stuck()
             case OutOfFuel() => OutOfFuel()
           }
-      }
+      })
 
     def map_get(v_P: Program, xs: List[MapEntry], k: Value, d: Value): Result[Value] =
-      (xs) match {
+      ((xs) match {
         case Nil() => Ok(d)
         case Cons(MapEntry(x, v), rest) => value_eq(v_P, x, k) match {
             case Ok(same) => (if (same) {
@@ -2878,10 +2881,10 @@ object Semantics {
             case Stuck() => Stuck()
             case OutOfFuel() => OutOfFuel()
           }
-      }
+      })
 
     def map_remove(v_P: Program, xs: List[MapEntry], k: Value): Result[List[MapEntry]] =
-      (xs) match {
+      ((xs) match {
         case Nil() => Ok(Nil())
         case Cons(MapEntry(x, v), rest) => value_eq(v_P, x, k) match {
             case Ok(same) => (if (same) {
@@ -2896,7 +2899,7 @@ object Semantics {
             case Stuck() => Stuck()
             case OutOfFuel() => OutOfFuel()
           }
-      }
+      })
 
     def map_put(v_P: Program, xs: List[MapEntry], k: Value, v: Value): Result[List[MapEntry]] =
       map_remove(v_P, xs, k) match {
@@ -2906,7 +2909,7 @@ object Semantics {
       }
 
     def same_entries(v_P: Program, ks: List[MapEntry], xs: List[MapEntry], d: Value, ys: List[MapEntry], e: Value): Result[Boolean] =
-      (ks) match {
+      ((ks) match {
         case Nil() => Ok(true)
         case Cons(MapEntry(k, _), rest) => map_get(v_P, xs, k, d) match {
             case Ok(a) => map_get(v_P, ys, k, e) match {
@@ -2925,10 +2928,10 @@ object Semantics {
             case Stuck() => Stuck()
             case OutOfFuel() => OutOfFuel()
           }
-      }
+      })
 
     def map_without(v_P: Program, xs: List[MapEntry], ks: List[Value]): Result[List[MapEntry]] =
-      (xs) match {
+      ((xs) match {
         case Nil() => Ok(Nil())
         case Cons(MapEntry(k, v), rest) => set_contains(v_P, ks, k) match {
             case Ok(in) => map_without(v_P, rest, ks) match {
@@ -2943,10 +2946,10 @@ object Semantics {
             case Stuck() => Stuck()
             case OutOfFuel() => OutOfFuel()
           }
-      }
+      })
 
     def map_take(v_P: Program, acc: List[MapEntry], ks: List[Value], xs: List[MapEntry], d: Value): Result[List[MapEntry]] =
-      (ks) match {
+      ((ks) match {
         case Nil() => Ok(acc)
         case Cons(k, rest) => map_get(v_P, xs, k, d) match {
             case Ok(v) => map_put(v_P, acc, k, v) match {
@@ -2957,10 +2960,10 @@ object Semantics {
             case Stuck() => Stuck()
             case OutOfFuel() => OutOfFuel()
           }
-      }
+      })
 
     def eval_map_entries(v_P: Program, fuel: BigInt, env: Env, acc: List[MapEntry], es: List[ExprPair]): Result[List[MapEntry]] =
-      (es) match {
+      ((es) match {
         case Nil() => Ok(acc)
         case Cons(ExprPair(k, v), rest) => eval(v_P, fuel, env, k) match {
             case Ok(kv) => eval(v_P, fuel, env, v) match {
@@ -2975,14 +2978,14 @@ object Semantics {
             case Stuck() => Stuck()
             case OutOfFuel() => OutOfFuel()
           }
-      }
+      })
 
     def resolve(tenv: List[TypeBinding], t: Type): Type =
-      (t) match {
-        case TypeParameter(x) => (lookup_type(tenv, x)) match {
+      ((t) match {
+        case TypeParameter(x) => ((lookup_type(tenv, x)) match {
             case Some(TypeBinding(_, u, uenv)) => resolve(uenv, u)
             case None() => t
-          }
+          })
         case TupleType(ts) => TupleType(resolve_all(tenv, ts))
         case SetType(u) => SetType(resolve(tenv, u))
         case BagType(u) => BagType(resolve(tenv, u))
@@ -2990,116 +2993,246 @@ object Semantics {
         case FunctionType(ts, u) => FunctionType(resolve_all(tenv, ts), resolve(tenv, u))
         case ADTType(s, ts) => ADTType(s, resolve_all(tenv, ts))
         case RefinementType(x, u, prop) => RefinementType(x, resolve(tenv, u), prop)
+        case PiType(ps, u) => PiType(resolve_params(tenv, ps), resolve(tenv, u))
+        case SigmaType(ps, u) => SigmaType(resolve_params(tenv, ps), resolve(tenv, u))
         case _ => t
-      }
+      })
+
+    def resolve_params(tenv: List[TypeBinding], ps: List[Param]): List[Param] =
+      ((ps) match {
+        case Nil() => Nil()
+        case Cons(Param(x, t), rest) => Cons(Param(x, resolve(tenv, t)), resolve_params(tenv, rest))
+      })
 
     def resolve_all(tenv: List[TypeBinding], ts: List[Type]): List[Type] =
-      (ts) match {
+      ((ts) match {
         case Nil() => Nil()
         case Cons(t, rest) => Cons(resolve(tenv, t), resolve_all(tenv, rest))
-      }
+      })
 
     def lookup_interpretation(is: List[Interpretation], f: Id, tps: List[Type]): Result[Interpretation] =
-      (is) match {
+      ((is) match {
         case Nil() => Stuck()
-        case Cons(i, rest) => (i) match {
+        case Cons(i, rest) => ((i) match {
             case Interpretation(g, us, _, _) => (if (((f == g) && (tps == us))) {
                 Ok(i)
               } else {
                 lookup_interpretation(rest, f, tps)
               })
-          }
-      }
+          })
+      })
 
-    /** `has-type` in the semantics, which quantifies over values: an oracle gives it. */
-    def has_type(v_P: Program, tenv: List[TypeBinding], v: Value, t: Type): Boolean
+    def has_type(v_P: Program, env: Env, v: Value, t: Type): Boolean =
+      ((t) match {
+        case IntegerType() => ((v) match {
+            case IntV(_) => true
+            case _ => false
+          })
+        case BooleanType() => ((v) match {
+            case BoolV(_) => true
+            case _ => false
+          })
+        case PropType() => ((v) match {
+            case BoolV(_) => true
+            case _ => false
+          })
+        case UnitType() => ((v) match {
+            case UnitV() => true
+            case _ => false
+          })
+        case CharType() => ((v) match {
+            case CharV(c) => ((BigInt(0) <= c) && (c < BigInt(65536)))
+            case _ => false
+          })
+        case RealType() => ((v) match {
+            case RealV(n, d) => ((BigInt(0) < d) && (gcd(abs(n), d) == BigInt(1)))
+            case _ => false
+          })
+        case StringType() => ((v) match {
+            case StringV(cs) => valid_chars(cs)
+            case _ => false
+          })
+        case BVType(s, w) => ((v) match {
+            case BVV(s2, w2, x) => (((s == s2) && (w == w2)) && ((BigInt(0) <= x) && (x < pow2(w))))
+            case _ => false
+          })
+        case FPType(e, s) => ((v) match {
+            case FPV(e2, s2, x) => (((e == e2) && (s == s2)) && (((BigInt(0) <= x) && (x < pow2((e + s)))) && (x == fp_canonical(e, s, x))))
+            case _ => false
+          })
+        case RoundingModeType() => ((v) match {
+            case RoundingModeV(_) => true
+            case _ => false
+          })
+        case TypeParameter(x) => ((lookup_type(env_types(env), x)) match {
+            case Some(TypeBinding(_, u, uenv)) => has_type(v_P, Env(uenv, Nil()), v, u)
+            case None() => ((v) match {
+                case IntV(_) => true
+                case _ => false
+              })
+          })
+        case TupleType(ts) => ((v) match {
+            case TupleV(vs) => have_types(v_P, env, vs, ts)
+            case _ => false
+          })
+        case SetType(u) => ((v) match {
+            case SetV(xs) => (all_have_type(v_P, env, xs, u) && distinct_values(v_P, xs))
+            case _ => false
+          })
+        case BagType(u) => ((v) match {
+            case BagV(xs) => (bag_has_type(v_P, env, xs, u) && distinct_values(v_P, bag_elems(xs)))
+            case _ => false
+          })
+        case MapType(u, w) => ((v) match {
+            case MapV(xs, d) => (has_type(v_P, env, d, w) && (map_has_type(v_P, env, xs, u, w) && distinct_values(v_P, map_keys(xs))))
+            case _ => false
+          })
+        case FunctionType(from, to) => ((v) match {
+            case ClosureV(params, _, _) => (same_arity(params, from) && function_has_type(v_P, env, v, from, to))
+            case _ => false
+          })
+        case PiType(ps, to) => ((v) match {
+            case ClosureV(params, _, _) => (same_arity(params, param_types(ps)) && pi_has_type(v_P, env, v, ps, to))
+            case _ => false
+          })
+        case SigmaType(ps, to) => ((v) match {
+            case TupleV(vs) => sigma_has_type(v_P, env, vs, ps, to)
+            case _ => false
+          })
+        case ADTType(s, args) => ((v) match {
+            case ADTV(c, vs) => ((v_P) match {
+                case Program(_, cs, ss, _, _) => ((lookup_ctor(cs, c)) match {
+                    case Ok(Constructor(_, s2, fields)) => ((lookup_sort(ss, s)) match {
+                        case Ok(Sort(_, tparams, inv)) => ((s == s2) && (params_have_types(v_P, Env(bind_types(tparams, args, env_types(env)), Nil()), vs, fields) && ((inv) match {
+                            case None() => true
+                            case Some(f) => invariant_holds(v_P, f, args, env_types(env), v)
+                          })))
+                        case _ => false
+                      })
+                    case _ => false
+                  })
+              })
+            case _ => false
+          })
+        case RefinementType(x, u, prop) => (has_type(v_P, env, v, u) && holds(v_P, env_bind(env, x, v), prop))
+      })
 
-    def have_types(v_P: Program, tenv: List[TypeBinding], vs: List[Value], ts: List[Type]): Boolean =
-      (vs) match {
-        case Nil() => (ts) match {
+    /** `holds` in the semantics, which quantifies over values: an oracle gives it. */
+    def holds(v_P: Program, env: Env, prop: Expr): Boolean
+
+    /** `invariant-holds` in the semantics, which quantifies over values: an oracle gives it. */
+    def invariant_holds(v_P: Program, f: Id, args: List[Type], tenv: List[TypeBinding], v: Value): Boolean
+
+    /** `function-has-type` in the semantics, which quantifies over values: an oracle gives it. */
+    def function_has_type(v_P: Program, env: Env, f: Value, from: List[Type], to: Type): Boolean
+
+    /** `pi-has-type` in the semantics, which quantifies over values: an oracle gives it. */
+    def pi_has_type(v_P: Program, env: Env, f: Value, ps: List[Param], to: Type): Boolean
+
+    def sigma_has_type(v_P: Program, env: Env, vs: List[Value], ps: List[Param], to: Type): Boolean =
+      ((ps) match {
+        case Nil() => ((vs) match {
+            case Cons(v, Nil()) => has_type(v_P, env, v, to)
+            case _ => false
+          })
+        case Cons(Param(x, t), more) => ((vs) match {
+            case Cons(v, rest) => (has_type(v_P, env, v, t) && sigma_has_type(v_P, env_bind(env, x, v), rest, more, to))
+            case _ => false
+          })
+      })
+
+    def param_types(ps: List[Param]): List[Type] =
+      ((ps) match {
+        case Nil() => Nil()
+        case Cons(Param(_, t), rest) => Cons(t, param_types(rest))
+      })
+
+    def have_types(v_P: Program, env: Env, vs: List[Value], ts: List[Type]): Boolean =
+      ((vs) match {
+        case Nil() => ((ts) match {
             case Nil() => true
             case _ => false
-          }
-        case Cons(v, rest) => (ts) match {
+          })
+        case Cons(v, rest) => ((ts) match {
             case Nil() => false
-            case Cons(t, more) => (has_type(v_P, tenv, v, t) && have_types(v_P, tenv, rest, more))
-          }
-      }
+            case Cons(t, more) => (has_type(v_P, env, v, t) && have_types(v_P, env, rest, more))
+          })
+      })
 
-    def params_have_types(v_P: Program, tenv: List[TypeBinding], vs: List[Value], ps: List[Param]): Boolean =
-      (vs) match {
-        case Nil() => (ps) match {
+    def params_have_types(v_P: Program, env: Env, vs: List[Value], ps: List[Param]): Boolean =
+      ((vs) match {
+        case Nil() => ((ps) match {
             case Nil() => true
             case _ => false
-          }
-        case Cons(v, rest) => (ps) match {
+          })
+        case Cons(v, rest) => ((ps) match {
             case Nil() => false
-            case Cons(Param(_, t), more) => (has_type(v_P, tenv, v, t) && params_have_types(v_P, tenv, rest, more))
-          }
-      }
+            case Cons(Param(x, t), more) => (has_type(v_P, env, v, t) && params_have_types(v_P, env_bind(env, x, v), rest, more))
+          })
+      })
 
-    def all_have_type(v_P: Program, tenv: List[TypeBinding], vs: List[Value], t: Type): Boolean =
-      (vs) match {
+    def all_have_type(v_P: Program, env: Env, vs: List[Value], t: Type): Boolean =
+      ((vs) match {
         case Nil() => true
-        case Cons(v, rest) => (has_type(v_P, tenv, v, t) && all_have_type(v_P, tenv, rest, t))
-      }
+        case Cons(v, rest) => (has_type(v_P, env, v, t) && all_have_type(v_P, env, rest, t))
+      })
 
-    def bag_has_type(v_P: Program, tenv: List[TypeBinding], xs: List[BagEntry], t: Type): Boolean =
-      (xs) match {
+    def bag_has_type(v_P: Program, env: Env, xs: List[BagEntry], t: Type): Boolean =
+      ((xs) match {
         case Nil() => true
-        case Cons(BagEntry(x, n), rest) => (((BigInt(0) < n) && has_type(v_P, tenv, x, t)) && bag_has_type(v_P, tenv, rest, t))
-      }
+        case Cons(BagEntry(x, n), rest) => (((BigInt(0) < n) && has_type(v_P, env, x, t)) && bag_has_type(v_P, env, rest, t))
+      })
 
-    def map_has_type(v_P: Program, tenv: List[TypeBinding], xs: List[MapEntry], t: Type, u: Type): Boolean =
-      (xs) match {
+    def map_has_type(v_P: Program, env: Env, xs: List[MapEntry], t: Type, u: Type): Boolean =
+      ((xs) match {
         case Nil() => true
-        case Cons(MapEntry(k, v), rest) => ((has_type(v_P, tenv, k, t) && has_type(v_P, tenv, v, u)) && map_has_type(v_P, tenv, rest, t, u))
-      }
+        case Cons(MapEntry(k, v), rest) => ((has_type(v_P, env, k, t) && has_type(v_P, env, v, u)) && map_has_type(v_P, env, rest, t, u))
+      })
 
     def valid_chars(cs: List[BigInt]): Boolean =
-      (cs) match {
+      ((cs) match {
         case Nil() => true
         case Cons(c, rest) => (((BigInt(0) <= c) && (c <= BigInt(196607))) && valid_chars(rest))
-      }
+      })
 
     def distinct_values(v_P: Program, xs: List[Value]): Boolean =
-      (xs) match {
+      ((xs) match {
         case Nil() => true
         case Cons(x, rest) => ((set_contains(v_P, rest, x) == Ok(false)) && distinct_values(v_P, rest))
-      }
+      })
 
     def bag_elems(xs: List[BagEntry]): List[Value] =
-      (xs) match {
+      ((xs) match {
         case Nil() => Nil()
         case Cons(BagEntry(x, _), rest) => Cons(x, bag_elems(rest))
-      }
+      })
 
     def map_keys(xs: List[MapEntry]): List[Value] =
-      (xs) match {
+      ((xs) match {
         case Nil() => Nil()
         case Cons(MapEntry(k, _), rest) => Cons(k, map_keys(rest))
-      }
+      })
 
     def same_arity(ps: List[Param], ts: List[Type]): Boolean =
-      (ps) match {
-        case Nil() => (ts) match {
+      ((ps) match {
+        case Nil() => ((ts) match {
             case Nil() => true
             case _ => false
-          }
-        case Cons(_, rest) => (ts) match {
+          })
+        case Cons(_, rest) => ((ts) match {
             case Nil() => false
             case Cons(_, more) => same_arity(rest, more)
-          }
-      }
+          })
+      })
 
     def instance(v_P: Program, fuel: BigInt, env: Env, params: List[Param], vs: List[Value], body: Expr): Result[Value] =
-      (env) match {
+      ((env) match {
         case Env(tys, vars) => bind_all(param_ids(params), vs) match {
             case Ok(bs) => eval(v_P, fuel, Env(tys, append_env(bs, vars)), body)
             case Stuck() => Stuck()
             case OutOfFuel() => OutOfFuel()
           }
-      }
+      })
 
     /** `forall-result` in the semantics, which quantifies over values: an oracle gives it. */
     def forall_result(v_P: Program, fuel: BigInt, env: Env, params: List[Param], body: Expr): Result[Value]
