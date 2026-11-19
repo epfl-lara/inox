@@ -15,8 +15,8 @@ is described at the end of this file.
 This version covers integers, Booleans, unit, characters, reals, strings,
 bit-vectors, tuples, algebraic datatypes (with their invariants), recursive
 functions, first-class functions, `let`, `if`, `assume` and
-`error`. Sets, bags, maps, quantifiers, uninterpreted functions and floating
-point come later.
+`error`, and sets, bags and maps. Quantifiers, uninterpreted functions and
+floating point come later.
 
 ## Evaluation with fuel
 
@@ -64,13 +64,20 @@ generic value `T#n` is the integer `n`.
 
 A value is an integer, a Boolean, the unit value, a character (its code), a
 real (a fraction in lowest terms with a positive denominator), a string (the
-list of its characters' codes), a bit-vector, a tuple, a closure, or a
-constructor applied to values.
+list of its characters' codes), a bit-vector, a tuple, a closure, a set, a
+bag, a map, or a constructor applied to values.
 
 A bit-vector of `width` bits holds them as the integer `bits`, with
 `0 <= bits < 2^width`; whether it is `signed` decides how operations read it.
 A closure is a function value: the parameters and body of a `Lambda`, and the
 environment in which it was evaluated.
+
+A set is the list of its elements, without repetitions, in any order. A bag
+is a list of elements, without repetitions, each with its multiplicity, which
+is positive. A map is a list of keys, without repetitions, each with its
+value, and the default value of the other keys. Since their order is
+arbitrary, they are compared by their contents rather than structurally (see
+Equality below).
 
 ```inox-sem
 (datatype Value
@@ -83,7 +90,16 @@ environment in which it was evaluated.
   (BVV (signed Bool) (width Int) (bits Int))
   (TupleV (elems (List Value)))
   (ClosureV (params (List Id)) (body Expr) (env (List Binding)))
+  (SetV (elems (List Value)))
+  (BagV (entries (List BagEntry)))
+  (MapV (entries (List MapEntry)) (default Value))
   (ADTV (ctor Id) (args (List Value))))
+
+(datatype BagEntry
+  (BagEntry (elem Value) (count Int)))
+
+(datatype MapEntry
+  (MapEntry (key Value) (value Value)))
 ```
 
 ## Expressions and programs
@@ -144,7 +160,27 @@ uses, in the same order (`inox.ast.Expressions`).
   (BVToInt (expr Expr))
   (IntToBV (width Int) (signed Bool) (expr Expr))
   (Tuple (exprs (List Expr)))
-  (TupleSelect (tuple Expr) (index Int)))
+  (TupleSelect (tuple Expr) (index Int))
+  (FiniteSet (elems (List Expr)))
+  (SetAdd (set Expr) (elem Expr))
+  (ElementOfSet (elem Expr) (set Expr))
+  (SubsetOf (lhs Expr) (rhs Expr))
+  (SetIntersection (lhs Expr) (rhs Expr))
+  (SetUnion (lhs Expr) (rhs Expr))
+  (SetDifference (lhs Expr) (rhs Expr))
+  (FiniteBag (elems (List ExprPair)))
+  (BagAdd (bag Expr) (elem Expr))
+  (MultiplicityInBag (elem Expr) (bag Expr))
+  (BagIntersection (lhs Expr) (rhs Expr))
+  (BagUnion (lhs Expr) (rhs Expr))
+  (BagDifference (lhs Expr) (rhs Expr))
+  (FiniteMap (pairs (List ExprPair)) (default Expr))
+  (MapApply (map Expr) (key Expr))
+  (MapUpdated (map Expr) (key Expr) (value Expr))
+  (MapMerge (mask Expr) (map1 Expr) (map2 Expr)))
+
+(datatype ExprPair
+  (ExprPair (fst Expr) (snd Expr)))
 ```
 
 A program gives each function its parameters and body, each constructor its
@@ -353,8 +389,9 @@ does.
 ```
 
 Equality compares values structurally, from left to right, and stops at the
-first difference. Functions can't be compared: comparing two closures gets
-stuck, as under Inox's default `--function-equality=none`.
+first difference, except for sets, bags and maps, which are equal when they
+have the same contents. Functions can't be compared: comparing two closures
+gets stuck, as under Inox's default `--function-equality=none`.
 
 ```inox-sem
 (define (value-eq (a Value) (b Value)) (Result Bool)
@@ -367,6 +404,27 @@ stuck, as under Inox's default `--function-equality=none`.
     ((TupleV xs)
       (match b
         ((TupleV ys) (values-eq xs ys))
+        (_ (Ok false))))
+    ((SetV xs)
+      (match b
+        ((SetV ys)
+          (let! ((sub (subset xs ys)))
+            (if sub (subset ys xs) (Ok false))))
+        (_ (Ok false))))
+    ((BagV xs)
+      (match b
+        ((BagV ys)
+          (let! ((sub (sub-bag xs ys)))
+            (if sub (sub-bag ys xs) (Ok false))))
+        (_ (Ok false))))
+    ((MapV xs d)
+      (match b
+        ((MapV ys e)
+          (let! ((same (value-eq d e)))
+            (if same
+              (let! ((l (same-entries xs xs d ys e)))
+                (if l (same-entries ys xs d ys e) (Ok false)))
+              (Ok false))))
         (_ (Ok false))))
     (_ (Ok (= a b)))))
 
@@ -900,6 +958,308 @@ empty string when `start` is out of bounds or `end` isn't after it.
 (case eval (StringLength expr)
   (let! ((cs (eval-string P fuel env expr)))
     (Ok (IntV (length cs)))))
+```
+
+### Sets, bags and maps
+
+Elements and keys are compared with `value-eq`, so a set of closures gets
+stuck as soon as two of them are compared. The arguments of an operation are
+evaluated from left to right, so `ElementOfSet` and `MultiplicityInBag`
+evaluate the element before the collection.
+
+```inox-sem
+(define (set-contains (xs (List Value)) (v Value)) (Result Bool)
+  (match xs
+    ((Nil) (Ok false))
+    ((Cons x rest)
+      (let! ((same (value-eq x v)))
+        (if same (Ok true) (set-contains rest v))))))
+
+(define (set-insert (xs (List Value)) (v Value)) (Result (List Value))
+  (let! ((in (set-contains xs v)))
+    (if in (Ok xs) (Ok (Cons v xs)))))
+
+(define (set-insert-all (xs (List Value)) (vs (List Value))) (Result (List Value))
+  (match vs
+    ((Nil) (Ok xs))
+    ((Cons v rest)
+      (let! ((ys (set-insert xs v)))
+        (set-insert-all ys rest)))))
+
+(define (subset (xs (List Value)) (ys (List Value))) (Result Bool)
+  (match xs
+    ((Nil) (Ok true))
+    ((Cons x rest)
+      (let! ((in (set-contains ys x)))
+        (if in (subset rest ys) (Ok false))))))
+
+(define (set-filter (xs (List Value)) (ys (List Value)) (keep Bool)) (Result (List Value))
+  (match xs
+    ((Nil) (Ok (Nil)))
+    ((Cons x rest)
+      (let! ((in (set-contains ys x))
+             (zs (set-filter rest ys keep)))
+        (if (= in keep) (Ok (Cons x zs)) (Ok zs))))))
+
+(define (eval-set (P Program) (fuel Int) (env (List Binding)) (e Expr)) (Result (List Value))
+  (let! ((v (eval P fuel env e)))
+    (match v
+      ((SetV xs) (Ok xs))
+      (_ (Stuck)))))
+
+(case eval (FiniteSet es)
+  (let! ((vs (eval-list P fuel env es))
+         (xs (set-insert-all (Nil) vs)))
+    (Ok (SetV xs))))
+
+(case eval (SetAdd set elem)
+  (let! ((xs (eval-set P fuel env set))
+         (v (eval P fuel env elem))
+         (ys (set-insert xs v)))
+    (Ok (SetV ys))))
+
+(case eval (ElementOfSet elem set)
+  (let! ((v (eval P fuel env elem))
+         (xs (eval-set P fuel env set))
+         (in (set-contains xs v)))
+    (Ok (BoolV in))))
+
+(case eval (SubsetOf lhs rhs)
+  (let! ((xs (eval-set P fuel env lhs))
+         (ys (eval-set P fuel env rhs))
+         (sub (subset xs ys)))
+    (Ok (BoolV sub))))
+
+(case eval (SetIntersection lhs rhs)
+  (let! ((xs (eval-set P fuel env lhs))
+         (ys (eval-set P fuel env rhs))
+         (zs (set-filter xs ys true)))
+    (Ok (SetV zs))))
+
+(case eval (SetUnion lhs rhs)
+  (let! ((xs (eval-set P fuel env lhs))
+         (ys (eval-set P fuel env rhs))
+         (zs (set-insert-all xs ys)))
+    (Ok (SetV zs))))
+
+(case eval (SetDifference lhs rhs)
+  (let! ((xs (eval-set P fuel env lhs))
+         (ys (eval-set P fuel env rhs))
+         (zs (set-filter xs ys false)))
+    (Ok (SetV zs))))
+```
+
+A bag maps each element to its multiplicity, and leaves out the elements of
+multiplicity zero or less. Building a bag keeps the last multiplicity given
+for an element. The union adds multiplicities, the intersection takes the
+smaller one, and the difference subtracts them.
+
+```inox-sem
+(define (bag-get (xs (List BagEntry)) (v Value)) (Result Int)
+  (match xs
+    ((Nil) (Ok 0))
+    ((Cons (BagEntry x n) rest)
+      (let! ((same (value-eq x v)))
+        (if same (Ok n) (bag-get rest v))))))
+
+(define (bag-remove (xs (List BagEntry)) (v Value)) (Result (List BagEntry))
+  (match xs
+    ((Nil) (Ok (Nil)))
+    ((Cons (BagEntry x n) rest)
+      (let! ((same (value-eq x v)))
+        (if same
+          (Ok rest)
+          (let! ((ys (bag-remove rest v)))
+            (Ok (Cons (BagEntry x n) ys))))))))
+
+(define (bag-set (xs (List BagEntry)) (v Value) (n Int)) (Result (List BagEntry))
+  (let! ((ys (bag-remove xs v)))
+    (if (< 0 n) (Ok (Cons (BagEntry v n) ys)) (Ok ys))))
+
+(define (min (a Int) (b Int)) Int
+  (if (< a b) a b))
+
+(datatype BagOp
+  (IntersectionOp)
+  (UnionOp)
+  (DifferenceOp))
+
+(define (bag-combine (op BagOp) (a Int) (b Int)) Int
+  (match op
+    ((IntersectionOp) (min a b))
+    ((UnionOp) (+ a b))
+    ((DifferenceOp) (- a b))))
+
+(define (bag-merge (op BagOp) (acc (List BagEntry)) (xs (List BagEntry)) (ys (List BagEntry))) (Result (List BagEntry))
+  (match xs
+    ((Nil) (Ok acc))
+    ((Cons (BagEntry x n) rest)
+      (let! ((m (bag-get ys x))
+             (acc2 (bag-set acc x (bag-combine op n m))))
+        (bag-merge op acc2 rest ys)))))
+
+(define (bag-add-all (acc (List BagEntry)) (xs (List BagEntry))) (Result (List BagEntry))
+  (match xs
+    ((Nil) (Ok acc))
+    ((Cons (BagEntry x n) rest)
+      (let! ((m (bag-get acc x))
+             (acc2 (bag-set acc x (+ m n))))
+        (bag-add-all acc2 rest)))))
+
+(define (sub-bag (xs (List BagEntry)) (ys (List BagEntry))) (Result Bool)
+  (match xs
+    ((Nil) (Ok true))
+    ((Cons (BagEntry x n) rest)
+      (let! ((m (bag-get ys x)))
+        (if (= n m) (sub-bag rest ys) (Ok false))))))
+
+(define (eval-bag (P Program) (fuel Int) (env (List Binding)) (e Expr)) (Result (List BagEntry))
+  (let! ((v (eval P fuel env e)))
+    (match v
+      ((BagV xs) (Ok xs))
+      (_ (Stuck)))))
+
+(define (eval-bag-entries (P Program) (fuel Int) (env (List Binding)) (acc (List BagEntry)) (es (List ExprPair))) (Result (List BagEntry))
+  (match es
+    ((Nil) (Ok acc))
+    ((Cons (ExprPair k c) rest)
+      (let! ((v (eval P fuel env k))
+             (n (eval-int P fuel env c))
+             (acc2 (bag-set acc v n)))
+        (eval-bag-entries P fuel env acc2 rest)))))
+
+(case eval (FiniteBag es)
+  (let! ((xs (eval-bag-entries P fuel env (Nil) es)))
+    (Ok (BagV xs))))
+
+(case eval (BagAdd bag elem)
+  (let! ((xs (eval-bag P fuel env bag))
+         (v (eval P fuel env elem))
+         (n (bag-get xs v))
+         (ys (bag-set xs v (+ n 1))))
+    (Ok (BagV ys))))
+
+(case eval (MultiplicityInBag elem bag)
+  (let! ((v (eval P fuel env elem))
+         (xs (eval-bag P fuel env bag))
+         (n (bag-get xs v)))
+    (Ok (IntV n))))
+
+(case eval (BagIntersection lhs rhs)
+  (let! ((xs (eval-bag P fuel env lhs))
+         (ys (eval-bag P fuel env rhs))
+         (zs (bag-merge (IntersectionOp) (Nil) xs ys)))
+    (Ok (BagV zs))))
+
+(case eval (BagUnion lhs rhs)
+  (let! ((xs (eval-bag P fuel env lhs))
+         (ys (eval-bag P fuel env rhs))
+         (zs (bag-add-all xs ys)))
+    (Ok (BagV zs))))
+
+(case eval (BagDifference lhs rhs)
+  (let! ((xs (eval-bag P fuel env lhs))
+         (ys (eval-bag P fuel env rhs))
+         (zs (bag-merge (DifferenceOp) (Nil) xs ys)))
+    (Ok (BagV zs))))
+```
+
+A map gives each key its value, or the default value. Building a map keeps
+the last value given for a key, and evaluates the pairs before the default.
+`MapMerge` takes the keys of the set `mask` from the first map, and the
+others, and the default, from the second.
+
+```inox-sem
+(define (map-get (xs (List MapEntry)) (k Value) (d Value)) (Result Value)
+  (match xs
+    ((Nil) (Ok d))
+    ((Cons (MapEntry x v) rest)
+      (let! ((same (value-eq x k)))
+        (if same (Ok v) (map-get rest k d))))))
+
+(define (map-remove (xs (List MapEntry)) (k Value)) (Result (List MapEntry))
+  (match xs
+    ((Nil) (Ok (Nil)))
+    ((Cons (MapEntry x v) rest)
+      (let! ((same (value-eq x k)))
+        (if same
+          (Ok rest)
+          (let! ((ys (map-remove rest k)))
+            (Ok (Cons (MapEntry x v) ys))))))))
+
+(define (map-put (xs (List MapEntry)) (k Value) (v Value)) (Result (List MapEntry))
+  (let! ((ys (map-remove xs k)))
+    (Ok (Cons (MapEntry k v) ys))))
+
+(define (same-entries (ks (List MapEntry)) (xs (List MapEntry)) (d Value) (ys (List MapEntry)) (e Value)) (Result Bool)
+  (match ks
+    ((Nil) (Ok true))
+    ((Cons (MapEntry k _) rest)
+      (let! ((a (map-get xs k d))
+             (b (map-get ys k e))
+             (same (value-eq a b)))
+        (if same (same-entries rest xs d ys e) (Ok false))))))
+
+(define (map-without (xs (List MapEntry)) (ks (List Value))) (Result (List MapEntry))
+  (match xs
+    ((Nil) (Ok (Nil)))
+    ((Cons (MapEntry k v) rest)
+      (let! ((in (set-contains ks k))
+             (ys (map-without rest ks)))
+        (if in (Ok ys) (Ok (Cons (MapEntry k v) ys)))))))
+
+(define (map-take (acc (List MapEntry)) (ks (List Value)) (xs (List MapEntry)) (d Value)) (Result (List MapEntry))
+  (match ks
+    ((Nil) (Ok acc))
+    ((Cons k rest)
+      (let! ((v (map-get xs k d))
+             (acc2 (map-put acc k v)))
+        (map-take acc2 rest xs d)))))
+
+(define (eval-map-entries (P Program) (fuel Int) (env (List Binding)) (acc (List MapEntry)) (es (List ExprPair))) (Result (List MapEntry))
+  (match es
+    ((Nil) (Ok acc))
+    ((Cons (ExprPair k v) rest)
+      (let! ((kv (eval P fuel env k))
+             (vv (eval P fuel env v))
+             (acc2 (map-put acc kv vv)))
+        (eval-map-entries P fuel env acc2 rest)))))
+
+(case eval (FiniteMap pairs default)
+  (let! ((xs (eval-map-entries P fuel env (Nil) pairs))
+         (d (eval P fuel env default)))
+    (Ok (MapV xs d))))
+
+(case eval (MapApply map key)
+  (let! ((m (eval P fuel env map))
+         (k (eval P fuel env key)))
+    (match m
+      ((MapV xs d) (map-get xs k d))
+      (_ (Stuck)))))
+
+(case eval (MapUpdated map key value)
+  (let! ((m (eval P fuel env map))
+         (k (eval P fuel env key))
+         (v (eval P fuel env value)))
+    (match m
+      ((MapV xs d)
+        (let! ((ys (map-put xs k v)))
+          (Ok (MapV ys d))))
+      (_ (Stuck)))))
+
+(case eval (MapMerge mask map1 map2)
+  (let! ((ks (eval-set P fuel env mask))
+         (m1 (eval P fuel env map1))
+         (m2 (eval P fuel env map2)))
+    (match m1
+      ((MapV xs d1)
+        (match m2
+          ((MapV ys d2)
+            (let! ((rest (map-without ys ks))
+                   (zs (map-take rest ks xs d1)))
+              (Ok (MapV zs d2))))
+          (_ (Stuck))))
+      (_ (Stuck)))))
 ```
 
 ## The language of the blocks
