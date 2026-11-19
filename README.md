@@ -110,7 +110,7 @@ Due to the evolving nature of the project, this documentation may not always be 
 
 **Requirements:**
 
-* [Java Development Kit 17](https://openjdk.org/projects/jdk/17/) for your
+* [Java Development Kit 21](https://openjdk.org/projects/jdk/21/) or later for your
   platform (and the corresponding runtime environment)
 * sbt >= 1.6.0 (Available from http://www.scala-sbt.org/)
 * The [git](https://git-scm.com/) command on your path
@@ -177,7 +177,7 @@ $ sbt coverage IntegrationTest/test
 $ sbt coverageReport
 ```
 
-The Inox coverage workflow (the Linux / JDK 17 job, which the other jobs of Inox CI complement)
+The Inox coverage workflow (the Linux / JDK 21 job, which the other jobs of Inox CI complement)
 does the same and attaches the report to each run. On pull requests, the Coverage comment workflow
 then posts the coverage, and its difference to `main`, as a comment as soon as it completes, and
 adds the test durations of each CI workflow, compared with `main`, as they complete.

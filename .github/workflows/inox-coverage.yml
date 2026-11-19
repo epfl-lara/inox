@@ -1,5 +1,5 @@
 name: Inox coverage
-# The Linux / JDK 17 job of Inox CI, which also measures the coverage of the
+# The Linux / JDK 21 job of Inox CI, which also measures the coverage of the
 # tests. It is a workflow of its own so that the coverage comment, which runs
 # after it completes, doesn't wait for the other jobs of Inox CI.
 on:
@@ -24,7 +24,7 @@ jobs:
       matrix:
         include:
           - runners: {name: Linux, os: Linux, labels: ['ubuntu-latest']}
-            java-version: 17
+            java-version: 21
     env:
       # solver versions to test against
       INSTALL_SOLVERS: 1

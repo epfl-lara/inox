@@ -17,6 +17,10 @@ scalacOptions ++= Seq(
   "-feature"
 )
 
+// Inox runs on Java 21 and later, whatever the JDK it is built with.
+scalacOptions ++= Seq("-release", "21")
+javacOptions ++= Seq("--release", "21")
+
 // The native Z3 interface: ScalaZ3 (https://github.com/epfl-lara/ScalaZ3), which bundles the Z3
 // Java bindings and the native libraries of Z3 for all supported platforms. It is versioned after
 // the Z3 release it wraps.
