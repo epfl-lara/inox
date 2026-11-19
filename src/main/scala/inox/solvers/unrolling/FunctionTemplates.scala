@@ -15,7 +15,6 @@ trait FunctionTemplates { self: Templates =>
   import program.symbols.{given, _}
 
   import functionsManager._
-  import lambdasManager._
 
   private lazy val assumeChecked = options.findOptionOrDefault(optAssumeChecked)
 
@@ -338,7 +337,7 @@ trait FunctionTemplates { self: Templates =>
                     decodePartial(p._1.encoded, p._2.getType)
                       .map(e => exprOps.postMap {
                         case IsTyped(v: Variable, ft: FunctionType) =>
-                          byID.values.find(_.ids._1 == v).map(_.lambda)
+                          lambdaTemplates.find(_.ids._1 == v).map(_.lambda)
                         case _ => None
                       } (e))
                       .filter(exprOps.variablesOf(_).isEmpty)

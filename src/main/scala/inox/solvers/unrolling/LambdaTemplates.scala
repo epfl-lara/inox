@@ -13,10 +13,7 @@ trait LambdaTemplates { self: Templates =>
   import program.trees._
   import program.symbols.{given, _}
 
-  import typesManager._
   import lambdasManager._
-  import witnessState._
-  import quantificationsManager._
 
   private lazy val assumeChecked = options.findOptionOrDefault(optAssumeChecked)
 
@@ -189,7 +186,7 @@ trait LambdaTemplates { self: Templates =>
         val toClosures = toVars.map(subst)
         val toResult = encodeSymbol(Variable.fresh("result", BooleanType(), true))
         // the application result descends from both `f` and the arguments of `app`
-        val depth = witnessDepth max witnessDepths.getOrElse(f, 0) max appDepths.getOrElse(app, 0)
+        val depth = witnessDepth max functionDepth(f) max appDepth(app)
         clauses ++= withWitnessDepth(depth) {
           instantiateType(freshBlocker, Typing(to, app.encoded, Constraint(toResult, toClosures, free)))
         }
@@ -287,9 +284,9 @@ trait LambdaTemplates { self: Templates =>
     // Make sure `f` has a distinguishing input with every other function it differs from
     if (free && functionWitnesses) {
       val guard = mkAnd(active, isFree)
-      if (witnessDepth > 0) witnessDepths += f -> witnessDepth
+      recordFunctionDepth(f)
 
-      for ((otherGuard, other) <- witnessFunctions(ft).toSeq if other != f) {
+      for ((otherGuard, other) <- witnessedFunctions(ft).toSeq if other != f) {
         clauses ++= registerWitness(mkAnd(guard, otherGuard), ft, f, other, onDemand = onDemandFreeWitnesses)
       }
 
@@ -297,7 +294,7 @@ trait LambdaTemplates { self: Templates =>
         clauses ++= registerWitness(mkAnd(guard, template.start), ft, f, template.ids._2, onDemand = onDemandFreeWitnesses)
       }
 
-      witnessFunctions += ft -> (witnessFunctions(ft) + (guard -> f))
+      registerWitnessedFunction(ft, guard, f)
     }
 
     clauses.toSeq
@@ -316,7 +313,7 @@ trait LambdaTemplates { self: Templates =>
   /** Adds the clauses that follow from the equality of `lambda` and a function `f` that it captures,
     * which the unrolling left out (see [[equalCaptures]]). */
   def relateCapture(lambda: Encoded, f: Encoded): Clauses = {
-    relatedCaptures += lambda -> f
+    relateCaptured(lambda, f)
     val template = byID(lambda)
     val ft = template.tpe
     val clauses = new scala.collection.mutable.ListBuffer[Encoded]
@@ -442,7 +439,7 @@ trait LambdaTemplates { self: Templates =>
         nonFreeClauses
 
       byID += idT -> newTemplate
-      if (witnessDepth > 0) witnessDepths += idT -> witnessDepth
+      recordFunctionDepth(idT)
       byType += newTemplate.tpe -> (byType(newTemplate.tpe) + (newTemplate.structure -> newTemplate))
 
       val gen = nextGeneration(currentGeneration)
@@ -452,7 +449,7 @@ trait LambdaTemplates { self: Templates =>
       }
 
       // make sure free functions have a distinguishing input with the new lambda (if they differ)
-      val witnessClauses = for ((guard, f) <- witnessFunctions(newTemplate.tpe).toSeq) yield {
+      val witnessClauses = for ((guard, f) <- witnessedFunctions(newTemplate.tpe).toSeq) yield {
         registerWitness(mkAnd(guard, newTemplate.start), newTemplate.tpe, f, idT, onDemand = onDemandFreeWitnesses)
       }
 
@@ -523,7 +520,7 @@ trait LambdaTemplates { self: Templates =>
 
         clauses ++= congruenceClauses(blocker, app)
         applications += ft -> (applications(ft) + key)
-        if (witnessDepth > 0) appDepths += app -> (witnessDepth max appDepths.getOrElse(app, 0))
+        recordAppDepth(app)
       }
     }
 
@@ -623,6 +620,15 @@ trait LambdaTemplates { self: Templates =>
   def getLambdaTemplates: Seq[LambdaTemplate] = byType.values.toSeq.flatMap(_.values)
 
 
+  /** The template of the instantiated lambda whose identifier is `id`. */
+  private[unrolling] def lambdaTemplate(id: Encoded): Option[LambdaTemplate] = byID.get(id)
+
+  /** The templates of the instantiated lambdas of type `tpe`. */
+  private[unrolling] def lambdaTemplates(tpe: FunctionType): Iterable[LambdaTemplate] = byType(tpe).values
+
+  /** The templates of all the instantiated lambdas. */
+  private[unrolling] def lambdaTemplates: Iterable[LambdaTemplate] = byID.values
+
   private[unrolling] object lambdasManager extends Manager {
     // Function instantiations have their own defblocker
     private[LambdaTemplates] val lambdaBlockers = new IncrementalMap[TemplateAppInfo, (Encoded, Encoded)]()
@@ -636,7 +642,7 @@ trait LambdaTemplates { self: Templates =>
     /** This map holds the mapping from lambda identifiers to the corresponding template.
       * The map is populated during lambda instantiation in [[instantiateLambda]].
       */
-    val byID = new IncrementalMap[Encoded, LambdaTemplate]
+    private[LambdaTemplates] val byID = new IncrementalMap[Encoded, LambdaTemplate]
 
     /** This is a mapping from function types to all known lambda instantiations of that type
       * keyed by their structure (for faster lookup).
@@ -644,19 +650,19 @@ trait LambdaTemplates { self: Templates =>
       * is used to relate different lambdas that share a same type (eg. for equality).
       * The templates contained within `byType` and `byID` are the same.
       */
-    val byType = new IncrementalMap[FunctionType, Map[TemplateStructure, LambdaTemplate]].withDefaultValue(Map.empty)
+    private[LambdaTemplates] val byType = new IncrementalMap[FunctionType, Map[TemplateStructure, LambdaTemplate]].withDefaultValue(Map.empty)
 
     /** The lambdas that only differ by the path they are defined on are equal wherever they are
       * defined. Each such class of lambdas, keyed by type, normalized body and closures, is equated
       * to a shared symbol rather than to each of its members (see [[equalityClauses]]). */
-    val lambdaClasses = new IncrementalMap[(FunctionType, Expr, Seq[(Variable, Encoded)]), Encoded]
+    private[LambdaTemplates] val lambdaClasses = new IncrementalMap[(FunctionType, Expr, Seq[(Variable, Encoded)]), Encoded]
 
     /** This is a mapping from function types to all known function applications of functions
       * of that type. The aim is to dispatch these applications to members of the `byType` map
       * while carefuly instrumenting the resulting formulas so that satisfiability has to wait
       * for the correct lambda to be found.
       */
-    val applications = new IncrementalMap[FunctionType, Set[(Encoded, App)]].withDefaultValue(Set.empty)
+    private[LambdaTemplates] val applications = new IncrementalMap[FunctionType, Set[(Encoded, App)]].withDefaultValue(Set.empty)
 
     /** This is a mapping from function types to all known functions which require unfolding.
       * The instrumentation associates some boolean variable with each free function symbol
@@ -666,13 +672,13 @@ trait LambdaTemplates { self: Templates =>
       * We rely on this mapping to keep track of an instrumentation that makes sure that quantifying
       * over empty function types won't lead to invalid proofs (see [[TypeTemplates.ConstraintTemplate]]).
       */
-    val freeBlockers = new IncrementalMap[FunctionType, Set[(Encoded, Encoded, Type, Encoded, Seq[Arg], Boolean)]].withDefaultValue(Set.empty)
+    private[LambdaTemplates] val freeBlockers = new IncrementalMap[FunctionType, Set[(Encoded, Encoded, Type, Encoded, Seq[Arg], Boolean)]].withDefaultValue(Set.empty)
 
     /** This mapping is used to keep track of functions that ARE NOT equal to some lambda in the
       * program. We need this to make sure that applications of free functions that are equal to
       * some lambda are correctly dispatched to their actual bodies.
       */
-    val nonFreeBlockers = new IncrementalMap[Encoded, (Encoded, Encoded)]
+    private[LambdaTemplates] val nonFreeBlockers = new IncrementalMap[Encoded, (Encoded, Encoded)]
 
     /** This mapping is used for
       * 1. to cache datatype unfoldings of free function application results, and
@@ -680,19 +686,19 @@ trait LambdaTemplates { self: Templates =>
       *    [[freeBlockers]].
       * The map is keyed by a free function and an app.
       */
-    val typeBlockers = new IncrementalMap[(Encoded, App), (Encoded, Encoded)]()
+    private[LambdaTemplates] val typeBlockers = new IncrementalMap[(Encoded, App), (Encoded, Encoded)]()
 
     /** This mapping maintains the set of all known free functions within the input formula
       * and is used to ensure sound models for functions that take no arguments.
       */
-    val freeFunctions = new IncrementalMap[FunctionType, Set[(Encoded, Encoded)]].withDefaultValue(Set.empty)
+    private[LambdaTemplates] val freeFunctions = new IncrementalMap[FunctionType, Set[(Encoded, Encoded)]].withDefaultValue(Set.empty)
 
-    val instantiated = new IncrementalSet[(Encoded, App)]
+    private[LambdaTemplates] val instantiated = new IncrementalSet[(Encoded, App)]
 
     /** For function-typed applications, a literal that holds whenever the application is reached.
       * Results of applications are registered as free functions under a blocker that is only an
       * upper bound, which would let a model keep two distinct results without distinguishing them. */
-    val resultGuards = new IncrementalMap[Encoded, Encoded]
+    private[LambdaTemplates] val resultGuards = new IncrementalMap[Encoded, Encoded]
 
 
 
@@ -754,7 +760,7 @@ trait LambdaTemplates { self: Templates =>
                 lambdaBlockers += info -> (lambdaBlocker, lambdaFailure)
 
                 // the lambda body is instantiated on the arguments of `app`, so it inherits their witness depth
-                val depth = appDepths.getOrElse(app._2, 0) max witnessDepths.getOrElse(template.ids._2, 0)
+                val depth = appDepth(app._2) max functionDepth(template.ids._2)
                 val instClauses: Clauses =
                   withWitnessDepth(depth)(template.instantiate(lambdaBlocker, args, lambdaFailure))
 
