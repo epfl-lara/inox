@@ -139,6 +139,30 @@ lazy val docs = project
   )
   .enablePlugins(MdocPlugin)
 
+/** The proofs of Inox's answers, in `proofs`: `semantics.md`, the definition of Inox's semantics,
+ *  and the generator of its embeddings, `sbt proofs/run`. Its tests compare the generated Scala
+ *  evaluator with Inox's. It is a build-time tool, so it is not published; `sbt test` runs its
+ *  tests along with Inox's.
+ */
+lazy val proofs = project
+  .in(file("proofs"))
+  .dependsOn(root % "compile->compile;test->test")
+  .settings(
+    scalaVersion := inoxScalaVersion,
+    scalaOrganization := laraOrganization,
+    excludeDependencies ++= Seq(
+      ExclusionRule("org.scala-lang", "scala-library"),
+      ExclusionRule("org.scala-lang", "scala3-library_3"),
+      ExclusionRule("org.scala-lang", "scala3-compiler_3"),
+    ),
+    scalacOptions ++= Seq("-deprecation", "-unchecked", "-feature"),
+    libraryDependencies += "org.scalatest" %% "scalatest" % "3.2.9" % "test",
+    // Paths are relative to `proofs`.
+    fork := true,
+    Compile / run / mainClass := Some("inox.semantics.Codegen"),
+    publish / skip := true,
+  )
+
 run / Keys.fork := true
 
 Test / testOptions := Seq(Tests.Argument("-oDF"))
@@ -177,6 +201,10 @@ lazy val root = (project in file("."))
   )) : _*)
   .settings(compile := ((Compile / compile) dependsOn script).value)
   .settings(Compile / packageDoc / mappings := Seq())
+  .settings(
+    // The tests of `proofs` run with Inox's. (Aggregating it would also assemble and publish it.)
+    Test / test := (Test / test).dependsOn(LocalProject("proofs") / Test / test).value,
+  )
 
 Global / concurrentRestrictions := Seq(
   Tags.limit(Tags.Test, nTestParallelism)
