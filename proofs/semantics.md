@@ -12,11 +12,11 @@ semantics for each checker or tool that needs it: today, a Scala evaluator that
 the tests compare with Inox's `RecursiveEvaluator`. The language of the blocks
 is described at the end of this file.
 
-This version covers the first-order core of Inox: integers, Booleans, unit,
-algebraic datatypes (with their invariants), first-order recursive functions,
-`let`, `if`, `assume` and `error`. Bit-vectors, lambdas, quantifiers, the
-theories (strings, sets, bags, maps, reals) and uninterpreted functions come
-later.
+This version covers integers, Booleans, unit, characters, reals, strings,
+bit-vectors, tuples, algebraic datatypes (with their invariants), recursive
+functions, first-class functions, `let`, `if`, `assume` and
+`error`. Sets, bags, maps, quantifiers, uninterpreted functions and floating
+point come later.
 
 ## Evaluation with fuel
 
@@ -30,8 +30,10 @@ expression `e`. Its result is one of:
   a value built with another constructor;
 - `OutOfFuel`: evaluation needs more fuel.
 
-Fuel bounds the depth of nested function calls: a call evaluates the callee's
-body with one less fuel, and nothing else consumes fuel. Inox has no
+Fuel bounds the depth of nested function calls and applications: a call
+evaluates the callee's body with one less fuel, and so does the application of
+a first-class function, since a function stored in a value can apply itself;
+nothing else consumes fuel. Inox has no
 non-deterministic construct, so evaluation is a function, and more fuel never
 changes a result other than `OutOfFuel`. An expression whose evaluation
 diverges is one that runs out of fuel for every amount of fuel, and Inox
@@ -39,7 +41,9 @@ doesn't distinguish it from one that gets stuck: both have no value. The fuel
 a call needs is its rank, the measure that Inox's termination clauses use.
 
 Evaluation is the same under every type instantiation: types play no role in
-it, so the expressions below leave them out.
+it, so the expressions below leave them out. The values of a type parameter
+can only be compared for equality, so they are read as integers: Inox's
+generic value `T#n` is the integer `n`.
 
 ```inox-sem
 (datatype (List T)
@@ -58,14 +62,27 @@ it, so the expressions below leave them out.
 
 ## Values
 
-A value is an integer, a Boolean, the unit value, or a constructor applied to
-values. Two values are equal when they are structurally equal.
+A value is an integer, a Boolean, the unit value, a character (its code), a
+real (a fraction in lowest terms with a positive denominator), a string (the
+list of its characters' codes), a bit-vector, a tuple, a closure, or a
+constructor applied to values.
+
+A bit-vector of `width` bits holds them as the integer `bits`, with
+`0 <= bits < 2^width`; whether it is `signed` decides how operations read it.
+A closure is a function value: the parameters and body of a `Lambda`, and the
+environment in which it was evaluated.
 
 ```inox-sem
 (datatype Value
   (IntV (value Int))
   (BoolV (value Bool))
   (UnitV)
+  (CharV (code Int))
+  (RealV (num Int) (den Int))
+  (StringV (chars (List Int)))
+  (BVV (signed Bool) (width Int) (bits Int))
+  (TupleV (elems (List Value)))
+  (ClosureV (params (List Id)) (body Expr) (env (List Binding)))
   (ADTV (ctor Id) (args (List Value))))
 ```
 
@@ -76,15 +93,21 @@ uses, in the same order (`inox.ast.Expressions`).
 
 ```inox-sem
 (datatype Expr
-  (Variable (id Id))
-  (IntegerLiteral (value Int))
-  (BooleanLiteral (value Bool))
-  (UnitLiteral)
-  (Let (id Id) (value Expr) (body Expr))
-  (IfExpr (cond Expr) (thenn Expr) (elze Expr))
   (Assume (pred Expr) (body Expr))
+  (Variable (id Id))
+  (Let (id Id) (value Expr) (body Expr))
+  (Application (callee Expr) (args (List Expr)))
+  (Lambda (params (List Id)) (body Expr))
   (Error)
   (FunctionInvocation (id Id) (args (List Expr)))
+  (IfExpr (cond Expr) (thenn Expr) (elze Expr))
+  (CharLiteral (code Int))
+  (BVLiteral (signed Bool) (width Int) (bits Int))
+  (IntegerLiteral (value Int))
+  (FractionLiteral (num Int) (den Int))
+  (BooleanLiteral (value Bool))
+  (StringLiteral (chars (List Int)))
+  (UnitLiteral)
   (ADT (id Id) (args (List Expr)))
   (IsConstructor (expr Expr) (id Id))
   (ADTSelector (adt Expr) (selector Id))
@@ -93,6 +116,9 @@ uses, in the same order (`inox.ast.Expressions`).
   (Or (exprs (List Expr)))
   (Implies (lhs Expr) (rhs Expr))
   (Not (expr Expr))
+  (StringConcat (lhs Expr) (rhs Expr))
+  (SubString (expr Expr) (start Expr) (end Expr))
+  (StringLength (expr Expr))
   (Plus (lhs Expr) (rhs Expr))
   (Minus (lhs Expr) (rhs Expr))
   (UMinus (expr Expr))
@@ -103,7 +129,22 @@ uses, in the same order (`inox.ast.Expressions`).
   (LessThan (lhs Expr) (rhs Expr))
   (GreaterThan (lhs Expr) (rhs Expr))
   (LessEquals (lhs Expr) (rhs Expr))
-  (GreaterEquals (lhs Expr) (rhs Expr)))
+  (GreaterEquals (lhs Expr) (rhs Expr))
+  (BVNot (expr Expr))
+  (BVAnd (lhs Expr) (rhs Expr))
+  (BVOr (lhs Expr) (rhs Expr))
+  (BVXor (lhs Expr) (rhs Expr))
+  (BVShiftLeft (lhs Expr) (rhs Expr))
+  (BVAShiftRight (lhs Expr) (rhs Expr))
+  (BVLShiftRight (lhs Expr) (rhs Expr))
+  (BVNarrowingCast (expr Expr) (width Int))
+  (BVWideningCast (expr Expr) (width Int))
+  (BVUnsignedToSigned (expr Expr))
+  (BVSignedToUnsigned (expr Expr))
+  (BVToInt (expr Expr))
+  (IntToBV (width Int) (signed Bool) (expr Expr))
+  (Tuple (exprs (List Expr)))
+  (TupleSelect (tuple Expr) (index Int)))
 ```
 
 A program gives each function its parameters and body, each constructor its
@@ -311,13 +352,42 @@ does.
       (_ (Stuck)))))
 ```
 
-Equality compares values structurally.
+Equality compares values structurally, from left to right, and stops at the
+first difference. Functions can't be compared: comparing two closures gets
+stuck, as under Inox's default `--function-equality=none`.
 
 ```inox-sem
+(define (value-eq (a Value) (b Value)) (Result Bool)
+  (match a
+    ((ClosureV _ _ _) (Stuck))
+    ((ADTV c xs)
+      (match b
+        ((ADTV d ys) (if (= c d) (values-eq xs ys) (Ok false)))
+        (_ (Ok false))))
+    ((TupleV xs)
+      (match b
+        ((TupleV ys) (values-eq xs ys))
+        (_ (Ok false))))
+    (_ (Ok (= a b)))))
+
+(define (values-eq (xs (List Value)) (ys (List Value))) (Result Bool)
+  (match xs
+    ((Nil)
+      (match ys
+        ((Nil) (Ok true))
+        (_ (Ok false))))
+    ((Cons x xr)
+      (match ys
+        ((Nil) (Ok false))
+        ((Cons y yr)
+          (let! ((same (value-eq x y)))
+            (if same (values-eq xr yr) (Ok false))))))))
+
 (case eval (Equals lhs rhs)
   (let! ((a (eval P fuel env lhs))
-         (b (eval P fuel env rhs)))
-    (Ok (BoolV (= a b)))))
+         (b (eval P fuel env rhs))
+         (same (value-eq a b)))
+    (Ok (BoolV same))))
 ```
 
 The Boolean connectives:
@@ -352,54 +422,484 @@ The Boolean connectives:
     (Ok (BoolV (not a)))))
 ```
 
-Integer arithmetic is on mathematical integers. Division is SMT-LIB's
-euclidean division, and `Remainder` and `Modulo` both give its remainder, which
-is never negative; all three get stuck on a zero divisor.
+Literals evaluate to themselves. A fraction literal is put in lowest terms.
 
 ```inox-sem
+(case eval (CharLiteral c)
+  (Ok (CharV c)))
+
+(case eval (BVLiteral s w x)
+  (Ok (BVV s w x)))
+
+(case eval (FractionLiteral n d)
+  (real n d))
+
+(case eval (StringLiteral cs)
+  (Ok (StringV cs)))
+```
+
+### First-class functions
+
+A `Lambda` evaluates to a closure, which captures the environment. Applying a
+closure evaluates the callee, then the arguments, then the closure's body in
+its environment extended with its parameters, with one less fuel.
+
+```inox-sem
+(case eval (Lambda params body)
+  (Ok (ClosureV params body env)))
+
+(case eval (Application callee args)
+  (let! ((f (eval P fuel env callee))
+         (vs (eval-list P fuel env args)))
+    (match f
+      ((ClosureV params body cenv)
+        (if (<= fuel 0)
+          (OutOfFuel)
+          (let! ((bs (bind-all params vs)))
+            (eval P (- fuel 1) (append-env bs cenv) body))))
+      (_ (Stuck)))))
+
+(define (append-env (bs (List Binding)) (env (List Binding))) (List Binding)
+  (match bs
+    ((Nil) env)
+    ((Cons b rest) (Cons b (append-env rest env)))))
+```
+
+### Tuples
+
+`TupleSelect` counts from 1.
+
+```inox-sem
+(case eval (Tuple es)
+  (let! ((vs (eval-list P fuel env es)))
+    (Ok (TupleV vs))))
+
+(case eval (TupleSelect tuple i)
+  (let! ((t (eval P fuel env tuple)))
+    (match t
+      ((TupleV vs) (nth vs i))
+      (_ (Stuck)))))
+
+(define (nth (vs (List Value)) (i Int)) (Result Value)
+  (match vs
+    ((Nil) (Stuck))
+    ((Cons v rest) (if (= i 1) (Ok v) (nth rest (- i 1))))))
+```
+
+### Integer helpers
+
+Euclid's algorithm, powers of two, and the bitwise operations on non-negative
+integers, one bit at a time.
+
+```inox-sem
+(define (abs (a Int)) Int
+  (if (< a 0) (- 0 a) a))
+
+(define (gcd (a Int) (b Int)) Int
+  (if (= b 0) a (gcd b (mod a b))))
+
+(define (pow2 (n Int)) Int
+  (if (<= n 0) 1 (* 2 (pow2 (- n 1)))))
+
+(define (bit (a Int)) Int
+  (mod a 2))
+
+(define (bit-and (a Int) (b Int)) Int
+  (if (or (= a 0) (= b 0))
+    0
+    (+ (* 2 (bit-and (div a 2) (div b 2))) (* (bit a) (bit b)))))
+
+(define (bit-or (a Int) (b Int)) Int
+  (if (= a 0)
+    b
+    (if (= b 0)
+      a
+      (+ (* 2 (bit-or (div a 2) (div b 2))) (- (+ (bit a) (bit b)) (* (bit a) (bit b)))))))
+
+(define (bit-xor (a Int) (b Int)) Int
+  (if (= a 0)
+    b
+    (if (= b 0)
+      a
+      (+ (* 2 (bit-xor (div a 2) (div b 2))) (mod (+ (bit a) (bit b)) 2)))))
+```
+
+The quotient of a division rounded toward zero, and its remainder, which has
+the sign of the dividend:
+
+```inox-sem
+(define (tdiv (a Int) (b Int)) Int
+  (if (<= 0 a) (div a b) (- 0 (div (- 0 a) b))))
+
+(define (trem (a Int) (b Int)) Int
+  (- a (* b (tdiv a b))))
+```
+
+### Reals
+
+A real is a fraction in lowest terms with a positive denominator, so that
+equal reals are structurally equal.
+
+```inox-sem
+(define (real (n Int) (d Int)) (Result Value)
+  (if (= d 0)
+    (Stuck)
+    (let ((g (gcd (abs n) (abs d)))
+          (s (if (< d 0) (- 0 1) 1)))
+      (Ok (RealV (* s (div n g)) (* s (div d g)))))))
+```
+
+### Bit-vectors
+
+A bit-vector's integer value is its bits read as an unsigned number, or for a
+signed one as a two's complement number. The arithmetic operations wrap
+around: they compute on the integer values and keep the low `width` bits.
+
+```inox-sem
+(define (bv (s Bool) (w Int) (x Int)) Value
+  (BVV s w (mod x (pow2 w))))
+
+(define (twos (w Int) (x Int)) Int
+  (if (<= (pow2 (- w 1)) x) (- x (pow2 w)) x))
+
+(define (bv-int (s Bool) (w Int) (x Int)) Int
+  (if s (twos w x) x))
+
+(define (same-bv (s Bool) (w Int) (t Bool) (v Int)) Bool
+  (and (= s t) (= w v)))
+```
+
+### Arithmetic
+
+`Plus`, `Minus`, `Times`, `Division`, `Remainder`, `Modulo`, `UMinus` and the
+comparisons apply to integers, reals and bit-vectors of the same signedness
+and width, and the comparisons to characters too.
+
+On integers, arithmetic is on mathematical integers. Division is SMT-LIB's
+euclidean division, and `Remainder` and `Modulo` both give its remainder, which
+is never negative; all three get stuck on a zero divisor. Real division also
+gets stuck on zero.
+
+On bit-vectors, as in SMT-LIB, division rounds toward zero and `Remainder`
+has the sign of the dividend, while `Modulo` has the sign of the divisor.
+Dividing by zero is defined: an unsigned quotient has all its bits set, a
+signed one is `-1` for a non-negative dividend and `1` otherwise, and both
+remainders are the dividend.
+
+```inox-sem
+(define (arith-plus (a Value) (b Value)) (Result Value)
+  (match a
+    ((IntV x) (match b ((IntV y) (Ok (IntV (+ x y)))) (_ (Stuck))))
+    ((RealV n d) (match b ((RealV m e) (real (+ (* n e) (* m d)) (* d e))) (_ (Stuck))))
+    ((BVV s w x)
+      (match b
+        ((BVV t v y) (if (same-bv s w t v) (Ok (bv s w (+ x y))) (Stuck)))
+        (_ (Stuck))))
+    (_ (Stuck))))
+
+(define (arith-minus (a Value) (b Value)) (Result Value)
+  (match a
+    ((IntV x) (match b ((IntV y) (Ok (IntV (- x y)))) (_ (Stuck))))
+    ((RealV n d) (match b ((RealV m e) (real (- (* n e) (* m d)) (* d e))) (_ (Stuck))))
+    ((BVV s w x)
+      (match b
+        ((BVV t v y) (if (same-bv s w t v) (Ok (bv s w (- x y))) (Stuck)))
+        (_ (Stuck))))
+    (_ (Stuck))))
+
+(define (arith-times (a Value) (b Value)) (Result Value)
+  (match a
+    ((IntV x) (match b ((IntV y) (Ok (IntV (* x y)))) (_ (Stuck))))
+    ((RealV n d) (match b ((RealV m e) (real (* n m) (* d e))) (_ (Stuck))))
+    ((BVV s w x)
+      (match b
+        ((BVV t v y) (if (same-bv s w t v) (Ok (bv s w (* x y))) (Stuck)))
+        (_ (Stuck))))
+    (_ (Stuck))))
+
+(define (arith-div (a Value) (b Value)) (Result Value)
+  (match a
+    ((IntV x)
+      (match b
+        ((IntV y) (if (= y 0) (Stuck) (Ok (IntV (div x y)))))
+        (_ (Stuck))))
+    ((RealV n d)
+      (match b
+        ((RealV m e) (if (= m 0) (Stuck) (real (* n e) (* d m))))
+        (_ (Stuck))))
+    ((BVV s w x)
+      (match b
+        ((BVV t v y)
+          (if (same-bv s w t v)
+            (let ((i (bv-int s w x)) (j (bv-int s w y)))
+              (if (= j 0)
+                (if s
+                  (Ok (bv s w (if (<= 0 i) (- 0 1) 1)))
+                  (Ok (bv s w (- (pow2 w) 1))))
+                (Ok (bv s w (tdiv i j)))))
+            (Stuck)))
+        (_ (Stuck))))
+    (_ (Stuck))))
+
+(define (arith-rem (a Value) (b Value)) (Result Value)
+  (match a
+    ((IntV x)
+      (match b
+        ((IntV y) (if (= y 0) (Stuck) (Ok (IntV (mod x y)))))
+        (_ (Stuck))))
+    ((BVV s w x)
+      (match b
+        ((BVV t v y)
+          (if (same-bv s w t v)
+            (let ((i (bv-int s w x)) (j (bv-int s w y)))
+              (if (= j 0) (Ok a) (Ok (bv s w (trem i j)))))
+            (Stuck)))
+        (_ (Stuck))))
+    (_ (Stuck))))
+
+(define (arith-mod (a Value) (b Value)) (Result Value)
+  (match a
+    ((IntV x)
+      (match b
+        ((IntV y) (if (= y 0) (Stuck) (Ok (IntV (mod x y)))))
+        (_ (Stuck))))
+    ((BVV s w x)
+      (match b
+        ((BVV t v y)
+          (if (same-bv s w t v)
+            (let ((i (bv-int s w x)) (j (bv-int s w y)))
+              (if (= j 0)
+                (Ok a)
+                (let ((r (mod i j)))
+                  (Ok (bv s w (if (and (< j 0) (not (= r 0))) (+ r j) r))))))
+            (Stuck)))
+        (_ (Stuck))))
+    (_ (Stuck))))
+
+(define (arith-neg (a Value)) (Result Value)
+  (match a
+    ((IntV x) (Ok (IntV (- 0 x))))
+    ((RealV n d) (Ok (RealV (- 0 n) d)))
+    ((BVV s w x) (Ok (bv s w (- 0 x))))
+    (_ (Stuck))))
+
+(define (arith-lt (a Value) (b Value)) (Result Bool)
+  (match a
+    ((IntV x) (match b ((IntV y) (Ok (< x y))) (_ (Stuck))))
+    ((RealV n d) (match b ((RealV m e) (Ok (< (* n e) (* m d)))) (_ (Stuck))))
+    ((CharV x) (match b ((CharV y) (Ok (< x y))) (_ (Stuck))))
+    ((BVV s w x)
+      (match b
+        ((BVV t v y) (if (same-bv s w t v) (Ok (< (bv-int s w x) (bv-int s w y))) (Stuck)))
+        (_ (Stuck))))
+    (_ (Stuck))))
+
+(define (arith-le (a Value) (b Value)) (Result Bool)
+  (let! ((lt (arith-lt b a)))
+    (Ok (not lt))))
+
 (case eval (Plus lhs rhs)
-  (let! ((a (eval-int P fuel env lhs)) (b (eval-int P fuel env rhs)))
-    (Ok (IntV (+ a b)))))
+  (let! ((a (eval P fuel env lhs)) (b (eval P fuel env rhs)))
+    (arith-plus a b)))
 
 (case eval (Minus lhs rhs)
-  (let! ((a (eval-int P fuel env lhs)) (b (eval-int P fuel env rhs)))
-    (Ok (IntV (- a b)))))
+  (let! ((a (eval P fuel env lhs)) (b (eval P fuel env rhs)))
+    (arith-minus a b)))
 
 (case eval (UMinus expr)
-  (let! ((a (eval-int P fuel env expr)))
-    (Ok (IntV (- 0 a)))))
+  (let! ((a (eval P fuel env expr)))
+    (arith-neg a)))
 
 (case eval (Times lhs rhs)
-  (let! ((a (eval-int P fuel env lhs)) (b (eval-int P fuel env rhs)))
-    (Ok (IntV (* a b)))))
+  (let! ((a (eval P fuel env lhs)) (b (eval P fuel env rhs)))
+    (arith-times a b)))
 
 (case eval (Division lhs rhs)
-  (let! ((a (eval-int P fuel env lhs)) (b (eval-int P fuel env rhs)))
-    (if (= b 0) (Stuck) (Ok (IntV (div a b))))))
+  (let! ((a (eval P fuel env lhs)) (b (eval P fuel env rhs)))
+    (arith-div a b)))
 
 (case eval (Remainder lhs rhs)
-  (let! ((a (eval-int P fuel env lhs)) (b (eval-int P fuel env rhs)))
-    (if (= b 0) (Stuck) (Ok (IntV (mod a b))))))
+  (let! ((a (eval P fuel env lhs)) (b (eval P fuel env rhs)))
+    (arith-rem a b)))
 
 (case eval (Modulo lhs rhs)
-  (let! ((a (eval-int P fuel env lhs)) (b (eval-int P fuel env rhs)))
-    (if (= b 0) (Stuck) (Ok (IntV (mod a b))))))
+  (let! ((a (eval P fuel env lhs)) (b (eval P fuel env rhs)))
+    (arith-mod a b)))
 
 (case eval (LessThan lhs rhs)
-  (let! ((a (eval-int P fuel env lhs)) (b (eval-int P fuel env rhs)))
-    (Ok (BoolV (< a b)))))
+  (let! ((a (eval P fuel env lhs)) (b (eval P fuel env rhs)) (r (arith-lt a b)))
+    (Ok (BoolV r))))
 
 (case eval (GreaterThan lhs rhs)
-  (let! ((a (eval-int P fuel env lhs)) (b (eval-int P fuel env rhs)))
-    (Ok (BoolV (< b a)))))
+  (let! ((a (eval P fuel env lhs)) (b (eval P fuel env rhs)) (r (arith-lt b a)))
+    (Ok (BoolV r))))
 
 (case eval (LessEquals lhs rhs)
-  (let! ((a (eval-int P fuel env lhs)) (b (eval-int P fuel env rhs)))
-    (Ok (BoolV (<= a b)))))
+  (let! ((a (eval P fuel env lhs)) (b (eval P fuel env rhs)) (r (arith-le a b)))
+    (Ok (BoolV r))))
 
 (case eval (GreaterEquals lhs rhs)
-  (let! ((a (eval-int P fuel env lhs)) (b (eval-int P fuel env rhs)))
-    (Ok (BoolV (<= b a)))))
+  (let! ((a (eval P fuel env lhs)) (b (eval P fuel env rhs)) (r (arith-le b a)))
+    (Ok (BoolV r))))
+```
+
+### Bitwise operations and conversions
+
+The bitwise operations and shifts take bit-vectors of the same signedness and
+width. As in SMT-LIB, a shift amount is read as an unsigned number, and
+shifting by `width` or more vacates every bit. An arithmetic right shift
+copies the most significant bit, whatever the signedness. Casts keep the
+integer value modulo the new width, so they sign-extend a signed bit-vector
+and zero-extend an unsigned one.
+
+```inox-sem
+(datatype BitOp
+  (AndOp)
+  (OrOp)
+  (XorOp)
+  (ShiftLeftOp)
+  (AShiftRightOp)
+  (LShiftRightOp))
+
+(define (shift-amount (w Int) (y Int)) Int
+  (if (<= w y) w y))
+
+(define (bit-op (op BitOp) (s Bool) (w Int) (x Int) (y Int)) Value
+  (let ((k (pow2 (shift-amount w y))))
+    (match op
+      ((AndOp) (BVV s w (bit-and x y)))
+      ((OrOp) (BVV s w (bit-or x y)))
+      ((XorOp) (BVV s w (bit-xor x y)))
+      ((ShiftLeftOp) (bv s w (* x k)))
+      ((AShiftRightOp) (bv s w (div (twos w x) k)))
+      ((LShiftRightOp) (BVV s w (div x k))))))
+
+(define (bv-binary (op BitOp) (a Value) (b Value)) (Result Value)
+  (match a
+    ((BVV s w x)
+      (match b
+        ((BVV t v y) (if (same-bv s w t v) (Ok (bit-op op s w x y)) (Stuck)))
+        (_ (Stuck))))
+    (_ (Stuck))))
+
+(case eval (BVNot expr)
+  (let! ((a (eval P fuel env expr)))
+    (match a
+      ((BVV s w x) (Ok (BVV s w (- (- (pow2 w) 1) x))))
+      (_ (Stuck)))))
+
+(case eval (BVAnd lhs rhs)
+  (let! ((a (eval P fuel env lhs)) (b (eval P fuel env rhs)))
+    (bv-binary (AndOp) a b)))
+
+(case eval (BVOr lhs rhs)
+  (let! ((a (eval P fuel env lhs)) (b (eval P fuel env rhs)))
+    (bv-binary (OrOp) a b)))
+
+(case eval (BVXor lhs rhs)
+  (let! ((a (eval P fuel env lhs)) (b (eval P fuel env rhs)))
+    (bv-binary (XorOp) a b)))
+
+(case eval (BVShiftLeft lhs rhs)
+  (let! ((a (eval P fuel env lhs)) (b (eval P fuel env rhs)))
+    (bv-binary (ShiftLeftOp) a b)))
+
+(case eval (BVAShiftRight lhs rhs)
+  (let! ((a (eval P fuel env lhs)) (b (eval P fuel env rhs)))
+    (bv-binary (AShiftRightOp) a b)))
+
+(case eval (BVLShiftRight lhs rhs)
+  (let! ((a (eval P fuel env lhs)) (b (eval P fuel env rhs)))
+    (bv-binary (LShiftRightOp) a b)))
+
+(define (bv-cast (a Value) (v Int)) (Result Value)
+  (match a
+    ((BVV s w x) (Ok (bv s v (bv-int s w x))))
+    (_ (Stuck))))
+
+(case eval (BVNarrowingCast expr w)
+  (let! ((a (eval P fuel env expr)))
+    (bv-cast a w)))
+
+(case eval (BVWideningCast expr w)
+  (let! ((a (eval P fuel env expr)))
+    (bv-cast a w)))
+
+(case eval (BVUnsignedToSigned expr)
+  (let! ((a (eval P fuel env expr)))
+    (match a
+      ((BVV false w x) (Ok (BVV true w x)))
+      (_ (Stuck)))))
+
+(case eval (BVSignedToUnsigned expr)
+  (let! ((a (eval P fuel env expr)))
+    (match a
+      ((BVV true w x) (Ok (BVV false w x)))
+      (_ (Stuck)))))
+
+(case eval (BVToInt expr)
+  (let! ((a (eval P fuel env expr)))
+    (match a
+      ((BVV s w x) (Ok (IntV (bv-int s w x))))
+      (_ (Stuck)))))
+
+(case eval (IntToBV w s expr)
+  (let! ((i (eval-int P fuel env expr)))
+    (Ok (bv s w i))))
+```
+
+### Strings
+
+A string is the list of its characters' codes. As SMT-LIB's `str.substr`,
+`SubString` gives the characters from `start` up to `end`, excluded, and the
+empty string when `start` is out of bounds or `end` isn't after it.
+
+```inox-sem
+(define (append-chars (xs (List Int)) (ys (List Int))) (List Int)
+  (match xs
+    ((Nil) ys)
+    ((Cons x rest) (Cons x (append-chars rest ys)))))
+
+(define (length (xs (List Int))) Int
+  (match xs
+    ((Nil) 0)
+    ((Cons _ rest) (+ 1 (length rest)))))
+
+(define (take (n Int) (xs (List Int))) (List Int)
+  (if (<= n 0)
+    (Nil)
+    (match xs
+      ((Nil) (Nil))
+      ((Cons x rest) (Cons x (take (- n 1) rest))))))
+
+(define (drop (n Int) (xs (List Int))) (List Int)
+  (if (<= n 0)
+    xs
+    (match xs
+      ((Nil) (Nil))
+      ((Cons _ rest) (drop (- n 1) rest)))))
+
+(define (eval-string (P Program) (fuel Int) (env (List Binding)) (e Expr)) (Result (List Int))
+  (let! ((v (eval P fuel env e)))
+    (match v
+      ((StringV cs) (Ok cs))
+      (_ (Stuck)))))
+
+(case eval (StringConcat lhs rhs)
+  (let! ((a (eval-string P fuel env lhs)) (b (eval-string P fuel env rhs)))
+    (Ok (StringV (append-chars a b)))))
+
+(case eval (SubString expr start end)
+  (let! ((cs (eval-string P fuel env expr))
+         (b (eval-int P fuel env start))
+         (c (eval-int P fuel env end)))
+    (if (or (< b 0) (<= c b))
+      (Ok (StringV (Nil)))
+      (Ok (StringV (take (- c b) (drop b cs)))))))
+
+(case eval (StringLength expr)
+  (let! ((cs (eval-string P fuel env expr)))
+    (Ok (IntV (length cs)))))
 ```
 
 ## The language of the blocks
