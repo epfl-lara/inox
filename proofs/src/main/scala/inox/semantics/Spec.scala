@@ -11,6 +11,27 @@ final case class Spec(datatypes: Seq[Spec.Datatype], functions: Seq[Spec.Functio
   lazy val constructors: Map[String, (Datatype, Constructor)] =
     datatypes.flatMap(dt => dt.ctors.map(c => c.name -> (dt, c))).toMap
   lazy val functionsByName: Map[String, Function] = functions.map(f => f.name -> f).toMap
+
+  /** The functions that quantify over values: no program can compute them, so executable backends
+    * leave them to an oracle. The functions that call them are computable relative to it. */
+  lazy val noncomputable: Set[String] = {
+    def quantifies(t: Term): Boolean = t match {
+      case Term.Quant(_, _, _) => true
+      case Term.Call(_, args) => args.exists(quantifies)
+      case Term.Ctor(_, args) => args.exists(quantifies)
+      case Term.Builtin(_, args) => args.exists(quantifies)
+      case Term.Let(bs, b) => bs.exists(b => quantifies(b._2)) || quantifies(b)
+      case Term.LetBang(bs, b) => bs.exists(b => quantifies(b._2)) || quantifies(b)
+      case Term.If(c, a, b) => quantifies(c) || quantifies(a) || quantifies(b)
+      case Term.Match(sc, cs) => quantifies(sc) || cs.exists(c => quantifies(c._2))
+      case _ => false
+    }
+    def terms(f: Function): Seq[Term] = f.body match {
+      case Body.Term(t) => Seq(t)
+      case Body.Cases(_, cs) => cs.map(_._2)
+    }
+    functions.filter(f => terms(f).exists(quantifies)).map(_.name).toSet
+  }
 }
 
 object Spec {
@@ -42,6 +63,8 @@ object Spec {
     case LetBang(bindings: Seq[(String, Term)], body: Term)
     case If(cond: Term, thenn: Term, elze: Term)
     case Match(scrutinee: Term, cases: Seq[(Pattern, Term)])
+    /** `(forall ((x T) ...) body)` or `(exists ...)`, over all the values of the types. */
+    case Quant(forall: Boolean, binders: Seq[(String, Type)], body: Term)
   }
 
   enum Pattern {
@@ -168,6 +191,9 @@ object Spec {
         val (b, sc) = bindings(bs, scope)
         Term.LetBang(b, term(body, sc))
       case Lst(Seq(Atom("if"), c, t, e)) => Term.If(term(c, scope), term(t, scope), term(e, scope))
+      case Lst(Seq(Atom(q @ ("forall" | "exists")), Lst(bs), body)) if bs.nonEmpty =>
+        val binders = bs.map(param(_, Set()))
+        Term.Quant(q == "forall", binders, term(body, scope ++ binders.map(_._1)))
       case Lst(Atom("match") +: scrut +: cases) if cases.nonEmpty =>
         Term.Match(term(scrut, scope), cases.map {
           case Lst(Seq(p, body)) =>
@@ -247,7 +273,24 @@ object Spec {
       case Type.Param(_) =>
     }
     spec.datatypes.foreach(_.ctors.foreach(_.fields.foreach(f => check(f._2))))
-    spec.functions.foreach { f => f.params.foreach(p => check(p._2)); check(f.result) }
+    def checkTerm(t: Term): Unit = t match {
+      case Term.Quant(_, bs, b) => bs.foreach(b => check(b._2)); checkTerm(b)
+      case Term.Call(_, args) => args.foreach(checkTerm)
+      case Term.Ctor(_, args) => args.foreach(checkTerm)
+      case Term.Builtin(_, args) => args.foreach(checkTerm)
+      case Term.Let(bs, b) => bs.foreach(b => checkTerm(b._2)); checkTerm(b)
+      case Term.LetBang(bs, b) => bs.foreach(b => checkTerm(b._2)); checkTerm(b)
+      case Term.If(c, a, b) => checkTerm(c); checkTerm(a); checkTerm(b)
+      case Term.Match(sc, cs) => checkTerm(sc); cs.foreach(c => checkTerm(c._2))
+      case _ =>
+    }
+    spec.functions.foreach { f =>
+      f.params.foreach(p => check(p._2)); check(f.result)
+      f.body match {
+        case Body.Term(t) => checkTerm(t)
+        case Body.Cases(_, cs) => cs.foreach(c => checkTerm(c._2))
+      }
+    }
     if (!spec.datatypes.exists(dt => dt.name == resultType && dt.tparams.size == 1 &&
         dt.ctors.map(c => (c.name, c.fields.size)) == Seq(("Ok", 1), ("Stuck", 0), ("OutOfFuel", 0))))
       fail(s"the file must declare (datatype ($resultType T) (Ok (value T)) (Stuck) (OutOfFuel))")
