@@ -101,13 +101,17 @@ object ScalaBackend {
       s"${ind(d)}}"
     case Term.If(c, a, b) =>
       s"if (${term(c, d)}) {\n${ind(d + 1)}${term(a, d + 1)}\n${ind(d)}} else {\n${ind(d + 1)}${term(b, d + 1)}\n${ind(d)}}"
+    case Term.Quant(_, _, _) => throw SpecError("a quantifier can't be executed")
     case Term.Match(s, cases) =>
       val cs = cases.map { case (p, b) => s"${ind(d + 1)}case ${pattern(p)} => ${term(b, d + 2)}\n" }.mkString
       s"(${term(s, d)}) match {\n$cs${ind(d)}}"
   }
 
-  private def function(f: Function): String = {
+  private def function(f: Function, noncomputable: Boolean): String = {
     val ps = f.params.map { case (x, t) => s"${name(x)}: ${tpe(t)}" }.mkString(", ")
+    if (noncomputable)
+      return s"  /** `${f.name}` in the semantics, which quantifies over values: an oracle gives it. */\n" +
+        s"  def ${name(f.name)}($ps): ${tpe(f.result)}\n"
     val head = s"  def ${name(f.name)}($ps): ${tpe(f.result)} ="
     f.body match {
       case Body.Term(t) => s"$head\n${ind(2)}${term(t, 2)}\n"
@@ -131,7 +135,12 @@ object ScalaBackend {
     b ++= "  def ediv(a: BigInt, b: BigInt): BigInt = if (b == 0) BigInt(0) else (a - emod(a, b)) / b\n"
     b ++= "  def emod(a: BigInt, b: BigInt): BigInt = if (b == 0) a else a.mod(b.abs)\n\n"
     for (dt <- spec.datatypes) b ++= datatype(dt) + "\n"
-    b ++= spec.functions.map(function).mkString("\n")
+    b ++= "  /** The functions of the semantics. Those that quantify over values are abstract, and a\n"
+    b ++= "    * subclass gives them. */\n"
+    b ++= "  abstract class Evaluator {\n"
+    b ++= spec.functions.map(f => function(f, spec.noncomputable(f.name)).linesIterator.map(l =>
+      if (l.isEmpty) l else "  " + l).mkString("\n")).mkString("\n\n")
+    b ++= "\n  }\n"
     b ++= "}\n"
     b.result()
   }

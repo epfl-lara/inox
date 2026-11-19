@@ -157,8 +157,9 @@ lazy val proofs = project
     ),
     scalacOptions ++= Seq("-deprecation", "-unchecked", "-feature"),
     libraryDependencies += "org.scalatest" %% "scalatest" % "3.2.9" % "test",
-    // Paths are relative to `proofs`.
+    // Paths are relative to `proofs`. Both evaluators recurse deeply.
     fork := true,
+    javaOptions += "-Xss64M",
     Compile / run / mainClass := Some("inox.semantics.Codegen"),
     publish / skip := true,
   )

@@ -21,6 +21,36 @@ class SemanticsSuite extends AnyFunSuite {
 
   private def chars(s: Seq[Int]): S.List[BigInt] = list(s.map(BigInt(_)))
 
+  /** An Inox type in the semantics, if it is in its fragment. */
+  def tpe(t: Type): Option[S.Type] = t match {
+    case IntegerType() => Some(S.IntegerType())
+    case BooleanType() => Some(S.BooleanType())
+    case UnitType() => Some(S.UnitType())
+    case CharType() => Some(S.CharType())
+    case RealType() => Some(S.RealType())
+    case StringType() => Some(S.StringType())
+    case BVType(s, w) => Some(S.BVType(s, BigInt(w)))
+    case TypeParameter(id, _) => Some(S.TypeParameter(id))
+    case TupleType(ts) => types(ts).map(S.TupleType(_))
+    case SetType(b) => tpe(b).map(S.SetType(_))
+    case BagType(b) => tpe(b).map(S.BagType(_))
+    case MapType(f, t) => for (a <- tpe(f); b <- tpe(t)) yield S.MapType(a, b)
+    case FunctionType(f, t) => for (a <- types(f); b <- tpe(t)) yield S.FunctionType(a, b)
+    case ADTType(id, tps) => types(tps).map(S.ADTType(id, _))
+    case RefinementType(vd, prop) => for (b <- tpe(vd.tpe); p <- expr(prop)) yield S.RefinementType(vd.id, b, p)
+    case _ => None
+  }
+
+  def types(ts: Seq[Type]): Option[S.List[S.Type]] = {
+    val cs = ts.map(tpe)
+    if (cs.forall(_.isDefined)) Some(list(cs.flatten)) else None
+  }
+
+  def paramList(vds: Seq[ValDef]): Option[S.List[S.Param]] = {
+    val cs = vds.map(vd => tpe(vd.tpe).map(S.Param(vd.id, _)))
+    if (cs.forall(_.isDefined)) Some(list(cs.flatten)) else None
+  }
+
   /** An Inox expression in the semantics, if it is in its fragment. */
   def expr(e: Expr): Option[S.Expr] = {
     def all(es: Seq[Expr]): Option[S.List[S.Expr]] = {
@@ -43,7 +73,9 @@ class SemanticsSuite extends AnyFunSuite {
       case s: StringLiteral => Some(S.StringLiteral(chars(s.value)))
       // the values of type parameters are integers in the semantics
       case GenericValue(_, id) => Some(S.IntegerLiteral(BigInt(id)))
-      case Lambda(params, body) => expr(body).map(S.Lambda(list(params.map(_.id)), _))
+      case Lambda(params, body) => for (ps <- paramList(params); b <- expr(body)) yield S.Lambda(ps, b)
+      case Forall(params, body) => for (ps <- paramList(params); b <- expr(body)) yield S.Forall(ps, b)
+      case UninterpretedCall(id, tps, args, _) => for (ts <- types(tps); as <- all(args)) yield S.UninterpretedCall(id, ts, as)
       case Application(callee, args) => for (c <- expr(callee); as <- all(args)) yield S.Application(c, as)
       case Tuple(es) => all(es).map(S.Tuple(_))
       case TupleSelect(t, i) => expr(t).map(S.TupleSelect(_, BigInt(i)))
@@ -84,8 +116,8 @@ class SemanticsSuite extends AnyFunSuite {
       case IfExpr(c, t, f) => for (a <- expr(c); b <- expr(t); d <- expr(f)) yield S.IfExpr(a, b, d)
       case Assume(p, b) => two(p, b)(S.Assume(_, _))
       case Error(_, _) => Some(S.Error())
-      case FunctionInvocation(id, _, args) => all(args).map(S.FunctionInvocation(id, _))
-      case ADT(id, _, args) => all(args).map(S.ADT(id, _))
+      case FunctionInvocation(id, tps, args) => for (ts <- types(tps); as <- all(args)) yield S.FunctionInvocation(id, ts, as)
+      case ADT(id, tps, args) => for (ts <- types(tps); as <- all(args)) yield S.ADT(id, ts, as)
       case IsConstructor(a, id) => expr(a).map(S.IsConstructor(_, id))
       case ADTSelector(a, id) => expr(a).map(S.ADTSelector(_, id))
       case Equals(l, r) => two(l, r)(S.Equals(_, _))
@@ -111,7 +143,9 @@ class SemanticsSuite extends AnyFunSuite {
   /** Whether the semantics covers the types of `e`'s subexpressions. */
   def inFragment(e: Expr)(using Symbols): Boolean = exprOps.collect[Type] {
     case e => Set(e.getType)
-  }(e).forall(supported)
+  }(e).forall(supported) &&
+    // the uninterpreted functions of the regression files have no model to give them
+    !exprOps.exists { case _: UninterpretedCall => true; case _ => false }(e)
 
   def supported(t: Type): Boolean = t match {
     case IntegerType() | BooleanType() | UnitType() | CharType() | RealType() | StringType() |
@@ -129,7 +163,7 @@ class SemanticsSuite extends AnyFunSuite {
   def coveredFunctions(using symbols: Symbols): Map[Identifier, S.FunDef] = {
     val candidates = symbols.functions.values.flatMap { fd =>
       if (!inFragment(fd.fullBody) || !(fd.params.map(_.tpe) :+ fd.returnType).forall(supported)) None
-      else expr(fd.fullBody).map(b => fd.id -> S.FunDef(fd.id, list(fd.params.map(_.id)), b))
+      else expr(fd.fullBody).map(b => fd.id -> S.FunDef(fd.id, list(fd.tparams.map(_.id)), list(fd.params.map(_.id)), b))
     }.toMap
     var covered = candidates
     var changed = true
@@ -148,11 +182,43 @@ class SemanticsSuite extends AnyFunSuite {
 
   def program(functions: Map[Identifier, S.FunDef])(using symbols: Symbols): S.Program = S.Program(
     list(functions.values.toSeq),
-    list(symbols.constructors.values.toSeq.map(c => S.Constructor(c.id, c.sort, list(c.fields.map(_.id))))),
-    list(symbols.sorts.values.toSeq.map(s => S.Sort(s.id, s.invariant.map(_.id) match {
+    // the types of fields only matter to quantifiers, which these tests enumerate on finite types
+    list(symbols.constructors.values.toSeq.map(c => S.Constructor(c.id, c.sort,
+      list(c.fields.map(vd => S.Param(vd.id, tpe(vd.tpe).getOrElse(S.UnitType()))))))),
+    list(symbols.sorts.values.toSeq.map(s => S.Sort(s.id, list(s.tparams.map(_.id)), s.invariant.map(_.id) match {
       case scala.Some(id) => S.Some(id)
       case scala.None => S.None()
-    }))))
+    }))),
+    S.Nil(),
+    S.NoFunctionEquality())
+
+  final class Unsupported extends Exception
+
+  /** The generated evaluator, with oracles for the functions that quantify: here, quantifiers are
+    * enumerated over small finite types only. */
+  object Sem extends S.Evaluator {
+    private def domain(t: S.Type): Seq[S.Value] = t match {
+      case S.BooleanType() => Seq(S.BoolV(false), S.BoolV(true))
+      case S.UnitType() => Seq(S.UnitV())
+      case S.BVType(s, w) if w <= 4 => (BigInt(0) until BigInt(2).pow(w.toInt)).map(S.BVV(s, w, _))
+      case _ => throw Unsupported()
+    }
+    private def toSeq[A](l: S.List[A]): Seq[A] = l match {
+      case S.Nil() => Seq()
+      case S.Cons(h, t) => h +: toSeq(t)
+    }
+    def forall_result(P: S.Program, fuel: BigInt, env: S.Env, params: S.List[S.Param], body: S.Expr): S.Result[S.Value] = {
+      val domains = toSeq(params).map { case S.Param(_, t) => domain(t) }
+      val inputs = domains.foldRight(Seq(Seq.empty[S.Value]))((d, rest) => for (v <- d; vs <- rest) yield v +: vs)
+      val results = inputs.map(vs => instance(P, fuel, env, params, list(vs), body))
+      if (results.contains(S.Ok(S.BoolV(false)))) S.Ok(S.BoolV(false))
+      else if (results.contains(S.OutOfFuel())) S.OutOfFuel()
+      else if (results.forall(_ == S.Ok(S.BoolV(true)))) S.Ok(S.BoolV(true))
+      else S.Stuck()
+    }
+    def has_type(P: S.Program, tenv: S.List[S.TypeBinding], v: S.Value, t: S.Type): Boolean = throw Unsupported()
+    def closures_equal(P: S.Program, f: S.Value, g: S.Value): Boolean = throw Unsupported()
+  }
 
   /** A value of Inox's evaluator in the semantics, or `None` for one that contains a function,
     * which the two evaluators represent differently. */
@@ -200,13 +266,15 @@ class SemanticsSuite extends AnyFunSuite {
     val reference = try ev.eval(e) catch {
       case _: StackOverflowError => return Outcome.Skipped
     }
-    val ours = S.eval(sp, fuel, S.Nil(), expr(e).get)
+    val ours = try Sem.eval(sp, fuel, S.Env(S.Nil(), S.Nil()), expr(e).get) catch {
+      case _: Unsupported => return Outcome.Skipped
+    }
     (reference, ours) match {
       case (_, S.OutOfFuel()) => Outcome.Skipped
       case (evaluators.EvaluationResults.RuntimeError(msg), _) if msg.startsWith("Exceeded") => Outcome.Skipped
       case (evaluators.EvaluationResults.Successful(v), S.Ok(w)) =>
         // collections are compared by their contents
-        value(v).foreach(v => assert(S.value_eq(v, w) == S.Ok(true), s"$label: ${e.asString} gives ${v} and ${w} in the semantics"))
+        value(v).foreach(v => assert(Sem.value_eq(sp, v, w) == S.Ok(true), s"$label: ${e.asString} gives ${v} and ${w} in the semantics"))
         Outcome.Value
       case (evaluators.EvaluationResults.RuntimeError(_), S.Stuck()) => Outcome.Stuck
       case (r, o) => fail(s"$label: ${e.asString} gives $r and $o in the semantics")
@@ -278,7 +346,7 @@ class SemanticsSuite extends AnyFunSuite {
   test("Integer division and remainders are euclidean, and stuck on zero") {
     given Symbols = NoSymbols
     val sp = program(Map())
-    def run(e: Expr) = S.eval(sp, fuel, S.Nil(), expr(e).get)
+    def run(e: Expr) = Sem.eval(sp, fuel, S.Env(S.Nil(), S.Nil()), expr(e).get)
     for ((a, b, q, r) <- Seq((7, 2, 3, 1), (-7, 2, -4, 1), (7, -2, -3, 1), (-7, -2, 4, 1))) {
       val (x, y) = (IntegerLiteral(a), IntegerLiteral(b))
       assert(run(Division(x, y)) == S.Ok(S.IntV(q)))
@@ -392,6 +460,25 @@ class SemanticsSuite extends AnyFunSuite {
     ), 200)
   }
 
+  test("Quantifiers: a false instance wins, then running out of fuel, then getting stuck") {
+    given Symbols = NoSymbols
+    val sp = program(Map())
+    def run(e: Expr) = Sem.eval(sp, fuel, S.Env(S.Nil(), S.Nil()), expr(e).get)
+    val b = ValDef.fresh("b", BooleanType())
+    val x = ValDef.fresh("x", BVType(true, 3))
+    val v = b.toVariable
+    assert(run(Forall(Seq(b), Or(v, Not(v)))) == S.Ok(S.BoolV(true)))
+    assert(run(Forall(Seq(b), v)) == S.Ok(S.BoolV(false)))
+    // stuck for `b = true`, false for `b = false`
+    assert(run(Forall(Seq(b), IfExpr(v, Error(BooleanType(), "e"), BooleanLiteral(false)))) == S.Ok(S.BoolV(false)))
+    assert(run(Forall(Seq(b), IfExpr(v, Error(BooleanType(), "e"), BooleanLiteral(true)))) == S.Stuck())
+    assert(run(Forall(Seq(x), LessEquals(x.toVariable, BVLiteral(true, 3, 3)))) == S.Ok(S.BoolV(true)))
+    assert(run(Forall(Seq(x), LessThan(x.toVariable, BVLiteral(true, 3, 3)))) == S.Ok(S.BoolV(false)))
+    for (e <- Seq(Forall(Seq(b), Or(v, Not(v))), Forall(Seq(b), v),
+                  Forall(Seq(x, b), Implies(v, LessEquals(x.toVariable, BVLiteral(true, 3, 3))))))
+      assert(compare(e, sp, "forall") == Outcome.Value)
+  }
+
   test("Assumptions, errors, invariants, selectors and fuel") {
     import dsl._
     val (listId, nilId, consId) = (FreshIdentifier("List"), FreshIdentifier("Nil"), FreshIdentifier("Cons"))
@@ -412,7 +499,7 @@ class SemanticsSuite extends AnyFunSuite {
     val sp = program(coveredFunctions)
     def cons(h: Int, t: Expr) = ADT(consId, Seq(), Seq(IntegerLiteral(h), t))
     val nil = ADT(nilId, Seq(), Seq())
-    def run(e: Expr) = S.eval(sp, fuel, S.Nil(), expr(e).get)
+    def run(e: Expr) = Sem.eval(sp, fuel, S.Env(S.Nil(), S.Nil()), expr(e).get)
 
     assert(run(E(sizeId)(cons(1, cons(2, nil)))) == S.Ok(S.IntV(2)))
     assert(run(ADTSelector(nil, headId)) == S.Stuck())
