@@ -79,19 +79,11 @@ trait EqualityTemplates { self: Templates =>
     e2: Encoded,
     register: Boolean = true
   ): (Encoded, Clauses) = {
-    if (!unrollEquality(tpe)) (mkEquals(e1, e2), Seq())
-    else if (register) (registerEquality(blocker, tpe, e1, e2), Seq())
-    else {
-      val app = mkApp(equalitySymbol(tpe)._2, FunctionType(Seq(tpe, tpe), BooleanType()), Seq(e1, e2))
-      (app, Seq(mkImplies(mkAnd(blocker, mkEquals(e1, e2)), app)))
-    }
+    if (register && unrollEquality(tpe)) (registerEquality(blocker, tpe, e1, e2), Seq())
+    else guardedEquality(blocker, tpe, e1, e2)
   }
 
   class EqualityTemplate private(val tpe: Type, val contents: TemplateContents) extends Template {
-    def instantiate(aVar: Encoded, e1: Encoded, e2: Encoded): Clauses = {
-      instantiate(aVar, Seq(Left(e1), Left(e2)))
-    }
-
     override protected def instantiate(instantiation: Instantiation): Clauses = {
       // register equalities (WILL NOT lead to any [[instantiate]] calls)
       instantiation.clauses(onEquality = { (bp, equality) =>
@@ -166,43 +158,31 @@ trait EqualityTemplates { self: Templates =>
           val eqBlocker = encodeSymbol(Variable.fresh("q", BooleanType(), true))
           eqBlockers += equality -> eqBlocker
 
-          clauses ++= EqualityTemplate(tpe).instantiate(eqBlocker, e1, e2)
+          clauses ++= Rule.Unfold(EqualityTemplate(tpe), eqBlocker, Seq(Left(e1), Left(e2)), None).clauses
 
-          val (_, f) = equalitySymbol(tpe)
-          val ft = FunctionType(Seq(tpe, tpe), BooleanType())
-
-          // congruence is transitive
+          // the equalities instantiated so far that chain with this one
           for ((tb, te1, te2) <- instantiated(tpe); cond = mkAnd(eqBlocker, tb)) {
             if (e2 == te1) {
-              clauses += mkImplies(
-                mkAnd(cond, mkApp(f, ft, Seq(e1, e2)), mkApp(f, ft, Seq(e2, te2))),
-                mkApp(f, ft, Seq(e1, te2))
-              )
-
+              clauses ++= Rule.Transitivity(tpe, cond, e1, e2, te2).clauses
               instantiated += tpe -> (instantiated(tpe) + ((cond, e1, te2)))
             }
 
             if (te2 == e1) {
-              clauses += mkImplies(
-                mkAnd(cond, mkApp(f, ft, Seq(te1, te2)), mkApp(f, ft, Seq(te2, e2))),
-                mkApp(f, ft, Seq(te1, e2))
-              )
-
+              clauses ++= Rule.Transitivity(tpe, cond, te1, te2, e2).clauses
               instantiated += tpe -> (instantiated(tpe) + ((cond, te1, e2)))
             }
           }
 
-          // congruence is commutative
-          clauses += mkImplies(eqBlocker, mkEquals(mkApp(f, ft, Seq(e1, e2)), mkApp(f, ft, Seq(e2, e1))))
+          clauses ++= Rule.Symmetry(tpe, eqBlocker, e1, e2).clauses
           instantiated += tpe -> (instantiated(tpe) + ((eqBlocker, e1, e2)) + ((eqBlocker, e2, e1)))
 
-          clauses += mkImplies(mkEquals(e1, e2), mkApp(f, ft, Seq(e1, e2)))
+          clauses ++= Rule.Reflexivity(tpe, e1, e2, None).clauses
           eqBlocker
       }
 
       if (eqBlocker != blocker) {
         registerImplication(blocker, eqBlocker)
-        clauses += mkImplies(blocker, eqBlocker)
+        clauses ++= Rule.Enables(blocker, eqBlocker).clauses
       }
 
       reporter.debug("Unrolling equality behind " + equality + " (" + clauses.size + ")")
