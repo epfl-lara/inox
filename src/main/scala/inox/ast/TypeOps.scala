@@ -125,6 +125,45 @@ trait TypeOps {
     rec(tpe)
   }
 
+  /** Whether the equality of values of `tpe` can be a proposition, when they hold one (see
+    * [[containsProposition]]). Two functions that return propositions are equal if they return
+    * equivalent propositions for all their arguments. That quantifies over these arguments, which
+    * can hold propositions, since these are only true or false, but not functions that return
+    * them: quantifying over these would quantify over all the propositions they could return.
+    */
+  def hasPropositionalEquality(tpe: Type): Boolean = {
+    val seen = scala.collection.mutable.Set.empty[Identifier]
+    def function(from: Seq[Type], to: Type): Boolean =
+      !(containsProposition(to) && from.exists(holdsPropositionalFunction)) && rec(to)
+    def rec(tpe: Type): Boolean = tpe match {
+      case FunctionType(from, to) => function(from, to)
+      case PiType(params, to) => function(params.map(_.tpe), to)
+      case MapType(_, to) => rec(to)
+      case RefinementType(vd, _) => rec(vd.tpe)
+      case SigmaType(params, to) => params.forall(vd => rec(vd.tpe)) && rec(to)
+      case ADTType(id, tps) => tps.forall(rec) && (!seen.add(id) || lookupSort(id).forall(
+        _.constructors.forall(_.fields.forall(vd => rec(vd.tpe)))))
+      case NAryType(tps, _) => tps.forall(rec)
+    }
+    rec(tpe)
+  }
+
+  /** Whether the values of `tpe` can hold a function that returns a proposition, as a field,
+    * an argument, a result, and so on. */
+  private def holdsPropositionalFunction(tpe: Type): Boolean = {
+    val seen = scala.collection.mutable.Set.empty[Identifier]
+    def rec(tpe: Type): Boolean = tpe match {
+      case FunctionType(from, to) => containsProposition(to) || from.exists(rec) || rec(to)
+      case PiType(params, to) => containsProposition(to) || params.exists(vd => rec(vd.tpe)) || rec(to)
+      case RefinementType(vd, _) => rec(vd.tpe)
+      case SigmaType(params, to) => params.exists(vd => rec(vd.tpe)) || rec(to)
+      case ADTType(id, tps) => tps.exists(rec) || (seen.add(id) && lookupSort(id).exists(
+        _.constructors.exists(_.fields.exists(vd => rec(vd.tpe)))))
+      case NAryType(tps, _) => tps.exists(rec)
+    }
+    rec(tpe)
+  }
+
   private type Instantiation = Map[TypeParameter, Type]
   def instantiation(from: Type, to: Type): Option[Instantiation] = {
     class Failure extends RuntimeException
