@@ -87,10 +87,10 @@ abstract class RecursiveEvaluator(override val program: Program,
   }
 
   /** A floating-point predicate on `args`. */
-  private def fpPredicate(name: String, args: Seq[Expr])(p: (Format, Seq[BigInt]) => Boolean)(using RC, GC): Expr = {
+  private def fpPredicate(name: String, args: Seq[Expr])(p: PartialFunction[(Format, Seq[BigInt]), Boolean])(using RC, GC): Expr = {
     val vs = args.map(e)
     val fps = vs.collect { case FP(f, x) => (f, x) }
-    if (fps.size == vs.size && fps.map(_._1).distinct.size == 1) BooleanLiteral(p(fps.head._1, fps.map(_._2)))
+    if (fps.size == vs.size && fps.map(_._1).distinct.size == 1) BooleanLiteral(p((fps.head._1, fps.map(_._2))))
     else throw EvalError("Unexpected operation: " + name + vs.map(_.asString).mkString("(", ", ", ")"))
   }
 
