@@ -36,6 +36,8 @@ object Semantics {
   final case class RealV(num: BigInt, den: BigInt) extends Value
   final case class StringV(chars: List[BigInt]) extends Value
   final case class BVV(signed: Boolean, width: BigInt, bits: BigInt) extends Value
+  final case class FPV(exponent: BigInt, significand: BigInt, bits: BigInt) extends Value
+  final case class RoundingModeV(mode: RoundingMode) extends Value
   final case class TupleV(elems: List[Value]) extends Value
   final case class ClosureV(params: List[Param], body: Expr, env: Env) extends Value
   final case class SetV(elems: List[Value]) extends Value
@@ -55,6 +57,8 @@ object Semantics {
   final case class RealType() extends Type
   final case class StringType() extends Type
   final case class BVType(signed: Boolean, width: BigInt) extends Type
+  final case class FPType(exponent: BigInt, significand: BigInt) extends Type
+  final case class RoundingModeType() extends Type
   final case class TypeParameter(id: Id) extends Type
   final case class TupleType(elems: List[Type]) extends Type
   final case class SetType(elem: Type) extends Type
@@ -81,9 +85,15 @@ object Semantics {
   final case class BVLiteral(signed: Boolean, width: BigInt, bits: BigInt) extends Expr
   final case class IntegerLiteral(value: BigInt) extends Expr
   final case class FractionLiteral(num: BigInt, den: BigInt) extends Expr
+  final case class FPLiteral(exponent: BigInt, significand: BigInt, bits: BigInt) extends Expr
   final case class BooleanLiteral(value: Boolean) extends Expr
   final case class StringLiteral(chars: List[BigInt]) extends Expr
   final case class UnitLiteral() extends Expr
+  final case class RoundNearestTiesToEven() extends Expr
+  final case class RoundNearestTiesToAway() extends Expr
+  final case class RoundTowardPositive() extends Expr
+  final case class RoundTowardNegative() extends Expr
+  final case class RoundTowardZero() extends Expr
   final case class ADT(id: Id, tps: List[Type], args: List[Expr]) extends Expr
   final case class IsConstructor(expr: Expr, id: Id) extends Expr
   final case class ADTSelector(adt: Expr, selector: Id) extends Expr
@@ -119,6 +129,33 @@ object Semantics {
   final case class BVSignedToUnsigned(expr: Expr) extends Expr
   final case class BVToInt(expr: Expr) extends Expr
   final case class IntToBV(width: BigInt, signed: Boolean, expr: Expr) extends Expr
+  final case class FPEquals(lhs: Expr, rhs: Expr) extends Expr
+  final case class FPAdd(rm: Expr, lhs: Expr, rhs: Expr) extends Expr
+  final case class FPSub(rm: Expr, lhs: Expr, rhs: Expr) extends Expr
+  final case class FPUMinus(expr: Expr) extends Expr
+  final case class FPFMA(rm: Expr, e1: Expr, e2: Expr, e3: Expr) extends Expr
+  final case class FPMul(rm: Expr, lhs: Expr, rhs: Expr) extends Expr
+  final case class FPDiv(rm: Expr, lhs: Expr, rhs: Expr) extends Expr
+  final case class FPAbs(expr: Expr) extends Expr
+  final case class FPMax(lhs: Expr, rhs: Expr) extends Expr
+  final case class FPMin(lhs: Expr, rhs: Expr) extends Expr
+  final case class FPRound(rm: Expr, expr: Expr) extends Expr
+  final case class Sqrt(rm: Expr, expr: Expr) extends Expr
+  final case class FPCast(exponent: BigInt, significand: BigInt, rm: Expr, expr: Expr) extends Expr
+  final case class FPFromBinary(exponent: BigInt, significand: BigInt, expr: Expr) extends Expr
+  final case class FPToBV(width: BigInt, signed: Boolean, rm: Expr, expr: Expr) extends Expr
+  final case class FPToReal(expr: Expr) extends Expr
+  final case class FPLessThan(lhs: Expr, rhs: Expr) extends Expr
+  final case class FPGreaterThan(lhs: Expr, rhs: Expr) extends Expr
+  final case class FPLessEquals(lhs: Expr, rhs: Expr) extends Expr
+  final case class FPGreaterEquals(lhs: Expr, rhs: Expr) extends Expr
+  final case class FPIsZero(expr: Expr) extends Expr
+  final case class FPIsInfinite(expr: Expr) extends Expr
+  final case class FPIsNaN(expr: Expr) extends Expr
+  final case class FPIsNegative(expr: Expr) extends Expr
+  final case class FPIsPositive(expr: Expr) extends Expr
+  final case class FPIsNormal(expr: Expr) extends Expr
+  final case class FPIsSubnormal(expr: Expr) extends Expr
   final case class Tuple(exprs: List[Expr]) extends Expr
   final case class TupleSelect(tuple: Expr, index: BigInt) extends Expr
   final case class FiniteSet(elems: List[Expr]) extends Expr
@@ -169,6 +206,37 @@ object Semantics {
   final case class AShiftRightOp() extends BitOp
   final case class LShiftRightOp() extends BitOp
 
+  sealed abstract class RoundingMode
+  final case class RNE() extends RoundingMode
+  final case class RNA() extends RoundingMode
+  final case class RTP() extends RoundingMode
+  final case class RTN() extends RoundingMode
+  final case class RTZ() extends RoundingMode
+
+  final case class Rat(num: BigInt, den: BigInt)
+
+  sealed abstract class FPOp
+  final case class FPAddOp() extends FPOp
+  final case class FPSubOp() extends FPOp
+  final case class FPMulOp() extends FPOp
+  final case class FPDivOp() extends FPOp
+  final case class FPMinOp() extends FPOp
+  final case class FPMaxOp() extends FPOp
+
+  sealed abstract class FPRel
+  final case class FPEqRel() extends FPRel
+  final case class FPLtRel() extends FPRel
+  final case class FPLeRel() extends FPRel
+
+  sealed abstract class FPClass
+  final case class ZeroClass() extends FPClass
+  final case class InfiniteClass() extends FPClass
+  final case class NaNClass() extends FPClass
+  final case class NegativeClass() extends FPClass
+  final case class PositiveClass() extends FPClass
+  final case class NormalClass() extends FPClass
+  final case class SubnormalClass() extends FPClass
+
   sealed abstract class BagOp
   final case class IntersectionOp() extends BagOp
   final case class UnionOp() extends BagOp
@@ -180,22 +248,22 @@ object Semantics {
     def lookup_var(vars: List[Binding], x: Id): Result[Value] =
       (vars) match {
         case Nil() => Stuck()
-        case Cons(Binding(y, v), rest) => if ((x == y)) {
+        case Cons(Binding(y, v), rest) => (if ((x == y)) {
             Ok(v)
           } else {
             lookup_var(rest, x)
-          }
+          })
       }
 
     def lookup_type(types: List[TypeBinding], x: Id): Option[TypeBinding] =
       (types) match {
         case Nil() => None()
         case Cons(b, rest) => (b) match {
-            case TypeBinding(y, _, _) => if ((x == y)) {
+            case TypeBinding(y, _, _) => (if ((x == y)) {
                 Some(b)
               } else {
                 lookup_type(rest, x)
-              }
+              })
           }
       }
 
@@ -249,11 +317,11 @@ object Semantics {
       (fs) match {
         case Nil() => Stuck()
         case Cons(fd, rest) => (fd) match {
-            case FunDef(g, _, _, _) => if ((f == g)) {
+            case FunDef(g, _, _, _) => (if ((f == g)) {
                 Ok(fd)
               } else {
                 lookup_fun(rest, f)
-              }
+              })
           }
       }
 
@@ -261,11 +329,11 @@ object Semantics {
       (cs) match {
         case Nil() => Stuck()
         case Cons(k, rest) => (k) match {
-            case Constructor(d, _, _) => if ((c == d)) {
+            case Constructor(d, _, _) => (if ((c == d)) {
                 Ok(k)
               } else {
                 lookup_ctor(rest, c)
-              }
+              })
           }
       }
 
@@ -273,11 +341,11 @@ object Semantics {
       (ss) match {
         case Nil() => Stuck()
         case Cons(srt, rest) => (srt) match {
-            case Sort(t, _, _) => if ((s == t)) {
+            case Sort(t, _, _) => (if ((s == t)) {
                 Ok(srt)
               } else {
                 lookup_sort(rest, s)
-              }
+              })
           }
       }
 
@@ -286,16 +354,16 @@ object Semantics {
         case Nil() => Stuck()
         case Cons(Param(f, _), fs) => (args) match {
             case Nil() => Stuck()
-            case Cons(v, vs) => if ((f == sel)) {
+            case Cons(v, vs) => (if ((f == sel)) {
                 Ok(v)
               } else {
                 select_field(fs, vs, sel)
-              }
+              })
           }
       }
 
     def call(v_P: Program, fuel: BigInt, f: Id, tps: List[Type], tenv: List[TypeBinding], vs: List[Value]): Result[Value] =
-      if ((fuel <= BigInt(0))) {
+      (if ((fuel <= BigInt(0))) {
         OutOfFuel()
       } else {
         (v_P) match {
@@ -311,16 +379,16 @@ object Semantics {
               case OutOfFuel() => OutOfFuel()
             }
         }
-      }
+      })
 
     def eval(v_P: Program, fuel: BigInt, env: Env, e: Expr): Result[Value] = e match {
       case Assume(pred, body) =>
         eval_bool(v_P, fuel, env, pred) match {
-          case Ok(b) => if (b) {
+          case Ok(b) => (if (b) {
             eval(v_P, fuel, env, body)
           } else {
             Stuck()
-          }
+          })
           case Stuck() => Stuck()
           case OutOfFuel() => OutOfFuel()
         }
@@ -374,11 +442,11 @@ object Semantics {
         }
       case IfExpr(cond, thenn, elze) =>
         eval_bool(v_P, fuel, env, cond) match {
-          case Ok(b) => if (b) {
+          case Ok(b) => (if (b) {
             eval(v_P, fuel, env, thenn)
           } else {
             eval(v_P, fuel, env, elze)
-          }
+          })
           case Stuck() => Stuck()
           case OutOfFuel() => OutOfFuel()
         }
@@ -390,12 +458,24 @@ object Semantics {
         Ok(IntV(i))
       case FractionLiteral(n, d) =>
         real(n, d)
+      case FPLiteral(e, s, x) =>
+        Ok(FPV(e, s, fp_canonical(e, s, x)))
       case BooleanLiteral(b) =>
         Ok(BoolV(b))
       case StringLiteral(cs) =>
         Ok(StringV(cs))
       case UnitLiteral() =>
         Ok(UnitV())
+      case RoundNearestTiesToEven() =>
+        Ok(RoundingModeV(RNE()))
+      case RoundNearestTiesToAway() =>
+        Ok(RoundingModeV(RNA()))
+      case RoundTowardPositive() =>
+        Ok(RoundingModeV(RTP()))
+      case RoundTowardNegative() =>
+        Ok(RoundingModeV(RTN()))
+      case RoundTowardZero() =>
+        Ok(RoundingModeV(RTZ()))
       case ADT(c, tps, args) =>
         eval_list(v_P, fuel, env, args) match {
           case Ok(vs) => (v_P) match {
@@ -470,7 +550,7 @@ object Semantics {
         eval_or(v_P, fuel, env, es)
       case Implies(lhs, rhs) =>
         eval_bool(v_P, fuel, env, lhs) match {
-          case Ok(a) => if (a) {
+          case Ok(a) => (if (a) {
             eval_bool(v_P, fuel, env, rhs) match {
               case Ok(b) => Ok(BoolV(b))
               case Stuck() => Stuck()
@@ -478,7 +558,7 @@ object Semantics {
             }
           } else {
             Ok(BoolV(true))
-          }
+          })
           case Stuck() => Stuck()
           case OutOfFuel() => OutOfFuel()
         }
@@ -502,11 +582,11 @@ object Semantics {
         eval_string(v_P, fuel, env, expr) match {
           case Ok(cs) => eval_int(v_P, fuel, env, start) match {
             case Ok(b) => eval_int(v_P, fuel, env, end) match {
-              case Ok(c) => if (((b < BigInt(0)) || (c <= b))) {
+              case Ok(c) => (if (((b < BigInt(0)) || (c <= b))) {
                 Ok(StringV(Nil()))
               } else {
                 Ok(StringV(take((c - b), drop(b, cs))))
-              }
+              })
               case Stuck() => Stuck()
               case OutOfFuel() => OutOfFuel()
             }
@@ -755,6 +835,316 @@ object Semantics {
       case IntToBV(w, s, expr) =>
         eval_int(v_P, fuel, env, expr) match {
           case Ok(i) => Ok(bv(s, w, i))
+          case Stuck() => Stuck()
+          case OutOfFuel() => OutOfFuel()
+        }
+      case FPEquals(lhs, rhs) =>
+        eval(v_P, fuel, env, lhs) match {
+          case Ok(a) => eval(v_P, fuel, env, rhs) match {
+            case Ok(b) => fp_rel(FPEqRel(), a, b)
+            case Stuck() => Stuck()
+            case OutOfFuel() => OutOfFuel()
+          }
+          case Stuck() => Stuck()
+          case OutOfFuel() => OutOfFuel()
+        }
+      case FPAdd(rm, lhs, rhs) =>
+        eval_rm(v_P, fuel, env, rm) match {
+          case Ok(m) => eval(v_P, fuel, env, lhs) match {
+            case Ok(a) => eval(v_P, fuel, env, rhs) match {
+              case Ok(b) => fp_binary(FPAddOp(), m, a, b)
+              case Stuck() => Stuck()
+              case OutOfFuel() => OutOfFuel()
+            }
+            case Stuck() => Stuck()
+            case OutOfFuel() => OutOfFuel()
+          }
+          case Stuck() => Stuck()
+          case OutOfFuel() => OutOfFuel()
+        }
+      case FPSub(rm, lhs, rhs) =>
+        eval_rm(v_P, fuel, env, rm) match {
+          case Ok(m) => eval(v_P, fuel, env, lhs) match {
+            case Ok(a) => eval(v_P, fuel, env, rhs) match {
+              case Ok(b) => fp_binary(FPSubOp(), m, a, b)
+              case Stuck() => Stuck()
+              case OutOfFuel() => OutOfFuel()
+            }
+            case Stuck() => Stuck()
+            case OutOfFuel() => OutOfFuel()
+          }
+          case Stuck() => Stuck()
+          case OutOfFuel() => OutOfFuel()
+        }
+      case FPUMinus(expr) =>
+        eval(v_P, fuel, env, expr) match {
+          case Ok(a) => (a) match {
+            case FPV(e, s, x) => Ok(FPV(e, s, fp_neg(e, s, x)))
+            case _ => Stuck()
+          }
+          case Stuck() => Stuck()
+          case OutOfFuel() => OutOfFuel()
+        }
+      case FPFMA(rm, e1, e2, e3) =>
+        eval_rm(v_P, fuel, env, rm) match {
+          case Ok(m) => eval(v_P, fuel, env, e1) match {
+            case Ok(a) => eval(v_P, fuel, env, e2) match {
+              case Ok(b) => eval(v_P, fuel, env, e3) match {
+                case Ok(c) => (a) match {
+                  case FPV(e, s, x) => (b) match {
+                      case FPV(e2, s2, y) => (c) match {
+                          case FPV(e3, s3, z) => (if ((((e == e2) && (s == s2)) && ((e == e3) && (s == s3)))) {
+                              Ok(FPV(e, s, fp_fma(m, e, s, x, y, z)))
+                            } else {
+                              Stuck()
+                            })
+                          case _ => Stuck()
+                        }
+                      case _ => Stuck()
+                    }
+                  case _ => Stuck()
+                }
+                case Stuck() => Stuck()
+                case OutOfFuel() => OutOfFuel()
+              }
+              case Stuck() => Stuck()
+              case OutOfFuel() => OutOfFuel()
+            }
+            case Stuck() => Stuck()
+            case OutOfFuel() => OutOfFuel()
+          }
+          case Stuck() => Stuck()
+          case OutOfFuel() => OutOfFuel()
+        }
+      case FPMul(rm, lhs, rhs) =>
+        eval_rm(v_P, fuel, env, rm) match {
+          case Ok(m) => eval(v_P, fuel, env, lhs) match {
+            case Ok(a) => eval(v_P, fuel, env, rhs) match {
+              case Ok(b) => fp_binary(FPMulOp(), m, a, b)
+              case Stuck() => Stuck()
+              case OutOfFuel() => OutOfFuel()
+            }
+            case Stuck() => Stuck()
+            case OutOfFuel() => OutOfFuel()
+          }
+          case Stuck() => Stuck()
+          case OutOfFuel() => OutOfFuel()
+        }
+      case FPDiv(rm, lhs, rhs) =>
+        eval_rm(v_P, fuel, env, rm) match {
+          case Ok(m) => eval(v_P, fuel, env, lhs) match {
+            case Ok(a) => eval(v_P, fuel, env, rhs) match {
+              case Ok(b) => fp_binary(FPDivOp(), m, a, b)
+              case Stuck() => Stuck()
+              case OutOfFuel() => OutOfFuel()
+            }
+            case Stuck() => Stuck()
+            case OutOfFuel() => OutOfFuel()
+          }
+          case Stuck() => Stuck()
+          case OutOfFuel() => OutOfFuel()
+        }
+      case FPAbs(expr) =>
+        eval(v_P, fuel, env, expr) match {
+          case Ok(a) => (a) match {
+            case FPV(e, s, x) => Ok(FPV(e, s, fp_abs(e, s, x)))
+            case _ => Stuck()
+          }
+          case Stuck() => Stuck()
+          case OutOfFuel() => OutOfFuel()
+        }
+      case FPMax(lhs, rhs) =>
+        eval(v_P, fuel, env, lhs) match {
+          case Ok(a) => eval(v_P, fuel, env, rhs) match {
+            case Ok(b) => fp_binary(FPMaxOp(), RNE(), a, b)
+            case Stuck() => Stuck()
+            case OutOfFuel() => OutOfFuel()
+          }
+          case Stuck() => Stuck()
+          case OutOfFuel() => OutOfFuel()
+        }
+      case FPMin(lhs, rhs) =>
+        eval(v_P, fuel, env, lhs) match {
+          case Ok(a) => eval(v_P, fuel, env, rhs) match {
+            case Ok(b) => fp_binary(FPMinOp(), RNE(), a, b)
+            case Stuck() => Stuck()
+            case OutOfFuel() => OutOfFuel()
+          }
+          case Stuck() => Stuck()
+          case OutOfFuel() => OutOfFuel()
+        }
+      case FPRound(rm, expr) =>
+        eval_rm(v_P, fuel, env, rm) match {
+          case Ok(m) => eval(v_P, fuel, env, expr) match {
+            case Ok(a) => (a) match {
+              case FPV(e, s, x) => Ok(FPV(e, s, fp_round_integral(m, e, s, x)))
+              case _ => Stuck()
+            }
+            case Stuck() => Stuck()
+            case OutOfFuel() => OutOfFuel()
+          }
+          case Stuck() => Stuck()
+          case OutOfFuel() => OutOfFuel()
+        }
+      case Sqrt(rm, expr) =>
+        eval_rm(v_P, fuel, env, rm) match {
+          case Ok(m) => eval(v_P, fuel, env, expr) match {
+            case Ok(a) => (a) match {
+              case FPV(e, s, x) => Ok(FPV(e, s, fp_sqrt(m, e, s, x)))
+              case _ => Stuck()
+            }
+            case Stuck() => Stuck()
+            case OutOfFuel() => OutOfFuel()
+          }
+          case Stuck() => Stuck()
+          case OutOfFuel() => OutOfFuel()
+        }
+      case FPCast(e, s, rm, expr) =>
+        eval_rm(v_P, fuel, env, rm) match {
+          case Ok(m) => eval(v_P, fuel, env, expr) match {
+            case Ok(a) => fp_cast(m, e, s, a) match {
+              case Ok(x) => Ok(FPV(e, s, x))
+              case Stuck() => Stuck()
+              case OutOfFuel() => OutOfFuel()
+            }
+            case Stuck() => Stuck()
+            case OutOfFuel() => OutOfFuel()
+          }
+          case Stuck() => Stuck()
+          case OutOfFuel() => OutOfFuel()
+        }
+      case FPFromBinary(e, s, expr) =>
+        eval(v_P, fuel, env, expr) match {
+          case Ok(a) => (a) match {
+            case BVV(_, w, x) => (if ((w == (e + s))) {
+                Ok(FPV(e, s, fp_canonical(e, s, x)))
+              } else {
+                Stuck()
+              })
+            case _ => Stuck()
+          }
+          case Stuck() => Stuck()
+          case OutOfFuel() => OutOfFuel()
+        }
+      case FPToBV(w, sg, rm, expr) =>
+        eval_rm(v_P, fuel, env, rm) match {
+          case Ok(m) => eval(v_P, fuel, env, expr) match {
+            case Ok(a) => (a) match {
+              case FPV(e, s, x) => {
+                  val lo = (if (sg) {
+                    (BigInt(0) - pow2((w - BigInt(1))))
+                  } else {
+                    BigInt(0)
+                  })
+                  val hi = (if (sg) {
+                    (pow2((w - BigInt(1))) - BigInt(1))
+                  } else {
+                    (pow2(w) - BigInt(1))
+                  })
+                  Ok(bv(sg, w, fp_to_int(m, e, s, x, lo, hi)))
+                }
+              case _ => Stuck()
+            }
+            case Stuck() => Stuck()
+            case OutOfFuel() => OutOfFuel()
+          }
+          case Stuck() => Stuck()
+          case OutOfFuel() => OutOfFuel()
+        }
+      case FPToReal(expr) =>
+        eval(v_P, fuel, env, expr) match {
+          case Ok(a) => (a) match {
+            case FPV(e, s, x) => (if ((fp_nan(e, s, x) || fp_inf(e, s, x))) {
+                Stuck()
+              } else {
+                (fp_rat(e, s, x)) match {
+                  case Rat(n, d) => real(n, d)
+                }
+              })
+            case _ => Stuck()
+          }
+          case Stuck() => Stuck()
+          case OutOfFuel() => OutOfFuel()
+        }
+      case FPLessThan(lhs, rhs) =>
+        eval(v_P, fuel, env, lhs) match {
+          case Ok(a) => eval(v_P, fuel, env, rhs) match {
+            case Ok(b) => fp_rel(FPLtRel(), a, b)
+            case Stuck() => Stuck()
+            case OutOfFuel() => OutOfFuel()
+          }
+          case Stuck() => Stuck()
+          case OutOfFuel() => OutOfFuel()
+        }
+      case FPGreaterThan(lhs, rhs) =>
+        eval(v_P, fuel, env, lhs) match {
+          case Ok(a) => eval(v_P, fuel, env, rhs) match {
+            case Ok(b) => fp_rel(FPLtRel(), b, a)
+            case Stuck() => Stuck()
+            case OutOfFuel() => OutOfFuel()
+          }
+          case Stuck() => Stuck()
+          case OutOfFuel() => OutOfFuel()
+        }
+      case FPLessEquals(lhs, rhs) =>
+        eval(v_P, fuel, env, lhs) match {
+          case Ok(a) => eval(v_P, fuel, env, rhs) match {
+            case Ok(b) => fp_rel(FPLeRel(), a, b)
+            case Stuck() => Stuck()
+            case OutOfFuel() => OutOfFuel()
+          }
+          case Stuck() => Stuck()
+          case OutOfFuel() => OutOfFuel()
+        }
+      case FPGreaterEquals(lhs, rhs) =>
+        eval(v_P, fuel, env, lhs) match {
+          case Ok(a) => eval(v_P, fuel, env, rhs) match {
+            case Ok(b) => fp_rel(FPLeRel(), b, a)
+            case Stuck() => Stuck()
+            case OutOfFuel() => OutOfFuel()
+          }
+          case Stuck() => Stuck()
+          case OutOfFuel() => OutOfFuel()
+        }
+      case FPIsZero(expr) =>
+        eval(v_P, fuel, env, expr) match {
+          case Ok(a) => fp_class(ZeroClass(), a)
+          case Stuck() => Stuck()
+          case OutOfFuel() => OutOfFuel()
+        }
+      case FPIsInfinite(expr) =>
+        eval(v_P, fuel, env, expr) match {
+          case Ok(a) => fp_class(InfiniteClass(), a)
+          case Stuck() => Stuck()
+          case OutOfFuel() => OutOfFuel()
+        }
+      case FPIsNaN(expr) =>
+        eval(v_P, fuel, env, expr) match {
+          case Ok(a) => fp_class(NaNClass(), a)
+          case Stuck() => Stuck()
+          case OutOfFuel() => OutOfFuel()
+        }
+      case FPIsNegative(expr) =>
+        eval(v_P, fuel, env, expr) match {
+          case Ok(a) => fp_class(NegativeClass(), a)
+          case Stuck() => Stuck()
+          case OutOfFuel() => OutOfFuel()
+        }
+      case FPIsPositive(expr) =>
+        eval(v_P, fuel, env, expr) match {
+          case Ok(a) => fp_class(PositiveClass(), a)
+          case Stuck() => Stuck()
+          case OutOfFuel() => OutOfFuel()
+        }
+      case FPIsNormal(expr) =>
+        eval(v_P, fuel, env, expr) match {
+          case Ok(a) => fp_class(NormalClass(), a)
+          case Stuck() => Stuck()
+          case OutOfFuel() => OutOfFuel()
+        }
+      case FPIsSubnormal(expr) =>
+        eval(v_P, fuel, env, expr) match {
+          case Ok(a) => fp_class(SubnormalClass(), a)
           case Stuck() => Stuck()
           case OutOfFuel() => OutOfFuel()
         }
@@ -1064,11 +1454,11 @@ object Semantics {
               }
           }
         case ADTV(c, xs) => (b) match {
-            case ADTV(d, ys) => if ((c == d)) {
+            case ADTV(d, ys) => (if ((c == d)) {
                 values_eq(v_P, xs, ys)
               } else {
                 Ok(false)
-              }
+              })
             case _ => Ok(false)
           }
         case TupleV(xs) => (b) match {
@@ -1077,11 +1467,11 @@ object Semantics {
           }
         case SetV(xs) => (b) match {
             case SetV(ys) => subset(v_P, xs, ys) match {
-                case Ok(sub) => if (sub) {
+                case Ok(sub) => (if (sub) {
                   subset(v_P, ys, xs)
                 } else {
                   Ok(false)
-                }
+                })
                 case Stuck() => Stuck()
                 case OutOfFuel() => OutOfFuel()
               }
@@ -1089,11 +1479,11 @@ object Semantics {
           }
         case BagV(xs) => (b) match {
             case BagV(ys) => sub_bag(v_P, xs, ys) match {
-                case Ok(sub) => if (sub) {
+                case Ok(sub) => (if (sub) {
                   sub_bag(v_P, ys, xs)
                 } else {
                   Ok(false)
-                }
+                })
                 case Stuck() => Stuck()
                 case OutOfFuel() => OutOfFuel()
               }
@@ -1101,19 +1491,19 @@ object Semantics {
           }
         case MapV(xs, d) => (b) match {
             case MapV(ys, e) => value_eq(v_P, d, e) match {
-                case Ok(same) => if (same) {
+                case Ok(same) => (if (same) {
                   same_entries(v_P, xs, xs, d, ys, e) match {
-                    case Ok(l) => if (l) {
+                    case Ok(l) => (if (l) {
                       same_entries(v_P, ys, xs, d, ys, e)
                     } else {
                       Ok(false)
-                    }
+                    })
                     case Stuck() => Stuck()
                     case OutOfFuel() => OutOfFuel()
                   }
                 } else {
                   Ok(false)
-                }
+                })
                 case Stuck() => Stuck()
                 case OutOfFuel() => OutOfFuel()
               }
@@ -1131,11 +1521,11 @@ object Semantics {
         case Cons(x, xr) => (ys) match {
             case Nil() => Ok(false)
             case Cons(y, yr) => value_eq(v_P, x, y) match {
-                case Ok(same) => if (same) {
+                case Ok(same) => (if (same) {
                   values_eq(v_P, xr, yr)
                 } else {
                   Ok(false)
-                }
+                })
                 case Stuck() => Stuck()
                 case OutOfFuel() => OutOfFuel()
               }
@@ -1146,11 +1536,11 @@ object Semantics {
       (es) match {
         case Nil() => Ok(BoolV(true))
         case Cons(e, rest) => eval_bool(v_P, fuel, env, e) match {
-            case Ok(b) => if (b) {
+            case Ok(b) => (if (b) {
               eval_and(v_P, fuel, env, rest)
             } else {
               Ok(BoolV(false))
-            }
+            })
             case Stuck() => Stuck()
             case OutOfFuel() => OutOfFuel()
           }
@@ -1160,11 +1550,11 @@ object Semantics {
       (es) match {
         case Nil() => Ok(BoolV(false))
         case Cons(e, rest) => eval_bool(v_P, fuel, env, e) match {
-            case Ok(b) => if (b) {
+            case Ok(b) => (if (b) {
               Ok(BoolV(true))
             } else {
               eval_or(v_P, fuel, env, rest)
-            }
+            })
             case Stuck() => Stuck()
             case OutOfFuel() => OutOfFuel()
           }
@@ -1172,7 +1562,7 @@ object Semantics {
 
     def apply(v_P: Program, fuel: BigInt, f: Value, vs: List[Value]): Result[Value] =
       (f) match {
-        case ClosureV(params, body, Env(tys, vars)) => if ((fuel <= BigInt(0))) {
+        case ClosureV(params, body, Env(tys, vars)) => (if ((fuel <= BigInt(0))) {
             OutOfFuel()
           } else {
             bind_all(param_ids(params), vs) match {
@@ -1180,7 +1570,7 @@ object Semantics {
               case Stuck() => Stuck()
               case OutOfFuel() => OutOfFuel()
             }
-          }
+          })
         case _ => Stuck()
       }
 
@@ -1193,107 +1583,107 @@ object Semantics {
     def nth(vs: List[Value], i: BigInt): Result[Value] =
       (vs) match {
         case Nil() => Stuck()
-        case Cons(v, rest) => if ((i == BigInt(1))) {
+        case Cons(v, rest) => (if ((i == BigInt(1))) {
             Ok(v)
           } else {
             nth(rest, (i - BigInt(1)))
-          }
+          })
       }
 
     def abs(a: BigInt): BigInt =
-      if ((a < BigInt(0))) {
+      (if ((a < BigInt(0))) {
         (BigInt(0) - a)
       } else {
         a
-      }
+      })
 
     def gcd(a: BigInt, b: BigInt): BigInt =
-      if ((b == BigInt(0))) {
+      (if ((b == BigInt(0))) {
         a
       } else {
         gcd(b, emod(a, b))
-      }
+      })
 
     def pow2(n: BigInt): BigInt =
-      if ((n <= BigInt(0))) {
+      (if ((n <= BigInt(0))) {
         BigInt(1)
       } else {
         (BigInt(2) * pow2((n - BigInt(1))))
-      }
+      })
 
     def bit(a: BigInt): BigInt =
       emod(a, BigInt(2))
 
     def bit_and(a: BigInt, b: BigInt): BigInt =
-      if (((a == BigInt(0)) || (b == BigInt(0)))) {
+      (if (((a == BigInt(0)) || (b == BigInt(0)))) {
         BigInt(0)
       } else {
         ((BigInt(2) * bit_and(ediv(a, BigInt(2)), ediv(b, BigInt(2)))) + (bit(a) * bit(b)))
-      }
+      })
 
     def bit_or(a: BigInt, b: BigInt): BigInt =
-      if ((a == BigInt(0))) {
+      (if ((a == BigInt(0))) {
         b
       } else {
-        if ((b == BigInt(0))) {
+        (if ((b == BigInt(0))) {
           a
         } else {
           ((BigInt(2) * bit_or(ediv(a, BigInt(2)), ediv(b, BigInt(2)))) + ((bit(a) + bit(b)) - (bit(a) * bit(b))))
-        }
-      }
+        })
+      })
 
     def bit_xor(a: BigInt, b: BigInt): BigInt =
-      if ((a == BigInt(0))) {
+      (if ((a == BigInt(0))) {
         b
       } else {
-        if ((b == BigInt(0))) {
+        (if ((b == BigInt(0))) {
           a
         } else {
           ((BigInt(2) * bit_xor(ediv(a, BigInt(2)), ediv(b, BigInt(2)))) + emod((bit(a) + bit(b)), BigInt(2)))
-        }
-      }
+        })
+      })
 
     def tdiv(a: BigInt, b: BigInt): BigInt =
-      if ((BigInt(0) <= a)) {
+      (if ((BigInt(0) <= a)) {
         ediv(a, b)
       } else {
         (BigInt(0) - ediv((BigInt(0) - a), b))
-      }
+      })
 
     def trem(a: BigInt, b: BigInt): BigInt =
       (a - (b * tdiv(a, b)))
 
     def real(n: BigInt, d: BigInt): Result[Value] =
-      if ((d == BigInt(0))) {
+      (if ((d == BigInt(0))) {
         Stuck()
       } else {
         {
           val g = gcd(abs(n), abs(d))
-          val s = if ((d < BigInt(0))) {
+          val s = (if ((d < BigInt(0))) {
             (BigInt(0) - BigInt(1))
           } else {
             BigInt(1)
-          }
+          })
           Ok(RealV((s * ediv(n, g)), (s * ediv(d, g))))
         }
-      }
+      })
 
     def bv(s: Boolean, w: BigInt, x: BigInt): Value =
       BVV(s, w, emod(x, pow2(w)))
 
     def twos(w: BigInt, x: BigInt): BigInt =
-      if ((pow2((w - BigInt(1))) <= x)) {
+      (if ((pow2((w - BigInt(1))) <= x)) {
         (x - pow2(w))
       } else {
         x
-      }
+      })
 
     def bv_int(s: Boolean, w: BigInt, x: BigInt): BigInt =
-      if (s) {
+      (if (s) {
         twos(w, x)
       } else {
         x
-      }
+      })
 
     def same_bv(s: Boolean, w: BigInt, t: Boolean, v: BigInt): Boolean =
       ((s == t) && (w == v))
@@ -1309,11 +1699,11 @@ object Semantics {
             case _ => Stuck()
           }
         case BVV(s, w, x) => (b) match {
-            case BVV(t, v, y) => if (same_bv(s, w, t, v)) {
+            case BVV(t, v, y) => (if (same_bv(s, w, t, v)) {
                 Ok(bv(s, w, (x + y)))
               } else {
                 Stuck()
-              }
+              })
             case _ => Stuck()
           }
         case _ => Stuck()
@@ -1330,11 +1720,11 @@ object Semantics {
             case _ => Stuck()
           }
         case BVV(s, w, x) => (b) match {
-            case BVV(t, v, y) => if (same_bv(s, w, t, v)) {
+            case BVV(t, v, y) => (if (same_bv(s, w, t, v)) {
                 Ok(bv(s, w, (x - y)))
               } else {
                 Stuck()
-              }
+              })
             case _ => Stuck()
           }
         case _ => Stuck()
@@ -1351,11 +1741,11 @@ object Semantics {
             case _ => Stuck()
           }
         case BVV(s, w, x) => (b) match {
-            case BVV(t, v, y) => if (same_bv(s, w, t, v)) {
+            case BVV(t, v, y) => (if (same_bv(s, w, t, v)) {
                 Ok(bv(s, w, (x * y)))
               } else {
                 Stuck()
-              }
+              })
             case _ => Stuck()
           }
         case _ => Stuck()
@@ -1364,43 +1754,43 @@ object Semantics {
     def arith_div(a: Value, b: Value): Result[Value] =
       (a) match {
         case IntV(x) => (b) match {
-            case IntV(y) => if ((y == BigInt(0))) {
+            case IntV(y) => (if ((y == BigInt(0))) {
                 Stuck()
               } else {
                 Ok(IntV(ediv(x, y)))
-              }
+              })
             case _ => Stuck()
           }
         case RealV(n, d) => (b) match {
-            case RealV(m, e) => if ((m == BigInt(0))) {
+            case RealV(m, e) => (if ((m == BigInt(0))) {
                 Stuck()
               } else {
                 real((n * e), (d * m))
-              }
+              })
             case _ => Stuck()
           }
         case BVV(s, w, x) => (b) match {
-            case BVV(t, v, y) => if (same_bv(s, w, t, v)) {
+            case BVV(t, v, y) => (if (same_bv(s, w, t, v)) {
                 {
                   val i = bv_int(s, w, x)
                   val j = bv_int(s, w, y)
-                  if ((j == BigInt(0))) {
-                    if (s) {
-                      Ok(bv(s, w, if ((BigInt(0) <= i)) {
+                  (if ((j == BigInt(0))) {
+                    (if (s) {
+                      Ok(bv(s, w, (if ((BigInt(0) <= i)) {
                         (BigInt(0) - BigInt(1))
                       } else {
                         BigInt(1)
-                      }))
+                      })))
                     } else {
                       Ok(bv(s, w, (pow2(w) - BigInt(1))))
-                    }
+                    })
                   } else {
                     Ok(bv(s, w, tdiv(i, j)))
-                  }
+                  })
                 }
               } else {
                 Stuck()
-              }
+              })
             case _ => Stuck()
           }
         case _ => Stuck()
@@ -1409,27 +1799,27 @@ object Semantics {
     def arith_rem(a: Value, b: Value): Result[Value] =
       (a) match {
         case IntV(x) => (b) match {
-            case IntV(y) => if ((y == BigInt(0))) {
+            case IntV(y) => (if ((y == BigInt(0))) {
                 Stuck()
               } else {
                 Ok(IntV(emod(x, y)))
-              }
+              })
             case _ => Stuck()
           }
         case BVV(s, w, x) => (b) match {
-            case BVV(t, v, y) => if (same_bv(s, w, t, v)) {
+            case BVV(t, v, y) => (if (same_bv(s, w, t, v)) {
                 {
                   val i = bv_int(s, w, x)
                   val j = bv_int(s, w, y)
-                  if ((j == BigInt(0))) {
+                  (if ((j == BigInt(0))) {
                     Ok(a)
                   } else {
                     Ok(bv(s, w, trem(i, j)))
-                  }
+                  })
                 }
               } else {
                 Stuck()
-              }
+              })
             case _ => Stuck()
           }
         case _ => Stuck()
@@ -1438,34 +1828,34 @@ object Semantics {
     def arith_mod(a: Value, b: Value): Result[Value] =
       (a) match {
         case IntV(x) => (b) match {
-            case IntV(y) => if ((y == BigInt(0))) {
+            case IntV(y) => (if ((y == BigInt(0))) {
                 Stuck()
               } else {
                 Ok(IntV(emod(x, y)))
-              }
+              })
             case _ => Stuck()
           }
         case BVV(s, w, x) => (b) match {
-            case BVV(t, v, y) => if (same_bv(s, w, t, v)) {
+            case BVV(t, v, y) => (if (same_bv(s, w, t, v)) {
                 {
                   val i = bv_int(s, w, x)
                   val j = bv_int(s, w, y)
-                  if ((j == BigInt(0))) {
+                  (if ((j == BigInt(0))) {
                     Ok(a)
                   } else {
                     {
                       val r = emod(i, j)
-                      Ok(bv(s, w, if (((j < BigInt(0)) && !((r == BigInt(0))))) {
+                      Ok(bv(s, w, (if (((j < BigInt(0)) && !((r == BigInt(0))))) {
                         (r + j)
                       } else {
                         r
-                      }))
+                      })))
                     }
-                  }
+                  })
                 }
               } else {
                 Stuck()
-              }
+              })
             case _ => Stuck()
           }
         case _ => Stuck()
@@ -1494,11 +1884,11 @@ object Semantics {
             case _ => Stuck()
           }
         case BVV(s, w, x) => (b) match {
-            case BVV(t, v, y) => if (same_bv(s, w, t, v)) {
+            case BVV(t, v, y) => (if (same_bv(s, w, t, v)) {
                 Ok((bv_int(s, w, x) < bv_int(s, w, y)))
               } else {
                 Stuck()
-              }
+              })
             case _ => Stuck()
           }
         case _ => Stuck()
@@ -1512,11 +1902,11 @@ object Semantics {
       }
 
     def shift_amount(w: BigInt, y: BigInt): BigInt =
-      if ((w <= y)) {
+      (if ((w <= y)) {
         w
       } else {
         y
-      }
+      })
 
     def bit_op(op: BitOp, s: Boolean, w: BigInt, x: BigInt, y: BigInt): Value =
       {
@@ -1534,11 +1924,11 @@ object Semantics {
     def bv_binary(op: BitOp, a: Value, b: Value): Result[Value] =
       (a) match {
         case BVV(s, w, x) => (b) match {
-            case BVV(t, v, y) => if (same_bv(s, w, t, v)) {
+            case BVV(t, v, y) => (if (same_bv(s, w, t, v)) {
                 Ok(bit_op(op, s, w, x, y))
               } else {
                 Stuck()
-              }
+              })
             case _ => Stuck()
           }
         case _ => Stuck()
@@ -1547,6 +1937,686 @@ object Semantics {
     def bv_cast(a: Value, v: BigInt): Result[Value] =
       (a) match {
         case BVV(s, w, x) => Ok(bv(s, v, bv_int(s, w, x)))
+        case _ => Stuck()
+      }
+
+    def rat_add(a: Rat, b: Rat): Rat =
+      (a) match {
+        case Rat(n, d) => (b) match {
+            case Rat(m, k) => Rat(((n * k) + (m * d)), (d * k))
+          }
+      }
+
+    def rat_mul(a: Rat, b: Rat): Rat =
+      (a) match {
+        case Rat(n, d) => (b) match {
+            case Rat(m, k) => Rat((n * m), (d * k))
+          }
+      }
+
+    def rat_div(a: Rat, b: Rat): Rat =
+      (a) match {
+        case Rat(n, d) => (b) match {
+            case Rat(m, k) => (if ((m < BigInt(0))) {
+                Rat((BigInt(0) - (n * k)), (BigInt(0) - (d * m)))
+              } else {
+                Rat((n * k), (d * m))
+              })
+          }
+      }
+
+    def rat_num(a: Rat): BigInt =
+      (a) match {
+        case Rat(n, _) => n
+      }
+
+    def rat_cmp(a: Rat, b: Rat): BigInt =
+      (a) match {
+        case Rat(n, d) => (b) match {
+            case Rat(m, k) => (if (((n * k) < (m * d))) {
+                (BigInt(0) - BigInt(1))
+              } else {
+                (if (((n * k) == (m * d))) {
+                  BigInt(0)
+                } else {
+                  BigInt(1)
+                })
+              })
+          }
+      }
+
+    def bitlen(n: BigInt): BigInt =
+      (if ((n <= BigInt(0))) {
+        BigInt(0)
+      } else {
+        (BigInt(1) + bitlen(ediv(n, BigInt(2))))
+      })
+
+    def rat_ilog2(a: Rat): BigInt =
+      (a) match {
+        case Rat(n, d) => {
+            val k = (bitlen(n) - bitlen(d))
+            (if ((k < BigInt(0))) {
+              (if (((n * pow2((BigInt(0) - k))) < d)) {
+                (k - BigInt(1))
+              } else {
+                k
+              })
+            } else {
+              (if ((n < (d * pow2(k)))) {
+                (k - BigInt(1))
+              } else {
+                k
+              })
+            })
+          }
+      }
+
+    def isqrt_from(n: BigInt, x: BigInt): BigInt =
+      {
+        val y = ediv((x + ediv(n, x)), BigInt(2))
+        (if ((y < x)) {
+          isqrt_from(n, y)
+        } else {
+          x
+        })
+      }
+
+    def isqrt(n: BigInt): BigInt =
+      (if ((n <= BigInt(0))) {
+        BigInt(0)
+      } else {
+        isqrt_from(n, pow2(ediv((bitlen(n) + BigInt(1)), BigInt(2))))
+      })
+
+    def fp_bias(e: BigInt): BigInt =
+      (pow2((e - BigInt(1))) - BigInt(1))
+
+    def fp_max_exp(e: BigInt): BigInt =
+      (pow2(e) - BigInt(1))
+
+    def fp_sign(e: BigInt, s: BigInt, x: BigInt): Boolean =
+      (pow2(((e + s) - BigInt(1))) <= x)
+
+    def fp_exp(e: BigInt, s: BigInt, x: BigInt): BigInt =
+      emod(ediv(x, pow2((s - BigInt(1)))), pow2(e))
+
+    def fp_frac(s: BigInt, x: BigInt): BigInt =
+      emod(x, pow2((s - BigInt(1))))
+
+    def fp_nan(e: BigInt, s: BigInt, x: BigInt): Boolean =
+      ((fp_exp(e, s, x) == fp_max_exp(e)) && !((fp_frac(s, x) == BigInt(0))))
+
+    def fp_inf(e: BigInt, s: BigInt, x: BigInt): Boolean =
+      ((fp_exp(e, s, x) == fp_max_exp(e)) && (fp_frac(s, x) == BigInt(0)))
+
+    def fp_zero(e: BigInt, s: BigInt, x: BigInt): Boolean =
+      ((fp_exp(e, s, x) == BigInt(0)) && (fp_frac(s, x) == BigInt(0)))
+
+    def fp_bits(e: BigInt, s: BigInt, neg: Boolean, be: BigInt, f: BigInt): BigInt =
+      ((if (neg) {
+        pow2(((e + s) - BigInt(1)))
+      } else {
+        BigInt(0)
+      }) + ((be * pow2((s - BigInt(1)))) + f))
+
+    def fp_nan_bits(e: BigInt, s: BigInt): BigInt =
+      fp_bits(e, s, false, fp_max_exp(e), pow2((s - BigInt(2))))
+
+    def fp_inf_bits(e: BigInt, s: BigInt, neg: Boolean): BigInt =
+      fp_bits(e, s, neg, fp_max_exp(e), BigInt(0))
+
+    def fp_zero_bits(e: BigInt, s: BigInt, neg: Boolean): BigInt =
+      fp_bits(e, s, neg, BigInt(0), BigInt(0))
+
+    def fp_canonical(e: BigInt, s: BigInt, x: BigInt): BigInt =
+      (if (fp_nan(e, s, x)) {
+        fp_nan_bits(e, s)
+      } else {
+        x
+      })
+
+    def fp_rat(e: BigInt, s: BigInt, x: BigInt): Rat =
+      {
+        val be = fp_exp(e, s, x)
+        val f = fp_frac(s, x)
+        {
+          val m = (if ((be == BigInt(0))) {
+            f
+          } else {
+            (f + pow2((s - BigInt(1))))
+          })
+          val k = (((if ((be == BigInt(0))) {
+            BigInt(1)
+          } else {
+            be
+          }) - fp_bias(e)) - (s - BigInt(1)))
+          val sg = (if (fp_sign(e, s, x)) {
+            (BigInt(0) - BigInt(1))
+          } else {
+            BigInt(1)
+          })
+          (if ((k < BigInt(0))) {
+            Rat((sg * m), pow2((BigInt(0) - k)))
+          } else {
+            Rat((sg * (m * pow2(k))), BigInt(1))
+          })
+        }
+      }
+
+    def round_up(rm: RoundingMode, neg: Boolean, i: BigInt, c: BigInt, inexact: Boolean): Boolean =
+      (if (!(inexact)) {
+        false
+      } else {
+        (rm) match {
+          case RNE() => ((BigInt(0) < c) || ((c == BigInt(0)) && (emod(i, BigInt(2)) == BigInt(1))))
+          case RNA() => (BigInt(0) <= c)
+          case RTP() => !(neg)
+          case RTN() => neg
+          case RTZ() => false
+        }
+      })
+
+    def sign_cmp(a: BigInt, b: BigInt): BigInt =
+      (if ((a < b)) {
+        (BigInt(0) - BigInt(1))
+      } else {
+        (if ((a == b)) {
+          BigInt(0)
+        } else {
+          BigInt(1)
+        })
+      })
+
+    def fp_overflow(rm: RoundingMode, e: BigInt, s: BigInt, neg: Boolean): BigInt =
+      (if ((rm) match {
+        case RNE() => true
+        case RNA() => true
+        case RTP() => !(neg)
+        case RTN() => neg
+        case RTZ() => false
+      }) {
+        fp_inf_bits(e, s, neg)
+      } else {
+        fp_bits(e, s, neg, (fp_max_exp(e) - BigInt(1)), (pow2((s - BigInt(1))) - BigInt(1)))
+      })
+
+    def fp_pack(rm: RoundingMode, e: BigInt, s: BigInt, neg: Boolean, qe: BigInt, m: BigInt): BigInt =
+      {
+        val carry = (m == pow2(s))
+        {
+          val m2 = (if (carry) {
+            pow2((s - BigInt(1)))
+          } else {
+            m
+          })
+          val qe2 = (if (carry) {
+            (qe + BigInt(1))
+          } else {
+            qe
+          })
+          (if ((m2 == BigInt(0))) {
+            fp_zero_bits(e, s, neg)
+          } else {
+            (if ((m2 < pow2((s - BigInt(1))))) {
+              fp_bits(e, s, neg, BigInt(0), m2)
+            } else {
+              {
+                val be = ((qe2 + (s - BigInt(1))) + fp_bias(e))
+                (if ((fp_max_exp(e) <= be)) {
+                  fp_overflow(rm, e, s, neg)
+                } else {
+                  fp_bits(e, s, neg, be, (m2 - pow2((s - BigInt(1)))))
+                })
+              }
+            })
+          })
+        }
+      }
+
+    def scaled(n: BigInt, d: BigInt, p: BigInt): Rat =
+      (if ((p < BigInt(0))) {
+        Rat(n, (d * pow2((BigInt(0) - p))))
+      } else {
+        Rat((n * pow2(p)), d)
+      })
+
+    def fp_round(rm: RoundingMode, e: BigInt, s: BigInt, q: Rat): BigInt =
+      (q) match {
+        case Rat(n, d) => {
+            val neg = (n < BigInt(0))
+            {
+              val a = Rat(abs(n), d)
+              val emin = (BigInt(1) - fp_bias(e))
+              {
+                val k = rat_ilog2(a)
+                {
+                  val qe = ((if ((k < emin)) {
+                    emin
+                  } else {
+                    k
+                  }) - (s - BigInt(1)))
+                  (scaled(abs(n), d, (BigInt(0) - qe))) match {
+                    case Rat(sn, sd) => {
+                        val i = ediv(sn, sd)
+                        val r = emod(sn, sd)
+                        fp_pack(rm, e, s, neg, qe, (i + (if (round_up(rm, neg, i, sign_cmp((BigInt(2) * r), sd), !((r == BigInt(0))))) {
+                          BigInt(1)
+                        } else {
+                          BigInt(0)
+                        })))
+                      }
+                  }
+                }
+              }
+            }
+          }
+      }
+
+    def fp_of_rat(rm: RoundingMode, e: BigInt, s: BigInt, q: Rat): BigInt =
+      (if ((rat_num(q) == BigInt(0))) {
+        fp_zero_bits(e, s, false)
+      } else {
+        fp_round(rm, e, s, q)
+      })
+
+    def round_rat_int(rm: RoundingMode, q: Rat): BigInt =
+      (q) match {
+        case Rat(n, d) => {
+            val neg = (n < BigInt(0))
+            {
+              val i = ediv(abs(n), d)
+              val r = emod(abs(n), d)
+              {
+                val m = (i + (if (round_up(rm, neg, i, sign_cmp((BigInt(2) * r), d), !((r == BigInt(0))))) {
+                  BigInt(1)
+                } else {
+                  BigInt(0)
+                }))
+                (if (neg) {
+                  (BigInt(0) - m)
+                } else {
+                  m
+                })
+              }
+            }
+          }
+      }
+
+    def is_rtn(rm: RoundingMode): Boolean =
+      (rm) match {
+        case RTN() => true
+        case _ => false
+      }
+
+    def fp_add(rm: RoundingMode, e: BigInt, s: BigInt, x: BigInt, y: BigInt): BigInt =
+      (if ((fp_nan(e, s, x) || fp_nan(e, s, y))) {
+        fp_nan_bits(e, s)
+      } else {
+        (if (fp_inf(e, s, x)) {
+          (if ((fp_inf(e, s, y) && !((fp_sign(e, s, x) == fp_sign(e, s, y))))) {
+            fp_nan_bits(e, s)
+          } else {
+            x
+          })
+        } else {
+          (if (fp_inf(e, s, y)) {
+            y
+          } else {
+            {
+              val q = rat_add(fp_rat(e, s, x), fp_rat(e, s, y))
+              (if ((rat_num(q) == BigInt(0))) {
+                (if (((fp_zero(e, s, x) && fp_zero(e, s, y)) && (fp_sign(e, s, x) == fp_sign(e, s, y)))) {
+                  x
+                } else {
+                  fp_zero_bits(e, s, is_rtn(rm))
+                })
+              } else {
+                fp_round(rm, e, s, q)
+              })
+            }
+          })
+        })
+      })
+
+    def fp_neg(e: BigInt, s: BigInt, x: BigInt): BigInt =
+      (if (fp_nan(e, s, x)) {
+        fp_nan_bits(e, s)
+      } else {
+        (if (fp_sign(e, s, x)) {
+          (x - pow2(((e + s) - BigInt(1))))
+        } else {
+          (x + pow2(((e + s) - BigInt(1))))
+        })
+      })
+
+    def fp_abs(e: BigInt, s: BigInt, x: BigInt): BigInt =
+      (if (fp_sign(e, s, x)) {
+        fp_neg(e, s, x)
+      } else {
+        fp_canonical(e, s, x)
+      })
+
+    def fp_mul(rm: RoundingMode, e: BigInt, s: BigInt, x: BigInt, y: BigInt): BigInt =
+      {
+        val neg = !((fp_sign(e, s, x) == fp_sign(e, s, y)))
+        (if ((fp_nan(e, s, x) || fp_nan(e, s, y))) {
+          fp_nan_bits(e, s)
+        } else {
+          (if ((fp_inf(e, s, x) || fp_inf(e, s, y))) {
+            (if ((fp_zero(e, s, x) || fp_zero(e, s, y))) {
+              fp_nan_bits(e, s)
+            } else {
+              fp_inf_bits(e, s, neg)
+            })
+          } else {
+            (if ((fp_zero(e, s, x) || fp_zero(e, s, y))) {
+              fp_zero_bits(e, s, neg)
+            } else {
+              fp_round(rm, e, s, rat_mul(fp_rat(e, s, x), fp_rat(e, s, y)))
+            })
+          })
+        })
+      }
+
+    def fp_div(rm: RoundingMode, e: BigInt, s: BigInt, x: BigInt, y: BigInt): BigInt =
+      {
+        val neg = !((fp_sign(e, s, x) == fp_sign(e, s, y)))
+        (if (((fp_nan(e, s, x) || fp_nan(e, s, y)) || ((fp_inf(e, s, x) && fp_inf(e, s, y)) || (fp_zero(e, s, x) && fp_zero(e, s, y))))) {
+          fp_nan_bits(e, s)
+        } else {
+          (if (fp_inf(e, s, x)) {
+            fp_inf_bits(e, s, neg)
+          } else {
+            (if (fp_inf(e, s, y)) {
+              fp_zero_bits(e, s, neg)
+            } else {
+              (if (fp_zero(e, s, y)) {
+                fp_inf_bits(e, s, neg)
+              } else {
+                (if (fp_zero(e, s, x)) {
+                  fp_zero_bits(e, s, neg)
+                } else {
+                  fp_round(rm, e, s, rat_div(fp_rat(e, s, x), fp_rat(e, s, y)))
+                })
+              })
+            })
+          })
+        })
+      }
+
+    def fp_fma(rm: RoundingMode, e: BigInt, s: BigInt, x: BigInt, y: BigInt, z: BigInt): BigInt =
+      {
+        val neg = !((fp_sign(e, s, x) == fp_sign(e, s, y)))
+        (if (((fp_nan(e, s, x) || fp_nan(e, s, y)) || fp_nan(e, s, z))) {
+          fp_nan_bits(e, s)
+        } else {
+          (if ((fp_inf(e, s, x) || fp_inf(e, s, y))) {
+            (if (((fp_zero(e, s, x) || fp_zero(e, s, y)) || (fp_inf(e, s, z) && !((fp_sign(e, s, z) == neg))))) {
+              fp_nan_bits(e, s)
+            } else {
+              fp_inf_bits(e, s, neg)
+            })
+          } else {
+            (if (fp_inf(e, s, z)) {
+              z
+            } else {
+              {
+                val q = rat_add(rat_mul(fp_rat(e, s, x), fp_rat(e, s, y)), fp_rat(e, s, z))
+                (if ((rat_num(q) == BigInt(0))) {
+                  (if (((fp_zero(e, s, x) || fp_zero(e, s, y)) && (fp_zero(e, s, z) && (fp_sign(e, s, z) == neg)))) {
+                    z
+                  } else {
+                    fp_zero_bits(e, s, is_rtn(rm))
+                  })
+                } else {
+                  fp_round(rm, e, s, q)
+                })
+              }
+            })
+          })
+        })
+      }
+
+    def fp_sqrt(rm: RoundingMode, e: BigInt, s: BigInt, x: BigInt): BigInt =
+      (if (fp_nan(e, s, x)) {
+        fp_nan_bits(e, s)
+      } else {
+        (if (fp_zero(e, s, x)) {
+          x
+        } else {
+          (if (fp_sign(e, s, x)) {
+            fp_nan_bits(e, s)
+          } else {
+            (if (fp_inf(e, s, x)) {
+              x
+            } else {
+              (fp_rat(e, s, x)) match {
+                case Rat(n, d) => {
+                    val k = ediv(rat_ilog2(Rat(n, d)), BigInt(2))
+                    val emin = (BigInt(1) - fp_bias(e))
+                    {
+                      val qe = ((if ((k < emin)) {
+                        emin
+                      } else {
+                        k
+                      }) - (s - BigInt(1)))
+                      (scaled(n, d, (BigInt(2) - (BigInt(2) * qe)))) match {
+                        case Rat(sn, sd) => {
+                            val m = ediv(sn, sd)
+                            val exact = (emod(sn, sd) == BigInt(0))
+                            {
+                              val t = isqrt(m)
+                              {
+                                val i = ediv(t, BigInt(2))
+                                val half = (emod(t, BigInt(2)) == BigInt(1))
+                                val sticky = (!(exact) || !(((t * t) == m)))
+                                {
+                                  val c = (if (half) {
+                                    (if (sticky) {
+                                      BigInt(1)
+                                    } else {
+                                      BigInt(0)
+                                    })
+                                  } else {
+                                    (BigInt(0) - BigInt(1))
+                                  })
+                                  fp_pack(rm, e, s, false, qe, (i + (if (round_up(rm, false, i, c, (half || sticky))) {
+                                    BigInt(1)
+                                  } else {
+                                    BigInt(0)
+                                  })))
+                                }
+                              }
+                            }
+                          }
+                      }
+                    }
+                  }
+              }
+            })
+          })
+        })
+      })
+
+    def fp_round_integral(rm: RoundingMode, e: BigInt, s: BigInt, x: BigInt): BigInt =
+      (if (((fp_nan(e, s, x) || fp_inf(e, s, x)) || fp_zero(e, s, x))) {
+        fp_canonical(e, s, x)
+      } else {
+        {
+          val m = round_rat_int(rm, fp_rat(e, s, x))
+          (if ((m == BigInt(0))) {
+            fp_zero_bits(e, s, fp_sign(e, s, x))
+          } else {
+            fp_round(rm, e, s, Rat(m, BigInt(1)))
+          })
+        }
+      })
+
+    def fp_cmp(e: BigInt, s: BigInt, x: BigInt, y: BigInt): BigInt =
+      (if (fp_inf(e, s, x)) {
+        (if ((fp_inf(e, s, y) && (fp_sign(e, s, x) == fp_sign(e, s, y)))) {
+          BigInt(0)
+        } else {
+          (if (fp_sign(e, s, x)) {
+            (BigInt(0) - BigInt(1))
+          } else {
+            BigInt(1)
+          })
+        })
+      } else {
+        (if (fp_inf(e, s, y)) {
+          (if (fp_sign(e, s, y)) {
+            BigInt(1)
+          } else {
+            (BigInt(0) - BigInt(1))
+          })
+        } else {
+          rat_cmp(fp_rat(e, s, x), fp_rat(e, s, y))
+        })
+      })
+
+    def fp_max(e: BigInt, s: BigInt, x: BigInt, y: BigInt, max: Boolean): BigInt =
+      (if (fp_nan(e, s, x)) {
+        fp_canonical(e, s, y)
+      } else {
+        (if (fp_nan(e, s, y)) {
+          x
+        } else {
+          (if ((fp_zero(e, s, x) && fp_zero(e, s, y))) {
+            (if ((max == fp_sign(e, s, x))) {
+              y
+            } else {
+              x
+            })
+          } else {
+            (if ((max == (fp_cmp(e, s, x, y) < BigInt(0)))) {
+              y
+            } else {
+              x
+            })
+          })
+        })
+      })
+
+    def fp_to_int(rm: RoundingMode, e: BigInt, s: BigInt, x: BigInt, lo: BigInt, hi: BigInt): BigInt =
+      (if (fp_nan(e, s, x)) {
+        BigInt(0)
+      } else {
+        (if (fp_inf(e, s, x)) {
+          (if (fp_sign(e, s, x)) {
+            lo
+          } else {
+            hi
+          })
+        } else {
+          {
+            val m = round_rat_int(rm, fp_rat(e, s, x))
+            (if ((m < lo)) {
+              lo
+            } else {
+              (if ((hi < m)) {
+                hi
+              } else {
+                m
+              })
+            })
+          }
+        })
+      })
+
+    def fp_cast(rm: RoundingMode, e: BigInt, s: BigInt, v: Value): Result[BigInt] =
+      (v) match {
+        case FPV(e2, s2, x) => (if (fp_nan(e2, s2, x)) {
+            Ok(fp_nan_bits(e, s))
+          } else {
+            (if (fp_inf(e2, s2, x)) {
+              Ok(fp_inf_bits(e, s, fp_sign(e2, s2, x)))
+            } else {
+              (if (fp_zero(e2, s2, x)) {
+                Ok(fp_zero_bits(e, s, fp_sign(e2, s2, x)))
+              } else {
+                Ok(fp_round(rm, e, s, fp_rat(e2, s2, x)))
+              })
+            })
+          })
+        case BVV(sg, w, x) => Ok(fp_of_rat(rm, e, s, Rat(bv_int(sg, w, x), BigInt(1))))
+        case RealV(n, d) => Ok(fp_of_rat(rm, e, s, Rat(n, d)))
+        case _ => Stuck()
+      }
+
+    def eval_rm(v_P: Program, fuel: BigInt, env: Env, e: Expr): Result[RoundingMode] =
+      eval(v_P, fuel, env, e) match {
+        case Ok(v) => (v) match {
+          case RoundingModeV(rm) => Ok(rm)
+          case _ => Stuck()
+        }
+        case Stuck() => Stuck()
+        case OutOfFuel() => OutOfFuel()
+      }
+
+    def fp_op(op: FPOp, rm: RoundingMode, e: BigInt, s: BigInt, x: BigInt, y: BigInt): BigInt =
+      (op) match {
+        case FPAddOp() => fp_add(rm, e, s, x, y)
+        case FPSubOp() => fp_add(rm, e, s, x, fp_neg(e, s, y))
+        case FPMulOp() => fp_mul(rm, e, s, x, y)
+        case FPDivOp() => fp_div(rm, e, s, x, y)
+        case FPMinOp() => fp_max(e, s, x, y, false)
+        case FPMaxOp() => fp_max(e, s, x, y, true)
+      }
+
+    def fp_binary(op: FPOp, rm: RoundingMode, a: Value, b: Value): Result[Value] =
+      (a) match {
+        case FPV(e, s, x) => (b) match {
+            case FPV(e2, s2, y) => (if (((e == e2) && (s == s2))) {
+                Ok(FPV(e, s, fp_op(op, rm, e, s, x, y)))
+              } else {
+                Stuck()
+              })
+            case _ => Stuck()
+          }
+        case _ => Stuck()
+      }
+
+    def fp_rel(rel: FPRel, a: Value, b: Value): Result[Value] =
+      (a) match {
+        case FPV(e, s, x) => (b) match {
+            case FPV(e2, s2, y) => (if (((e == e2) && (s == s2))) {
+                (if ((fp_nan(e, s, x) || fp_nan(e, s, y))) {
+                  Ok(BoolV(false))
+                } else {
+                  {
+                    val c = fp_cmp(e, s, x, y)
+                    (rel) match {
+                      case FPEqRel() => Ok(BoolV((c == BigInt(0))))
+                      case FPLtRel() => Ok(BoolV((c < BigInt(0))))
+                      case FPLeRel() => Ok(BoolV((c <= BigInt(0))))
+                    }
+                  }
+                })
+              } else {
+                Stuck()
+              })
+            case _ => Stuck()
+          }
+        case _ => Stuck()
+      }
+
+    def fp_class(k: FPClass, v: Value): Result[Value] =
+      (v) match {
+        case FPV(e, s, x) => {
+            val be = fp_exp(e, s, x)
+            val nan = fp_nan(e, s, x)
+            (k) match {
+              case ZeroClass() => Ok(BoolV(fp_zero(e, s, x)))
+              case InfiniteClass() => Ok(BoolV(fp_inf(e, s, x)))
+              case NaNClass() => Ok(BoolV(nan))
+              case NegativeClass() => Ok(BoolV((!(nan) && fp_sign(e, s, x))))
+              case PositiveClass() => Ok(BoolV((!(nan) && !(fp_sign(e, s, x)))))
+              case NormalClass() => Ok(BoolV((!((be == BigInt(0))) && !((be == fp_max_exp(e))))))
+              case SubnormalClass() => Ok(BoolV(((be == BigInt(0)) && !(fp_zero(e, s, x)))))
+            }
+          }
         case _ => Stuck()
       }
 
@@ -1563,24 +2633,24 @@ object Semantics {
       }
 
     def take(n: BigInt, xs: List[BigInt]): List[BigInt] =
-      if ((n <= BigInt(0))) {
+      (if ((n <= BigInt(0))) {
         Nil()
       } else {
         (xs) match {
           case Nil() => Nil()
           case Cons(x, rest) => Cons(x, take((n - BigInt(1)), rest))
         }
-      }
+      })
 
     def drop(n: BigInt, xs: List[BigInt]): List[BigInt] =
-      if ((n <= BigInt(0))) {
+      (if ((n <= BigInt(0))) {
         xs
       } else {
         (xs) match {
           case Nil() => Nil()
           case Cons(_, rest) => drop((n - BigInt(1)), rest)
         }
-      }
+      })
 
     def eval_string(v_P: Program, fuel: BigInt, env: Env, e: Expr): Result[List[BigInt]] =
       eval(v_P, fuel, env, e) match {
@@ -1596,11 +2666,11 @@ object Semantics {
       (xs) match {
         case Nil() => Ok(false)
         case Cons(x, rest) => value_eq(v_P, x, v) match {
-            case Ok(same) => if (same) {
+            case Ok(same) => (if (same) {
               Ok(true)
             } else {
               set_contains(v_P, rest, v)
-            }
+            })
             case Stuck() => Stuck()
             case OutOfFuel() => OutOfFuel()
           }
@@ -1608,11 +2678,11 @@ object Semantics {
 
     def set_insert(v_P: Program, xs: List[Value], v: Value): Result[List[Value]] =
       set_contains(v_P, xs, v) match {
-        case Ok(in) => if (in) {
+        case Ok(in) => (if (in) {
           Ok(xs)
         } else {
           Ok(Cons(v, xs))
-        }
+        })
         case Stuck() => Stuck()
         case OutOfFuel() => OutOfFuel()
       }
@@ -1631,11 +2701,11 @@ object Semantics {
       (xs) match {
         case Nil() => Ok(true)
         case Cons(x, rest) => set_contains(v_P, ys, x) match {
-            case Ok(in) => if (in) {
+            case Ok(in) => (if (in) {
               subset(v_P, rest, ys)
             } else {
               Ok(false)
-            }
+            })
             case Stuck() => Stuck()
             case OutOfFuel() => OutOfFuel()
           }
@@ -1646,11 +2716,11 @@ object Semantics {
         case Nil() => Ok(Nil())
         case Cons(x, rest) => set_contains(v_P, ys, x) match {
             case Ok(in) => set_filter(v_P, rest, ys, keep) match {
-              case Ok(zs) => if ((in == keep)) {
+              case Ok(zs) => (if ((in == keep)) {
                 Ok(Cons(x, zs))
               } else {
                 Ok(zs)
-              }
+              })
               case Stuck() => Stuck()
               case OutOfFuel() => OutOfFuel()
             }
@@ -1673,11 +2743,11 @@ object Semantics {
       (xs) match {
         case Nil() => Ok(BigInt(0))
         case Cons(BagEntry(x, n), rest) => value_eq(v_P, x, v) match {
-            case Ok(same) => if (same) {
+            case Ok(same) => (if (same) {
               Ok(n)
             } else {
               bag_get(v_P, rest, v)
-            }
+            })
             case Stuck() => Stuck()
             case OutOfFuel() => OutOfFuel()
           }
@@ -1687,7 +2757,7 @@ object Semantics {
       (xs) match {
         case Nil() => Ok(Nil())
         case Cons(BagEntry(x, n), rest) => value_eq(v_P, x, v) match {
-            case Ok(same) => if (same) {
+            case Ok(same) => (if (same) {
               Ok(rest)
             } else {
               bag_remove(v_P, rest, v) match {
@@ -1695,7 +2765,7 @@ object Semantics {
                 case Stuck() => Stuck()
                 case OutOfFuel() => OutOfFuel()
               }
-            }
+            })
             case Stuck() => Stuck()
             case OutOfFuel() => OutOfFuel()
           }
@@ -1703,21 +2773,21 @@ object Semantics {
 
     def bag_set(v_P: Program, xs: List[BagEntry], v: Value, n: BigInt): Result[List[BagEntry]] =
       bag_remove(v_P, xs, v) match {
-        case Ok(ys) => if ((BigInt(0) < n)) {
+        case Ok(ys) => (if ((BigInt(0) < n)) {
           Ok(Cons(BagEntry(v, n), ys))
         } else {
           Ok(ys)
-        }
+        })
         case Stuck() => Stuck()
         case OutOfFuel() => OutOfFuel()
       }
 
     def min(a: BigInt, b: BigInt): BigInt =
-      if ((a < b)) {
+      (if ((a < b)) {
         a
       } else {
         b
-      }
+      })
 
     def bag_combine(op: BagOp, a: BigInt, b: BigInt): BigInt =
       (op) match {
@@ -1758,11 +2828,11 @@ object Semantics {
       (xs) match {
         case Nil() => Ok(true)
         case Cons(BagEntry(x, n), rest) => bag_get(v_P, ys, x) match {
-            case Ok(m) => if ((n == m)) {
+            case Ok(m) => (if ((n == m)) {
               sub_bag(v_P, rest, ys)
             } else {
               Ok(false)
-            }
+            })
             case Stuck() => Stuck()
             case OutOfFuel() => OutOfFuel()
           }
@@ -1800,11 +2870,11 @@ object Semantics {
       (xs) match {
         case Nil() => Ok(d)
         case Cons(MapEntry(x, v), rest) => value_eq(v_P, x, k) match {
-            case Ok(same) => if (same) {
+            case Ok(same) => (if (same) {
               Ok(v)
             } else {
               map_get(v_P, rest, k, d)
-            }
+            })
             case Stuck() => Stuck()
             case OutOfFuel() => OutOfFuel()
           }
@@ -1814,7 +2884,7 @@ object Semantics {
       (xs) match {
         case Nil() => Ok(Nil())
         case Cons(MapEntry(x, v), rest) => value_eq(v_P, x, k) match {
-            case Ok(same) => if (same) {
+            case Ok(same) => (if (same) {
               Ok(rest)
             } else {
               map_remove(v_P, rest, k) match {
@@ -1822,7 +2892,7 @@ object Semantics {
                 case Stuck() => Stuck()
                 case OutOfFuel() => OutOfFuel()
               }
-            }
+            })
             case Stuck() => Stuck()
             case OutOfFuel() => OutOfFuel()
           }
@@ -1841,11 +2911,11 @@ object Semantics {
         case Cons(MapEntry(k, _), rest) => map_get(v_P, xs, k, d) match {
             case Ok(a) => map_get(v_P, ys, k, e) match {
               case Ok(b) => value_eq(v_P, a, b) match {
-                case Ok(same) => if (same) {
+                case Ok(same) => (if (same) {
                   same_entries(v_P, rest, xs, d, ys, e)
                 } else {
                   Ok(false)
-                }
+                })
                 case Stuck() => Stuck()
                 case OutOfFuel() => OutOfFuel()
               }
@@ -1862,11 +2932,11 @@ object Semantics {
         case Nil() => Ok(Nil())
         case Cons(MapEntry(k, v), rest) => set_contains(v_P, ks, k) match {
             case Ok(in) => map_without(v_P, rest, ks) match {
-              case Ok(ys) => if (in) {
+              case Ok(ys) => (if (in) {
                 Ok(ys)
               } else {
                 Ok(Cons(MapEntry(k, v), ys))
-              }
+              })
               case Stuck() => Stuck()
               case OutOfFuel() => OutOfFuel()
             }
@@ -1933,11 +3003,11 @@ object Semantics {
       (is) match {
         case Nil() => Stuck()
         case Cons(i, rest) => (i) match {
-            case Interpretation(g, us, _, _) => if (((f == g) && (tps == us))) {
+            case Interpretation(g, us, _, _) => (if (((f == g) && (tps == us))) {
                 Ok(i)
               } else {
                 lookup_interpretation(rest, f, tps)
-              }
+              })
           }
       }
 

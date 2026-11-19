@@ -17,7 +17,9 @@ class SemanticsSuite extends AnyFunSuite {
 
   private def list[A](xs: Seq[A]): S.List[A] = xs.foldRight(S.Nil(): S.List[A])(S.Cons(_, _))
 
-  private def bits(bv: BVLiteral): BigInt = bv.value.foldLeft(BigInt(0))((acc, i) => acc.setBit(i - 1))
+  private def bitSet(bs: scala.collection.immutable.BitSet): BigInt = bs.foldLeft(BigInt(0))((acc, i) => acc.setBit(i - 1))
+
+  private def bits(bv: BVLiteral): BigInt = bitSet(bv.value)
 
   private def chars(s: Seq[Int]): S.List[BigInt] = list(s.map(BigInt(_)))
 
@@ -30,6 +32,8 @@ class SemanticsSuite extends AnyFunSuite {
     case RealType() => Some(S.RealType())
     case StringType() => Some(S.StringType())
     case BVType(s, w) => Some(S.BVType(s, BigInt(w)))
+    case FPType(e, s) => Some(S.FPType(BigInt(e), BigInt(s)))
+    case RoundingMode => Some(S.RoundingModeType())
     case TypeParameter(id, _) => Some(S.TypeParameter(id))
     case TupleType(ts) => types(ts).map(S.TupleType(_))
     case SetType(b) => tpe(b).map(S.SetType(_))
@@ -69,6 +73,39 @@ class SemanticsSuite extends AnyFunSuite {
       case UnitLiteral() => Some(S.UnitLiteral())
       case CharLiteral(c) => Some(S.CharLiteral(BigInt(c.toInt)))
       case bv: BVLiteral => Some(S.BVLiteral(bv.signed, BigInt(bv.size), bits(bv)))
+      case FPLiteral(ex, sig, bs) => Some(S.FPLiteral(BigInt(ex), BigInt(sig), bitSet(bs)))
+      case RoundNearestTiesToEven => Some(S.RoundNearestTiesToEven())
+      case RoundNearestTiesToAway => Some(S.RoundNearestTiesToAway())
+      case RoundTowardPositive => Some(S.RoundTowardPositive())
+      case RoundTowardNegative => Some(S.RoundTowardNegative())
+      case RoundTowardZero => Some(S.RoundTowardZero())
+      case FPEquals(a, b) => two(a, b)(S.FPEquals(_, _))
+      case FPAdd(rm, a, b) => for (m <- expr(rm); x <- expr(a); y <- expr(b)) yield S.FPAdd(m, x, y)
+      case FPSub(rm, a, b) => for (m <- expr(rm); x <- expr(a); y <- expr(b)) yield S.FPSub(m, x, y)
+      case FPMul(rm, a, b) => for (m <- expr(rm); x <- expr(a); y <- expr(b)) yield S.FPMul(m, x, y)
+      case FPDiv(rm, a, b) => for (m <- expr(rm); x <- expr(a); y <- expr(b)) yield S.FPDiv(m, x, y)
+      case FPFMA(rm, a, b, c) => for (m <- expr(rm); x <- expr(a); y <- expr(b); z <- expr(c)) yield S.FPFMA(m, x, y, z)
+      case FPUMinus(a) => expr(a).map(S.FPUMinus(_))
+      case FPAbs(a) => expr(a).map(S.FPAbs(_))
+      case FPMax(a, b) => two(a, b)(S.FPMax(_, _))
+      case FPMin(a, b) => two(a, b)(S.FPMin(_, _))
+      case FPRound(rm, a) => two(rm, a)(S.FPRound(_, _))
+      case Sqrt(rm, a) => two(rm, a)(S.Sqrt(_, _))
+      case FPCast(ex, sig, rm, a) => two(rm, a)(S.FPCast(BigInt(ex), BigInt(sig), _, _))
+      case FPFromBinary(ex, sig, a) => expr(a).map(S.FPFromBinary(BigInt(ex), BigInt(sig), _))
+      case FPToBV(w, sg, rm, a) => two(rm, a)(S.FPToBV(BigInt(w), sg, _, _))
+      case FPToReal(a) => expr(a).map(S.FPToReal(_))
+      case FPLessThan(a, b) => two(a, b)(S.FPLessThan(_, _))
+      case FPGreaterThan(a, b) => two(a, b)(S.FPGreaterThan(_, _))
+      case FPLessEquals(a, b) => two(a, b)(S.FPLessEquals(_, _))
+      case FPGreaterEquals(a, b) => two(a, b)(S.FPGreaterEquals(_, _))
+      case FPIsZero(a) => expr(a).map(S.FPIsZero(_))
+      case FPIsInfinite(a) => expr(a).map(S.FPIsInfinite(_))
+      case FPIsNaN(a) => expr(a).map(S.FPIsNaN(_))
+      case FPIsNegative(a) => expr(a).map(S.FPIsNegative(_))
+      case FPIsPositive(a) => expr(a).map(S.FPIsPositive(_))
+      case FPIsNormal(a) => expr(a).map(S.FPIsNormal(_))
+      case FPIsSubnormal(a) => expr(a).map(S.FPIsSubnormal(_))
       case FractionLiteral(n, d) => Some(S.FractionLiteral(n, d))
       case s: StringLiteral => Some(S.StringLiteral(chars(s.value)))
       // the values of type parameters are integers in the semantics
@@ -149,7 +186,7 @@ class SemanticsSuite extends AnyFunSuite {
 
   def supported(t: Type): Boolean = t match {
     case IntegerType() | BooleanType() | UnitType() | CharType() | RealType() | StringType() |
-         _: BVType | _: TypeParameter => true
+         _: BVType | _: FPType | RoundingMode | _: TypeParameter => true
     case ADTType(_, tps) => tps.forall(supported)
     case TupleType(ts) => ts.forall(supported)
     case FunctionType(from, to) => (from :+ to).forall(supported)
@@ -237,6 +274,7 @@ class SemanticsSuite extends AnyFunSuite {
         scala.Some(S.RealV(n / g, d / g))
       case s: StringLiteral => scala.Some(S.StringV(chars(s.value)))
       case bv: BVLiteral => scala.Some(S.BVV(bv.signed, BigInt(bv.size), bits(bv)))
+      case FPLiteral(ex, sig, bs) => scala.Some(S.FPV(BigInt(ex), BigInt(sig), bitSet(bs)))
       case GenericValue(_, id) => scala.Some(S.IntV(BigInt(id)))
       case Tuple(es) => all(es).map(S.TupleV(_))
       case ADT(id, _, args) => all(args).map(S.ADTV(id, _))
@@ -431,6 +469,54 @@ class SemanticsSuite extends AnyFunSuite {
       "lambda" -> (r => Lambda(Seq(x), Plus(x.toVariable, int(r)))),
       "generic" -> (r => Equals(GenericValue(tp, r.nextInt(2)), GenericValue(tp, r.nextInt(2))))
     ), 100)
+  }
+
+  test("Floating point") {
+    val specials = Seq(0.0, -0.0, 1.0, -1.0, 0.5, 0.1, 1.5, 2.5, -2.5, 3.0, 1e300, -1e300, 1e-310, -1e-310,
+      Double.MinPositiveValue, Double.MaxValue, Double.MinValue, Double.PositiveInfinity, Double.NegativeInfinity,
+      Double.NaN, java.lang.Double.MIN_NORMAL, 4503599627370497.0, 1e16 + 2)
+    def double(r: scala.util.Random): Double = r.nextInt(4) match {
+      case 0 => specials(r.nextInt(specials.size))
+      case 1 => java.lang.Double.longBitsToDouble(r.nextLong())
+      case _ => (r.nextInt(2001) - 1000) / 8.0 * math.pow(2, r.nextInt(9) - 4)
+    }
+    def float(r: scala.util.Random): Float = r.nextInt(4) match {
+      case 0 => specials(r.nextInt(specials.size)).toFloat
+      case 1 => java.lang.Float.intBitsToFloat(r.nextInt())
+      case _ => ((r.nextInt(2001) - 1000) / 8.0 * math.pow(2, r.nextInt(9) - 4)).toFloat
+    }
+    def fp(r: scala.util.Random): Expr = if (r.nextBoolean()) Float64Literal(double(r)) else Float32Literal(float(r))
+    def same(r: scala.util.Random): (Expr, Expr) =
+      if (r.nextBoolean()) (Float64Literal(double(r)), Float64Literal(double(r)))
+      else (Float32Literal(float(r)), Float32Literal(float(r)))
+    def two(f: (Expr, Expr) => Expr) = (r: scala.util.Random) => { val (a, b) = same(r); f(a, b) }
+    val rne = RoundNearestTiesToEven
+    val modes = Seq(RoundNearestTiesToEven, RoundNearestTiesToAway, RoundTowardPositive, RoundTowardNegative, RoundTowardZero)
+    def mode(r: scala.util.Random) = modes(r.nextInt(modes.size))
+    compareOps("floating point", Seq(
+      "+" -> two(FPAdd(rne, _, _)), "-" -> two(FPSub(rne, _, _)), "*" -> two(FPMul(rne, _, _)),
+      "/" -> two(FPDiv(rne, _, _)), "min" -> two(FPMin(_, _)), "max" -> two(FPMax(_, _)),
+      "fma" -> (r => if (r.nextBoolean()) FPFMA(rne, Float64Literal(double(r)), Float64Literal(double(r)), Float64Literal(double(r)))
+                     else FPFMA(rne, Float32Literal(float(r)), Float32Literal(float(r)), Float32Literal(float(r)))),
+      "==" -> two(FPEquals(_, _)), "eq" -> two(Equals(_, _)), "<" -> two(FPLessThan(_, _)),
+      ">" -> two(FPGreaterThan(_, _)), "<=" -> two(FPLessEquals(_, _)), ">=" -> two(FPGreaterEquals(_, _)),
+      "neg" -> (r => FPUMinus(fp(r))), "abs" -> (r => FPAbs(fp(r))), "sqrt" -> (r => Sqrt(rne, fp(r))),
+      "round" -> (r => FPRound(mode(r), fp(r))),
+      "isZero" -> (r => FPIsZero(fp(r))), "isInfinite" -> (r => FPIsInfinite(fp(r))), "isNaN" -> (r => FPIsNaN(fp(r))),
+      "isNegative" -> (r => FPIsNegative(fp(r))), "isPositive" -> (r => FPIsPositive(fp(r))),
+      "isNormal" -> (r => FPIsNormal(fp(r))), "isSubnormal" -> (r => FPIsSubnormal(fp(r))),
+      // RecursiveEvaluator converts a double to an integer through its decimal string, which is
+      // inexact beyond 2^53 (2.342117E18f converts to 2342116997325652000, not 2342116997325651968)
+      "toBV" -> (r => FPToBV(Seq(8, 32, 64)(r.nextInt(3)), r.nextBoolean(), mode(r),
+        Seq(fp(r), fp(r), fp(r)).find { case Float64Literal(d) => d.abs < 1e15 || d.isNaN; case Float32Literal(f) => f.abs < 1e15f || f.isNaN; case _ => false }
+          .getOrElse(Float64Literal(1.5)))),
+      "toReal" -> (r => FPToReal(fp(r))),
+      "toDouble" -> (r => ToDouble(if (r.nextBoolean()) fp(r) else Int64Literal(r.nextLong()))),
+      "toFloat" -> (r => ToFloat(if (r.nextBoolean()) fp(r) else Int32Literal(r.nextInt()))),
+      "unsignedToDouble" -> (r => ToDouble(BVLiteral(false, BigInt(64, r), 64))),
+      "fromBinary" -> (r => if (r.nextBoolean()) FPFromBinary(11, 53, Int64Literal(r.nextLong()))
+                            else FPFromBinary(8, 24, Int32Literal(r.nextInt())))
+    ), 400)
   }
 
   test("Sets, bags and maps") {

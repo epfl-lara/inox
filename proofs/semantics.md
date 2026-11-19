@@ -16,7 +16,7 @@ This version covers integers, Booleans, unit, characters, reals, strings,
 bit-vectors, tuples, algebraic datatypes (with their invariants), recursive
 functions, first-class functions, `let`, `if`, `assume` and
 `error`, sets, bags and maps, quantifiers, and the uninterpreted functions of
-models. Floating point and the dependent types (`PiType` and `SigmaType`) come
+models, and floating point. The dependent types (`PiType` and `SigmaType`) come
 later, and so does `--function-equality=intensional`, which compares
 normalized lambdas and stays outside the semantics.
 
@@ -68,7 +68,8 @@ they are read as integers: Inox's generic value `T#n` is the integer `n`.
 
 A value is an integer, a Boolean, the unit value, a character (its code), a
 real (a fraction in lowest terms with a positive denominator), a string (the
-list of its characters' codes), a bit-vector, a tuple, a closure, a set, a
+list of its characters' codes), a bit-vector, a floating-point number, a
+rounding mode, a tuple, a closure, a set, a
 bag, a map, or a constructor applied to values.
 
 A bit-vector of `width` bits holds them as the integer `bits`, with
@@ -92,6 +93,8 @@ Equality below).
   (RealV (num Int) (den Int))
   (StringV (chars (List Int)))
   (BVV (signed Bool) (width Int) (bits Int))
+  (FPV (exponent Int) (significand Int) (bits Int))
+  (RoundingModeV (mode RoundingMode))
   (TupleV (elems (List Value)))
   (ClosureV (params (List Param)) (body Expr) (env Env))
   (SetV (elems (List Value)))
@@ -122,6 +125,8 @@ refinement type `{x: base | prop}` holds the values of `base` for which
   (RealType)
   (StringType)
   (BVType (signed Bool) (width Int))
+  (FPType (exponent Int) (significand Int))
+  (RoundingModeType)
   (TypeParameter (id Id))
   (TupleType (elems (List Type)))
   (SetType (elem Type))
@@ -151,9 +156,15 @@ refinement type `{x: base | prop}` holds the values of `base` for which
   (BVLiteral (signed Bool) (width Int) (bits Int))
   (IntegerLiteral (value Int))
   (FractionLiteral (num Int) (den Int))
+  (FPLiteral (exponent Int) (significand Int) (bits Int))
   (BooleanLiteral (value Bool))
   (StringLiteral (chars (List Int)))
   (UnitLiteral)
+  (RoundNearestTiesToEven)
+  (RoundNearestTiesToAway)
+  (RoundTowardPositive)
+  (RoundTowardNegative)
+  (RoundTowardZero)
   (ADT (id Id) (tps (List Type)) (args (List Expr)))
   (IsConstructor (expr Expr) (id Id))
   (ADTSelector (adt Expr) (selector Id))
@@ -189,6 +200,33 @@ refinement type `{x: base | prop}` holds the values of `base` for which
   (BVSignedToUnsigned (expr Expr))
   (BVToInt (expr Expr))
   (IntToBV (width Int) (signed Bool) (expr Expr))
+  (FPEquals (lhs Expr) (rhs Expr))
+  (FPAdd (rm Expr) (lhs Expr) (rhs Expr))
+  (FPSub (rm Expr) (lhs Expr) (rhs Expr))
+  (FPUMinus (expr Expr))
+  (FPFMA (rm Expr) (e1 Expr) (e2 Expr) (e3 Expr))
+  (FPMul (rm Expr) (lhs Expr) (rhs Expr))
+  (FPDiv (rm Expr) (lhs Expr) (rhs Expr))
+  (FPAbs (expr Expr))
+  (FPMax (lhs Expr) (rhs Expr))
+  (FPMin (lhs Expr) (rhs Expr))
+  (FPRound (rm Expr) (expr Expr))
+  (Sqrt (rm Expr) (expr Expr))
+  (FPCast (exponent Int) (significand Int) (rm Expr) (expr Expr))
+  (FPFromBinary (exponent Int) (significand Int) (expr Expr))
+  (FPToBV (width Int) (signed Bool) (rm Expr) (expr Expr))
+  (FPToReal (expr Expr))
+  (FPLessThan (lhs Expr) (rhs Expr))
+  (FPGreaterThan (lhs Expr) (rhs Expr))
+  (FPLessEquals (lhs Expr) (rhs Expr))
+  (FPGreaterEquals (lhs Expr) (rhs Expr))
+  (FPIsZero (expr Expr))
+  (FPIsInfinite (expr Expr))
+  (FPIsNaN (expr Expr))
+  (FPIsNegative (expr Expr))
+  (FPIsPositive (expr Expr))
+  (FPIsNormal (expr Expr))
+  (FPIsSubnormal (expr Expr))
   (Tuple (exprs (List Expr)))
   (TupleSelect (tuple Expr) (index Int))
   (FiniteSet (elems (List Expr)))
@@ -1005,6 +1043,565 @@ and zero-extend an unsigned one.
     (Ok (bv s w i))))
 ```
 
+### Floating point
+
+A floating-point number of `e` exponent bits and `s` significand bits (the
+hidden bit included, as in SMT-LIB) is held as its `e + s` bits, in IEEE 754's
+layout: the sign, then the biased exponent, then the fraction. There is a
+single NaN, the quiet NaN with only the top fraction bit set, as in SMT-LIB and
+as the JVM gives it. Every operation that IEEE 754 defines as rounding an exact
+result computes the exact result as a fraction, or for the square root as an
+integer square root with enough bits, and rounds it with the rounding mode.
+
+```inox-sem
+(datatype RoundingMode
+  (RNE)
+  (RNA)
+  (RTP)
+  (RTN)
+  (RTZ))
+
+(datatype Rat
+  (Rat (num Int) (den Int)))
+
+(define (rat-add (a Rat) (b Rat)) Rat
+  (match a ((Rat n d) (match b ((Rat m k) (Rat (+ (* n k) (* m d)) (* d k)))))))
+
+(define (rat-mul (a Rat) (b Rat)) Rat
+  (match a ((Rat n d) (match b ((Rat m k) (Rat (* n m) (* d k)))))))
+
+(define (rat-div (a Rat) (b Rat)) Rat
+  (match a
+    ((Rat n d)
+      (match b
+        ((Rat m k) (if (< m 0) (Rat (- 0 (* n k)) (- 0 (* d m))) (Rat (* n k) (* d m))))))))
+
+(define (rat-num (a Rat)) Int
+  (match a ((Rat n _) n)))
+
+(define (rat-cmp (a Rat) (b Rat)) Int
+  (match a
+    ((Rat n d)
+      (match b
+        ((Rat m k) (if (< (* n k) (* m d)) (- 0 1) (if (= (* n k) (* m d)) 0 1)))))))
+
+(define (bitlen (n Int)) Int
+  (if (<= n 0) 0 (+ 1 (bitlen (div n 2)))))
+
+(define (rat-ilog2 (a Rat)) Int
+  (match a
+    ((Rat n d)
+      (let ((k (- (bitlen n) (bitlen d))))
+        (if (< k 0)
+          (if (< (* n (pow2 (- 0 k))) d) (- k 1) k)
+          (if (< n (* d (pow2 k))) (- k 1) k))))))
+
+(define (isqrt-from (n Int) (x Int)) Int
+  (let ((y (div (+ x (div n x)) 2)))
+    (if (< y x) (isqrt-from n y) x)))
+
+(define (isqrt (n Int)) Int
+  (if (<= n 0) 0 (isqrt-from n (pow2 (div (+ (bitlen n) 1) 2)))))
+
+(define (fp-bias (e Int)) Int
+  (- (pow2 (- e 1)) 1))
+
+(define (fp-max-exp (e Int)) Int
+  (- (pow2 e) 1))
+
+(define (fp-sign (e Int) (s Int) (x Int)) Bool
+  (<= (pow2 (- (+ e s) 1)) x))
+
+(define (fp-exp (e Int) (s Int) (x Int)) Int
+  (mod (div x (pow2 (- s 1))) (pow2 e)))
+
+(define (fp-frac (s Int) (x Int)) Int
+  (mod x (pow2 (- s 1))))
+
+(define (fp-nan (e Int) (s Int) (x Int)) Bool
+  (and (= (fp-exp e s x) (fp-max-exp e)) (not (= (fp-frac s x) 0))))
+
+(define (fp-inf (e Int) (s Int) (x Int)) Bool
+  (and (= (fp-exp e s x) (fp-max-exp e)) (= (fp-frac s x) 0)))
+
+(define (fp-zero (e Int) (s Int) (x Int)) Bool
+  (and (= (fp-exp e s x) 0) (= (fp-frac s x) 0)))
+
+(define (fp-bits (e Int) (s Int) (neg Bool) (be Int) (f Int)) Int
+  (+ (if neg (pow2 (- (+ e s) 1)) 0) (+ (* be (pow2 (- s 1))) f)))
+
+(define (fp-nan-bits (e Int) (s Int)) Int
+  (fp-bits e s false (fp-max-exp e) (pow2 (- s 2))))
+
+(define (fp-inf-bits (e Int) (s Int) (neg Bool)) Int
+  (fp-bits e s neg (fp-max-exp e) 0))
+
+(define (fp-zero-bits (e Int) (s Int) (neg Bool)) Int
+  (fp-bits e s neg 0 0))
+
+(define (fp-canonical (e Int) (s Int) (x Int)) Int
+  (if (fp-nan e s x) (fp-nan-bits e s) x))
+
+(define (fp-rat (e Int) (s Int) (x Int)) Rat
+  (let ((be (fp-exp e s x))
+        (f (fp-frac s x)))
+    (let ((m (if (= be 0) f (+ f (pow2 (- s 1)))))
+          (k (- (- (if (= be 0) 1 be) (fp-bias e)) (- s 1)))
+          (sg (if (fp-sign e s x) (- 0 1) 1)))
+      (if (< k 0) (Rat (* sg m) (pow2 (- 0 k))) (Rat (* sg (* m (pow2 k))) 1)))))
+```
+
+Rounding: `c` compares the dropped fraction with one half, and `inexact` says
+whether anything was dropped.
+
+```inox-sem
+(define (round-up (rm RoundingMode) (neg Bool) (i Int) (c Int) (inexact Bool)) Bool
+  (if (not inexact)
+    false
+    (match rm
+      ((RNE) (or (< 0 c) (and (= c 0) (= (mod i 2) 1))))
+      ((RNA) (<= 0 c))
+      ((RTP) (not neg))
+      ((RTN) neg)
+      ((RTZ) false))))
+
+(define (sign-cmp (a Int) (b Int)) Int
+  (if (< a b) (- 0 1) (if (= a b) 0 1)))
+
+(define (fp-overflow (rm RoundingMode) (e Int) (s Int) (neg Bool)) Int
+  (if (match rm ((RNE) true) ((RNA) true) ((RTP) (not neg)) ((RTN) neg) ((RTZ) false))
+    (fp-inf-bits e s neg)
+    (fp-bits e s neg (- (fp-max-exp e) 1) (- (pow2 (- s 1)) 1))))
+
+(define (fp-pack (rm RoundingMode) (e Int) (s Int) (neg Bool) (qe Int) (m Int)) Int
+  (let ((carry (= m (pow2 s))))
+    (let ((m2 (if carry (pow2 (- s 1)) m))
+          (qe2 (if carry (+ qe 1) qe)))
+      (if (= m2 0)
+        (fp-zero-bits e s neg)
+        (if (< m2 (pow2 (- s 1)))
+          (fp-bits e s neg 0 m2)
+          (let ((be (+ (+ qe2 (- s 1)) (fp-bias e))))
+            (if (<= (fp-max-exp e) be)
+              (fp-overflow rm e s neg)
+              (fp-bits e s neg be (- m2 (pow2 (- s 1)))))))))))
+
+(define (scaled (n Int) (d Int) (p Int)) Rat
+  (if (< p 0) (Rat n (* d (pow2 (- 0 p)))) (Rat (* n (pow2 p)) d)))
+
+(define (fp-round (rm RoundingMode) (e Int) (s Int) (q Rat)) Int
+  (match q
+    ((Rat n d)
+      (let ((neg (< n 0)))
+        (let ((a (Rat (abs n) d))
+              (emin (- 1 (fp-bias e))))
+          (let ((k (rat-ilog2 a)))
+            (let ((qe (- (if (< k emin) emin k) (- s 1))))
+              (match (scaled (abs n) d (- 0 qe))
+                ((Rat sn sd)
+                  (let ((i (div sn sd)) (r (mod sn sd)))
+                    (fp-pack rm e s neg qe
+                      (+ i (if (round-up rm neg i (sign-cmp (* 2 r) sd) (not (= r 0))) 1 0)))))))))))))
+
+(define (fp-of-rat (rm RoundingMode) (e Int) (s Int) (q Rat)) Int
+  (if (= (rat-num q) 0) (fp-zero-bits e s false) (fp-round rm e s q)))
+
+(define (round-rat-int (rm RoundingMode) (q Rat)) Int
+  (match q
+    ((Rat n d)
+      (let ((neg (< n 0)))
+        (let ((i (div (abs n) d)) (r (mod (abs n) d)))
+          (let ((m (+ i (if (round-up rm neg i (sign-cmp (* 2 r) d) (not (= r 0))) 1 0))))
+            (if neg (- 0 m) m)))))))
+```
+
+The operations. A sum or difference that is exactly zero is `+0`, or `-0`
+when rounding toward negative, unless both operands are zeros of the same
+sign. `min` and `max` ignore a NaN operand unless both are NaN, and order `-0`
+below `+0`.
+
+```inox-sem
+(define (is-rtn (rm RoundingMode)) Bool
+  (match rm ((RTN) true) (_ false)))
+
+(define (fp-add (rm RoundingMode) (e Int) (s Int) (x Int) (y Int)) Int
+  (if (or (fp-nan e s x) (fp-nan e s y))
+    (fp-nan-bits e s)
+    (if (fp-inf e s x)
+      (if (and (fp-inf e s y) (not (= (fp-sign e s x) (fp-sign e s y)))) (fp-nan-bits e s) x)
+      (if (fp-inf e s y)
+        y
+        (let ((q (rat-add (fp-rat e s x) (fp-rat e s y))))
+          (if (= (rat-num q) 0)
+            (if (and (and (fp-zero e s x) (fp-zero e s y)) (= (fp-sign e s x) (fp-sign e s y)))
+              x
+              (fp-zero-bits e s (is-rtn rm)))
+            (fp-round rm e s q)))))))
+
+(define (fp-neg (e Int) (s Int) (x Int)) Int
+  (if (fp-nan e s x)
+    (fp-nan-bits e s)
+    (if (fp-sign e s x) (- x (pow2 (- (+ e s) 1))) (+ x (pow2 (- (+ e s) 1))))))
+
+(define (fp-abs (e Int) (s Int) (x Int)) Int
+  (if (fp-sign e s x) (fp-neg e s x) (fp-canonical e s x)))
+
+(define (fp-mul (rm RoundingMode) (e Int) (s Int) (x Int) (y Int)) Int
+  (let ((neg (not (= (fp-sign e s x) (fp-sign e s y)))))
+    (if (or (fp-nan e s x) (fp-nan e s y))
+      (fp-nan-bits e s)
+      (if (or (fp-inf e s x) (fp-inf e s y))
+        (if (or (fp-zero e s x) (fp-zero e s y)) (fp-nan-bits e s) (fp-inf-bits e s neg))
+        (if (or (fp-zero e s x) (fp-zero e s y))
+          (fp-zero-bits e s neg)
+          (fp-round rm e s (rat-mul (fp-rat e s x) (fp-rat e s y))))))))
+
+(define (fp-div (rm RoundingMode) (e Int) (s Int) (x Int) (y Int)) Int
+  (let ((neg (not (= (fp-sign e s x) (fp-sign e s y)))))
+    (if (or (or (fp-nan e s x) (fp-nan e s y))
+            (or (and (fp-inf e s x) (fp-inf e s y)) (and (fp-zero e s x) (fp-zero e s y))))
+      (fp-nan-bits e s)
+      (if (fp-inf e s x)
+        (fp-inf-bits e s neg)
+        (if (fp-inf e s y)
+          (fp-zero-bits e s neg)
+          (if (fp-zero e s y)
+            (fp-inf-bits e s neg)
+            (if (fp-zero e s x)
+              (fp-zero-bits e s neg)
+              (fp-round rm e s (rat-div (fp-rat e s x) (fp-rat e s y))))))))))
+
+(define (fp-fma (rm RoundingMode) (e Int) (s Int) (x Int) (y Int) (z Int)) Int
+  (let ((neg (not (= (fp-sign e s x) (fp-sign e s y)))))
+    (if (or (or (fp-nan e s x) (fp-nan e s y)) (fp-nan e s z))
+      (fp-nan-bits e s)
+      (if (or (fp-inf e s x) (fp-inf e s y))
+        (if (or (or (fp-zero e s x) (fp-zero e s y))
+                (and (fp-inf e s z) (not (= (fp-sign e s z) neg))))
+          (fp-nan-bits e s)
+          (fp-inf-bits e s neg))
+        (if (fp-inf e s z)
+          z
+          (let ((q (rat-add (rat-mul (fp-rat e s x) (fp-rat e s y)) (fp-rat e s z))))
+            (if (= (rat-num q) 0)
+              (if (and (or (fp-zero e s x) (fp-zero e s y)) (and (fp-zero e s z) (= (fp-sign e s z) neg)))
+                z
+                (fp-zero-bits e s (is-rtn rm)))
+              (fp-round rm e s q))))))))
+
+(define (fp-sqrt (rm RoundingMode) (e Int) (s Int) (x Int)) Int
+  (if (fp-nan e s x)
+    (fp-nan-bits e s)
+    (if (fp-zero e s x)
+      x
+      (if (fp-sign e s x)
+        (fp-nan-bits e s)
+        (if (fp-inf e s x)
+          x
+          (match (fp-rat e s x)
+            ((Rat n d)
+              (let ((k (div (rat-ilog2 (Rat n d)) 2))
+                    (emin (- 1 (fp-bias e))))
+                (let ((qe (- (if (< k emin) emin k) (- s 1))))
+                  (match (scaled n d (- 2 (* 2 qe)))
+                    ((Rat sn sd)
+                      (let ((m (div sn sd)) (exact (= (mod sn sd) 0)))
+                        (let ((t (isqrt m)))
+                          (let ((i (div t 2))
+                                (half (= (mod t 2) 1))
+                                (sticky (or (not exact) (not (= (* t t) m)))))
+                            (let ((c (if half (if sticky 1 0) (- 0 1))))
+                              (fp-pack rm e s false qe
+                                (+ i (if (round-up rm false i c (or half sticky)) 1 0))))))))))))))))))
+
+(define (fp-round-integral (rm RoundingMode) (e Int) (s Int) (x Int)) Int
+  (if (or (or (fp-nan e s x) (fp-inf e s x)) (fp-zero e s x))
+    (fp-canonical e s x)
+    (let ((m (round-rat-int rm (fp-rat e s x))))
+      (if (= m 0) (fp-zero-bits e s (fp-sign e s x)) (fp-round rm e s (Rat m 1))))))
+
+(define (fp-cmp (e Int) (s Int) (x Int) (y Int)) Int
+  (if (fp-inf e s x)
+    (if (and (fp-inf e s y) (= (fp-sign e s x) (fp-sign e s y))) 0 (if (fp-sign e s x) (- 0 1) 1))
+    (if (fp-inf e s y)
+      (if (fp-sign e s y) 1 (- 0 1))
+      (rat-cmp (fp-rat e s x) (fp-rat e s y)))))
+
+(define (fp-max (e Int) (s Int) (x Int) (y Int) (max Bool)) Int
+  (if (fp-nan e s x)
+    (fp-canonical e s y)
+    (if (fp-nan e s y)
+      x
+      (if (and (fp-zero e s x) (fp-zero e s y))
+        (if (= max (fp-sign e s x)) y x)
+        (if (= max (< (fp-cmp e s x y) 0)) y x)))))
+```
+
+Conversions. Casting to a floating-point format rounds the value of a
+floating-point number, a bit-vector (read as signed or unsigned, as its type
+says) or a real. Converting to a bit-vector rounds to an integer and saturates
+at the bounds of the target, with NaN converting to zero, as on the JVM, where
+SMT-LIB leaves these cases open. Converting NaN or an infinity to a real gets
+stuck.
+
+```inox-sem
+(define (fp-to-int (rm RoundingMode) (e Int) (s Int) (x Int) (lo Int) (hi Int)) Int
+  (if (fp-nan e s x)
+    0
+    (if (fp-inf e s x)
+      (if (fp-sign e s x) lo hi)
+      (let ((m (round-rat-int rm (fp-rat e s x))))
+        (if (< m lo) lo (if (< hi m) hi m))))))
+
+(define (fp-cast (rm RoundingMode) (e Int) (s Int) (v Value)) (Result Int)
+  (match v
+    ((FPV e2 s2 x)
+      (if (fp-nan e2 s2 x)
+        (Ok (fp-nan-bits e s))
+        (if (fp-inf e2 s2 x)
+          (Ok (fp-inf-bits e s (fp-sign e2 s2 x)))
+          (if (fp-zero e2 s2 x)
+            (Ok (fp-zero-bits e s (fp-sign e2 s2 x)))
+            (Ok (fp-round rm e s (fp-rat e2 s2 x)))))))
+    ((BVV sg w x) (Ok (fp-of-rat rm e s (Rat (bv-int sg w x) 1))))
+    ((RealV n d) (Ok (fp-of-rat rm e s (Rat n d))))
+    (_ (Stuck))))
+```
+
+```inox-sem
+(define (eval-rm (P Program) (fuel Int) (env Env) (e Expr)) (Result RoundingMode)
+  (let! ((v (eval P fuel env e)))
+    (match v
+      ((RoundingModeV rm) (Ok rm))
+      (_ (Stuck)))))
+
+(datatype FPOp
+  (FPAddOp)
+  (FPSubOp)
+  (FPMulOp)
+  (FPDivOp)
+  (FPMinOp)
+  (FPMaxOp))
+
+(define (fp-op (op FPOp) (rm RoundingMode) (e Int) (s Int) (x Int) (y Int)) Int
+  (match op
+    ((FPAddOp) (fp-add rm e s x y))
+    ((FPSubOp) (fp-add rm e s x (fp-neg e s y)))
+    ((FPMulOp) (fp-mul rm e s x y))
+    ((FPDivOp) (fp-div rm e s x y))
+    ((FPMinOp) (fp-max e s x y false))
+    ((FPMaxOp) (fp-max e s x y true))))
+
+(define (fp-binary (op FPOp) (rm RoundingMode) (a Value) (b Value)) (Result Value)
+  (match a
+    ((FPV e s x)
+      (match b
+        ((FPV e2 s2 y)
+          (if (and (= e e2) (= s s2)) (Ok (FPV e s (fp-op op rm e s x y))) (Stuck)))
+        (_ (Stuck))))
+    (_ (Stuck))))
+
+(datatype FPRel
+  (FPEqRel)
+  (FPLtRel)
+  (FPLeRel))
+
+(define (fp-rel (rel FPRel) (a Value) (b Value)) (Result Value)
+  (match a
+    ((FPV e s x)
+      (match b
+        ((FPV e2 s2 y)
+          (if (and (= e e2) (= s s2))
+            (if (or (fp-nan e s x) (fp-nan e s y))
+              (Ok (BoolV false))
+              (let ((c (fp-cmp e s x y)))
+                (match rel
+                  ((FPEqRel) (Ok (BoolV (= c 0))))
+                  ((FPLtRel) (Ok (BoolV (< c 0))))
+                  ((FPLeRel) (Ok (BoolV (<= c 0)))))))
+            (Stuck)))
+        (_ (Stuck))))
+    (_ (Stuck))))
+
+(datatype FPClass
+  (ZeroClass)
+  (InfiniteClass)
+  (NaNClass)
+  (NegativeClass)
+  (PositiveClass)
+  (NormalClass)
+  (SubnormalClass))
+
+(define (fp-class (k FPClass) (v Value)) (Result Value)
+  (match v
+    ((FPV e s x)
+      (let ((be (fp-exp e s x)) (nan (fp-nan e s x)))
+        (match k
+          ((ZeroClass) (Ok (BoolV (fp-zero e s x))))
+          ((InfiniteClass) (Ok (BoolV (fp-inf e s x))))
+          ((NaNClass) (Ok (BoolV nan)))
+          ((NegativeClass) (Ok (BoolV (and (not nan) (fp-sign e s x)))))
+          ((PositiveClass) (Ok (BoolV (and (not nan) (not (fp-sign e s x))))))
+          ((NormalClass) (Ok (BoolV (and (not (= be 0)) (not (= be (fp-max-exp e)))))))
+          ((SubnormalClass) (Ok (BoolV (and (= be 0) (not (fp-zero e s x)))))))))
+    (_ (Stuck))))
+
+(case eval (FPLiteral e s x)
+  (Ok (FPV e s (fp-canonical e s x))))
+
+(case eval (RoundNearestTiesToEven)
+  (Ok (RoundingModeV (RNE))))
+
+(case eval (RoundNearestTiesToAway)
+  (Ok (RoundingModeV (RNA))))
+
+(case eval (RoundTowardPositive)
+  (Ok (RoundingModeV (RTP))))
+
+(case eval (RoundTowardNegative)
+  (Ok (RoundingModeV (RTN))))
+
+(case eval (RoundTowardZero)
+  (Ok (RoundingModeV (RTZ))))
+
+(case eval (FPEquals lhs rhs)
+  (let! ((a (eval P fuel env lhs)) (b (eval P fuel env rhs)))
+    (fp-rel (FPEqRel) a b)))
+
+(case eval (FPAdd rm lhs rhs)
+  (let! ((m (eval-rm P fuel env rm)) (a (eval P fuel env lhs)) (b (eval P fuel env rhs)))
+    (fp-binary (FPAddOp) m a b)))
+
+(case eval (FPSub rm lhs rhs)
+  (let! ((m (eval-rm P fuel env rm)) (a (eval P fuel env lhs)) (b (eval P fuel env rhs)))
+    (fp-binary (FPSubOp) m a b)))
+
+(case eval (FPMul rm lhs rhs)
+  (let! ((m (eval-rm P fuel env rm)) (a (eval P fuel env lhs)) (b (eval P fuel env rhs)))
+    (fp-binary (FPMulOp) m a b)))
+
+(case eval (FPDiv rm lhs rhs)
+  (let! ((m (eval-rm P fuel env rm)) (a (eval P fuel env lhs)) (b (eval P fuel env rhs)))
+    (fp-binary (FPDivOp) m a b)))
+
+(case eval (FPMin lhs rhs)
+  (let! ((a (eval P fuel env lhs)) (b (eval P fuel env rhs)))
+    (fp-binary (FPMinOp) (RNE) a b)))
+
+(case eval (FPMax lhs rhs)
+  (let! ((a (eval P fuel env lhs)) (b (eval P fuel env rhs)))
+    (fp-binary (FPMaxOp) (RNE) a b)))
+
+(case eval (FPUMinus expr)
+  (let! ((a (eval P fuel env expr)))
+    (match a
+      ((FPV e s x) (Ok (FPV e s (fp-neg e s x))))
+      (_ (Stuck)))))
+
+(case eval (FPAbs expr)
+  (let! ((a (eval P fuel env expr)))
+    (match a
+      ((FPV e s x) (Ok (FPV e s (fp-abs e s x))))
+      (_ (Stuck)))))
+
+(case eval (FPFMA rm e1 e2 e3)
+  (let! ((m (eval-rm P fuel env rm))
+         (a (eval P fuel env e1))
+         (b (eval P fuel env e2))
+         (c (eval P fuel env e3)))
+    (match a
+      ((FPV e s x)
+        (match b
+          ((FPV e2 s2 y)
+            (match c
+              ((FPV e3 s3 z)
+                (if (and (and (= e e2) (= s s2)) (and (= e e3) (= s s3)))
+                  (Ok (FPV e s (fp-fma m e s x y z)))
+                  (Stuck)))
+              (_ (Stuck))))
+          (_ (Stuck))))
+      (_ (Stuck)))))
+
+(case eval (FPRound rm expr)
+  (let! ((m (eval-rm P fuel env rm)) (a (eval P fuel env expr)))
+    (match a
+      ((FPV e s x) (Ok (FPV e s (fp-round-integral m e s x))))
+      (_ (Stuck)))))
+
+(case eval (Sqrt rm expr)
+  (let! ((m (eval-rm P fuel env rm)) (a (eval P fuel env expr)))
+    (match a
+      ((FPV e s x) (Ok (FPV e s (fp-sqrt m e s x))))
+      (_ (Stuck)))))
+
+(case eval (FPCast e s rm expr)
+  (let! ((m (eval-rm P fuel env rm))
+         (a (eval P fuel env expr))
+         (x (fp-cast m e s a)))
+    (Ok (FPV e s x))))
+
+(case eval (FPFromBinary e s expr)
+  (let! ((a (eval P fuel env expr)))
+    (match a
+      ((BVV _ w x) (if (= w (+ e s)) (Ok (FPV e s (fp-canonical e s x))) (Stuck)))
+      (_ (Stuck)))))
+
+(case eval (FPToBV w sg rm expr)
+  (let! ((m (eval-rm P fuel env rm)) (a (eval P fuel env expr)))
+    (match a
+      ((FPV e s x)
+        (let ((lo (if sg (- 0 (pow2 (- w 1))) 0))
+              (hi (if sg (- (pow2 (- w 1)) 1) (- (pow2 w) 1))))
+          (Ok (bv sg w (fp-to-int m e s x lo hi)))))
+      (_ (Stuck)))))
+
+(case eval (FPToReal expr)
+  (let! ((a (eval P fuel env expr)))
+    (match a
+      ((FPV e s x)
+        (if (or (fp-nan e s x) (fp-inf e s x))
+          (Stuck)
+          (match (fp-rat e s x) ((Rat n d) (real n d)))))
+      (_ (Stuck)))))
+
+(case eval (FPLessThan lhs rhs)
+  (let! ((a (eval P fuel env lhs)) (b (eval P fuel env rhs)))
+    (fp-rel (FPLtRel) a b)))
+
+(case eval (FPGreaterThan lhs rhs)
+  (let! ((a (eval P fuel env lhs)) (b (eval P fuel env rhs)))
+    (fp-rel (FPLtRel) b a)))
+
+(case eval (FPLessEquals lhs rhs)
+  (let! ((a (eval P fuel env lhs)) (b (eval P fuel env rhs)))
+    (fp-rel (FPLeRel) a b)))
+
+(case eval (FPGreaterEquals lhs rhs)
+  (let! ((a (eval P fuel env lhs)) (b (eval P fuel env rhs)))
+    (fp-rel (FPLeRel) b a)))
+
+(case eval (FPIsZero expr)
+  (let! ((a (eval P fuel env expr))) (fp-class (ZeroClass) a)))
+
+(case eval (FPIsInfinite expr)
+  (let! ((a (eval P fuel env expr))) (fp-class (InfiniteClass) a)))
+
+(case eval (FPIsNaN expr)
+  (let! ((a (eval P fuel env expr))) (fp-class (NaNClass) a)))
+
+(case eval (FPIsNegative expr)
+  (let! ((a (eval P fuel env expr))) (fp-class (NegativeClass) a)))
+
+(case eval (FPIsPositive expr)
+  (let! ((a (eval P fuel env expr))) (fp-class (PositiveClass) a)))
+
+(case eval (FPIsNormal expr)
+  (let! ((a (eval P fuel env expr))) (fp-class (NormalClass) a)))
+
+(case eval (FPIsSubnormal expr)
+  (let! ((a (eval P fuel env expr))) (fp-class (SubnormalClass) a)))
+```
+
 ### Strings
 
 A string is the list of its characters' codes. As SMT-LIB's `str.substr`,
@@ -1437,6 +2034,12 @@ functions only.
       (match v
         ((BVV s2 w2 x) (and (and (= s s2) (= w w2)) (and (<= 0 x) (< x (pow2 w)))))
         (_ false)))
+    ((FPType e s)
+      (match v
+        ((FPV e2 s2 x)
+          (and (and (= e e2) (= s s2)) (and (and (<= 0 x) (< x (pow2 (+ e s)))) (= x (fp-canonical e s x)))))
+        (_ false)))
+    ((RoundingModeType) (match v ((RoundingModeV _) true) (_ false)))
     ((TypeParameter x)
       (match (lookup-type tenv x)
         ((Some (TypeBinding _ u uenv)) (has-type P uenv v u))
