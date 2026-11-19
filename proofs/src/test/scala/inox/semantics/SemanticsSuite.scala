@@ -294,8 +294,11 @@ class SemanticsSuite extends AnyFunSuite {
   val maxCalls = 20000
 
   enum Outcome {
-    case Value, Stuck, Skipped
+    case Value, Stuck, Skipped, Unhandled
   }
+
+  /** The errors of RecursiveEvaluator on the expressions that it doesn't handle. */
+  val unhandled = scala.collection.mutable.SortedSet.empty[String]
 
   /** Evaluates `e` (closed, in the fragment) with both evaluators, and fails if they disagree. */
   def compare(e: Expr, sp: S.Program, label: => String)(using symbols: Symbols): Outcome = {
@@ -310,6 +313,11 @@ class SemanticsSuite extends AnyFunSuite {
     (reference, ours) match {
       case (_, S.OutOfFuel()) => Outcome.Skipped
       case (evaluators.EvaluationResults.RuntimeError(msg), _) if msg.startsWith("Exceeded") => Outcome.Skipped
+      // the expressions are well-typed: RecursiveEvaluator doesn't handle them, as floating point
+      // with other rounding modes than to nearest, ties to even
+      case (evaluators.EvaluationResults.EvaluatorError(msg), _) =>
+        unhandled += msg.takeWhile(c => c != ':' && c != '\n')
+        Outcome.Unhandled
       case (evaluators.EvaluationResults.Successful(v), S.Ok(w)) =>
         // collections are compared by their contents
         value(v).foreach(v => assert(Sem.value_eq(sp, v, w) == S.Ok(true), s"$label: ${e.asString} gives ${v} and ${w} in the semantics"))
@@ -601,6 +609,141 @@ class SemanticsSuite extends AnyFunSuite {
       assert(compare(e, sp, "unit") != Outcome.Skipped)
   }
 
+  /** Random well-typed expressions, which nest the operations of all the theories with lets,
+    * conditionals, closures, function calls and ADTs. */
+  class Fuzzer(rnd: scala.util.Random, listId: Identifier, nilId: Identifier, consId: Identifier,
+               headId: Identifier, tailId: Identifier, sizeId: Identifier)(using symbols: Symbols) {
+    val I = IntegerType()
+    val B = BooleanType()
+    val S8 = BVType(true, 8)
+    val U8 = BVType(false, 8)
+    val S16 = BVType(true, 16)
+    val F32 = FPType(8, 24)
+    val L = ADTType(listId, Seq())
+    val Fn = FunctionType(Seq(I), I)
+    val Pair = TupleType(Seq(I, B))
+    val types: Seq[Type] = Seq(I, B, S8, U8, S16, CharType(), StringType(), RealType(), F32, Pair,
+      SetType(I), BagType(I), MapType(I, I), Fn, L, UnitType())
+    /** The types whose values can be compared under `--function-equality=none`. */
+    val comparable = types.filter(_ != Fn)
+
+    def pick[A](xs: Seq[A]): A = xs(rnd.nextInt(xs.size))
+
+    def float(): Expr = FPLiteral(8, 24, scala.collection.immutable.BitSet.fromBitMask(Array(
+      java.lang.Float.floatToRawIntBits(pick(Seq(0f, -0f, 1f, -1.5f, 0.1f, 3e38f, 1e-45f, Float.NaN,
+        Float.PositiveInfinity, Float.NegativeInfinity))).toLong & 0xffffffffL)).map(_ + 1))
+
+    def leaf(t: Type, vars: Seq[Variable]): Expr = {
+      val vs = vars.filter(_.tpe == t)
+      if (vs.nonEmpty && rnd.nextInt(3) > 0) pick(vs)
+      else t match {
+        case F32 => float()
+        case `L` => ADT(nilId, Seq(), Seq())
+        case `Fn` => val x = ValDef.fresh("x", I); Lambda(Seq(x), x.toVariable)
+        case _ => values(t, 1, rnd).get
+      }
+    }
+
+    def gen(t: Type, depth: Int, vars: Seq[Variable]): Expr = {
+      if (depth <= 0 || rnd.nextInt(5) == 0) return leaf(t, vars)
+      def g(t: Type) = gen(t, depth - 1, vars)
+      val rm = pick(Seq(RoundNearestTiesToEven, RoundNearestTiesToAway, RoundTowardPositive,
+        RoundTowardNegative, RoundTowardZero))
+      // the forms of every type
+      val common: Seq[() => Expr] = Seq(
+        () => IfExpr(g(B), g(t), g(t)),
+        () => { val s = pick(types); val x = ValDef.fresh("x", s)
+                Let(x, g(s), gen(t, depth - 1, vars :+ x.toVariable)) },
+        () => { val s = pick(types); val x = ValDef.fresh("y", s)
+                Application(Lambda(Seq(x), gen(t, depth - 1, vars :+ x.toVariable)), Seq(g(s))) },
+        () => TupleSelect(Tuple(Seq(g(t), g(I))), 1),
+        () => Assume(g(B), g(t)))
+      def bv(t: BVType): Seq[() => Expr] = Seq(
+        () => Plus(g(t), g(t)), () => Minus(g(t), g(t)), () => Times(g(t), g(t)),
+        () => Division(g(t), g(t)), () => Remainder(g(t), g(t)), () => Modulo(g(t), g(t)),
+        () => UMinus(g(t)), () => BVNot(g(t)), () => BVAnd(g(t), g(t)), () => BVOr(g(t), g(t)),
+        () => BVXor(g(t), g(t)), () => BVShiftLeft(g(t), g(t)), () => BVAShiftRight(g(t), g(t)),
+        () => BVLShiftRight(g(t), g(t)), () => IntToBV(t.size, t.signed, g(I)))
+      val forms: Seq[() => Expr] = t match {
+        case I => Seq(
+          () => Plus(g(I), g(I)), () => Minus(g(I), g(I)), () => Times(g(I), g(I)),
+          () => Division(g(I), g(I)), () => Remainder(g(I), g(I)), () => Modulo(g(I), g(I)),
+          () => UMinus(g(I)), () => StringLength(g(StringType())), () => BVToInt(g(pick(Seq(S8, U8, S16)))),
+          () => MultiplicityInBag(g(I), g(BagType(I))), () => MapApply(g(MapType(I, I)), g(I)),
+          () => Application(g(Fn), Seq(g(I))), () => FunctionInvocation(sizeId, Seq(), Seq(g(L))),
+          () => ADTSelector(g(L), headId))
+        case B => Seq(
+          () => And(g(B), g(B)), () => Or(g(B), g(B)), () => Not(g(B)), () => Implies(g(B), g(B)),
+          () => { val s = pick(comparable); Equals(gen(s, depth - 1, vars), gen(s, depth - 1, vars)) },
+          () => { val s = pick(Seq(I, RealType(), S8, U8, CharType())); LessThan(gen(s, depth - 1, vars), gen(s, depth - 1, vars)) },
+          () => { val s = pick(Seq(I, RealType(), S16)); GreaterEquals(gen(s, depth - 1, vars), gen(s, depth - 1, vars)) },
+          () => ElementOfSet(g(I), g(SetType(I))), () => SubsetOf(g(SetType(I)), g(SetType(I))),
+          () => IsConstructor(g(L), consId), () => FPLessThan(g(F32), g(F32)), () => FPEquals(g(F32), g(F32)),
+          () => FPIsNaN(g(F32)), () => FPIsNegative(g(F32)), () => FPIsSubnormal(g(F32)))
+        case t: BVType if t == S8 => bv(t) :+ (() => BVNarrowingCast(g(S16), S8)) :+ (() => BVUnsignedToSigned(g(U8)))
+        case t: BVType if t == U8 => bv(t) :+ (() => BVSignedToUnsigned(g(S8)))
+        case t: BVType => bv(t) :+ (() => BVWideningCast(g(S8), S16))
+        case CharType() => Seq()
+        case StringType() => Seq(() => StringConcat(g(StringType()), g(StringType())),
+          () => SubString(g(StringType()), g(I), g(I)))
+        case RealType() => Seq(() => Plus(g(t), g(t)), () => Minus(g(t), g(t)), () => Times(g(t), g(t)),
+          () => Division(g(t), g(t)), () => UMinus(g(t)), () => FPToReal(g(F32)))
+        case F32 => Seq(() => FPAdd(rm, g(F32), g(F32)), () => FPSub(rm, g(F32), g(F32)),
+          () => FPMul(rm, g(F32), g(F32)), () => FPDiv(rm, g(F32), g(F32)), () => FPUMinus(g(F32)),
+          () => FPAbs(g(F32)), () => FPMin(g(F32), g(F32)), () => FPMax(g(F32), g(F32)),
+          () => Sqrt(rm, g(F32)), () => FPRound(rm, g(F32)), () => FPCast(8, 24, rm, g(RealType())))
+        case `Pair` => Seq(() => Tuple(Seq(g(I), g(B))))
+        case SetType(_) => Seq(() => FiniteSet(Seq.fill(rnd.nextInt(3))(g(I)), I),
+          () => SetAdd(g(t), g(I)), () => SetUnion(g(t), g(t)), () => SetIntersection(g(t), g(t)),
+          () => SetDifference(g(t), g(t)))
+        case BagType(_) => Seq(() => FiniteBag(Seq.fill(rnd.nextInt(3))(g(I) -> g(I)), I),
+          () => BagAdd(g(t), g(I)), () => BagUnion(g(t), g(t)), () => BagIntersection(g(t), g(t)),
+          () => BagDifference(g(t), g(t)))
+        case MapType(_, _) => Seq(() => FiniteMap(Seq.fill(rnd.nextInt(3))(g(I) -> g(I)), g(I), I, I),
+          () => MapUpdated(g(t), g(I), g(I)), () => MapMerge(g(SetType(I)), g(t), g(t)))
+        case `Fn` => Seq(() => { val x = ValDef.fresh("x", I); Lambda(Seq(x), gen(I, depth - 1, vars :+ x.toVariable)) })
+        case `L` => Seq(() => ADT(consId, Seq(), Seq(g(I), g(L))), () => ADTSelector(g(L), tailId))
+        case _ => Seq()
+      }
+      pick(common ++ forms ++ forms)()
+    }
+  }
+
+  test("Fuzzing: the semantics agrees with RecursiveEvaluator on random nested expressions") {
+    import dsl._
+    val (listId, nilId, consId) = (FreshIdentifier("List"), FreshIdentifier("Nil"), FreshIdentifier("Cons"))
+    val (headId, tailId) = (FreshIdentifier("head"), FreshIdentifier("tail"))
+    val List = mkSort(listId)() { _ => Seq(
+      (nilId, Seq()),
+      (consId, Seq(ValDef(headId, IntegerType()), ValDef(tailId, T(listId)()))))
+    }
+    val sizeId = FreshIdentifier("size")
+    val size = mkFunDef(sizeId)() { _ =>
+      (Seq("l" :: T(listId)()), IntegerType(), { case Seq(l) =>
+        if_ (l.is(consId)) { E(BigInt(1)) + E(sizeId)(l.getField(tailId)) } else_ { E(BigInt(0)) }
+      })
+    }
+    given symbols: Symbols = NoSymbols.withSorts(Seq(List)).withFunctions(Seq(size))
+    val sp = program(coveredFunctions)
+    val count = sys.props.get("fuzz-count").map(_.toInt).getOrElse(3000)
+    val seed = sys.props.get("fuzz-seed").map(_.toLong).getOrElse(0L)
+    val rnd = new scala.util.Random(seed)
+    val fuzzer = Fuzzer(rnd, listId, nilId, consId, headId, tailId, sizeId)
+    val outcomes = (1 to count).map { i =>
+      val t = fuzzer.pick(fuzzer.types)
+      val e = fuzzer.gen(t, 2 + rnd.nextInt(4), Seq())
+      assert(e.getType == t, s"ill-typed ${e.asString}")
+      compare(e, sp, s"fuzz $i (seed $seed)")
+    }
+    val values = outcomes.count(_ == Outcome.Value)
+    val stuck = outcomes.count(_ == Outcome.Stuck)
+    val unhandled = outcomes.count(_ == Outcome.Unhandled)
+    info(s"$count expressions: $values values, $stuck stuck, $unhandled that RecursiveEvaluator doesn't handle, " +
+      s"${count - values - stuck - unhandled} skipped for fuel")
+    info(s"RecursiveEvaluator's errors: ${this.unhandled.mkString(", ")}")
+    assert(values >= count / 2 && stuck >= count / 20)
+  }
+
   test("The semantics agrees with RecursiveEvaluator on the functions of the regression files") {
     val root = Paths.get("../src/it/resources/regression")
     val files = scala.jdk.CollectionConverters.ListHasAsScala(
@@ -639,7 +782,7 @@ class SemanticsSuite extends AnyFunSuite {
               compare(FunctionInvocation(id, tps, args.flatten), sp, file.getFileName.toString) match {
                 case Outcome.Value => valueCount += 1
                 case Outcome.Stuck => stuck += 1
-                case Outcome.Skipped => skipped += 1
+                case Outcome.Skipped | Outcome.Unhandled => skipped += 1
               }
             }
           }
