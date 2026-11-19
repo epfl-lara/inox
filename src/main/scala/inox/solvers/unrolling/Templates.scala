@@ -39,8 +39,10 @@ trait Templates
 
   def asString(e: Encoded): String
 
-  def abort: Boolean
-  def pause: Boolean
+  /** Whether the solver was interrupted. Only the managers' `unroll` loops read it, between the
+    * items they unroll, and they keep the items they skip for later. An instantiation that has
+    * started always completes, so the clauses it produces never depend on timing. */
+  def interrupted: Boolean
 
   def encodeSymbol(v: Variable): Encoded
   def mkEncoder(bindings: Map[Variable, Encoded])(e: Expr): Encoded
@@ -870,7 +872,7 @@ trait Templates
     // before trying to instantiate matchers introduced by quantifications
     private def typings(): Unit = {
       val substituter = mkSubstituter(substitution)
-      for ((b, tps) <- contents.items.typings if !abort; bp = substituter(b); tp <- tps if !abort) {
+      for ((b, tps) <- contents.items.typings; bp = substituter(b); tp <- tps) {
         buffer ++= instantiateType(bp, tp.substitute(substituter, matcherSubst))
       }
     }
@@ -964,7 +966,7 @@ trait Templates
 
       // Applies `f` to the items that `select` picks, under their substituted blockers
       def each[I](select: PartialFunction[Item, I])(f: (Encoded, I) => Unit): Unit =
-        for ((b, is) <- contents.items if !abort; bp = substituter(b); i <- is.collect(select) if !abort) f(bp, i)
+        for ((b, is) <- contents.items; bp = substituter(b); i <- is.collect(select)) f(bp, i)
 
       // The calls and applications that may fail, under their blockers
       val failing = new scala.collection.mutable.ListBuffer[Encoded]

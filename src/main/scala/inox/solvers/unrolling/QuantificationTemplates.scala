@@ -160,8 +160,8 @@ trait QuantificationTemplates { self: Templates =>
 
   /** The instantiations that are deferred to a later generation, with the generation at which
     * each one is due:
-    *  - the matchers that are reached while the solver aborts or pauses, and those that the
-    *    instantiation of an axiom reaches under a blocker other than its guard;
+    *  - the matchers that the instantiation of an axiom reaches under a blocker other than its
+    *    guard;
     *  - the substitutions of axioms that their cost delays (see [[Axiom.instantiate]]);
     *  - the axioms whose quantifiers may still have no ground (see [[Axiom.ensureGrounds]]).
     *
@@ -257,13 +257,13 @@ trait QuantificationTemplates { self: Templates =>
     def promoteBlocker(b: Encoded): Boolean = false
 
     /** Instantiates the deferred matchers, substitutions and grounds that are due, in that order,
-      * and stops between them when the solver aborts or pauses. */
+      * and stops between them when the solver is interrupted. */
     def unroll: Clauses = {
       val matcherClauses = debugged("matchers", unrollMatchers())
-      if (abort || pause) return matcherClauses
+      if (interrupted) return matcherClauses
 
       val substClauses = debugged("substitutions", unrollSubsts())
-      if (abort || pause) return matcherClauses ++ substClauses
+      if (interrupted) return matcherClauses ++ substClauses
 
       matcherClauses ++ substClauses ++ debugged("grounds", unrollGrounds())
     }
@@ -278,7 +278,7 @@ trait QuantificationTemplates { self: Templates =>
 
     private def unrollMatchers(): Clauses = {
       val clauses = new scala.collection.mutable.ListBuffer[Encoded]
-      for (e @ (gen, bs, m) <- deferred.matcherEntries if gen <= currentGeneration && !abort && !pause) {
+      for (e @ (gen, bs, m) <- deferred.matcherEntries if gen <= currentGeneration && !interrupted) {
         clauses ++= instantiateMatcher0(bs, m, defer = true)
         deferred.removeMatcher(e)
       }
@@ -287,7 +287,7 @@ trait QuantificationTemplates { self: Templates =>
 
     private def unrollSubsts(): Clauses = {
       val clauses = new scala.collection.mutable.ListBuffer[Encoded]
-      for (q <- axioms.toSeq if deferred.hasSubsts(q) && !abort && !pause) {
+      for (q <- axioms.toSeq if deferred.hasSubsts(q) && !interrupted) {
         for ((_, bs, subst) <- deferred.releaseSubsts(q)) {
           clauses ++= q.instantiateSubst(bs, subst, defer = true)
         }
@@ -297,7 +297,7 @@ trait QuantificationTemplates { self: Templates =>
 
     private def unrollGrounds(): Clauses = {
       val clauses = new scala.collection.mutable.ListBuffer[Encoded]
-      for ((gen, qs) <- deferred.groundEntries if gen <= currentGeneration && !abort && !pause; q <- qs if !abort) {
+      for ((gen, qs) <- deferred.groundEntries if gen <= currentGeneration && !interrupted; q <- qs if !interrupted) {
         clauses ++= q.ensureGrounds
         deferred.removeGrounds(gen, q)
       }
@@ -318,35 +318,30 @@ trait QuantificationTemplates { self: Templates =>
   }
 
   private def instantiateMatcher0(blockers: Set[Encoded], matcher: Matcher, defer: Boolean = false): Clauses = {
-    if (abort || pause) {
-      deferred.deferMatcher(currentGeneration, blockers, matcher)
-      Seq.empty
-    } else {
-      val clauses = new scala.collection.mutable.ListBuffer[Encoded]
+    val clauses = new scala.collection.mutable.ListBuffer[Encoded]
 
-      val matcherBlocker = matcherBlockers.get(matcher) match {
-        case Some(matcherBlocker) =>
-          matcherBlocker
+    val matcherBlocker = matcherBlockers.get(matcher) match {
+      case Some(matcherBlocker) =>
+        matcherBlocker
 
-        case None =>
-          val matcherBlocker = encodeSymbol(Variable.fresh("m", BooleanType(), true))
-          matcherBlockers += matcher -> matcherBlocker
+      case None =>
+        val matcherBlocker = encodeSymbol(Variable.fresh("m", BooleanType(), true))
+        matcherBlockers += matcher -> matcherBlocker
 
-          reporter.debug(" -> instantiating matcher " + matcherBlocker + " ==> " + matcher)
-          for (q <- axioms) clauses ++= q.instantiate(matcherBlocker, matcher, defer)
+        reporter.debug(" -> instantiating matcher " + matcherBlocker + " ==> " + matcher)
+        for (q <- axioms) clauses ++= q.instantiate(matcherBlocker, matcher, defer)
 
-          matcherBlocker
-      }
-
-      if (blockers != Set(matcherBlocker)) {
-        val (blocker, blockerClauses) = encodeBlockers(blockers)
-        registerImplication(blocker, matcherBlocker)
-        clauses ++= blockerClauses
-        clauses += mkImplies(blocker, matcherBlocker)
-      }
-
-      clauses.toSeq
+        matcherBlocker
     }
+
+    if (blockers != Set(matcherBlocker)) {
+      val (blocker, blockerClauses) = encodeBlockers(blockers)
+      registerImplication(blocker, matcherBlocker)
+      clauses ++= blockerClauses
+      clauses += mkImplies(blocker, matcherBlocker)
+    }
+
+    clauses.toSeq
   }
 
   protected def hasAxioms: Boolean = axioms.nonEmpty
@@ -618,7 +613,7 @@ trait QuantificationTemplates { self: Templates =>
       val clauses = new scala.collection.mutable.ListBuffer[Encoded]
 
       for (Candidate(bs, subst, delay) <- candidates if !substBlockers.get(this -> subst).exists(b => Set(b) == bs)) {
-        if (abort || pause || delay > 0) {
+        if (delay > 0) {
           deferred.deferSubst(this, currentGeneration + delay + (if (defer) 2 else 0), bs, subst)
         } else {
           clauses ++= instantiateSubst(bs, subst, defer = false)
@@ -657,7 +652,7 @@ trait QuantificationTemplates { self: Templates =>
             val sb = bs ++ (if (b == guard) Set.empty else Set(substituter(b)))
             val sm = m.substitute(substituter, msubst)
 
-            if (abort || pause || b != guard) {
+            if (b != guard) {
               deferred.deferMatcher(currentGeneration + 1, sb, sm)
             } else {
               clauses ++= instantiateMatcher0(sb, sm, defer = defer)

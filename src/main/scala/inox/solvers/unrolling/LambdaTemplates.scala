@@ -746,9 +746,11 @@ trait LambdaTemplates { self: Templates =>
         app -> nextAppBlocker(app)
       }).toMap
 
-      for ((app @ (b, _), (gen, infos)) <- thisAppInfos if infos.nonEmpty && !abort) {
+      for ((app @ (b, _), (gen, infos)) <- thisAppInfos if infos.nonEmpty) {
         val (last, next) = newBlockers(app)
-        if (pause) {
+        if (interrupted) {
+          // the application is dispatched later, from `next`: `last` is linked to it with no
+          // operands, so that the disjunction stays open
           newClauses += last.link(next, Seq.empty)
         } else {
           remainingApps -= app
@@ -760,7 +762,7 @@ trait LambdaTemplates { self: Templates =>
           reporter.debug(" -> extending lambda blocker: " + clause)
           newClauses += clause
 
-          for (info @ TemplateAppInfo(tmpl, equals, args) <- infos if !abort; template <- tmpl.left) {
+          for (info @ TemplateAppInfo(tmpl, equals, args) <- infos; template <- tmpl.left) {
             val newCls = new scala.collection.mutable.ListBuffer[Encoded]
 
             val (lambdaBlocker, lambdaFailure) = lambdaBlockers.get(info) match {

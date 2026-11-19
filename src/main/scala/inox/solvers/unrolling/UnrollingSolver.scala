@@ -126,7 +126,6 @@ abstract class AbstractUnrollingSolver private
 
   protected var failures: ListBuffer[Throwable] = new ListBuffer
   protected var abort: Boolean = false
-  protected var pause: Boolean = false
 
   def push(): Unit = {
     templates.push()
@@ -143,7 +142,6 @@ abstract class AbstractUnrollingSolver private
   def reset() = {
     failures.clear()
     abort = false
-    pause = false
     if (evaluatorInterrupts.isInterrupted) evaluatorInterrupts.reset()
 
     templates.reset()
@@ -1192,7 +1190,7 @@ abstract class AbstractUnrollingSolver private
 
     object Abort {
       def unapply[A,B](resp: SolverResponse[A,B]): Boolean = {
-        if (failures.nonEmpty || abort || pause) {
+        if (failures.nonEmpty || abort) {
           true
         } else if (resp == Unknown) {
           if (!silentErrors) {
@@ -1417,7 +1415,7 @@ abstract class AbstractUnrollingSolver private
             )
           val res = check(equalities.keys)
           val next = res match {
-            case _: Unsatisfiable if equalities.nonEmpty && !abort && !pause =>
+            case _: Unsatisfiable if equalities.nonEmpty && !abort =>
               val inCore = coreEqualities(res, equalities).filter(_._2 <= witnessLevel)
               if (inCore.nonEmpty) Left(inCore)
               else check(Seq.empty) match {
@@ -1452,7 +1450,7 @@ abstract class AbstractUnrollingSolver private
     /** Extracts a model from `umodel` and validates it, once the unfolding has related the lambdas
       * of `umodel` to the functions they capture. */
     private def validate(umodel: underlying.Model): CheckState = {
-      if (abort || pause) {
+      if (abort) {
         // Extracting and validating a large model takes time: skip them once interrupted
         CheckResult.cast(Unknown)
       } else if (equalCaptures(umodel).nonEmpty) {
@@ -1489,19 +1487,19 @@ abstract class AbstractUnrollingSolver private
       // the extracted functions need these distinguishing inputs to tell their arguments apart,
       // and they are unfolded fairly, like the others (see [[LambdaTemplates.witnessEqualities]])
       val requested = requestedWitnesses.filter(_._2 <= (witnessLevel max 1)).keySet
-      if (requested.nonEmpty && !abort && !pause) {
+      if (requested.nonEmpty && !abort) {
         reporter.debug(" - Instantiating requested distinguishing function inputs")
         for (cl <- templates.witnesses.instantiate(requested)) {
           underlying.assertCnstr(cl)
         }
         ModelCheck
-      } else if (requestedWitnesses.nonEmpty && functionEquality == FunctionEquality.None && !abort && !pause) {
+      } else if (requestedWitnesses.nonEmpty && functionEquality == FunctionEquality.None && !abort) {
         // Without function equality, the model can't compare the functions instead, so we wait
         // for the unfolding to reach their distinguishing inputs (see [[instantiateWitnesses]]).
         reporter.debug(" - Requested distinguishing function inputs are deeper than the unfolding")
         witnessLevel = witnessLevel max 1
         ProofCheck
-      } else if (exposedWitnesses.nonEmpty && !abort && !pause) {
+      } else if (exposedWitnesses.nonEmpty && !abort) {
         reporter.debug(" - Unfolding the distinguishing inputs of the functions in the model")
         for (cl <- templates.witnesses.promote(exposedWitnesses)) {
           underlying.assertCnstr(cl)
@@ -1509,7 +1507,7 @@ abstract class AbstractUnrollingSolver private
         ModelCheck
       } else if (checkModels && valid) {
         sat
-      } else if (abort || pause) {
+      } else if (abort) {
         unknown
       } else if (checkModels && !valid) {
         if (!silentErrors) {
@@ -1671,7 +1669,7 @@ abstract class AbstractUnrollingSolver private
         reporter.debug("- We need to keep going")
 
         // Unrolling `unrollFactor` times
-        for (i <- 1 to unrollFactor.toInt if templates.unfolding.canUnroll && !abort && !pause) {
+        for (i <- 1 to unrollFactor.toInt if templates.unfolding.canUnroll && !abort) {
           val newClauses = templates.unfolding.unroll
           for (ncl <- newClauses) {
             underlying.assertCnstr(ncl)
@@ -1715,8 +1713,7 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
     type Encoded = Expr
 
     def asString(expr: Expr): String = expr.asString
-    def abort: Boolean = self.abort
-    def pause: Boolean = self.pause
+    def interrupted: Boolean = self.abort
     def interpretation(id: Identifier, tps: Seq[Type]): Option[Lambda] = self.interpretation(id, tps)
 
     def encodeSymbol(v: Variable): Expr = v.freshen

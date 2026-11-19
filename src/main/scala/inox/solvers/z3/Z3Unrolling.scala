@@ -45,8 +45,7 @@ abstract class Z3Unrolling(override val program: Program)
     type Encoded = self.Encoded
 
     def asString(ast: Z3AST): String = ast.toString
-    def abort: Boolean = self.abort
-    def pause: Boolean = self.pause
+    def interrupted: Boolean = self.abort
     def interpretation(id: Identifier, tps: Seq[Type]): Option[Lambda] = self.interpretation(id, tps)
 
     def encodeSymbol(v: Variable): Z3AST = underlying.symbolToFreshZ3Symbol(v)
