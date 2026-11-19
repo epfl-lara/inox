@@ -140,6 +140,35 @@ trait WitnessTemplates { self: Templates =>
     * is compared (see [[Templates.instantiateWitness]]). */
   def distinguishingInputs: Seq[((Encoded, Encoded), (FunctionType, Seq[Encoded]))] = witnessInputs.toSeq
 
+  /** Records that the function `f` was introduced at the current witness depth. */
+  private[unrolling] def recordFunctionDepth(f: Encoded): Unit =
+    if (witnessDepth > 0) witnessDepths += f -> witnessDepth
+
+  /** Records that the application `app` was registered at the current witness depth. */
+  private[unrolling] def recordAppDepth(app: App): Unit =
+    if (witnessDepth > 0) appDepths += app -> (witnessDepth max appDepths.getOrElse(app, 0))
+
+  /** The witness depth at which the function `f` was introduced. */
+  private[unrolling] def functionDepth(f: Encoded): Int = witnessDepths.getOrElse(f, 0)
+
+  /** The witness depth at which the application `app` was registered. */
+  private[unrolling] def appDepth(app: App): Int = appDepths.getOrElse(app, 0)
+
+  /** The free functions of type `ft` that need distinguishing inputs with the other functions of
+    * their type, with the conditions under which they are free. */
+  private[unrolling] def witnessedFunctions(ft: FunctionType): Set[(Encoded, Encoded)] = witnessFunctions(ft)
+
+  /** Registers the free function `f` of type `ft`, which is free under `guard`, as needing
+    * distinguishing inputs with the other functions of its type. */
+  private[unrolling] def registerWitnessedFunction(ft: FunctionType, guard: Encoded, f: Encoded): Unit =
+    witnessFunctions += ft -> (witnessFunctions(ft) + (guard -> f))
+
+  /** Records the distinguishing input `ws` of type `tpe` of the functions `f1` and `f2`. */
+  private[unrolling] def recordDistinguishingInput(f1: Encoded, f2: Encoded, tpe: FunctionType, ws: Seq[Encoded]): Unit = {
+    witnessArguments ++= ws
+    witnessInputs += (f1 -> f2) -> (tpe, ws)
+  }
+
   protected case class PendingWitness(
     cond: Encoded, tpe: FunctionType, f1: Encoded, f2: Encoded, depth: Int, equality: Encoded, onDemand: Boolean)
 
@@ -148,22 +177,22 @@ trait WitnessTemplates { self: Templates =>
       * they are free) which require distinguishing inputs with other functions of the same type.
       * @see [[Templates.instantiateWitness]]
       */
-    val witnessFunctions = new IncrementalMap[FunctionType, Set[(Encoded, Encoded)]].withDefaultValue(Set.empty)
+    private[WitnessTemplates] val witnessFunctions = new IncrementalMap[FunctionType, Set[(Encoded, Encoded)]].withDefaultValue(Set.empty)
 
     /** Witness nesting depth of the free functions that were introduced as distinguishing inputs. */
-    val witnessDepths = new IncrementalMap[Encoded, Int]
+    private[WitnessTemplates] val witnessDepths = new IncrementalMap[Encoded, Int]
 
     /** Witness nesting depth of the applications that were registered while instantiating distinguishing inputs. */
-    val appDepths = new IncrementalMap[App, Int]
+    private[WitnessTemplates] val appDepths = new IncrementalMap[App, Int]
 
     /** The witness arguments of the instantiated distinguishing inputs. */
-    val witnessArguments = new IncrementalSet[Encoded]
+    private[WitnessTemplates] val witnessArguments = new IncrementalSet[Encoded]
 
     /** The type and arguments of the distinguishing input of each pair of functions that received one. */
-    val witnessInputs = new IncrementalMap[(Encoded, Encoded), (FunctionType, Seq[Encoded])]
+    private[WitnessTemplates] val witnessInputs = new IncrementalMap[(Encoded, Encoded), (FunctionType, Seq[Encoded])]
 
     /** The distinguishing inputs that haven't been instantiated yet. */
-    val pendingWitnesses = new IncrementalSet[PendingWitness]
+    private[WitnessTemplates] val pendingWitnesses = new IncrementalSet[PendingWitness]
 
     val incrementals: Seq[IncrementalState] =
       Seq(witnessFunctions, witnessDepths, appDepths, witnessArguments, witnessInputs, pendingWitnesses)

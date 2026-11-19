@@ -479,11 +479,26 @@ trait TypeTemplates { self: Templates =>
     })
   }
 
+  /** Whether the functions `f1` and `f2` can be equal: neither captures the other (see
+    * [[CaptureTemplate]]), unless their capture was related (see [[relateCaptured]]). */
+  private[unrolling] def canBeEqual(f1: Encoded, f2: Encoded): Boolean =
+    relatedCaptures(f1 -> f2) || relatedCaptures(f2 -> f1) || {
+      def transitiveLess(l: Encoded, r: Encoded): Boolean = {
+        val fs = fixpoint((fs: Set[Encoded]) => fs ++ fs.flatMap(lessOrder))(lessOrder(l))
+        fs(r)
+      }
+
+      !transitiveLess(f1, f2) && !transitiveLess(f2, f1)
+    }
+
+  /** Lets the lambda `lambda` equal the function `f` that it captures (see [[LambdaTemplates.relateCapture]]). */
+  private[unrolling] def relateCaptured(lambda: Encoded, f: Encoded): Unit = relatedCaptures += lambda -> f
+
   private[unrolling] object typesManager extends Manager {
     private[TypeTemplates] val typeInfos = new BlockerQueue[Typing]
     private[TypeTemplates] val lessOrder = new IncrementalMap[Encoded, Set[Encoded]].withDefaultValue(Set.empty)
     // the lambdas and the functions they capture that a model made equal (see [[registerCapturedFunctions]])
-    private[unrolling] val relatedCaptures = new IncrementalSet[(Encoded, Encoded)]
+    private[TypeTemplates] val relatedCaptures = new IncrementalSet[(Encoded, Encoded)]
     private[TypeTemplates] val results = new IncrementalMap[(Type, Encoded, Seq[Arg], TypingGenerator, Boolean, Boolean, Encoded), Encoded]
     private[TypeTemplates] val typeDepths = new IncrementalMap[Encoded, Int]
 
@@ -564,15 +579,6 @@ trait TypeTemplates { self: Templates =>
     /** The type parameters of the query, with their flags (@see [[storeTypeParameter]]) */
     private[unrolling] def typeParameterFlags: Seq[(TypeParameter, Encoded)] =
       tpSyms.toSeq.map { case (tp, v) => tp -> tpSubst(v) }
-
-    def canBeEqual(f1: Encoded, f2: Encoded): Boolean = relatedCaptures(f1 -> f2) || relatedCaptures(f2 -> f1) || {
-      def transitiveLess(l: Encoded, r: Encoded): Boolean = {
-        val fs = fixpoint((fs: Set[Encoded]) => fs ++ fs.flatMap(lessOrder))(lessOrder(l))
-        fs(r)
-      }
-
-      !transitiveLess(f1, f2) && !transitiveLess(f2, f1)
-    }
 
     private[TypeTemplates] val collections =
       new IncrementalMap[Type, Set[CollectionInfo]].withDefaultValue(Set.empty)

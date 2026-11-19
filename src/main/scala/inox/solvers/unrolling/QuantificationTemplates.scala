@@ -17,7 +17,6 @@ trait QuantificationTemplates { self: Templates =>
   import program.trees._
   import program.symbols.{given, _}
 
-  import lambdasManager._
   import quantificationsManager._
 
   /* In this context, we know that all `Typing` instances correspond
@@ -322,10 +321,10 @@ trait QuantificationTemplates { self: Templates =>
   private def matcherKey(key: Either[(Encoded, Type), TypedFunDef]): MatcherKey = key match {
     case Right(tfd) =>
       FunctionKey(tfd)
-    case Left((caller, ft: FunctionType)) if byID.isDefinedAt(caller) =>
-      LambdaKey(byID(caller).structure.body.asInstanceOf[Lambda], ft)
-    case Left((caller, ft: FunctionType)) =>
-      CallerKey(caller, ft)
+    case Left((caller, ft: FunctionType)) => lambdaTemplate(caller) match {
+      case Some(template) => LambdaKey(template.structure.body.asInstanceOf[Lambda], ft)
+      case None => CallerKey(caller, ft)
+    }
     case Left((_, tpe)) =>
       TypeKey(tpe)
   }
@@ -642,7 +641,7 @@ trait QuantificationTemplates { self: Templates =>
       case (_, _: LambdaKey, _) => true
       case (_, _: FunctionKey, _) => true
       case (_, CallerKey(caller, tt), _) =>
-        byType(tt).values.exists(t => modelEq(t.ids._2, caller))
+        lambdaTemplates(tt).exists(t => modelEq(t.ids._2, caller))
       case _ => false
     }
 
