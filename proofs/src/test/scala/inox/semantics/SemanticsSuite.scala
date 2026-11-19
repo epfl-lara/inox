@@ -312,11 +312,8 @@ class SemanticsSuite extends AnyFunSuite {
   val maxCalls = 20000
 
   enum Outcome {
-    case Value, Stuck, Skipped, Unhandled
+    case Value, Stuck, Skipped
   }
-
-  /** The errors of RecursiveEvaluator on the expressions that it doesn't handle. */
-  val unhandled = scala.collection.mutable.SortedSet.empty[String]
 
   /** Evaluates `e` (closed, in the fragment) with both evaluators, and fails if they disagree. */
   def compare(e: Expr, sp: S.Program, label: => String)(using symbols: Symbols): Outcome = {
@@ -331,11 +328,6 @@ class SemanticsSuite extends AnyFunSuite {
     (reference, ours) match {
       case (_, S.OutOfFuel()) => Outcome.Skipped
       case (evaluators.EvaluationResults.RuntimeError(msg), _) if msg.startsWith("Exceeded") => Outcome.Skipped
-      // the expressions are well-typed: RecursiveEvaluator doesn't handle them, as floating point
-      // with other rounding modes than to nearest, ties to even
-      case (evaluators.EvaluationResults.EvaluatorError(msg), _) =>
-        unhandled += msg.takeWhile(c => c != ':' && c != '\n')
-        Outcome.Unhandled
       case (evaluators.EvaluationResults.Successful(v), S.Ok(w)) =>
         // collections are compared by their contents
         value(v).foreach(v => assert(Sem.value_eq(sp, v, w) == S.Ok(true), s"$label: ${e.asString} gives ${v} and ${w} in the semantics"))
@@ -520,25 +512,27 @@ class SemanticsSuite extends AnyFunSuite {
     val modes = Seq(RoundNearestTiesToEven, RoundNearestTiesToAway, RoundTowardPositive, RoundTowardNegative, RoundTowardZero)
     def mode(r: scala.util.Random) = modes(r.nextInt(modes.size))
     compareOps("floating point", Seq(
-      "+" -> two(FPAdd(rne, _, _)), "-" -> two(FPSub(rne, _, _)), "*" -> two(FPMul(rne, _, _)),
-      "/" -> two(FPDiv(rne, _, _)), "min" -> two(FPMin(_, _)), "max" -> two(FPMax(_, _)),
-      "fma" -> (r => if (r.nextBoolean()) FPFMA(rne, Float64Literal(double(r)), Float64Literal(double(r)), Float64Literal(double(r)))
-                     else FPFMA(rne, Float32Literal(float(r)), Float32Literal(float(r)), Float32Literal(float(r)))),
+      "+" -> (r => two(FPAdd(mode(r), _, _))(r)), "-" -> (r => two(FPSub(mode(r), _, _))(r)),
+      "*" -> (r => two(FPMul(mode(r), _, _))(r)), "/" -> (r => two(FPDiv(mode(r), _, _))(r)),
+      "min" -> two(FPMin(_, _)), "max" -> two(FPMax(_, _)),
+      "fma" -> (r => if (r.nextBoolean()) FPFMA(mode(r), Float64Literal(double(r)), Float64Literal(double(r)), Float64Literal(double(r)))
+                     else FPFMA(mode(r), Float32Literal(float(r)), Float32Literal(float(r)), Float32Literal(float(r)))),
       "==" -> two(FPEquals(_, _)), "eq" -> two(Equals(_, _)), "<" -> two(FPLessThan(_, _)),
       ">" -> two(FPGreaterThan(_, _)), "<=" -> two(FPLessEquals(_, _)), ">=" -> two(FPGreaterEquals(_, _)),
-      "neg" -> (r => FPUMinus(fp(r))), "abs" -> (r => FPAbs(fp(r))), "sqrt" -> (r => Sqrt(rne, fp(r))),
+      "neg" -> (r => FPUMinus(fp(r))), "abs" -> (r => FPAbs(fp(r))), "sqrt" -> (r => Sqrt(mode(r), fp(r))),
       "round" -> (r => FPRound(mode(r), fp(r))),
       "isZero" -> (r => FPIsZero(fp(r))), "isInfinite" -> (r => FPIsInfinite(fp(r))), "isNaN" -> (r => FPIsNaN(fp(r))),
       "isNegative" -> (r => FPIsNegative(fp(r))), "isPositive" -> (r => FPIsPositive(fp(r))),
       "isNormal" -> (r => FPIsNormal(fp(r))), "isSubnormal" -> (r => FPIsSubnormal(fp(r))),
-      // RecursiveEvaluator converts a double to an integer through its decimal string, which is
-      // inexact beyond 2^53 (2.342117E18f converts to 2342116997325652000, not 2342116997325651968)
-      "toBV" -> (r => FPToBV(Seq(8, 32, 64)(r.nextInt(3)), r.nextBoolean(), mode(r),
-        Seq(fp(r), fp(r), fp(r)).find { case Float64Literal(d) => d.abs < 1e15 || d.isNaN; case Float32Literal(f) => f.abs < 1e15f || f.isNaN; case _ => false }
-          .getOrElse(Float64Literal(1.5)))),
+      "toBV" -> (r => FPToBV(Seq(8, 32, 64)(r.nextInt(3)), r.nextBoolean(), mode(r), fp(r))),
       "toReal" -> (r => FPToReal(fp(r))),
       "toDouble" -> (r => ToDouble(if (r.nextBoolean()) fp(r) else Int64Literal(r.nextLong()))),
       "toFloat" -> (r => ToFloat(if (r.nextBoolean()) fp(r) else Int32Literal(r.nextInt()))),
+      "cast" -> (r => FPCast(Seq(5, 8, 11)(r.nextInt(3)), Seq(11, 24, 53)(r.nextInt(3)), mode(r), r.nextInt(3) match {
+        case 0 => fp(r)
+        case 1 => BVLiteral(r.nextBoolean(), BigInt(64, r), 64)
+        case _ => FractionLiteral(BigInt(r.nextInt(2001) - 1000), BigInt(r.nextInt(999) + 1))
+      })),
       "unsignedToDouble" -> (r => ToDouble(BVLiteral(false, BigInt(64, r), 64))),
       "fromBinary" -> (r => if (r.nextBoolean()) FPFromBinary(11, 53, Int64Literal(r.nextLong()))
                             else FPFromBinary(8, 24, Int32Literal(r.nextInt())))
@@ -803,10 +797,7 @@ class SemanticsSuite extends AnyFunSuite {
     }
     val values = outcomes.count(_ == Outcome.Value)
     val stuck = outcomes.count(_ == Outcome.Stuck)
-    val unhandled = outcomes.count(_ == Outcome.Unhandled)
-    info(s"$count expressions: $values values, $stuck stuck, $unhandled that RecursiveEvaluator doesn't handle, " +
-      s"${count - values - stuck - unhandled} skipped for fuel")
-    info(s"RecursiveEvaluator's errors: ${this.unhandled.mkString(", ")}")
+    info(s"$count expressions: $values values, $stuck stuck, ${count - values - stuck} skipped for fuel")
     assert(values >= count / 2 && stuck >= count / 20)
   }
 
@@ -848,7 +839,7 @@ class SemanticsSuite extends AnyFunSuite {
               compare(FunctionInvocation(id, tps, args.flatten), sp, file.getFileName.toString) match {
                 case Outcome.Value => valueCount += 1
                 case Outcome.Stuck => stuck += 1
-                case Outcome.Skipped | Outcome.Unhandled => skipped += 1
+                case Outcome.Skipped => skipped += 1
               }
             }
           }
