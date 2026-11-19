@@ -33,6 +33,17 @@ private[evaluators] object FloatingPoint {
 
   private def floorDiv(a: Int, b: Int): Int = Math.floorDiv(a, b)
 
+  /** The integer square root of `n >= 0`, by Newton's method from a power of two above it (Scala
+    * Native's `BigInteger` has no `sqrt`). */
+  private def isqrt(n: BigInt): BigInt =
+    if (n.signum == 0) n
+    else {
+      var x = pow2((n.bitLength + 1) / 2)
+      var y = (x + n / x) >> 1
+      while (y < x) { x = y; y = (x + n / x) >> 1 }
+      x
+    }
+
   /** The integer `k` such that `2^k <= n / d < 2^(k+1)`, for `n, d > 0`. */
   private def ilog2(n: BigInt, d: BigInt): Int = {
     val k = n.bitLength - d.bitLength
@@ -198,7 +209,7 @@ private[evaluators] object FloatingPoint {
         // the square root with one more bit than the significand, and whether more were dropped
         val (sn, sd) = scaled(n, d, 2 - 2 * qe)
         val (m, rest) = sn /% sd
-        val t = BigInt(m.bigInteger.sqrt())
+        val t = isqrt(m)
         val (i, half) = (t >> 1, t.testBit(0))
         val sticky = rest != 0 || t * t != m
         val c = if (half) (if (sticky) 1 else 0) else -1
