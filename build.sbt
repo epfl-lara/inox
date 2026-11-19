@@ -17,12 +17,14 @@ scalacOptions ++= Seq(
   "-feature"
 )
 
-// The native Z3 interface: ScalaZ3 (https://github.com/epfl-lara/ScalaZ3), which bundles the Z3
-// Java bindings and the native libraries of Z3 for all supported platforms.
-val z3Version = "5.4.1"
+// Inox runs on Java 21 and later, whatever the JDK it is built with.
+scalacOptions ++= Seq("-release", "21")
+javacOptions ++= Seq("--release", "21")
 
-Compile / unmanagedJars +=
-  baseDirectory.value / "unmanaged" / s"scalaz3_${scalaBinaryVersion.value}-$z3Version.jar"
+// The native Z3 interface: ScalaZ3 (https://github.com/epfl-lara/ScalaZ3), which bundles the Z3
+// Java bindings and the native libraries of Z3 for all supported platforms. It is versioned after
+// the Z3 release it wraps.
+val z3Version = "5.4.1"
 
 resolvers ++= Seq(
   "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots",
@@ -42,6 +44,7 @@ val doubleDependencies = Seq(
 libraryDependencies ++= Seq(
   "org.scalatest" %% "scalatest" % "3.2.9" % "test;it",
   "org.apache.commons" % "commons-lang3" % "3.4",
+  "ch.epfl.lara" %% "scalaz3" % z3Version,
   ("uuverifiers" %% "eldarica" % "2.2")
     .cross(CrossVersion.for3Use2_13)
     .excludeAll(doubleDependencies: _*),

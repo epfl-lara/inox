@@ -18,16 +18,16 @@ jobs:
     runs-on: ${{ matrix.runners.labels }}
     strategy:
       fail-fast: false
-      # Linux / JDK 17 runs in the Inox coverage workflow, with coverage
+      # Linux / JDK 21 runs in the Inox coverage workflow, with coverage
       # measurements, so that the coverage comment doesn't wait for these jobs.
       matrix:
         include:
           - runners: {name: Linux, os: Linux, labels: ['ubuntu-latest']}
-            java-version: 21
-          - runners: {name: macOS ARM64, os: macOS, labels: ['macos-latest']}
-            java-version: 17
+            java-version: 25
           - runners: {name: macOS ARM64, os: macOS, labels: ['macos-latest']}
             java-version: 21
+          - runners: {name: macOS ARM64, os: macOS, labels: ['macos-latest']}
+            java-version: 25
     env:
       # solver versions to test against
       INSTALL_SOLVERS: 1

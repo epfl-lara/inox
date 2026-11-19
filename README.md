@@ -83,8 +83,8 @@ likely Inox is to succeed, as solver capabilities are often complementary.
 In addition to these external binaries, Inox can call Z3 in-process through its
 native API, which should work out of the box (although having an external Z3
 binary is a good idea in any case). It is provided by the
-[ScalaZ3](https://github.com/epfl-lara/ScalaZ3) jar in [unmanaged](./unmanaged/),
-which bundles the official Z3 Java distribution, with the native libraries of Z3
+[ScalaZ3](https://github.com/epfl-lara/ScalaZ3) dependency (`ch.epfl.lara:scalaz3_3`, on Maven
+Central), which bundles the official Z3 Java distribution, with the native libraries of Z3
 for Linux (x64 and ARM64, glibc 2.39 or later), macOS (ARM64) and Windows (x64).
 If you [build](#building-inox) yourself, the generated script puts it onto your
 classpath. Otherwise, you will have to make sure it is on your runtime classpath.
@@ -92,8 +92,7 @@ The native libraries are extracted once to `~/.z3/native`
 (`-Dz3.nativeCacheDir=<dir>` moves that cache). On other platforms, the native
 API is unavailable and Inox falls back to the other solvers.
 
-To move to another version of Z3, package ScalaZ3 for it, copy its jar to
-[unmanaged](./unmanaged/) and update `z3Version` in `build.sbt`.
+To move to another version of Z3, release ScalaZ3 for it, and update `z3Version` in `build.sbt`.
 
 ### Solver Defaults
 
@@ -111,7 +110,7 @@ Due to the evolving nature of the project, this documentation may not always be 
 
 **Requirements:**
 
-* [Java Development Kit 17](https://openjdk.org/projects/jdk/17/) for your
+* [Java Development Kit 21](https://openjdk.org/projects/jdk/21/) or later for your
   platform (and the corresponding runtime environment)
 * sbt >= 1.6.0 (Available from http://www.scala-sbt.org/)
 * The [git](https://git-scm.com/) command on your path
@@ -178,7 +177,7 @@ $ sbt coverage IntegrationTest/test
 $ sbt coverageReport
 ```
 
-The Inox coverage workflow (the Linux / JDK 17 job, which the other jobs of Inox CI complement)
+The Inox coverage workflow (the Linux / JDK 21 job, which the other jobs of Inox CI complement)
 does the same and attaches the report to each run. On pull requests, the Coverage comment workflow
 then posts the coverage, and its difference to `main`, as a comment as soon as it completes, and
 adds the test durations of each CI workflow, compared with `main`, as they complete.
