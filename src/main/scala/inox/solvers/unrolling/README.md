@@ -48,6 +48,7 @@ between the two:
 | Function templates and call unfolding | `FunctionTemplates.scala` |
 | Template contents, guarded items and their instantiation (`Instantiation`) | `Templates.scala` |
 | Implications and equalities between blockers | `BlockerGraph.scala` |
+| Conjunctions and disjunctions that grow with the unrolling (`OpenAnd`, `OpenOr`), and the assumptions that they are complete | `OpenJunctions.scala` |
 | Partial functions: the failure literals of calls and applications | `PartialFunctions.scala` |
 | Custom equality on datatypes (`ADTSort.equality`), unfolded like calls | `EqualityTemplates.scala` |
 | Uninterpreted calls, as applications of free functions (constants when nullary) | `TemplateGenerator.uninterpretedFunction` |
