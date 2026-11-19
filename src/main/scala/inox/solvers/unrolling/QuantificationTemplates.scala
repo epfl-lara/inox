@@ -17,19 +17,7 @@ trait QuantificationTemplates { self: Templates =>
   import program.trees._
   import program.symbols.{given, _}
 
-  import quantificationsManager._
-
-  /* In this context, we know that all `Typing` instances correspond
-   * to free constraint typings, so we are ensured that a result field
-   * exists. The following helper extension enables simplified access to
-   * that field.
-   */
-  extension (tp: Typing) {
-    private def result: Encoded = {
-      val Typing(_, _, Constraint(res, _, _, _, _)) = tp: @unchecked
-      res
-    }
-  }
+  import quantificationsManager.{axioms, deferred, matcherBlockers, substBlockers, templates}
 
   /* -- Extraction helpers -- */
 
@@ -170,21 +158,90 @@ trait QuantificationTemplates { self: Templates =>
     }
   }
 
+  /** The instantiations that are deferred to a later generation, with the generation at which
+    * each one is due:
+    *  - the matchers that are reached while the solver aborts or pauses, and those that the
+    *    instantiation of an axiom reaches under a blocker other than its guard;
+    *  - the substitutions of axioms that their cost delays (see [[Axiom.instantiate]]);
+    *  - the axioms whose quantifiers may still have no ground (see [[Axiom.ensureGrounds]]).
+    *
+    * While some are pending, a model is only accepted once the finite range check shows that they
+    * add nothing to it (see [[getFiniteRangeClauses]]). */
+  private[QuantificationTemplates] class DeferredInstantiations extends IncrementalStateWrapper {
+    private val matchers = new IncrementalSeq[(Int, Set[Encoded], Matcher)]
+    private val substs   = new IncrementalMap[Axiom, Set[(Int, Set[Encoded], Map[Encoded, Arg])]]
+    private val grounds  = new IncrementalMap[Int, Set[Axiom]]
+
+    protected val incrementals: Seq[IncrementalState] = Seq(matchers, substs, grounds)
+
+    def isEmpty: Boolean = grounds.isEmpty && matchers.isEmpty && !substs.exists(_._2.nonEmpty)
+
+    /** The earliest generation at which a deferred instantiation is due. */
+    def generation: Option[Int] = {
+      val gens: Seq[Int] = matchers.toSeq.map(_._1) ++
+        substs.flatMap(p => p._2.map(_._1)) ++
+        grounds.map(_._1)
+      if (gens.isEmpty) None else Some(gens.min)
+    }
+
+    /** Makes all the deferred instantiations due `diff` generations earlier. */
+    def advance(diff: Int): Unit = {
+      // Remove the entries one by one, since `clear` would also drop the push/pop stack
+      val currentGrounds = grounds.toList
+      for ((gen, _) <- currentGrounds) grounds -= gen
+      for ((gen, qs) <- currentGrounds) grounds += (gen - diff) -> qs
+
+      val currentMatchers = matchers.toList
+      for (e <- currentMatchers) matchers -= e
+      for ((gen, bs, m) <- currentMatchers) matchers += ((gen - diff, bs, m))
+
+      for ((q, ss) <- substs.toList) {
+        substs += q -> ss.map { case (gen, bs, subst) => (gen - diff, bs, subst) }
+      }
+    }
+
+    def deferMatcher(gen: Int, blockers: Set[Encoded], matcher: Matcher): Unit =
+      matchers += ((gen, blockers, matcher))
+    def matcherEntries: List[(Int, Set[Encoded], Matcher)] = matchers.toList
+    def removeMatcher(entry: (Int, Set[Encoded], Matcher)): Unit = matchers -= entry
+
+    def deferSubst(axiom: Axiom, gen: Int, blockers: Set[Encoded], subst: Map[Encoded, Arg]): Unit =
+      substs += axiom -> (substs.getOrElse(axiom, Set.empty) + ((gen, blockers, subst)))
+    def hasSubsts(axiom: Axiom): Boolean = substs.isDefinedAt(axiom)
+    def substsOf(axiom: Axiom): Set[(Int, Set[Encoded], Map[Encoded, Arg])] = substs(axiom)
+
+    /** Removes the substitutions of `axiom` that are due, and returns them. */
+    def releaseSubsts(axiom: Axiom): Set[(Int, Set[Encoded], Map[Encoded, Arg])] = {
+      val (release, keep) = substs(axiom).partition(_._1 <= currentGeneration)
+      substs += axiom -> keep
+      release
+    }
+
+    def deferGrounds(gen: Int, axiom: Axiom): Unit =
+      grounds += gen -> (grounds.getOrElse(gen, Set.empty) + axiom)
+    def groundEntries: List[(Int, Set[Axiom])] = grounds.toList
+    def removeGrounds(gen: Int, axiom: Axiom): Unit = {
+      val remaining = grounds.getOrElse(gen, Set.empty) - axiom
+      if (remaining.nonEmpty) grounds += gen -> remaining else grounds -= gen
+    }
+
+    /** Makes the grounds of `axioms`, which are due at `gen`, due at the current generation instead. */
+    def postponeGrounds(gen: Int, axioms: Set[Axiom]): Unit = {
+      grounds -= gen
+      grounds += currentGeneration -> axioms
+    }
+  }
+
   private[unrolling] object quantificationsManager extends Manager {
     private[QuantificationTemplates] val axioms = new IncrementalSeq[Axiom]
 
     private[QuantificationTemplates] val matcherBlockers = new IncrementalMap[Matcher, Encoded]
     private[QuantificationTemplates] val substBlockers   = new IncrementalMap[(Axiom, Map[Encoded, Arg]), Encoded]
 
-    private[QuantificationTemplates] val ignoredMatchers = new IncrementalSeq[(Int, Set[Encoded], Matcher)]
-    private[QuantificationTemplates] val ignoredSubsts   = new IncrementalMap[Axiom, Set[(Int, Set[Encoded], Map[Encoded,Arg])]]
-    private[QuantificationTemplates] val ignoredGrounds  = new IncrementalMap[Int, Set[Axiom]]
+    private[QuantificationTemplates] val deferred  = new DeferredInstantiations
+    private[QuantificationTemplates] val templates = new IncrementalMap[TemplateStructure, (QuantificationTemplate, Encoded)]
 
-    private[QuantificationTemplates] val lambdaAxioms    = new IncrementalSet[TemplateStructure]
-    private[QuantificationTemplates] val templates       = new IncrementalMap[TemplateStructure, (QuantificationTemplate, Encoded)]
-
-    val incrementals: Seq[IncrementalState] = Seq(axioms, lambdaAxioms, templates,
-      matcherBlockers, substBlockers, ignoredMatchers, ignoredSubsts, ignoredGrounds)
+    val incrementals: Seq[IncrementalState] = Seq(axioms, templates, matcherBlockers, substBlockers, deferred)
 
     override def push(): Unit  = { super.push();  for (q <- axioms) q.push()  }
     override def pop(): Unit   = { super.pop();   for (q <- axioms) q.pop()   }
@@ -194,67 +251,56 @@ trait QuantificationTemplates { self: Templates =>
     override def satisfactionAssumptions = Seq()
     override def refutationAssumptions = Seq()
 
-    def unrollGeneration: Option[Int] = {
-      val gens: Seq[Int] = ignoredMatchers.toSeq.map(_._1) ++
-        ignoredSubsts.flatMap(p => p._2.map(_._1)) ++
-        ignoredGrounds.map(_._1)
-      if (gens.isEmpty) None else Some(gens.min)
-    }
+    def unrollGeneration: Option[Int] = deferred.generation
 
     // promoting blockers makes no sense in this context
     def promoteBlocker(b: Encoded): Boolean = false
 
+    /** Instantiates the deferred matchers, substitutions and grounds that are due, in that order,
+      * and stops between them when the solver aborts or pauses. */
     def unroll: Clauses = {
-      val clauses = new scala.collection.mutable.ListBuffer[Encoded]
-      for (e @ (gen, bs, m) <- ignoredMatchers.toList if gen <= currentGeneration && !abort && !pause) {
-        clauses ++= instantiateMatcher0(bs, m, defer = true)
-        ignoredMatchers -= e
-      }
+      val matcherClauses = debugged("matchers", unrollMatchers())
+      if (abort || pause) return matcherClauses
 
-      reporter.debug("Unrolling ignored matchers (" + clauses.size + ")")
+      val substClauses = debugged("substitutions", unrollSubsts())
+      if (abort || pause) return matcherClauses ++ substClauses
+
+      matcherClauses ++ substClauses ++ debugged("grounds", unrollGrounds())
+    }
+
+    private def debugged(kind: String, clauses: Clauses): Clauses = {
+      reporter.debug("Unrolling deferred " + kind + " (" + clauses.size + ")")
       for (cl <- clauses) {
         reporter.debug("  . " + cl)
       }
+      clauses
+    }
 
-      if (abort || pause) return clauses.toSeq
+    private def unrollMatchers(): Clauses = {
+      val clauses = new scala.collection.mutable.ListBuffer[Encoded]
+      for (e @ (gen, bs, m) <- deferred.matcherEntries if gen <= currentGeneration && !abort && !pause) {
+        clauses ++= instantiateMatcher0(bs, m, defer = true)
+        deferred.removeMatcher(e)
+      }
+      clauses.toSeq
+    }
 
-      val suClauses = new scala.collection.mutable.ListBuffer[Encoded]
-      for (q <- axioms.toSeq if ignoredSubsts.isDefinedAt(q) && !abort && !pause) {
-        val (release, keep) = ignoredSubsts(q).partition(_._1 <= currentGeneration)
-        ignoredSubsts += q -> keep
-
-        for ((_, bs, subst) <- release) {
-          suClauses ++= q.instantiateSubst(bs, subst, defer = true)
+    private def unrollSubsts(): Clauses = {
+      val clauses = new scala.collection.mutable.ListBuffer[Encoded]
+      for (q <- axioms.toSeq if deferred.hasSubsts(q) && !abort && !pause) {
+        for ((_, bs, subst) <- deferred.releaseSubsts(q)) {
+          clauses ++= q.instantiateSubst(bs, subst, defer = true)
         }
       }
+      clauses.toSeq
+    }
 
-      reporter.debug("Unrolling ignored substitutions (" + suClauses.size + ")")
-      for (cl <- suClauses) {
-        reporter.debug("  . " + cl)
+    private def unrollGrounds(): Clauses = {
+      val clauses = new scala.collection.mutable.ListBuffer[Encoded]
+      for ((gen, qs) <- deferred.groundEntries if gen <= currentGeneration && !abort && !pause; q <- qs if !abort) {
+        clauses ++= q.ensureGrounds
+        deferred.removeGrounds(gen, q)
       }
-
-      clauses ++= suClauses
-
-      if (abort || pause) return clauses.toSeq
-
-      val grClauses = new scala.collection.mutable.ListBuffer[Encoded]
-      for ((gen, qs) <- ignoredGrounds.toList if gen <= currentGeneration && !abort && !pause; q <- qs if !abort) {
-        grClauses ++= q.ensureGrounds
-        val remaining = ignoredGrounds.getOrElse(gen, Set.empty) - q
-        if (remaining.nonEmpty) {
-          ignoredGrounds += gen -> remaining
-        } else {
-          ignoredGrounds -= gen
-        }
-      }
-
-      reporter.debug("Unrolling ignored grounds (" + grClauses.size + ")")
-      for (cl <- grClauses) {
-        reporter.debug("  . " + cl)
-      }
-
-      clauses ++= grClauses
-
       clauses.toSeq
     }
   }
@@ -273,7 +319,7 @@ trait QuantificationTemplates { self: Templates =>
 
   private def instantiateMatcher0(blockers: Set[Encoded], matcher: Matcher, defer: Boolean = false): Clauses = {
     if (abort || pause) {
-      ignoredMatchers += ((currentGeneration, blockers, matcher))
+      deferred.deferMatcher(currentGeneration, blockers, matcher)
       Seq.empty
     } else {
       val clauses = new scala.collection.mutable.ListBuffer[Encoded]
@@ -338,10 +384,6 @@ trait QuantificationTemplates { self: Templates =>
     case _ => None
   }
 
-  @inline
-  protected def correspond(m1: Matcher, m2: Matcher): Option[Boolean] =
-    correspond(matcherKey(m1), matcherKey(m2))
-
   /** Ground instantiations are annotated with an {{{Set[Int]}}} value that specifies
     * the (optional) abstract generations at which this instantiation was added to the set.
     * The abstract generations exist iff the matchers do not exactly correspond (for example,
@@ -353,28 +395,53 @@ trait QuantificationTemplates { self: Templates =>
     * to {{{g(1)}}} in our set of instantiations, we can forget about {{{g(1)}}} as {{{f(1)}}}
     * is "more certain". If we see {{{h(1)}}} and had {{{g(1)}}}, we can merge the two sets.
     */
-  private class GroundSet extends Iterable[(Set[Encoded], Arg, Set[Int])] with IncrementalState {
+  private class GroundSet extends Iterable[Ground] with IncrementalState {
     private val state = new IncrementalMap[Arg, (Set[Encoded], Set[Int])]
 
     def apply(bs: Set[Encoded], arg: Arg): Boolean = state.get(arg).exists(p => p._1 subsetOf bs)
-    def +=(p: (Set[Encoded], Arg, Set[Int])): Unit = state.get(p._2) match {
+    def +=(g: Ground): Unit = state.get(g.arg) match {
       case Some((bs, gens)) =>
-        val newBs: Set[Encoded] = bs ++ p._1
-        val newGens: Set[Int] = if (gens.isEmpty || p._3.isEmpty) Set.empty else gens ++ p._3
-        state += p._2 -> (newBs -> newGens)
+        val newBs: Set[Encoded] = bs ++ g.blockers
+        val newGens: Set[Int] = if (gens.isEmpty || g.gens.isEmpty) Set.empty else gens ++ g.gens
+        state += g.arg -> (newBs -> newGens)
 
       case None =>
-        state += p._2 -> (p._1 -> p._3)
+        state += g.arg -> (g.blockers -> g.gens)
     }
 
-    def iterator: Iterator[(Set[Encoded], Arg, Set[Int])] =
-      state.iterator.map { case (arg, (bs, gens)) => (bs, arg, gens) }
+    def iterator: Iterator[Ground] =
+      state.iterator.map { case (arg, (bs, gens)) => Ground(bs, arg, gens) }
 
     def push(): Unit = state.push()
     def pop(): Unit = state.pop()
     def clear(): Unit = state.clear()
     def reset(): Unit = state.reset()
   }
+
+  /** A ground value `arg` of a quantifier under the blockers `blockers`, with its abstract
+    * generations (see [[GroundSet]]). */
+  private case class Ground(blockers: Set[Encoded], arg: Arg, gens: Set[Int])
+
+  /** A substitution of some of the quantifiers of an axiom under `blockers`, with the abstract
+    * generations of its grounds and the number of generations by which it is delayed. */
+  private case class Partial(blockers: Set[Encoded], subst: Map[Encoded, Arg], gens: Set[Int], delay: Int)
+
+  /** A substitution of all the quantifiers of an axiom under `blockers`, which is instantiated
+    * `delay` generations from now. */
+  private case class Candidate(blockers: Set[Encoded], subst: Map[Encoded, Arg], delay: Int)
+
+  /** Extends `partial` to the quantifiers `rest`, with each of their grounds. A ground delays the
+    * substitution by one generation unless it is exact or shares an abstract generation with it. */
+  private def extend(partial: Partial, rest: Set[Encoded], grounds: Map[Encoded, Set[Ground]]): Seq[Partial] =
+    rest.foldLeft(Seq(partial)) { (partials, q) =>
+      for {
+        p <- partials
+        Ground(bs, arg, gens) <- grounds.getOrElse(q, Set.empty[Ground]).toSeq
+      } yield {
+        val delay = if (gens.isEmpty || (p.gens intersect gens).nonEmpty) 0 else 1
+        Partial(p.blockers ++ bs, p.subst + (q -> arg), p.gens ++ gens, p.delay + delay)
+      }
+    }
 
   private def totalDepth(m: Matcher): Int = 1 + m.args.map {
     case Right(ma) => totalDepth(ma)
@@ -456,36 +523,27 @@ trait QuantificationTemplates { self: Templates =>
       val gen = generationCounter
 
       /* Build mappings from quantifiers to all potential ground values previously encountered. */
-      val quantToGround: Map[Encoded, Set[(Set[Encoded], Arg, Set[Int])]] =
+      val quantToGround: Map[Encoded, Set[Ground]] =
         for ((q, constraints) <- groupedConstraints) yield q -> {
           grounds(q).toSet ++ constraints.flatMap {
             case (key, i) => correspond(matcherKey(m), key).map {
-              p => (Set(b), m.args(i), if (p) Set.empty[Int] else Set(gen))
+              p => Ground(Set(b), m.args(i), if (p) Set.empty[Int] else Set(gen))
             }
           }
         }
 
       /* Transform the map to sets into a sequence of maps making sure that the current
        * matcher is part of the mapping (otherwise, instantiation has already taken place). */
-      var mappings: Seq[(Set[Encoded], Map[Encoded, Arg], Int)] = Seq.empty
+      var candidates: Seq[Candidate] = Seq.empty
       for ((q, constraints) <- groupedConstraints;
            (key, i) <- constraints;
            perfect <- correspond(matcherKey(m), key)) {
         val initGens: Set[Int] = if (perfect && !defer) Set.empty else Set(gen)
-        val newMappings = (quantified - q).foldLeft(Seq((Set(b), Map(q -> m.args(i)), initGens, 0))) {
-          case (maps, oq) => for {
-            (bs, map, gens, c) <- maps
-            groundSet <- quantToGround.get(oq).toSeq
-            (ibs, inst, igens) <- groundSet
-          } yield {
-            val delay = if (igens.isEmpty || (gens intersect igens).nonEmpty) 0 else 1
-            (bs ++ ibs, map + (oq -> inst), gens ++ igens, c + delay)
-          }
-        }
+        val partials = extend(Partial(Set(b), Map(q -> m.args(i)), initGens, 0), quantified - q, quantToGround)
 
         /* @nv: I reused the cost heuristic from Leon here, it worked pretty well
          *      on all our pre-existing benchmarks and regressions. */
-        mappings ++= newMappings.map { case (bs, map, gens, c) =>
+        candidates ++= partials.map { case Partial(bs, map, _, c) =>
           val cost = if (initGens.nonEmpty) {
             1 + 3 * map.values.collect { case Right(m) => totalDepth(m) }.sum
           } else {
@@ -507,14 +565,14 @@ trait QuantificationTemplates { self: Templates =>
             }
           }
 
-          (bs, map, c + cost)
+          Candidate(bs, map, c + cost)
         }
 
         // register ground instantiation for future instantiations
-        grounds(q) += ((Set(b), m.args(i), initGens))
+        grounds(q) += Ground(Set(b), m.args(i), initGens)
       }
 
-      instantiateSubsts(mappings)
+      instantiateSubsts(candidates)
     }
 
     def hasAllGrounds: Boolean = quantified.forall(q => grounds(q).nonEmpty)
@@ -524,21 +582,13 @@ trait QuantificationTemplates { self: Templates =>
 
       /* Build mappings from quantifiers to all potential ground values previously encountered
        * AND the constants we're introducing to make sure grounds are non-empty. */
-      val quantToGround = (for ((v,q) <- quantifiers) yield {
-        val groundsSet: Set[(Set[Encoded], Arg, Set[Int])] = grounds(q).toSet
-        val newGrounds: Set[(Set[Encoded], Arg, Set[Int])] = {
-          if (groundsSet.isEmpty) {
-            Set((Set(), Left(q), Set()))
-          } else {
-            Set.empty
-          }
-        }
-
-        q -> (groundsSet ++ newGrounds)
+      val quantToGround: Map[Encoded, Set[Ground]] = (for ((v,q) <- quantifiers) yield {
+        val groundsSet: Set[Ground] = grounds(q).toSet
+        q -> (if (groundsSet.isEmpty) Set(Ground(Set(), Left(q), Set())) else groundsSet)
       }).toMap
 
       /* Generate the sequence of all relevant instantiation mappings */
-      var mappings: Seq[(Set[Encoded], Map[Encoded, Arg], Int)] = Seq.empty
+      var candidates: Seq[Candidate] = Seq.empty
       for ((v,q) <- quantifiers if grounds(q).isEmpty) {
         val res: Set[Encoded] = if (FreeUnrolling `unroll` v.tpe) {
           val closures = typeOps.variablesOf(v.tpe).toSeq.sortBy(_.id).map(subst)
@@ -552,32 +602,24 @@ trait QuantificationTemplates { self: Templates =>
           Set.empty
         }
 
-        val init: Seq[(Set[Encoded], Map[Encoded, Arg], Set[Int], Int)] = Seq((res, Map(q -> Left(q)), Set(), 0))
-        val newMappings = (quantified - q).foldLeft(init) { case (maps, oq) =>
-          for ((bs, map, gens, c) <- maps; (ibs, inst, igens) <- quantToGround(oq)) yield {
-            val delay = if (igens.isEmpty || (gens intersect igens).nonEmpty) 0 else 1
-            (bs ++ ibs, map + (oq -> inst), gens ++ igens, c + delay)
-          }
+        val partials = extend(Partial(res, Map(q -> Left(q)), Set(), 0), quantified - q, quantToGround)
+        candidates ++= partials.map { case Partial(bs, map, _, c) =>
+          Candidate(bs, map, c + (3 * map.values.collect { case Right(m) => totalDepth(m) }.sum))
         }
 
-        mappings ++= newMappings.map { case (bs, map, gens, c) =>
-          (bs, map, c + (3 * map.values.collect { case Right(m) => totalDepth(m) }.sum))
-        }
-
-        grounds(q) += ((res, Left(q), Set.empty[Int]))
+        grounds(q) += Ground(res, Left(q), Set.empty[Int])
       }
 
-      clauses ++= instantiateSubsts(mappings)
+      clauses ++= instantiateSubsts(candidates)
       clauses.toSeq
     }
 
-    private def instantiateSubsts(substs: Seq[(Set[Encoded], Map[Encoded, Arg], Int)]): Clauses = {
+    private def instantiateSubsts(candidates: Seq[Candidate]): Clauses = {
       val clauses = new scala.collection.mutable.ListBuffer[Encoded]
 
-      for (p @ (bs, subst, delay) <- substs if !substBlockers.get(this -> subst).exists(b => Set(b) == bs)) {
+      for (Candidate(bs, subst, delay) <- candidates if !substBlockers.get(this -> subst).exists(b => Set(b) == bs)) {
         if (abort || pause || delay > 0) {
-          val gen = currentGeneration + delay + (if (defer) 2 else 0)
-          ignoredSubsts += this -> (ignoredSubsts.getOrElse(this, Set.empty) + ((gen, bs, subst)))
+          deferred.deferSubst(this, currentGeneration + delay + (if (defer) 2 else 0), bs, subst)
         } else {
           clauses ++= instantiateSubst(bs, subst, defer = false)
         }
@@ -616,8 +658,7 @@ trait QuantificationTemplates { self: Templates =>
             val sm = m.substitute(substituter, msubst)
 
             if (abort || pause || b != guard) {
-              val gen = currentGeneration + 1
-              ignoredMatchers += ((gen, sb, sm))
+              deferred.deferMatcher(currentGeneration + 1, sb, sm)
             } else {
               clauses ++= instantiateMatcher0(sb, sm, defer = defer)
             }
@@ -723,8 +764,7 @@ trait QuantificationTemplates { self: Templates =>
             clauses ++= axiom.instantiate(b, m)
           }
 
-          val groundGen = currentGeneration + 3
-          ignoredGrounds += groundGen -> (ignoredGrounds.getOrElse(groundGen, Set.empty) + axiom)
+          deferred.deferGrounds(currentGeneration + 3, axiom)
           (trueT, Map.empty)
 
         case Negative(insts) =>
@@ -766,41 +806,30 @@ trait QuantificationTemplates { self: Templates =>
     if (optGen.isEmpty)
       throw new InternalSolverError("Attempting to promote inexistent quantifiers")
 
-    val diff = (currentGeneration - optGen.get) max 0
-
-    // Remove the entries one by one, since `clear` would also drop the push/pop stack
-    val currentGrounds = ignoredGrounds.toList
-    for ((gen, _) <- currentGrounds) ignoredGrounds -= gen
-    for ((gen, qs) <- currentGrounds) {
-      ignoredGrounds += (gen - diff) -> qs
-    }
-
-    val currentMatchers = ignoredMatchers.toList
-    for (e <- currentMatchers) ignoredMatchers -= e
-    for ((gen, bs, m) <- currentMatchers) {
-      ignoredMatchers += ((gen - diff, bs, m))
-    }
-
-    for (q <- axioms if ignoredSubsts.isDefinedAt(q)) {
-      ignoredSubsts += q -> ignoredSubsts(q).map { case (gen, bs, subst) => (gen - diff, bs, subst) }
-    }
+    deferred.advance((currentGeneration - optGen.get) max 0)
   }
 
-  protected def requiresFiniteRangeCheck: Boolean =
-    ignoredGrounds.nonEmpty || ignoredMatchers.nonEmpty || ignoredSubsts.exists(_._2.nonEmpty)
+  protected def requiresFiniteRangeCheck: Boolean = !deferred.isEmpty
 
-  protected def getFiniteRangeClauses: Clauses = {
+  /** The clauses that hold when the deferred instantiations add nothing to the model: each deferred
+    * matcher and substitution is equal to one that was instantiated. */
+  protected def getFiniteRangeClauses: Clauses =
+    groundsRangeClauses ++ matchersRangeClauses ++ substsRangeClauses
+
+  /** The axioms whose quantifiers may have no ground can't be checked yet: they make the check
+    * fail, and their grounds are due at the current generation. */
+  private def groundsRangeClauses: Clauses =
+    for ((gen, qs) <- deferred.groundEntries if qs.exists(!_.hasAllGrounds)) yield {
+      deferred.postponeGrounds(gen, qs)
+      falseT
+    }
+
+  /** Each deferred matcher has the arguments of an instantiated matcher of its key. */
+  private def matchersRangeClauses: Clauses = {
     val clauses = new scala.collection.mutable.ListBuffer[Encoded]
     val keyClause = MutableMap.empty[MatcherKey, (Clauses, Encoded)]
 
-    val currentGrounds = ignoredGrounds.toList
-    for ((gen, qs) <- currentGrounds if qs.exists(!_.hasAllGrounds)) {
-      ignoredGrounds -= gen
-      ignoredGrounds += currentGeneration -> qs
-      clauses += falseT
-    }
-
-    for ((_, bs, m) <- ignoredMatchers.toList) {
+    for ((_, bs, m) <- deferred.matcherEntries) {
       val key = matcherKey(m)
       val argTypes = key match {
         case tk: TypedKey => matcherArgumentTypes(tk.tpe)._1
@@ -842,7 +871,14 @@ trait QuantificationTemplates { self: Templates =>
       clauses += mkSubstituter(substMap)(mkImplies(b, clause))
     }
 
-    for (q <- axioms if ignoredSubsts.isDefinedAt(q)) {
+    clauses.toSeq
+  }
+
+  /** Each deferred substitution of an axiom binds the values of an instantiated one. */
+  private def substsRangeClauses: Clauses = {
+    val clauses = new scala.collection.mutable.ListBuffer[Encoded]
+
+    for (q <- axioms if deferred.hasSubsts(q)) {
       val guard = Variable.fresh("guard", BooleanType(), true)
       val elems = q.quantifiers.map(_._1)
       val values = elems.map(v => v.freshen)
@@ -861,12 +897,12 @@ trait QuantificationTemplates { self: Templates =>
         }*)
       }
 
-      // The clause of an ignored substitution only depends on the values it binds, so the
+      // The clause of a deferred substitution only depends on the values it binds, so the
       // substitutions that bind the same values share one clause, enabled by any of their
-      // enablers. Each clause copies the disjunction, and many ignored substitutions bind the
+      // enablers. Each clause copies the disjunction, and many deferred substitutions bind the
       // same values: in ForallAssoc, 155k of them bind only 11k distinct value tuples.
       val enablersByValues = scala.collection.mutable.LinkedHashMap.empty[Seq[Encoded], List[Set[Encoded]]]
-      for ((_, enablers, subst) <- ignoredSubsts(q)) {
+      for ((_, enablers, subst) <- deferred.substsOf(q)) {
         val args = q.quantifiers.map(p => subst(p._2).encoded)
         enablersByValues(args) = enablers :: enablersByValues.getOrElse(args, Nil)
       }
