@@ -45,6 +45,9 @@ libraryDependencies ++= Seq(
   "org.scalatest" %% "scalatest" % "3.2.9" % "test;it",
   "org.apache.commons" % "commons-lang3" % "3.4",
   "ch.epfl.lara" %% "scalaz3" % z3Version,
+  // Scala-SMTLIB (https://github.com/epfl-lara/scala-smtlib). To try local changes to it, run
+  // `sbt publishLocal` in its repository, and use the version it prints here.
+  "ch.epfl.lara" %% "scala-smtlib" % "0.2.5",
   ("uuverifiers" %% "eldarica" % "2.2")
     .cross(CrossVersion.for3Use2_13)
     .excludeAll(doubleDependencies: _*),
@@ -67,10 +70,6 @@ lazy val nTestParallelism = {
   }
 }
 
-def ghProject(repo: String, version: String) = RootProject(uri(s"${repo}#${version}"))
-
-// lazy val smtlib = RootProject(file("../scala-smtlib")) // If you have a local copy of Scala-SMTLIB and would like to do some changes
-lazy val smtlib = ghProject("https://git:git@github.com/epfl-lara/scala-smtlib.git", "a4bf724e08fba8d9e5f6a545592873c2a1acd00b")
 
 lazy val scriptName = settingKey[String]("Name of the generated 'inox' script")
 
@@ -156,8 +155,8 @@ ItTest / testOptions := Seq(Tests.Argument("-oDF"))
 lazy val root = (project in file("."))
   .settings(
     scalaOrganization := laraOrganization,
-    // Scoped to root (not ThisBuild) to avoid propagating to the scala-smtlib
-    // source dependency via https://github.com/sbt/sbt/issues/8821.
+    // The libraries of the lab's Scala compiler replace the standard ones, which ScalaZ3 and
+    // Scala-SMTLIB depend on.
     excludeDependencies ++= Seq(
       ExclusionRule("org.scala-lang", "scala-library"),
       ExclusionRule("org.scala-lang", "scala3-library_3"),
@@ -178,7 +177,6 @@ lazy val root = (project in file("."))
   )) : _*)
   .settings(compile := ((Compile / compile) dependsOn script).value)
   .settings(Compile / packageDoc / mappings := Seq())
-  .dependsOn(smtlib)
 
 Global / concurrentRestrictions := Seq(
   Tags.limit(Tags.Test, nTestParallelism)
