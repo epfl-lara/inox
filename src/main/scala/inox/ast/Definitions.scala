@@ -255,6 +255,52 @@ trait Definitions { self: Trees =>
       if (!(sort.constructors forall (cons => cons.sort == sort.id))) throw NotWellFormedException(sort)
       if (!(sort.constructors forall (_.fields forall (_.isTyped)))) throw NotWellFormedException(sort)
       if (sort.constructors.flatMap(_.fields).groupBy(_.id).exists(_._2.size > 1)) throw NotWellFormedException(sort)
+      for (quantified <- quantifiedSorts(sort.id).find(valuesDependOn(_, sort.id))) {
+        throw NotWellFormedException(sort, Some(
+          s"its invariant quantifies over the values of $quantified, which depend on those of ${sort.id}"))
+      }
+    }
+
+    /** The sorts whose values the values of `tpe` can hold, as fields, elements, arguments,
+      * results, type arguments, and so on. */
+    private def sortsOf(tpe: Type): Set[Identifier] = typeOps.collect[Identifier] {
+      case ADTType(id, _) => Set(id)
+      case _ => Set()
+    }(tpe)
+
+    /** Whether `id`, or a function it calls, has a quantifier. */
+    private def quantifies(id: Identifier): Boolean =
+      (transitiveCallees(id) + id).exists(callee => exprOps.exists {
+        case _: Forall => true
+        case _ => false
+      }(getFunction(callee).fullBody))
+
+    /** The sorts that the invariant of the sort `id` quantifies over, directly or in the functions
+      * it calls. A function that is given these sorts as type arguments, and that quantifies,
+      * could quantify over them. */
+    private def quantifiedSorts(id: Identifier): Set[Identifier] = getSort(id).invariant match {
+      case Some(inv) => (transitiveCallees(inv.id) + inv.id).flatMap(fid => exprOps.collect[Identifier] {
+        case Forall(params, _) => params.flatMap(vd => sortsOf(vd.getType)).toSet
+        case FunctionInvocation(callee, tps, _) if quantifies(callee) => tps.flatMap(sortsOf).toSet
+        case _ => Set()
+      }(getFunction(fid).fullBody))
+      case None => Set()
+    }
+
+    /** Whether the values of the sort `from` depend on the values of the sort `to`: whether the
+      * values of `from` can hold those of `to`, or the invariant of `from` can quantify over them,
+      * directly or through other sorts. These dependencies must not loop through a quantifier: a
+      * sort whose invariant quantifies over its own values can be paradoxical, as with the
+      * invariant `forall((t: T) => false)` of a sort `T`, which holds iff `T` has no value. */
+    private def valuesDependOn(from: Identifier, to: Identifier): Boolean = {
+      val seen = scala.collection.mutable.Set.empty[Identifier]
+      def rec(id: Identifier): Boolean = id == to || (seen.add(id) && (lookupSort(id) match {
+        case Some(sort) =>
+          (sort.constructors.flatMap(_.fields).flatMap(vd => sortsOf(vd.getType)).toSet ++
+            quantifiedSorts(id)).exists(rec)
+        case None => false
+      }))
+      rec(from)
     }
 
     // Cheap by design: definitions are equal by identifier, so two tables holding the same

@@ -54,6 +54,65 @@ class DefinitionsSuite extends AnyFunSuite {
     symbols.ensureWellFormed
   }
 
+  test("Sort invariants can't quantify over values that depend on their own") {
+    // a sort `id` with a field `x: BigInt` and a field of type `field`, if any, refined by `inv`
+    def refined(id: Identifier, inv: FunDef, field: Option[Type] = None): ADTSort =
+      mkSort(id, HasADTInvariant(inv.id))() { _ =>
+        Seq((FreshIdentifier(id.name), Seq(ValDef(FreshIdentifier("x"), IntegerType())) ++
+          field.map(ValDef(FreshIdentifier("f"), _))))
+      }
+    def invariant(id: Identifier)(body: Expr => Expr): FunDef =
+      mkFunDef(FreshIdentifier(id.name + "Inv"))() { _ =>
+        (Seq("t" :: T(id)()), BooleanType(), { case Seq(t) => body(t) })
+      }
+    def wellFormed(sorts: Seq[ADTSort], functions: Seq[FunDef]): Boolean =
+      scala.util.Try(NoSymbols.withSorts(sorts).withFunctions(functions).ensureWellFormed).isSuccess
+
+    // case class T(x: BigInt) { require(forall((t: T) => false)) }: T has values iff it has none
+    val tID = FreshIdentifier("T")
+    val tInv = invariant(tID)(_ => forall("u" :: T(tID)())(_ => E(false)))
+    val ex = intercept[NotWellFormedException](
+      NoSymbols.withSorts(Seq(refined(tID, tInv))).withFunctions(Seq(tInv)).ensureWellFormed)
+    assert(ex.getMessage.contains("quantifies over the values of"))
+
+    // the same, through a function that the invariant calls
+    val none = mkFunDef(FreshIdentifier("none"))() { _ =>
+      (Seq(), BooleanType(), { case Seq() => forall("u" :: T(tID)())(_ => E(false)) })
+    }
+    val tCalls = invariant(tID)(_ => FunctionInvocation(none.id, Seq(), Seq()))
+    assert(!wellFormed(Seq(refined(tID, tCalls)), Seq(tCalls, none)))
+
+    // through a generic function that quantifies over its type parameter
+    val noneOf = mkFunDef(FreshIdentifier("noneOf"))("A") { case Seq(a) =>
+      (Seq(), BooleanType(), { case Seq() => forall("u" :: a)(_ => E(false)) })
+    }
+    val tGeneric = invariant(tID)(_ => FunctionInvocation(noneOf.id, Seq(T(tID)()), Seq()))
+    assert(!wellFormed(Seq(refined(tID, tGeneric)), Seq(tGeneric, noneOf)))
+
+    // through functions of the sort, and through another sort that holds it
+    val tFun = invariant(tID)(_ => forall("f" :: (IntegerType() =>: T(tID)()))(_ => E(false)))
+    assert(!wellFormed(Seq(refined(tID, tFun)), Seq(tFun)))
+    val aID = FreshIdentifier("A")
+    val bID = FreshIdentifier("B")
+    val aInv = invariant(aID)(_ => forall("b" :: T(bID)())(_ => E(false)))
+    val b = mkSort(bID)() { _ => Seq((FreshIdentifier("B"), Seq(ValDef(FreshIdentifier("a"), T(aID)())))) }
+    assert(!wellFormed(Seq(refined(aID, aInv), b), Seq(aInv)))
+
+    // quantifiers over other values are fine
+    val cID = FreshIdentifier("C")
+    val tOthers = invariant(tID)(_ => forall("c" :: T(cID)())(_ => forall("y" :: IntegerType())(_ => E(true))))
+    val c = mkSort(cID)() { _ => Seq((FreshIdentifier("C"), Seq(ValDef(FreshIdentifier("n"), IntegerType())))) }
+    assert(wellFormed(Seq(refined(tID, tOthers), c), Seq(tOthers)))
+    // as are the uses of the sort's values that don't quantify over them
+    val tIdentity = invariant(tID)(t => Equals(t, t))
+    assert(wellFormed(Seq(refined(tID, tIdentity)), Seq(tIdentity)))
+    // a sort that holds T can quantify over T, which doesn't depend on it
+    val dID = FreshIdentifier("D")
+    val dInv = invariant(dID)(_ => forall("t" :: T(tID)())(_ => E(true)))
+    val tPlain = mkSort(tID)() { _ => Seq((FreshIdentifier("T"), Seq(ValDef(FreshIdentifier("x"), IntegerType())))) }
+    assert(wellFormed(Seq(refined(dID, dInv, Some(T(tID)())), tPlain), Seq(dInv)))
+  }
+
   test("Type parameter definitions") {
     val tpd = TypeParameterDef.fresh("B", Seq(Annotation("tp", Seq())))
     assert(tpd.flags == Seq(Annotation("tp", Seq())))
