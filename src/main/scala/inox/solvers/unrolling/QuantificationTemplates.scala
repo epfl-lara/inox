@@ -9,6 +9,7 @@ import evaluators._
 
 import scala.util.boundary
 import scala.util.boundary._
+import scala.collection.immutable.{ListSet, VectorMap}
 import scala.collection.mutable.{Map => MutableMap, Set => MutableSet, Queue}
 
 trait QuantificationTemplates { self: Templates =>
@@ -17,7 +18,7 @@ trait QuantificationTemplates { self: Templates =>
   import program.trees._
   import program.symbols.{given, _}
 
-  import quantificationsManager.{axioms, deferred, matcherBlockers, substBlockers, templates}
+  import quantificationsManager.{axioms, deferred, matcherBlockers, substBlockers, templates, state, updateDeferred}
 
   /* -- Extraction helpers -- */
 
@@ -166,87 +167,115 @@ trait QuantificationTemplates { self: Templates =>
     *  - the axioms whose quantifiers may still have no ground (see [[Axiom.ensureGrounds]]).
     *
     * While some are pending, a model is only accepted once the finite range check shows that they
-    * add nothing to it (see [[getFiniteRangeClauses]]). */
-  private[QuantificationTemplates] class DeferredInstantiations extends IncrementalStateWrapper {
-    private val matchers = new IncrementalSeq[(Int, Set[Encoded], Matcher)]
-    private val substs   = new IncrementalMap[Axiom, Set[(Int, Set[Encoded], Map[Encoded, Arg])]]
-    private val grounds  = new IncrementalMap[Int, Set[Axiom]]
-
-    protected val incrementals: Seq[IncrementalState] = Seq(matchers, substs, grounds)
+    * add nothing to it (see [[getFiniteRangeClauses]]). Each kind is kept in the order in which it
+    * was deferred, and the substitutions of an axiom are a set (the keys of a [[VectorMap]]). */
+  private[unrolling] case class Deferred(
+    matchers: Vector[(Int, Set[Encoded], Matcher)],
+    substs: VectorMap[Axiom, VectorMap[(Int, Set[Encoded], Map[Encoded, Arg]), Unit]],
+    grounds: VectorMap[Int, Set[Axiom]]) {
 
     def isEmpty: Boolean = grounds.isEmpty && matchers.isEmpty && !substs.exists(_._2.nonEmpty)
 
     /** The earliest generation at which a deferred instantiation is due. */
     def generation: Option[Int] = {
-      val gens: Seq[Int] = matchers.toSeq.map(_._1) ++
-        substs.flatMap(p => p._2.map(_._1)) ++
-        grounds.map(_._1)
+      val gens: Seq[Int] = matchers.map(_._1) ++
+        substs.toSeq.flatMap(p => p._2.keys.map(_._1)) ++
+        grounds.keys
       if (gens.isEmpty) None else Some(gens.min)
     }
 
-    /** Makes all the deferred instantiations due `diff` generations earlier. */
-    def advance(diff: Int): Unit = {
-      // Remove the entries one by one, since `clear` would also drop the push/pop stack
-      val currentGrounds = grounds.toList
-      for ((gen, _) <- currentGrounds) grounds -= gen
-      for ((gen, qs) <- currentGrounds) grounds += (gen - diff) -> qs
+    /** All the deferred instantiations, due `diff` generations earlier. */
+    def advance(diff: Int): Deferred = Deferred(
+      matchers.map { case (gen, bs, m) => (gen - diff, bs, m) },
+      substs.map { case (q, ss) => q -> ss.map { case ((gen, bs, subst), u) => ((gen - diff, bs, subst), u) } },
+      grounds.map { case (gen, qs) => (gen - diff) -> qs })
 
-      val currentMatchers = matchers.toList
-      for (e <- currentMatchers) matchers -= e
-      for ((gen, bs, m) <- currentMatchers) matchers += ((gen - diff, bs, m))
+    def deferMatcher(gen: Int, blockers: Set[Encoded], matcher: Matcher): Deferred =
+      copy(matchers = matchers :+ ((gen, blockers, matcher)))
 
-      for ((q, ss) <- substs.toList) {
-        substs += q -> ss.map { case (gen, bs, subst) => (gen - diff, bs, subst) }
-      }
+    /** Without the first occurrence of `entry`. */
+    def removeMatcher(entry: (Int, Set[Encoded], Matcher)): Deferred = {
+      val i = matchers.indexOf(entry)
+      if (i < 0) this else copy(matchers = matchers.patch(i, Nil, 1))
     }
 
-    def deferMatcher(gen: Int, blockers: Set[Encoded], matcher: Matcher): Unit =
-      matchers += ((gen, blockers, matcher))
-    def matcherEntries: List[(Int, Set[Encoded], Matcher)] = matchers.toList
-    def removeMatcher(entry: (Int, Set[Encoded], Matcher)): Unit = matchers -= entry
+    def deferSubst(axiom: Axiom, gen: Int, blockers: Set[Encoded], subst: Map[Encoded, Arg]): Deferred =
+      copy(substs = substs.updated(axiom, substs.getOrElse(axiom, VectorMap.empty).updated((gen, blockers, subst), ())))
+    def hasSubsts(axiom: Axiom): Boolean = substs.contains(axiom)
+    def substsOf(axiom: Axiom): Seq[(Int, Set[Encoded], Map[Encoded, Arg])] = substs(axiom).keys.toSeq
 
-    def deferSubst(axiom: Axiom, gen: Int, blockers: Set[Encoded], subst: Map[Encoded, Arg]): Unit =
-      substs += axiom -> (substs.getOrElse(axiom, Set.empty) + ((gen, blockers, subst)))
-    def hasSubsts(axiom: Axiom): Boolean = substs.isDefinedAt(axiom)
-    def substsOf(axiom: Axiom): Set[(Int, Set[Encoded], Map[Encoded, Arg])] = substs(axiom)
-
-    /** Removes the substitutions of `axiom` that are due, and returns them. */
-    def releaseSubsts(axiom: Axiom): Set[(Int, Set[Encoded], Map[Encoded, Arg])] = {
-      val (release, keep) = substs(axiom).partition(_._1 <= currentGeneration)
-      substs += axiom -> keep
-      release
+    /** The substitutions of `axiom` that are due, and the deferred instantiations without them. */
+    def releaseSubsts(axiom: Axiom): (Seq[(Int, Set[Encoded], Map[Encoded, Arg])], Deferred) = {
+      val (release, keep) = substs(axiom).partition(_._1._1 <= currentGeneration)
+      (release.keys.toSeq, copy(substs = substs.updated(axiom, keep)))
     }
 
-    def deferGrounds(gen: Int, axiom: Axiom): Unit =
-      grounds += gen -> (grounds.getOrElse(gen, Set.empty) + axiom)
-    def groundEntries: List[(Int, Set[Axiom])] = grounds.toList
-    def removeGrounds(gen: Int, axiom: Axiom): Unit = {
-      val remaining = grounds.getOrElse(gen, Set.empty) - axiom
-      if (remaining.nonEmpty) grounds += gen -> remaining else grounds -= gen
+    def deferGrounds(gen: Int, axiom: Axiom): Deferred =
+      copy(grounds = grounds.updated(gen, ListSet.from(grounds.getOrElse(gen, ListSet.empty)) + axiom))
+    def removeGrounds(gen: Int, axiom: Axiom): Deferred = {
+      val remaining = grounds.getOrElse(gen, ListSet.empty) - axiom
+      copy(grounds = if (remaining.nonEmpty) grounds.updated(gen, remaining) else grounds - gen)
     }
 
-    /** Makes the grounds of `axioms`, which are due at `gen`, due at the current generation instead. */
-    def postponeGrounds(gen: Int, axioms: Set[Axiom]): Unit = {
-      grounds -= gen
-      grounds += currentGeneration -> axioms
-    }
+    /** With the grounds of `axioms`, which are due at `gen`, due at the current generation instead. */
+    def postponeGrounds(gen: Int, axioms: Set[Axiom]): Deferred =
+      copy(grounds = (grounds - gen).updated(currentGeneration, axioms))
+  }
+
+  private object Deferred {
+    val empty: Deferred = Deferred(Vector.empty, VectorMap.empty, VectorMap.empty)
+  }
+
+  /** The state of an axiom (see [[Axiom]]).
+    *
+    * @param grounds the ground values of each quantifier, with their blockers and abstract
+    *                generations (see [[Ground]])
+    * @param instantiations the blockers of the calls and applications of each instantiation of
+    *                       the axiom, by its enabler, which a model that falsifies the
+    *                       instantiation promotes */
+  private[unrolling] case class AxiomState(
+    grounds: Map[Encoded, VectorMap[Arg, (Set[Encoded], Set[Int])]],
+    instantiations: VectorMap[Encoded, Set[Encoded]])
+
+  private object AxiomState {
+    val empty: AxiomState = AxiomState(Map.empty, VectorMap.empty)
+  }
+
+  /** The state of [[quantificationsManager]], which push saves and pop restores as a whole. The
+    * maps and the sets that are iterated keep their insertion order, so that the clauses don't
+    * depend on hash codes (see [[Items]]).
+    *
+    * @param axioms the axioms, in the order in which they were instantiated
+    * @param axiomStates the state of each axiom
+    * @param matcherBlockers the blocker of each instantiated matcher
+    * @param substBlockers the blocker of each instantiated substitution of an axiom
+    * @param templates the instantiated quantifications, by structure, with their result
+    * @param deferred the instantiations that are deferred to a later generation */
+  private[unrolling] case class QuantificationsState(
+    axioms: Vector[Axiom],
+    axiomStates: Map[Axiom, AxiomState],
+    matcherBlockers: VectorMap[Matcher, Encoded],
+    substBlockers: VectorMap[(Axiom, Map[Encoded, Arg]), Encoded],
+    templates: VectorMap[TemplateStructure, (QuantificationTemplate, Encoded)],
+    deferred: Deferred)
+
+  private object QuantificationsState {
+    val empty: QuantificationsState =
+      QuantificationsState(Vector.empty, Map.empty, VectorMap.empty, VectorMap.empty, VectorMap.empty, Deferred.empty)
   }
 
   private[unrolling] object quantificationsManager extends Manager {
-    private[QuantificationTemplates] val axioms = new IncrementalSeq[Axiom]
+    private[QuantificationTemplates] val state = new Snapshots(QuantificationsState.empty)
 
-    private[QuantificationTemplates] val matcherBlockers = new IncrementalMap[Matcher, Encoded]
-    private[QuantificationTemplates] val substBlockers   = new IncrementalMap[(Axiom, Map[Encoded, Arg]), Encoded]
+    private[QuantificationTemplates] def axioms: Vector[Axiom] = state.get.axioms
+    private[QuantificationTemplates] def matcherBlockers: VectorMap[Matcher, Encoded] = state.get.matcherBlockers
+    private[QuantificationTemplates] def substBlockers: VectorMap[(Axiom, Map[Encoded, Arg]), Encoded] = state.get.substBlockers
+    private[QuantificationTemplates] def templates: VectorMap[TemplateStructure, (QuantificationTemplate, Encoded)] = state.get.templates
+    private[QuantificationTemplates] def deferred: Deferred = state.get.deferred
+    private[QuantificationTemplates] def updateDeferred(f: Deferred => Deferred): Unit =
+      state.update(s => s.copy(deferred = f(s.deferred)))
 
-    private[QuantificationTemplates] val deferred  = new DeferredInstantiations
-    private[QuantificationTemplates] val templates = new IncrementalMap[TemplateStructure, (QuantificationTemplate, Encoded)]
-
-    val incrementals: Seq[IncrementalState] = Seq(axioms, templates, matcherBlockers, substBlockers, deferred)
-
-    override def push(): Unit  = { super.push();  for (q <- axioms) q.push()  }
-    override def pop(): Unit   = { super.pop();   for (q <- axioms) q.pop()   }
-    override def clear(): Unit = { super.clear(); for (q <- axioms) q.clear() }
-    override def reset(): Unit = { super.reset(); for (q <- axioms) q.reset() }
+    val incrementals: Seq[IncrementalState] = Seq(state)
 
     override def satisfactionAssumptions = Seq()
     override def refutationAssumptions = Seq()
@@ -278,19 +307,21 @@ trait QuantificationTemplates { self: Templates =>
 
     private def unrollMatchers(): Clauses = {
       val clauses = new scala.collection.mutable.ListBuffer[Encoded]
-      for (e @ (gen, bs, m) <- deferred.matcherEntries if gen <= currentGeneration && !interrupted) {
+      for (e @ (gen, bs, m) <- deferred.matchers if gen <= currentGeneration && !interrupted) {
         clauses ++= instantiateMatcher0(bs, m, defer = true)
-        deferred.removeMatcher(e)
+        updateDeferred(_.removeMatcher(e))
       }
       clauses.toSeq
     }
 
     private def unrollSubsts(): Clauses = {
       val clauses = new scala.collection.mutable.ListBuffer[Encoded]
-      for (q <- axioms.toSeq if deferred.hasSubsts(q) && !interrupted) {
+      for (q <- axioms if deferred.hasSubsts(q) && !interrupted) {
+        val (release, rest) = deferred.releaseSubsts(q)
+        updateDeferred(_ => rest)
         // an axiom can have hundreds of due substitutions, so an interruption stops between them
-        for ((gen, bs, subst) <- deferred.releaseSubsts(q)) {
-          if (interrupted) deferred.deferSubst(q, gen, bs, subst)
+        for ((gen, bs, subst) <- release) {
+          if (interrupted) updateDeferred(_.deferSubst(q, gen, bs, subst))
           else clauses ++= q.instantiateSubst(bs, subst, defer = true)
         }
       }
@@ -299,9 +330,9 @@ trait QuantificationTemplates { self: Templates =>
 
     private def unrollGrounds(): Clauses = {
       val clauses = new scala.collection.mutable.ListBuffer[Encoded]
-      for ((gen, qs) <- deferred.groundEntries if gen <= currentGeneration && !interrupted; q <- qs if !interrupted) {
+      for ((gen, qs) <- deferred.grounds.toList if gen <= currentGeneration && !interrupted; q <- qs if !interrupted) {
         clauses ++= q.ensureGrounds
-        deferred.removeGrounds(gen, q)
+        updateDeferred(_.removeGrounds(gen, q))
       }
       clauses.toSeq
     }
@@ -328,7 +359,7 @@ trait QuantificationTemplates { self: Templates =>
 
       case None =>
         val matcherBlocker = encodeSymbol(Variable.fresh("m", BooleanType(), true))
-        matcherBlockers += matcher -> matcherBlocker
+        state.update(s => s.copy(matcherBlockers = s.matcherBlockers.updated(matcher, matcherBlocker)))
 
         reporter.debug(" -> instantiating matcher " + matcherBlocker + " ==> " + matcher)
         for (q <- axioms) clauses ++= q.instantiate(matcherBlocker, matcher, defer)
@@ -349,7 +380,7 @@ trait QuantificationTemplates { self: Templates =>
   protected def hasAxioms: Boolean = axioms.nonEmpty
   protected def getAxioms: Seq[Axiom] = axioms.toSeq
 
-  protected def getInstantiationsWithBlockers = axioms.toSeq.flatMap(_.instantiations.toSeq)
+  protected def getInstantiationsWithBlockers: Seq[(Encoded, Set[Encoded])] = axioms.flatMap(_.instantiations.toSeq)
   protected def hasInstantiationsWithBlockers = axioms.exists(_.instantiations.nonEmpty)
 
   protected sealed trait MatcherKey
@@ -381,7 +412,7 @@ trait QuantificationTemplates { self: Templates =>
     case _ => None
   }
 
-  /** Ground instantiations are annotated with an {{{Set[Int]}}} value that specifies
+  /** Ground values are annotated with an {{{Set[Int]}}} value that specifies
     * the (optional) abstract generations at which this instantiation was added to the set.
     * The abstract generations exist iff the matchers do not exactly correspond (for example,
     * abstract matcher {{{f(x)}}} instantiated against concrete application {{{g(1)}}}).
@@ -390,31 +421,9 @@ trait QuantificationTemplates { self: Templates =>
     *
     * If we see an {{{f(1)}}} instantiation and had some abstract instantiation corresponding
     * to {{{g(1)}}} in our set of instantiations, we can forget about {{{g(1)}}} as {{{f(1)}}}
-    * is "more certain". If we see {{{h(1)}}} and had {{{g(1)}}}, we can merge the two sets.
+    * is "more certain". If we see {{{h(1)}}} and had {{{g(1)}}}, we can merge the two sets
+    * (see [[Axiom.addGround]]).
     */
-  private class GroundSet extends Iterable[Ground] with IncrementalState {
-    private val state = new IncrementalMap[Arg, (Set[Encoded], Set[Int])]
-
-    def apply(bs: Set[Encoded], arg: Arg): Boolean = state.get(arg).exists(p => p._1 subsetOf bs)
-    def +=(g: Ground): Unit = state.get(g.arg) match {
-      case Some((bs, gens)) =>
-        val newBs: Set[Encoded] = bs ++ g.blockers
-        val newGens: Set[Int] = if (gens.isEmpty || g.gens.isEmpty) Set.empty else gens ++ g.gens
-        state += g.arg -> (newBs -> newGens)
-
-      case None =>
-        state += g.arg -> (g.blockers -> g.gens)
-    }
-
-    def iterator: Iterator[Ground] =
-      state.iterator.map { case (arg, (bs, gens)) => Ground(bs, arg, gens) }
-
-    def push(): Unit = state.push()
-    def pop(): Unit = state.pop()
-    def clear(): Unit = state.clear()
-    def reset(): Unit = state.reset()
-  }
-
   /** A ground value `arg` of a quantifier under the blockers `blockers`, with its abstract
     * generations (see [[GroundSet]]). */
   private case class Ground(blockers: Set[Encoded], arg: Arg, gens: Set[Int])
@@ -436,7 +445,7 @@ trait QuantificationTemplates { self: Templates =>
         Ground(bs, arg, gens) <- grounds.getOrElse(q, Set.empty[Ground]).toSeq
       } yield {
         val delay = if (gens.isEmpty || (p.gens intersect gens).nonEmpty) 0 else 1
-        Partial(p.blockers ++ bs, p.subst + (q -> arg), p.gens ++ gens, p.delay + delay)
+        Partial(ListSet.from(p.blockers) ++ bs, p.subst + (q -> arg), p.gens ++ gens, p.delay + delay)
       }
     }
 
@@ -446,25 +455,51 @@ trait QuantificationTemplates { self: Templates =>
   }.sum
 
   private def encodeEnablers(es: Set[Encoded]): Encoded =
-    if (es.isEmpty) trueT else mkAnd(es.toSeq.sortBy(_.toString)*)
+    if (es.isEmpty) trueT else mkAnd(es.toSeq*)
 
   private[solvers] class Axiom(
     contents: TemplateContents,
     subst: Map[Variable, Arg],
     val body: Expr,
-    defer: Boolean) extends IncrementalState {
+    defer: Boolean) {
 
-    private var _insts: Map[Encoded, Set[Encoded]] = Map.empty
-    def instantiations = _insts
+    private def axiomState: AxiomState = state.get.axiomStates.getOrElse(this, AxiomState.empty)
+    private def updateAxiomState(f: AxiomState => AxiomState): Unit =
+      state.update(s => s.copy(axiomStates = s.axiomStates.updated(this, f(s.axiomStates.getOrElse(this, AxiomState.empty)))))
+
+    def instantiations: VectorMap[Encoded, Set[Encoded]] = axiomState.instantiations
 
     private def registerBlockers(substituter: Encoded => Encoded): Unit = {
       val enabler = substituter(contents.pathVar._2)
-      val bs = (contents.items.calls.keys ++ contents.items.apps.keys).map(substituter).toSet
-      _insts += enabler -> bs
+      val bs = ListSet.from((contents.items.calls.keys ++ contents.items.apps.keys).map(substituter))
+      updateAxiomState(a => a.copy(instantiations = a.instantiations.updated(enabler, bs)))
+    }
+
+    /** The ground values of `q`, in the order in which they were found. */
+    private def groundsOf(q: Encoded): VectorMap[Arg, (Set[Encoded], Set[Int])] =
+      axiomState.grounds.getOrElse(q, VectorMap.empty)
+    private def groundSet(q: Encoded): Set[Ground] =
+      ListSet.from(groundsOf(q).iterator.map { case (arg, (bs, gens)) => Ground(bs, arg, gens) })
+    /** Whether `arg` is a ground value of `q` under some of the blockers `bs`. */
+    private def isGround(q: Encoded, bs: Set[Encoded], arg: Arg): Boolean =
+      groundsOf(q).get(arg).exists(p => p._1 subsetOf bs)
+
+    /** Adds the ground value `g` of `q`, which merges with the ground of the same value (see [[Ground]]). */
+    private def addGround(q: Encoded, g: Ground): Unit = updateAxiomState { a =>
+      val gs = a.grounds.getOrElse(q, VectorMap.empty)
+      val merged = gs.get(g.arg) match {
+        case Some((bs, gens)) =>
+          val newBs: Set[Encoded] = ListSet.from(bs) ++ g.blockers
+          val newGens: Set[Int] = if (gens.isEmpty || g.gens.isEmpty) Set.empty else gens ++ g.gens
+          newBs -> newGens
+        case None =>
+          g.blockers -> g.gens
+      }
+      a.copy(grounds = a.grounds.updated(q, gs.updated(g.arg, merged)))
     }
 
     lazy val quantifiers = contents.arguments
-    lazy val quantified: Set[Encoded] = quantifiers.map(_._2).toSet
+    lazy val quantified: Set[Encoded] = ListSet.from(quantifiers.map(_._2))
     lazy val pathBlockers = blockerPath(contents.pathVar._2)
 
     lazy val guard: Encoded = contents.pathVar._2
@@ -479,17 +514,13 @@ trait QuantificationTemplates { self: Templates =>
       q <- arg.left.toOption if quantified(q)
     } yield (q, matcherKey(m), i)).toSeq
 
+    // the quantifiers in the order in which their constraints occur (see [[Items]])
     private val groupedConstraints: Map[Encoded, Seq[(MatcherKey, Int)]] =
-      constraints.groupBy(_._1).map(p => p._1 -> p._2.map(p2 => (p2._2, p2._3)))
+      VectorMap.from(constraints.map(_._1).distinct.map(q => q -> constraints.collect { case (`q`, key, i) => (key, i) }))
 
-    private val grounds: Map[Encoded, GroundSet] = quantified.map(q => q -> new GroundSet).toMap
-
+    /** The abstract generation of the last instantiation (see [[Ground]]). Like the ids of fresh
+      * symbols, it only grows, and a pop doesn't reset it. */
     private var generationCounter: Int = 0
-
-    def push(): Unit = for (gs <- grounds.values) gs.push()
-    def pop(): Unit = for (gs <- grounds.values) gs.pop()
-    def clear(): Unit = for (gs <- grounds.values) gs.clear()
-    def reset(): Unit = for (gs <- grounds.values) gs.reset()
 
     private val optimizationQuorums: Seq[Set[Matcher]] = {
       def matchersOf(m: Matcher): Set[Matcher] = m.args.flatMap {
@@ -522,7 +553,7 @@ trait QuantificationTemplates { self: Templates =>
       /* Build mappings from quantifiers to all potential ground values previously encountered. */
       val quantToGround: Map[Encoded, Set[Ground]] =
         for ((q, constraints) <- groupedConstraints) yield q -> {
-          grounds(q).toSet ++ constraints.flatMap {
+          groundSet(q) ++ constraints.flatMap {
             case (key, i) => correspond(matcherKey(m), key).map {
               p => Ground(Set(b), m.args(i), if (p) Set.empty[Int] else Set(gen))
             }
@@ -555,7 +586,7 @@ trait QuantificationTemplates { self: Templates =>
               val tms = matchers.flatMap(_._2.map(_.substitute(substituter, msubst)))
               if (opts.map(totalDepth).max >= tms.map(totalDepth).max) 0
               else 3
-            } else if (grounds(q)(bs, m.args(i))) {
+            } else if (isGround(q, bs, m.args(i))) {
               10
             } else {
               3
@@ -566,13 +597,13 @@ trait QuantificationTemplates { self: Templates =>
         }
 
         // register ground instantiation for future instantiations
-        grounds(q) += Ground(Set(b), m.args(i), initGens)
+        addGround(q, Ground(Set(b), m.args(i), initGens))
       }
 
       instantiateSubsts(candidates)
     }
 
-    def hasAllGrounds: Boolean = quantified.forall(q => grounds(q).nonEmpty)
+    def hasAllGrounds: Boolean = quantified.forall(q => groundsOf(q).nonEmpty)
 
     def ensureGrounds: Clauses = {
       val clauses = new scala.collection.mutable.ListBuffer[Encoded]
@@ -580,13 +611,13 @@ trait QuantificationTemplates { self: Templates =>
       /* Build mappings from quantifiers to all potential ground values previously encountered
        * AND the constants we're introducing to make sure grounds are non-empty. */
       val quantToGround: Map[Encoded, Set[Ground]] = (for ((v,q) <- quantifiers) yield {
-        val groundsSet: Set[Ground] = grounds(q).toSet
+        val groundsSet: Set[Ground] = groundSet(q)
         q -> (if (groundsSet.isEmpty) Set(Ground(Set(), Left(q), Set())) else groundsSet)
       }).toMap
 
       /* Generate the sequence of all relevant instantiation mappings */
       var candidates: Seq[Candidate] = Seq.empty
-      for ((v,q) <- quantifiers if grounds(q).isEmpty) {
+      for ((v,q) <- quantifiers if groundsOf(q).isEmpty) {
         val res: Set[Encoded] = if (FreeUnrolling `unroll` v.tpe) {
           val closures = typeOps.variablesOf(v.tpe).toSeq.sortBy(_.id).map(subst)
           val result = encodeSymbol(Variable.fresh("result", BooleanType(), true))
@@ -604,7 +635,7 @@ trait QuantificationTemplates { self: Templates =>
           Candidate(bs, map, c + (3 * map.values.collect { case Right(m) => totalDepth(m) }.sum))
         }
 
-        grounds(q) += Ground(res, Left(q), Set.empty[Int])
+        addGround(q, Ground(res, Left(q), Set.empty[Int]))
       }
 
       clauses ++= instantiateSubsts(candidates)
@@ -616,7 +647,7 @@ trait QuantificationTemplates { self: Templates =>
 
       for (Candidate(bs, subst, delay) <- candidates if !substBlockers.get(this -> subst).exists(b => Set(b) == bs)) {
         if (delay > 0) {
-          deferred.deferSubst(this, currentGeneration + delay + (if (defer) 2 else 0), bs, subst)
+          updateDeferred(_.deferSubst(this, currentGeneration + delay + (if (defer) 2 else 0), bs, subst))
         } else {
           clauses ++= instantiateSubst(bs, subst, defer = false)
         }
@@ -634,7 +665,7 @@ trait QuantificationTemplates { self: Templates =>
 
         case None =>
           val substBlocker = encodeSymbol(Variable.fresh("s", BooleanType(), true))
-          substBlockers += (this -> subst) -> substBlocker
+          state.update(s => s.copy(substBlockers = s.substBlockers.updated(this -> subst, substBlocker)))
 
           val (enabler, enablerClauses) = encodeBlockers(pathBlockers + substBlocker)
           clauses ++= enablerClauses
@@ -649,11 +680,11 @@ trait QuantificationTemplates { self: Templates =>
           clauses ++= Rule.Instance(instantiation, InstanceOf.OfAxiom).clauses
 
           for ((b,ms) <- matchers; m <- ms) {
-            val sb = bs ++ (if (b == guard) Set.empty else Set(substituter(b)))
+            val sb = if (b == guard) bs else ListSet.from(bs) + substituter(b)
             val sm = m.substitute(substituter, msubst)
 
             if (b != guard) {
-              deferred.deferMatcher(currentGeneration + 1, sb, sm)
+              updateDeferred(_.deferMatcher(currentGeneration + 1, sb, sm))
             } else {
               clauses ++= instantiateMatcher0(sb, sm, defer = defer)
             }
@@ -753,13 +784,13 @@ trait QuantificationTemplates { self: Templates =>
       val subst: (Encoded, Map[Encoded, Encoded]) = (newTemplate.polarity match {
         case Positive(subst) =>
           val axiom = new Axiom(newTemplate.contents, subst, newTemplate.body, newTemplate.isDeferred)
-          axioms += axiom
+          state.update(s => s.copy(axioms = s.axioms :+ axiom))
 
           for ((m,b) <- matcherBlockers.toList) {
             clauses ++= axiom.instantiate(b, m)
           }
 
-          deferred.deferGrounds(currentGeneration + 3, axiom)
+          updateDeferred(_.deferGrounds(currentGeneration + 3, axiom))
           (trueT, Map.empty)
 
         case Negative(insts) =>
@@ -790,7 +821,7 @@ trait QuantificationTemplates { self: Templates =>
         }
       }
 
-      templates += newTemplate.structure -> ((newTemplate, inst))
+      state.update(s => s.copy(templates = s.templates.updated(newTemplate.structure, (newTemplate, inst))))
       (mapping, clauses.toSeq)
     }
   }
@@ -800,7 +831,7 @@ trait QuantificationTemplates { self: Templates =>
     if (optGen.isEmpty)
       throw new InternalSolverError("Attempting to promote inexistent quantifiers")
 
-    deferred.advance((currentGeneration - optGen.get) max 0)
+    updateDeferred(_.advance((currentGeneration - optGen.get) max 0))
   }
 
   protected def requiresFiniteRangeCheck: Boolean = !deferred.isEmpty
@@ -813,8 +844,8 @@ trait QuantificationTemplates { self: Templates =>
   /** The axioms whose quantifiers may have no ground can't be checked yet: they make the check
     * fail, and their grounds are due at the current generation. */
   private def groundsRangeClauses: Clauses =
-    for ((gen, qs) <- deferred.groundEntries if qs.exists(!_.hasAllGrounds)) yield {
-      deferred.postponeGrounds(gen, qs)
+    for ((gen, qs) <- deferred.grounds.toList if qs.exists(!_.hasAllGrounds)) yield {
+      updateDeferred(_.postponeGrounds(gen, qs))
       falseT
     }
 
@@ -823,7 +854,7 @@ trait QuantificationTemplates { self: Templates =>
     val clauses = new scala.collection.mutable.ListBuffer[Encoded]
     val keyClause = MutableMap.empty[MatcherKey, (Clauses, Encoded)]
 
-    for ((_, bs, m) <- deferred.matcherEntries) {
+    for ((_, bs, m) <- deferred.matchers) {
       val key = matcherKey(m)
       val argTypes = key match {
         case tk: TypedKey => matcherArgumentTypes(tk.tpe)._1
