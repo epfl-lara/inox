@@ -131,10 +131,14 @@ jobs:
       # -XX:ActiveProcessorCount, each JVM sizes its GC threads, its JIT threads and its default
       # thread pools for all the processors of the machine. The option replaces the number of
       # processors that the JVM detects, even with a larger one, hence the minimum with nproc.
+      # The sbt plugin tests publish Inox and Stainless locally, under the same versions in every
+      # run: each run publishes them to an Ivy home of its own, as Stainless's CI does, since runs
+      # that share ~/.ivy2/local overwrite each other's jars while they are in use (and fail with
+      # NoClassDefFoundError).
       run: |
           PROCESSORS=$(( $(nproc) < 16 ? $(nproc) : 16 )) && \
           echo "JAVA_OPTS=$JAVA_OPTS -XX:ActiveProcessorCount=$PROCESSORS -Djava.io.tmpdir=$JAVA_OPTS_TMP_DIR" >> "$GITHUB_ENV" && \
-          echo "SBT_OPTS=-Djava.io.tmpdir=$JAVA_OPTS_TMP_DIR --sbt-dir $JAVA_OPTS_TMP_DIR" >> "$GITHUB_ENV"
+          echo "SBT_OPTS=-Djava.io.tmpdir=$JAVA_OPTS_TMP_DIR --sbt-dir $JAVA_OPTS_TMP_DIR --ivy $JAVA_OPTS_TMP_DIR/ivy2" >> "$GITHUB_ENV"
     - name: Creating temp folder
       run: rm -rf "$JAVA_OPTS_TMP_DIR" && mkdir -p "$JAVA_OPTS_TMP_DIR" && chmod 777 "$JAVA_OPTS_TMP_DIR"
     - name: Install and unpack sbt
