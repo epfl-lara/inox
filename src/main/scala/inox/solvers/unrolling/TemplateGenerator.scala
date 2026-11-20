@@ -33,8 +33,8 @@ trait TemplateGenerator { self: Templates =>
     condTree: Map[Variable, Set[Variable]] = Map.empty,
     guardedExprs: Map[Variable, Seq[Expr]] = VectorMap.empty,
     equations: Seq[Expr] = Seq.empty,
-    types: Types = Map.empty,
-    equalities: Equalities = Map.empty,
+    types: Types = VectorMap.empty,
+    equalities: Equalities = VectorMap.empty,
     lambdas: Seq[LambdaTemplate] = Seq.empty,
     quantifications: Seq[QuantificationTemplate] = Seq.empty
   ) {
@@ -354,7 +354,8 @@ trait TemplateGenerator { self: Templates =>
       equations :+= Implies(fail, guardVar)
     }
 
-    var types = Map[Encoded, Set[Typing]]()
+    // The typings and equalities are kept in the order in which they are stored (see [[Items]])
+    var types: Map[Encoded, Set[Typing]] = VectorMap.empty
     def storeType(pathVar: Variable, tpe: Type, arg: Expr, inDomain: Boolean = false, ground: Boolean = false)
                  (using generator: TypingGenerator): Expr = {
       val b = encodedCond(pathVar)
@@ -383,7 +384,7 @@ trait TemplateGenerator { self: Templates =>
           (BooleanLiteral(true), Typing(tpe.getType, encoder(arg), Capture(container, containerType)))
       }
 
-      types += b -> (types.getOrElse(b, Set.empty) + typing)
+      types = types `merge` (b -> typing)
       result
     }
 
@@ -401,7 +402,7 @@ trait TemplateGenerator { self: Templates =>
         val readsCall: Variable = Variable.fresh("tp", BooleanType(), true)
         storeExpr(readsCall)
         val typing = Typing(tpe, encoder(arg), Collection(exprVars(readsCall), closures, generator == FreeGenerator))
-        types += b -> (types.getOrElse(b, Set.empty) + typing)
+        types = types `merge` (b -> typing)
         readsCall
       }
 
@@ -416,12 +417,11 @@ trait TemplateGenerator { self: Templates =>
     @inline def registerQuantification(quantification: QuantificationTemplate): Unit =
       quantifications :+= quantification
 
-    var equalities = Map[Encoded, Set[Equality]]()
+    var equalities: Map[Encoded, Set[Equality]] = VectorMap.empty
     @inline def storeEquality(guardVar: Variable, e1: Expr, e2: Expr): Unit = {
       val b = encodedCond(guardVar)
-      val prev: Set[Equality] = equalities.getOrElse(b, Set.empty)
       val encoder: Expr => Encoded = mkEncoder(localSubst)
-      equalities += b -> (prev + Equality(e1.getType, encoder(e1), encoder(e2)))
+      equalities = equalities `merge` (b -> Equality(e1.getType, encoder(e1), encoder(e2)))
     }
 
     @inline def localSubst: Map[Variable, Encoded] =
