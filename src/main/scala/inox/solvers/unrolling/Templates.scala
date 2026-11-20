@@ -99,9 +99,10 @@ trait Templates
     /** The earliest generation of the pending keys, if any. */
     def generation: Option[Int] = if (entries.isEmpty) None else Some(entries.values.map(_._1).min)
 
+    // the items of a key are kept in the order in which they were registered (see [[Items]])
     def register(key: K, gen: Int, items: Set[I]): Pending[K, I] = entries.get(key) match {
-      case Some((exGen, exItems)) => Pending(entries.updated(key, (gen min exGen, exItems ++ items)))
-      case None => Pending(entries.updated(key, (gen, items)))
+      case Some((exGen, exItems)) => Pending(entries.updated(key, (gen min exGen, ListSet.from(exItems) ++ items)))
+      case None => Pending(entries.updated(key, (gen, ListSet.from(items))))
     }
 
     /** Replaces the items of the pending `key`, which keeps its generation. */
