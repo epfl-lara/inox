@@ -331,7 +331,8 @@ trait TypeTemplates { self: Templates =>
       case _ if deferTyping(typing) =>
         trackWitnessDepth(blocker)
         deferredTypings += ((blocker, typing))
-        holds
+        val Constraint(result, _, _, _, _) = typing.instantiator: @unchecked
+        Rule.Typed(blocker, result).clauses
 
       // In certain non-recursive cases, we want to instantiate the typing
       // immediately to improve unrolling performance
@@ -356,7 +357,7 @@ trait TypeTemplates { self: Templates =>
   /** Template used to unfold free symbols in the input expression. */
   class ConstraintTemplate private[TypeTemplates] (val contents: TemplateContents) extends Template {
     def instantiate(blocker: Encoded, result: Encoded, arg: Encoded, closures: Seq[Arg]): Clauses = {
-      instantiate(blocker, Seq(Left(result), Left(arg)) ++ closures)
+      Rule.Unfold(this, blocker, Seq(Left(result), Left(arg)) ++ closures, None).clauses
     }
   }
 
@@ -393,7 +394,7 @@ trait TypeTemplates { self: Templates =>
     val Seq((_, container), _) = contents.arguments
 
     def instantiate(blocker: Encoded, container: Encoded, arg: Encoded): Clauses = {
-      instantiate(blocker, Seq(Left(container), Left(arg)))
+      Rule.Unfold(this, blocker, Seq(Left(container), Left(arg)), None).clauses
     }
 
     override protected def instantiate(instantiation: Instantiation): Clauses = {
