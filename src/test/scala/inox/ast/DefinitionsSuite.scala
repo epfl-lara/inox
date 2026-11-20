@@ -98,6 +98,12 @@ class DefinitionsSuite extends AnyFunSuite {
     val b = mkSort(bID)() { _ => Seq((FreshIdentifier("B"), Seq(ValDef(FreshIdentifier("a"), T(aID)())))) }
     assert(!wellFormed(Seq(refined(aID, aInv), b), Seq(aInv)))
 
+    // through another sort that only quantifies over it: an A exists iff no B exists, and a B
+    // exists iff some A exists, without either sort holding the other
+    val aOnly = invariant(aID)(_ => forall("b" :: T(bID)())(_ => E(false)))
+    val bOnly = invariant(bID)(_ => Not(forall("a" :: T(aID)())(_ => E(false))))
+    assert(!wellFormed(Seq(refined(aID, aOnly), refined(bID, bOnly)), Seq(aOnly, bOnly)))
+
     // quantifiers over other values are fine
     val cID = FreshIdentifier("C")
     val tOthers = invariant(tID)(_ => forall("c" :: T(cID)())(_ => forall("y" :: IntegerType())(_ => E(true))))
