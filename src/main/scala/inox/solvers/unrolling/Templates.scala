@@ -962,7 +962,7 @@ trait Templates
       val literals = contents.failures.getOrElse(Seq.empty)
 
       val allClauses = new scala.collection.mutable.ListBuffer[Encoded]
-      if (failure.isEmpty) allClauses ++= literals.map(f => mkNot(substituter(f)))
+      if (failure.isEmpty) allClauses ++= literals.flatMap(f => Rule.Unreachable(substituter(f)).clauses)
       allClauses ++= contents.clauses.map(substituter)
 
       // Applies `f` to the items that `select` picks, under their substituted blockers
@@ -972,7 +972,7 @@ trait Templates
       // The calls and applications that may fail, under their blockers
       val failing = new scala.collection.mutable.ListBuffer[Encoded]
       def mayFail(b: Encoded, fails: => Encoded): Unit = if (modes.partialFunctions) {
-        if (failure.isDefined) failing += mkAnd(b, fails) else allClauses += mkImplies(b, mkNot(fails))
+        if (failure.isDefined) failing += mkAnd(b, fails) else allClauses ++= Rule.Unreachable(fails, Some(b)).clauses
       }
 
       each { case c: Call => c } { (bp, fi) =>
@@ -996,7 +996,7 @@ trait Templates
           case Seq(source) => source
           case _ => mkOr(sources.toSeq*)
         }
-        allClauses += mkImplies(substituter(contents.pathVar._2), mkEquals(self, fails))
+        allClauses ++= Rule.Define(Some(substituter(contents.pathVar._2)), self, fails).clauses
       }
       allClauses ++= newFailureDefinitions()
 
@@ -1027,8 +1027,8 @@ trait Templates
     val tmplClauses = gen(start, encodedStart)
 
     val (contents, _) = Template.contents(start -> encodedStart, bindings.toSeq, tmplClauses)
-    val allClauses = encodedStart +:
-      contents.instantiation(encodedStart, Map.empty[Encoded, Arg]).clauses(exempt = exempt)
+    val allClauses = Rule.Root(encodedStart).clauses ++
+      Rule.Instance(contents.instantiation(encodedStart, Map.empty[Encoded, Arg]), InstanceOf.Expression(exempt)).clauses
 
     for (cl <- allClauses) {
       reporter.debug("  . " + cl)
@@ -1095,9 +1095,9 @@ trait Templates
     // `instantiate` asserts the start blocker, which we replace with the witness condition
     val encodedStart +: rest = clauses: @unchecked
     val (err1, err2) = (appFailure(f1, tpe, wsT), appFailure(f2, tpe, wsT))
-    val distinguished = if (!partial) differT else mkOr(mkNot(mkEquals(err1, err2)), mkAnd(mkNot(err1), mkNot(err2), differT))
-    (mkEquals(encodedStart, mkAnd(guard, mkNot(mkEquals(f1, f2)))) +: mkImplies(encodedStart, distinguished) +: rest) ++
-      newFailureDefinitions()
+    Rule.Define(None, encodedStart, mkAnd(guard, mkNot(mkEquals(f1, f2)))).clauses ++
+      Rule.DistinguishingInput(encodedStart, differT, if (partial) Some((err1, err2)) else None).clauses ++
+      rest ++ newFailureDefinitions()
   }
 
   protected def instantiateExpr(expr: Expr, bindings: Map[Variable, Encoded]): Clauses = {

@@ -44,7 +44,7 @@ trait PartialFunctions { self: Templates =>
       val fails = appFailurePredicates.getOrElseUpdate(tpe, mkFunction("fails", tpe +: tpe.from, BooleanType()))
       // the predicate is mirrored by a literal, whose value models give on every backend
       val literal = encodeSymbol(Variable.fresh("fails", BooleanType(), true))
-      failureDefinitions += mkEquals(literal, mkFunApp(fails, caller +: args))
+      failureDefinitions ++= Rule.Define(None, literal, mkFunApp(fails, caller +: args)).clauses
       literal
     }
   private val appFailurePredicates = scala.collection.mutable.Map.empty[FunctionType, Function]

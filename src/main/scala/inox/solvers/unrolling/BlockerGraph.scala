@@ -79,7 +79,7 @@ trait BlockerGraph { self: Templates =>
         case None =>
           val b = encodeSymbol(sym)
           condEquals += (b -> flatBs)
-          (b, Seq(mkEquals(b, if (flatBs.isEmpty) trueT else mkAnd(flatBs.toSeq*))))
+          (b, Rule.Define(None, b, if (flatBs.isEmpty) trueT else mkAnd(flatBs.toSeq*)).clauses)
       }
   }
 

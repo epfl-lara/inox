@@ -340,7 +340,7 @@ trait QuantificationTemplates { self: Templates =>
       val (blocker, blockerClauses) = encodeBlockers(blockers)
       registerImplication(blocker, matcherBlocker)
       clauses ++= blockerClauses
-      clauses += mkImplies(blocker, matcherBlocker)
+      clauses ++= Rule.Enables(blocker, matcherBlocker).clauses
     }
 
     clauses.toSeq
@@ -641,14 +641,12 @@ trait QuantificationTemplates { self: Templates =>
 
           val baseSubst = subst + (contents.pathVar._2 -> Left(enabler))
           val instantiation = contents.instantiation(enabler, baseSubst)
-          clauses ++= instantiation.substClauses
-
           val msubst = instantiation.msubst
           val substituter = instantiation.substituter
           registerBlockers(substituter)
 
           // matcher instantiation must be manually controlled here to avoid never-ending loops
-          clauses ++= instantiation.itemClauses(onMatcher = (_, _) => Seq.empty)
+          clauses ++= Rule.Instance(instantiation, InstanceOf.OfAxiom).clauses
 
           for ((b,ms) <- matchers; m <- ms) {
             val sb = bs ++ (if (b == guard) Set.empty else Set(substituter(b)))
@@ -668,7 +666,7 @@ trait QuantificationTemplates { self: Templates =>
         val (blocker, blockerClauses) = encodeBlockers(bs)
         registerImplication(blocker, substBlocker)
         clauses ++= blockerClauses
-        clauses += mkImplies(blocker, substBlocker)
+        clauses ++= Rule.Enables(blocker, substBlocker).clauses
       }
 
       clauses.toSeq
@@ -740,7 +738,7 @@ trait QuantificationTemplates { self: Templates =>
     }.map { case (tmpl, inst) =>
       template.polarity match {
         case Positive(subst) =>
-          (Map.empty[Encoded, Encoded], Seq(mkImplies(template.contents.pathVar._2, inst)))
+          (Map.empty[Encoded, Encoded], Rule.Holds(template.contents.pathVar._2, inst).clauses)
         case Negative(insts) =>
           (Map(insts._2 -> inst), Seq.empty[Encoded])
       }
@@ -769,7 +767,7 @@ trait QuantificationTemplates { self: Templates =>
           val freshQuants = newTemplate.quantifiers.map(p => encodeSymbol(p._1))
           val substMap = ((newTemplate.quantifiers.map(_._2) :+ insts._2) zip (freshQuants :+ instT).map(Left(_))).toMap
           // this will call `instantiateMatcher` on all matchers in `newTemplate.matchers`
-          clauses ++= newTemplate.contents.instantiation(newTemplate.contents.pathVar._2, substMap).clauses()
+          clauses ++= Rule.Instance(newTemplate.contents.instantiation(newTemplate.contents.pathVar._2, substMap), InstanceOf.Counterexample).clauses
 
           (instT, Map(insts._2 -> instT))
       })
@@ -786,8 +784,7 @@ trait QuantificationTemplates { self: Templates =>
               clauses ++= equalityClauses
               equality
             }
-          val cond = mkAnd(blocker +: eqConds*)
-          cls :+ mkImplies(cond, mkEquals(inst, tinst))
+          cls ++ Rule.Congruence(blocker +: eqConds, mkEquals(inst, tinst)).clauses
         } else {
           Seq.empty[Encoded]
         }
