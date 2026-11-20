@@ -35,13 +35,13 @@ class DeterministicEncodingSuite extends AnyFunSuite {
   }
 
   val fID = FreshIdentifier("f")
-  // f(x) = if (x <= 0) 1 else f(x - 1) + ... + f(x - 6), whose calls share a blocker
+  // f(x) = if (x <= 0) 1 else f(x - 1) + ... + f(x - 8), whose calls share a blocker
   val f = mkFunDef(fID)() { _ => (
     Seq("x" :: IntegerType()), IntegerType(), { case Seq(x) =>
       if_ (x <= E(BigInt(0))) {
         E(BigInt(1))
       } else_ {
-        (1 to 6).map(i => E(fID)(x - E(BigInt(i)))).reduce(_ + _)
+        (1 to 8).map(i => E(fID)(x - E(BigInt(i)))).reduce(_ + _)
       }
     })
   }
@@ -62,11 +62,11 @@ class DeterministicEncodingSuite extends AnyFunSuite {
     val query = And(Equals(y, E(BigInt(4))), Equals(E(hID)(g, y), E(fID)(y)))
 
     val first = session(program, 1)(query)
-    // shifts the ids of the identifiers that the second run allocates
-    for (_ <- 1 to 1000) FreshIdentifier("shift")
-    val second = session(program, 2)(query)
-
     assert(first.nonEmpty)
-    assert(first == second)
+    // shifts the ids of the identifiers that the next runs allocate
+    for ((shift, run) <- Seq(1000, 777, 4321).zipWithIndex) {
+      for (_ <- 1 to shift) FreshIdentifier("shift")
+      assert(session(program, run + 2)(query) == first)
+    }
   }
 }
