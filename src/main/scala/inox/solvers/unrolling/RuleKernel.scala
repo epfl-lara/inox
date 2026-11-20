@@ -61,7 +61,7 @@ trait RuleKernel { self: Templates =>
       *  - whether a free function is equal to none of the lambdas of its type;
       *  - the `rest` of an [[OpenJunction]], as the new operands and the `rest` of the next one;
       *  - the guard of the [[Congruence]] of two applications, and the condition under which two
-      *    functions have a [[DistinguishingInput]];
+      *    functions need a [[Witness]];
       *  - the conjunction of a set of blockers (see [[BlockerGraph.encodeBlockers]]);
       *  - whether the body of a function or lambda fails, as whether one of its failure literals or
       *    the calls and applications on its paths does, and whether an application fails, as the
@@ -158,14 +158,14 @@ trait RuleKernel { self: Templates =>
     case Congruence(premises: Seq[Encoded], resultEq: Encoded)
 
     /** `start ==> distinguished`, where `start` holds iff two functions `f1` and `f2` are distinct
-      * where a distinguishing input is needed, and `distinguished` states that they differ on fresh
+      * where they need a witness, and `distinguished` states that they differ on the witness, fresh
       * arguments `ws`: their applications differ, or, when `failures` gives whether each one fails,
       * one fails and the other doesn't or neither fails and they differ.
       *
-      * Distinguishing inputs are only used when function equality is extensional or unobservable,
-      * and functions can then be interpreted extensionally. Distinct functions then differ on some
-      * input, which `ws` stand for. */
-    case DistinguishingInput(start: Encoded, differ: Encoded, failures: Option[(Encoded, Encoded)])
+      * Witnesses are only used when function equality is extensional or unobservable, and functions
+      * can then be interpreted extensionally. Distinct functions then differ on some input, which
+      * `ws` stand for. */
+    case Witness(start: Encoded, differ: Encoded, failures: Option[(Encoded, Encoded)])
 
     /** `e1 == e2 ==> eq(e1, e2)`, under `guard` if there is one, where `eq` is the equality
       * symbol of `tpe`.
@@ -266,7 +266,7 @@ trait RuleKernel { self: Templates =>
       case Congruence(premises, resultEq) =>
         Seq(mkImplies(mkAnd(premises*), resultEq))
 
-      case DistinguishingInput(start, differ, failures) =>
+      case Witness(start, differ, failures) =>
         val distinguished = failures match {
           case None => differ
           case Some((err1, err2)) => mkOr(mkNot(mkEquals(err1, err2)), mkAnd(mkNot(err1), mkNot(err2), differ))
