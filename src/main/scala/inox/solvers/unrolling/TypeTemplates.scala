@@ -33,18 +33,16 @@ trait TypeTemplates { self: Templates =>
     * type unrolling (dependent types), read unrolling (dependent types and ADT invariants, but not
     * what only free values need, see [[Collection]]) and capture unrolling (function closure ordering). */
   protected sealed abstract class TypeUnrolling {
-    private val unrollCache: MutableMap[TypedADTSort, Boolean] = MutableMap.empty
-
     def unroll(tpe: Type): Boolean = tpe match {
       case adt: ADTType =>
         val sort = adt.getSort
         ((this == FreeUnrolling || this == ReadUnrolling) && sort.invariant.nonEmpty) ||
-        (unrollCache.get(sort) match {
+        (typeCaches.unroll.get(this -> sort) match {
           case Some(b) => b
           case None =>
-            unrollCache(sort) = false
+            typeCaches.unroll(this -> sort) = false
             val res = sort.constructors.exists(c => c.fields.exists(vd => unroll(vd.tpe)))
-            unrollCache(sort) = res
+            typeCaches.unroll(this -> sort) = res
             res
         })
 
@@ -168,7 +166,7 @@ trait TypeTemplates { self: Templates =>
     * that capture it, such as Stainless's type predicates
     * `x => x.isInstanceOf[(A, B)] && A(x._1) && B(x._2)`, which can make some queries time out. */
   def registerCapturedFunctions(container: Encoded, functions: Seq[Encoded]): Unit = {
-    if (functions.nonEmpty) lessOrder += container -> (lessOrder(container) ++ functions)
+    if (functions.nonEmpty) addLess(container, functions)
   }
 
   private def instantiateTyping(blocker: Encoded, typing: Typing): Clauses = {
@@ -179,10 +177,10 @@ trait TypeTemplates { self: Templates =>
                ground: Boolean = false)
               (instantiate: => Clauses): Clauses = {
       val key = (tpe, arg, closures, generator, inDomain, ground, blocker)
-      results.get(key) match {
+      state.get.results.get(key) match {
         case Some(res) => Rule.Define(None, result, res).clauses
         case None =>
-          results += key -> result
+          state.update(s => s.copy(results = s.results.updated(key, result)))
           instantiate
       }
     }
@@ -240,15 +238,16 @@ trait TypeTemplates { self: Templates =>
     * result is a conjunction over the reads, which is extended with every new read. */
   private def typeRead(info: CollectionInfo, readBlocker: Encoded, read: Encoded, key: Encoded): Clauses = {
     val CollectionInfo(blocker, tpe, collection, closures, typing, free) = info
-    if (typesManager.readTypings `contains` ((blocker, collection, read, key))) Seq.empty else {
+    if (state.get.readTypings((blocker, collection, read, key))) Seq.empty else {
       val (elemTpe, cond, value) = collectionRead(tpe, collection, key)
       val guard = mkAnd(readBlocker, mkEquals(collection, read), cond)
       val typeBlocker = encodeSymbol(Variable.fresh("rb", BooleanType(), true))
       val result = encodeSymbol(Variable.fresh("result", BooleanType(), true))
-      val reads = typesManager.readsTypings(typing)
+      val reads = state.get.readsTypings(typing)
       val next = reads.next
-      typesManager.readTypings += ((blocker, collection, read, key))
-      typesManager.readsTypings += typing -> next
+      state.update(s => s.copy(
+        readTypings = s.readTypings + ((blocker, collection, read, key)),
+        readsTypings = s.readsTypings.updated(typing, next)))
 
       val subst: Map[Variable, Arg] = (typeOps.variablesOf(tpe).toSeq.sortBy(_.id) zip closures).toMap
       val elemClosures = typeOps.variablesOf(elemTpe).toSeq.sortBy(_.id).map(subst)
@@ -267,17 +266,19 @@ trait TypeTemplates { self: Templates =>
                          free: Boolean): Clauses = {
     val ct = tpe.getType
     val info = CollectionInfo(blocker, tpe, collection, closures, result, free)
-    if (!typesManager.readsTypings.contains(result)) {
-      typesManager.readsTypings += result -> OpenAnd("r_and", AssumedComplete.Always, result)
+    if (!state.get.readsTypings.contains(result)) {
+      val reads = OpenAnd("r_and", AssumedComplete.Always, result)
+      state.update(s => s.copy(readsTypings = s.readsTypings.updated(result, reads)))
     }
     if (free) {
-      typesManager.collections += ct -> (typesManager.collections(ct) + info)
-      typesManager.reads(ct).toSeq.flatMap { case (readBlocker, read, key) =>
+      state.update(s => s.copy(collections = s.collections.updated(ct, s.collections.getOrElse(ct, Set.empty) + info)))
+      state.get.reads.getOrElse(ct, Set.empty).toSeq.flatMap { case (readBlocker, read, key) =>
         typeRead(info, readBlocker, read, key)
       }
     } else {
-      typesManager.boundCollections += collection -> (typesManager.boundCollections(collection) + info)
-      typesManager.readsOf(collection).toSeq.flatMap { case (readBlocker, key) =>
+      state.update(s => s.copy(boundCollections =
+        s.boundCollections.updated(collection, s.boundCollections.getOrElse(collection, Set.empty) + info)))
+      state.get.readsOf.getOrElse(collection, Set.empty).toSeq.flatMap { case (readBlocker, key) =>
         typeRead(info, readBlocker, collection, key)
       }
     }
@@ -289,14 +290,16 @@ trait TypeTemplates { self: Templates =>
   def instantiateRead(blocker: Encoded, read: Read): Clauses = {
     val Read(tpe, collection, key) = read
     val ct = tpe.getType
-    val (readBlocker, readClauses) = typesManager.readBlockers.get((collection, key)) match {
+    val (readBlocker, readClauses) = state.get.readBlockers.get((collection, key)) match {
       case Some(readBlocker) => (readBlocker, Seq.empty)
       case None =>
         val readBlocker = encodeSymbol(Variable.fresh("rd", BooleanType(), true))
-        typesManager.readBlockers += (collection, key) -> readBlocker
-        typesManager.reads += ct -> (typesManager.reads(ct) + ((readBlocker, collection, key)))
-        typesManager.readsOf += collection -> (typesManager.readsOf(collection) + (readBlocker -> key))
-        val infos = typesManager.collections(ct).toSeq ++ typesManager.boundCollections(collection)
+        state.update(s => s.copy(
+          readBlockers = s.readBlockers.updated((collection, key), readBlocker),
+          reads = s.reads.updated(ct, s.reads.getOrElse(ct, Set.empty) + ((readBlocker, collection, key))),
+          readsOf = s.readsOf.updated(collection, s.readsOf.getOrElse(collection, Set.empty) + (readBlocker -> key))))
+        val infos = state.get.collections.getOrElse(ct, Set.empty).toSeq ++
+          state.get.boundCollections.getOrElse(collection, Set.empty)
         (readBlocker, infos.flatMap(info => typeRead(info, readBlocker, collection, key)))
     }
 
@@ -305,7 +308,7 @@ trait TypeTemplates { self: Templates =>
   }
 
   /** A collection, whose reads typing is the conjunction that its `typing` result stands for (see
-    * [[typesManager.readsTypings]]). */
+    * [[TypesState.readsTypings]]). */
   private case class CollectionInfo(blocker: Encoded, tpe: Type, collection: Encoded, closures: Seq[Arg], typing: Encoded,
                                     free: Boolean)
 
@@ -330,7 +333,7 @@ trait TypeTemplates { self: Templates =>
       // The typing holds as long as type parameters are inhabited (see `deferredTypings`)
       case _ if deferTyping(typing) =>
         trackWitnessDepth(blocker)
-        deferredTypings += ((blocker, typing))
+        state.update(s => s.copy(deferredTypings = s.deferredTypings :+ (blocker -> typing)))
         val Constraint(result, _, _, _, _) = typing.instantiator: @unchecked
         Rule.Typed(blocker, result).clauses
 
@@ -352,7 +355,8 @@ trait TypeTemplates { self: Templates =>
 
   // keep track of the witness depth until the typing is unrolled (see [[LambdaTemplates]])
   private def trackWitnessDepth(blocker: Encoded): Unit =
-    if (witnessDepth > 0) typeDepths += blocker -> (witnessDepth max typeDepths.getOrElse(blocker, 0))
+    if (witnessDepth > 0) state.update(s =>
+      s.copy(typeDepths = s.typeDepths.updated(blocker, witnessDepth max s.typeDepths.getOrElse(blocker, 0))))
 
   /** Template used to unfold free symbols in the input expression. */
   class ConstraintTemplate private[TypeTemplates] (val contents: TemplateContents) extends Template {
@@ -363,10 +367,8 @@ trait TypeTemplates { self: Templates =>
 
   /** Generator for [[ConstraintTemplate]] instances. */
   object ConstraintTemplate {
-    private val cache: MutableMap[(Type, TypingGenerator, Boolean, Boolean), ConstraintTemplate] = MutableMap.empty
-
     def apply(tpe: Type, generator: TypingGenerator, inDomain: Boolean, ground: Boolean = false): ConstraintTemplate =
-      cache.getOrElse((tpe, generator, inDomain, ground), {
+      typeCaches.constraints.getOrElse((tpe, generator, inDomain, ground), {
       val v = Variable.fresh("x", tpe.getType, true)
       val pathVar = Variable.fresh("b", BooleanType(), true)
       val result = Variable.fresh("result", BooleanType(), true)
@@ -382,7 +384,7 @@ trait TypeTemplates { self: Templates =>
         tmplClauses + (pathVar -> Equals(result, p)))
 
       val res = new ConstraintTemplate(contents)
-      cache((tpe, generator, inDomain, ground)) = res
+      typeCaches.constraints((tpe, generator, inDomain, ground)) = res
       res
     })
   }
@@ -401,7 +403,7 @@ trait TypeTemplates { self: Templates =>
       val sc = instantiation.substituter(container)
       val sfuns = functions.map(instantiation.substituter)
 
-      lessOrder += sc -> (lessOrder(sc) ++ sfuns)
+      addLess(sc, sfuns)
 
       super.instantiate(instantiation)
     }
@@ -409,9 +411,6 @@ trait TypeTemplates { self: Templates =>
 
   /** Template generator for [[CaptureTemplate]] instances. */
   object CaptureTemplate {
-
-    private val cache: MutableMap[(Type, FunctionType), CaptureTemplate] = MutableMap.empty
-    private val ordCache: MutableMap[FunctionType, Encoded => Encoded] = MutableMap.empty
 
     private val lessThan: (Encoded, Encoded) => Encoded = {
       val l = Variable.fresh("left", IntegerType())
@@ -422,17 +421,17 @@ trait TypeTemplates { self: Templates =>
       (nl: Encoded, nr: Encoded) => mkSubstituter(Map(lT -> nl, rT -> nr))(encoded)
     }
 
-    private def order(tpe: FunctionType): Encoded => Encoded = ordCache.getOrElse(tpe, {
+    private def order(tpe: FunctionType): Encoded => Encoded = typeCaches.orders.getOrElse(tpe, {
       val a = Variable.fresh("arg", tpe)
       val o = Variable.fresh("order", FunctionType(Seq(tpe), IntegerType()), true)
       val (aT, oT) = (encodeSymbol(a), encodeSymbol(o))
       val encoded = mkEncoder(Map(a -> aT, o -> oT))(Application(o, Seq(a)))
       val res = (na: Encoded) => mkSubstituter(Map(aT -> na))(encoded)
-      ordCache(tpe) = res
+      typeCaches.orders(tpe) = res
       res
     })
 
-    def apply(tpe: Type, containerType: FunctionType): CaptureTemplate = cache.getOrElse(tpe -> containerType, {
+    def apply(tpe: Type, containerType: FunctionType): CaptureTemplate = typeCaches.captures.getOrElse(tpe -> containerType, {
       val v = Variable.fresh("x", tpe.getType, true)
       val pathVar = Variable.fresh("b", BooleanType(), true)
       val (idT, pathVarT) = (encodeSymbol(v), encodeSymbol(pathVar))
@@ -473,33 +472,97 @@ trait TypeTemplates { self: Templates =>
         clauses = contents.clauses ++ funClauses
       ), functions)
 
-      cache(tpe -> containerType) = res
+      typeCaches.captures(tpe -> containerType) = res
       res
     })
   }
 
   /** Whether the functions `f1` and `f2` can be equal: neither captures the other (see
     * [[CaptureTemplate]]), unless their capture was related (see [[relateCaptured]]). */
-  private[unrolling] def canBeEqual(f1: Encoded, f2: Encoded): Boolean =
+  private[unrolling] def canBeEqual(f1: Encoded, f2: Encoded): Boolean = {
+    val TypesState(_, lessOrder, relatedCaptures, _, _, _, _, _, _, _, _, _, _) = state.get
     relatedCaptures(f1 -> f2) || relatedCaptures(f2 -> f1) || {
+      def less(f: Encoded): Set[Encoded] = lessOrder.getOrElse(f, Set.empty)
       def transitiveLess(l: Encoded, r: Encoded): Boolean = {
-        val fs = fixpoint((fs: Set[Encoded]) => fs ++ fs.flatMap(lessOrder))(lessOrder(l))
+        val fs = fixpoint((fs: Set[Encoded]) => fs ++ fs.flatMap(less))(less(l))
         fs(r)
       }
 
       !transitiveLess(f1, f2) && !transitiveLess(f2, f1)
     }
+  }
 
   /** Lets the lambda `lambda` equal the function `f` that it captures (see [[LambdaTemplates.relateCapture]]). */
-  private[unrolling] def relateCaptured(lambda: Encoded, f: Encoded): Unit = relatedCaptures += lambda -> f
+  private[unrolling] def relateCaptured(lambda: Encoded, f: Encoded): Unit =
+    state.update(s => s.copy(relatedCaptures = s.relatedCaptures + (lambda -> f)))
+
+  /** Orders the functions `functions` before `container` (see [[canBeEqual]]). */
+  private def addLess(container: Encoded, functions: Iterable[Encoded]): Unit =
+    state.update(s => s.copy(lessOrder = s.lessOrder.updated(container, s.lessOrder.getOrElse(container, Set.empty) ++ functions)))
+
+  /** The caches of the types manager, which survive a pop: each maps its key to a value that only
+    * depends on the key and the program, or to a fresh symbol that stands for the same thing
+    * wherever it is used. */
+  private[unrolling] object typeCaches {
+    /** Whether each kind of unrolling unrolls the values of each sort (see [[TypeUnrolling]]). */
+    val unroll: MutableMap[(TypeUnrolling, TypedADTSort), Boolean] = MutableMap.empty
+    /** The template of each typing (see [[ConstraintTemplate]]). */
+    val constraints: MutableMap[(Type, TypingGenerator, Boolean, Boolean), ConstraintTemplate] = MutableMap.empty
+    /** The template of each capture, and the order of the functions of each type (see [[CaptureTemplate]]). */
+    val captures: MutableMap[(Type, FunctionType), CaptureTemplate] = MutableMap.empty
+    val orders: MutableMap[FunctionType, Encoded => Encoded] = MutableMap.empty
+    /** The flag `tp_is_empty` of each type parameter, and its encoding (see [[typesManager.storeTypeParameter]]). */
+    val tpSyms: MutableMap[TypeParameter, Variable] = MutableMap.empty
+    val tpSubst: MutableMap[Variable, Encoded] = MutableMap.empty
+    /** The negation of each blocker of typings (see [[typesManager.satisfactionAssumptions]]). */
+    val negations: MutableMap[Encoded, Encoded] = MutableMap.empty
+  }
+
+  /** The state of [[typesManager]], which push saves and pop restores as a whole.
+    *
+    * @param typings the typings that each blocker guards, which are unfolded with it
+    * @param lessOrder the functions that each lambda captures (see [[registerCapturedFunctions]])
+    * @param relatedCaptures the lambdas and the functions they capture that a model made equal (see
+    *                        [[relateCaptured]])
+    * @param results the result of each typing that was instantiated, which the same typing under the
+    *                same blocker shares (see [[instantiateTyping]])
+    * @param typeDepths the witness depth of the blockers of the typings, until they are unrolled
+    * @param deferredTypings the typings that were assumed to hold, under the blocker they were
+    *                        instantiated with (see [[typesManager.deferTyping]])
+    * @param collections the free collections of each type, whose reads are typed (see [[registerCollection]])
+    * @param boundCollections the collections that aren't free, by their term
+    * @param reads the reads of the collections of each type, under their read blocker (see [[instantiateRead]])
+    * @param readsOf the reads of each collection, under their read blocker
+    * @param readBlockers the read blocker of each read, by its collection and key
+    * @param readTypings the reads that were typed, by the blocker and the term of the typed collection
+    *                    and the read collection and key (see [[typeRead]])
+    * @param readsTypings the reads typing of each collection, keyed by its typing result: the
+    *                     conjunction of the typings of the reads found so far, which defines the
+    *                     typing result (see [[typeRead]]). It is extended with each new read, and is
+    *                     assumed complete in every check: the typing holds when the reads unrolled
+    *                     so far are typed. */
+  private case class TypesState(
+    typings: Pending[Encoded, Typing],
+    lessOrder: Map[Encoded, Set[Encoded]],
+    relatedCaptures: Set[(Encoded, Encoded)],
+    results: Map[(Type, Encoded, Seq[Arg], TypingGenerator, Boolean, Boolean, Encoded), Encoded],
+    typeDepths: Map[Encoded, Int],
+    deferredTypings: Vector[(Encoded, Typing)],
+    collections: Map[Type, Set[CollectionInfo]],
+    boundCollections: Map[Encoded, Set[CollectionInfo]],
+    reads: Map[Type, Set[(Encoded, Encoded, Encoded)]],
+    readsOf: Map[Encoded, Set[(Encoded, Encoded)]],
+    readBlockers: Map[(Encoded, Encoded), Encoded],
+    readTypings: Set[(Encoded, Encoded, Encoded, Encoded)],
+    readsTypings: Map[Encoded, OpenAnd])
+
+  private object TypesState {
+    val empty: TypesState = TypesState(Pending.empty, Map.empty, Set.empty, Map.empty, Map.empty, Vector.empty,
+      Map.empty, Map.empty, Map.empty, Map.empty, Map.empty, Set.empty, Map.empty)
+  }
 
   private[unrolling] object typesManager extends Manager {
-    private[TypeTemplates] val typeInfos = new BlockerQueue[Typing]
-    private[TypeTemplates] val lessOrder = new IncrementalMap[Encoded, Set[Encoded]].withDefaultValue(Set.empty)
-    // the lambdas and the functions they capture that a model made equal (see [[registerCapturedFunctions]])
-    private[TypeTemplates] val relatedCaptures = new IncrementalSet[(Encoded, Encoded)]
-    private[TypeTemplates] val results = new IncrementalMap[(Type, Encoded, Seq[Arg], TypingGenerator, Boolean, Boolean, Encoded), Encoded]
-    private[TypeTemplates] val typeDepths = new IncrementalMap[Encoded, Int]
+    private[TypeTemplates] val state = new Snapshots(TypesState.empty)
 
     /* Deferred typings of type parameters
      * -----------------------------------
@@ -521,11 +584,9 @@ trait TypeTemplates { self: Templates =>
      * are registered for unfolding like any other, and no typing is deferred anymore. */
 
     /** Whether a guard has appeared, so that free values are unfolded down to their values of type
-      * parameters. This is never reset: guards may remain in cached templates after they are popped. */
+      * parameters. Unlike [[state]], this is never reset by a pop: guards may remain in cached
+      * templates after they are popped. */
     private var unfoldingTypeParameters: Boolean = false
-
-    /** The typings that were assumed to hold, under the blocker they were instantiated with. */
-    private[TypeTemplates] val deferredTypings = new IncrementalSeq[(Encoded, Typing)]
 
     /** Whether values of type `tpe` are only unfolded to reach their values of type parameters. */
     private[unrolling] def isParameterTyping(tpe: Type): Boolean = !unfoldingTypeParameters && {
@@ -549,15 +610,15 @@ trait TypeTemplates { self: Templates =>
 
     /** Registers the deferred typings for unfolding, as [[instantiateType]] would have. */
     private def unfoldDeferredTypings(): Unit = {
-      for (deferred @ (blocker, typing) <- deferredTypings.toList) {
-        deferredTypings -= deferred
-        registerTyping(blocker, typing)
-      }
+      val deferred = state.get.deferredTypings
+      state.update(_.copy(deferredTypings = Vector.empty))
+      for ((blocker, typing) <- deferred) registerTyping(blocker, typing)
     }
 
-    private[TypeTemplates] def registerTyping(blocker: Encoded, typing: Typing): Unit = {
-      typeInfos.register(blocker, nextGeneration(currentGeneration), Set(typing))
-    }
+    private[TypeTemplates] def registerTyping(blocker: Encoded, typing: Typing): Unit =
+      state.update(s => s.copy(typings = s.typings.register(blocker, nextGeneration(currentGeneration), Set(typing))))
+
+    val incrementals: Seq[IncrementalState] = Seq(state)
 
     // a pop restores the typings that were deferred before the push, even if a guard has appeared since
     override def pop(): Unit = {
@@ -565,46 +626,27 @@ trait TypeTemplates { self: Templates =>
       if (unfoldingTypeParameters) unfoldDeferredTypings()
     }
 
-    private val tpSyms: MutableMap[TypeParameter, Variable] = MutableMap.empty
-    private[unrolling] val tpSubst: MutableMap[Variable, Encoded] = MutableMap.empty
     private[unrolling] def storeTypeParameter(tp: TypeParameter): Variable =
-      tpSyms.getOrElse(tp, {
+      typeCaches.tpSyms.getOrElse(tp, {
         val v = Variable.fresh("tp_is_empty", BooleanType(), true)
-        tpSubst(v) = encodeSymbol(v)
-        tpSyms(tp) = v
+        typeCaches.tpSubst(v) = encodeSymbol(v)
+        typeCaches.tpSyms(tp) = v
         v
       })
 
     /** The type parameters of the query, with their flags (@see [[storeTypeParameter]]) */
     private[unrolling] def typeParameterFlags: Seq[(TypeParameter, Encoded)] =
-      tpSyms.toSeq.map { case (tp, v) => tp -> tpSubst(v) }
+      typeCaches.tpSyms.toSeq.map { case (tp, v) => tp -> typeCaches.tpSubst(v) }
 
-    private[TypeTemplates] val collections =
-      new IncrementalMap[Type, Set[CollectionInfo]].withDefaultValue(Set.empty)
-    private[TypeTemplates] val boundCollections =
-      new IncrementalMap[Encoded, Set[CollectionInfo]].withDefaultValue(Set.empty)
-    private[TypeTemplates] val reads = new IncrementalMap[Type, Set[(Encoded, Encoded, Encoded)]].withDefaultValue(Set.empty)
-    private[TypeTemplates] val readsOf = new IncrementalMap[Encoded, Set[(Encoded, Encoded)]].withDefaultValue(Set.empty)
-    private[TypeTemplates] val readBlockers = new IncrementalMap[(Encoded, Encoded), Encoded]
-    private[TypeTemplates] val readTypings = new IncrementalSet[(Encoded, Encoded, Encoded, Encoded)]
-
-    /** The reads typing of each collection, keyed by its typing result: the conjunction of the
-      * typings of the reads found so far, which defines the typing result (see [[typeRead]]). It
-      * is extended with each new read, and is assumed complete in every check: the typing holds when the
-      * reads unrolled so far are typed. */
-    private[TypeTemplates] val readsTypings = new IncrementalMap[Encoded, OpenAnd]
-
-    val incrementals: Seq[IncrementalState] =
-      Seq(typeInfos, lessOrder, relatedCaptures, results, typeDepths, deferredTypings, collections, boundCollections, reads, readsOf,
-        readBlockers, readTypings, readsTypings)
-
-    def unrollGeneration: Option[Int] = typeInfos.generation
+    def unrollGeneration: Option[Int] = state.get.typings.generation
 
     /** The reads typings of the collections, which are assumed complete as the reads that are yet to come
       * extend them (@see [[registerCollection]]), similarly to the typings of the application
       * results of free functions in [[LambdaTemplates]]. */
-    private def readsJunctions: Seq[OpenJunction[?]] =
-      (collections.toSeq ++ boundCollections.toSeq).flatMap(_._2.map(info => readsTypings(info.typing)))
+    private def readsJunctions: Seq[OpenJunction[?]] = {
+      val s = state.get
+      (s.collections.toSeq ++ s.boundCollections.toSeq).flatMap(_._2.map(info => s.readsTypings(info.typing)))
+    }
 
     /** The flags of the type parameters are assumed to hold until a guard appears: no model needs
       * an empty type parameter before, and nothing prevents a deferred typing from holding values
@@ -612,18 +654,27 @@ trait TypeTemplates { self: Templates =>
       * and those that reach values of a type parameter imply its flag, while the typings that
       * remain to be unfolded are blocked. A model check may then leave type parameters empty. */
     def satisfactionAssumptions: Seq[Encoded] =
-      typeInfos.satisfactionAssumptions ++ (if (unfoldingTypeParameters) Seq.empty else tpSubst.values) ++
+      state.get.typings.keys.toSeq.map(b => typeCaches.negations.getOrElseUpdate(b, mkNot(b))) ++
+        (if (unfoldingTypeParameters) Seq.empty else typeCaches.tpSubst.values) ++
         completenessAssumptions(readsJunctions, refuting = false)
 
     def refutationAssumptions: Seq[Encoded] = completenessAssumptions(readsJunctions, refuting = true)
 
-    def promoteBlocker(b: Encoded): Boolean = typeInfos.promote(b)
+    def promoteBlocker(b: Encoded): Boolean = state.get.typings.promote(b) match {
+      case Some(typings) =>
+        state.update(_.copy(typings = typings))
+        true
+      case None =>
+        false
+    }
 
-    def unroll: Clauses = if (typeInfos.isEmpty) Seq.empty else {
+    def unroll: Clauses = if (state.get.typings.isEmpty) Seq.empty else {
       val newClauses = new scala.collection.mutable.ListBuffer[Encoded]
 
-      for ((blocker, _, tps) <- typeInfos.dequeue(); tp <- tps) {
-        newClauses ++= withWitnessDepth(typeDepths.getOrElse(blocker, 0))(instantiateTyping(blocker, tp))
+      val (due, rest) = state.get.typings.dequeue
+      state.update(_.copy(typings = rest))
+      for ((blocker, _, tps) <- due; tp <- tps) {
+        newClauses ++= withWitnessDepth(state.get.typeDepths.getOrElse(blocker, 0))(instantiateTyping(blocker, tp))
       }
 
       reporter.debug("Unrolling types (" + newClauses.size + ")")

@@ -177,7 +177,7 @@ trait FunctionTemplates { self: Templates =>
     val ranked = sites.map { case (b, fi) => (b, fi, rank(fi.tfd, fi.args)) }
     val allSymbols = Map(contents.pathVar) ++ contents.arguments ++ contents.condVars ++ contents.exprVars ++
       contents.lambdas.map(_.ids) ++ contents.quantifications.flatMap(_.mapping) ++ functionCaches.rankSymbols ++
-      typesManager.tpSubst ++ uninterpretedSubst
+      typeCaches.tpSubst ++ uninterpretedSubst
     val encoder = mkEncoder(allSymbols)
     ranked.flatMap { case (b, fi, callee) =>
       // Calls whose arguments mention symbols that the template doesn't bind aren't ranked
