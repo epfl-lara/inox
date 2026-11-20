@@ -6,6 +6,7 @@ package unrolling
 
 import utils._
 
+import scala.collection.immutable.VectorMap
 import scala.collection.mutable.{Set => MutableSet, Map => MutableMap}
 
 trait FunctionTemplates { self: Templates =>
@@ -15,6 +16,29 @@ trait FunctionTemplates { self: Templates =>
   import program.symbols.{given, _}
 
   import functionsManager._
+
+  /** The caches of the function templates, which push and pop leave as they are. Each one maps its
+    * key to a value that only depends on the key and the program, such as a template, or to a fresh
+    * symbol that stands for the same thing wherever it is used, such as the rank function of a
+    * function. The clauses that mention such a symbol may be popped, and the clauses asserted
+    * later then constrain it anew. */
+  private object functionCaches {
+    /** The template of each function. */
+    val templates: MutableMap[TypedFunDef, FunctionTemplate] = MutableMap.empty
+    /** The template of the interpretation of each uninterpreted function (see [[InterpretedTemplate]]). */
+    val interpreted: MutableMap[Interpreted, FunctionTemplate] = MutableMap.empty
+    /** The rank function of each function, and its encoding (see [[rankClauses]]). */
+    val ranks: MutableMap[TypedFunDef, Variable] = MutableMap.empty
+    val rankSymbols: MutableMap[Variable, Encoded] = MutableMap.empty
+    /** Whether calls of each function can reach an uninterpreted function (see [[callsUninterpreted]]). */
+    val uninterpreted: MutableMap[Identifier, Boolean] = MutableMap.empty
+    /** The encoding of a call of each function, on fresh arguments (see [[mkCall]]). */
+    val calls: MutableMap[TypedFunDef, (Seq[Encoded], Encoded)] = MutableMap.empty
+    /** The negation of each blocker of calls (see [[functionsManager.satisfactionAssumptions]]). */
+    val negations: MutableMap[Encoded, Encoded] = MutableMap.empty
+    /** Whether `diverges` was created, after which the search for models assumes it doesn't hold. */
+    var rankedCalls = false
+  }
 
   protected def variableSeq(tpe: Type): Seq[Variable] = {
     val free = typeOps.variablesOf(tpe)
@@ -30,9 +54,7 @@ trait FunctionTemplates { self: Templates =>
   }
 
   object FunctionTemplate {
-    private val cache: MutableMap[TypedFunDef, FunctionTemplate] = MutableMap.empty
-
-    def apply(tfd: TypedFunDef): FunctionTemplate = cache.getOrElse(tfd, {
+    def apply(tfd: TypedFunDef): FunctionTemplate = functionCaches.templates.getOrElse(tfd, {
       val body: Expr = timers.solvers.simplify.run { simplifyFormula(tfd.fullBody) }
 
       val tpVars = tfd.tps.flatMap(variableSeq).distinct
@@ -105,28 +127,24 @@ trait FunctionTemplates { self: Templates =>
       }
 
       val res = new FunctionTemplate(contents, funString)
-      cache(tfd) = res
+      functionCaches.templates(tfd) = res
       res
     })
   }
 
-  private val rankCache: MutableMap[TypedFunDef, Variable] = MutableMap.empty
-
   /** Whether some call may reach itself on the same arguments (see `rankClauses`). The search for
     * models assumes that it doesn't, and proofs don't, so neither relies on a call diverging. */
   private lazy val diverges: Encoded = {
-    rankedCalls = true
+    functionCaches.rankedCalls = true
     encodeSymbol(Variable.fresh("diverges", BooleanType(), true))
   }
-  private var rankedCalls = false
-  private val rankSymbols: MutableMap[Variable, Encoded] = MutableMap.empty
 
   /** The rank of the call `tfd(args)`: an uninterpreted integer function of the arguments. */
   private def rank(tfd: TypedFunDef, args: Seq[Expr]): Expr = {
-    val r = rankCache.getOrElseUpdate(tfd, {
+    val r = functionCaches.ranks.getOrElseUpdate(tfd, {
       val r = Variable.fresh("rank_" + tfd.id.name,
         if (tfd.params.isEmpty) IntegerType() else FunctionType(tfd.params.map(_.getType), IntegerType()), true)
-      rankSymbols(r) = encodeSymbol(r)
+      functionCaches.rankSymbols(r) = encodeSymbol(r)
       r
     })
     if (tfd.params.isEmpty) r else Application(r, args)
@@ -158,7 +176,7 @@ trait FunctionTemplates { self: Templates =>
     val self = rank(tfd, tfd.params.map(_.toVariable))
     val ranked = sites.map { case (b, fi) => (b, fi, rank(fi.tfd, fi.args)) }
     val allSymbols = Map(contents.pathVar) ++ contents.arguments ++ contents.condVars ++ contents.exprVars ++
-      contents.lambdas.map(_.ids) ++ contents.quantifications.flatMap(_.mapping) ++ rankSymbols ++
+      contents.lambdas.map(_.ids) ++ contents.quantifications.flatMap(_.mapping) ++ functionCaches.rankSymbols ++
       typesManager.tpSubst ++ uninterpretedSubst
     val encoder = mkEncoder(allSymbols)
     ranked.flatMap { case (b, fi, callee) =>
@@ -172,9 +190,7 @@ trait FunctionTemplates { self: Templates =>
   /** The templates of the interpretations of uninterpreted functions, whose calls are the
     * applications of their free functions (see [[TemplateGenerator.interpretedFunctions]]). */
   object InterpretedTemplate {
-    private val cache: MutableMap[Interpreted, FunctionTemplate] = MutableMap.empty
-
-    def apply(callee: Interpreted): FunctionTemplate = cache.getOrElse(callee, {
+    def apply(callee: Interpreted): FunctionTemplate = functionCaches.interpreted.getOrElse(callee, {
       val Lambda(params, body) = interpretation(callee.id, callee.tps).get: @unchecked
       val args = params.map(_.freshen.toVariable)
       val interpreted = exprOps.replaceFromSymbols((params zip args).toMap, body)
@@ -189,7 +205,7 @@ trait FunctionTemplates { self: Templates =>
 
       val (contents, str) = Template.contents(pathVar, arguments, tmplClauses, optCall = Some(callee), partial = true)
       val res = new FunctionTemplate(contents, () => "Template for the interpretation of " + callee.signature + " is :\n" + str())
-      cache(callee) = res
+      functionCaches.interpreted(callee) = res
       res
     })
   }
@@ -203,16 +219,15 @@ trait FunctionTemplates { self: Templates =>
   }
 
   def instantiateCall(blocker: Encoded, fi: Call): Clauses = {
-    callInfos.register(blocker, nextGeneration(currentGeneration), Set(fi))
+    state.update(s => s.copy(calls = s.calls.register(blocker, nextGeneration(currentGeneration), Set(fi))))
     Seq.empty
   }
 
-  def getCalls: Seq[(Encoded, Call)] = defBlockers.toList.map(p => p._2 -> p._1)
+  def getCalls: Seq[(Encoded, Call)] = state.get.defBlockers.toList.map(p => p._2 -> p._1)
 
   /** Whether calls of `tfd` can reach an uninterpreted function, in which case ground calls of
     * `tfd` can't be evaluated. */
-  private val uninterpretedCache: MutableMap[Identifier, Boolean] = MutableMap.empty
-  private def callsUninterpreted(tfd: TypedFunDef): Boolean = uninterpretedCache.getOrElseUpdate(tfd.id,
+  private def callsUninterpreted(tfd: TypedFunDef): Boolean = functionCaches.uninterpreted.getOrElseUpdate(tfd.id,
     (transitiveCallees(tfd.fd) + tfd.fd).exists { fd =>
       exprOps.exists { case _: UninterpretedCall => true case _ => false } (fd.fullBody)
     })
@@ -265,7 +280,7 @@ trait FunctionTemplates { self: Templates =>
     * from growing quadratically with the number of calls.
     */
   private[unrolling] def delayedPurityClauses: Clauses = {
-    val calls = defBlockers.toSeq.groupBy(_._1.callee)
+    val calls = state.get.defBlockers.toSeq.groupBy(_._1.callee)
     for {
       (_, tfdCalls) <- calls.toSeq
       ((call1, blocker1), i) <- tfdCalls.zipWithIndex
@@ -274,42 +289,52 @@ trait FunctionTemplates { self: Templates =>
     } yield clause
   }
 
-  private val callCache: MutableMap[TypedFunDef, (Seq[Encoded], Encoded)] = MutableMap.empty
   private[unrolling] def mkCall(tfd: TypedFunDef, args: Seq[Encoded]): Encoded = {
-    val (asT, call) = callCache.getOrElse(tfd, {
+    val (asT, call) = functionCaches.calls.getOrElse(tfd, {
       val as = tfd.params.map(vd => Variable.fresh("x", vd.getType, true))
       val asT = as.map(encodeSymbol)
       val res = (asT, mkEncoder((as zip asT).toMap)(tfd.applied(as)))
-      callCache(tfd) = res
+      functionCaches.calls(tfd) = res
       res
     })
 
     mkSubstituter((asT zip args).toMap)(call)
   }
 
-  private[unrolling] object functionsManager extends Manager {
-    // Function instantiations have their own defblocker
-    private[FunctionTemplates] val defBlockers = new IncrementalMap[Call, Encoded]()
+  /** The state of [[functionsManager]], which push saves and pop restores as a whole.
+    *
+    * @param calls the calls that each blocker guards, which are unfolded with it
+    * @param defBlockers the definition blocker of each unfolded call, under which its body is
+    *                    instantiated, in the order in which the calls were unfolded */
+  private[unrolling] case class FunctionsState(calls: Pending[Encoded, Call], defBlockers: VectorMap[Call, Encoded])
 
-    // The calls that each blocker guards, which are unfolded with it
-    private[FunctionTemplates] val callInfos   = new BlockerQueue[Call]
+  private[unrolling] object functionsManager extends Manager {
+    private[FunctionTemplates] val state = new Snapshots(FunctionsState(Pending.empty, VectorMap.empty))
 
     private lazy val evaluator = semantics.getEvaluator(using context.withOpts(evaluators.optEvalQuantifiers(false)))
 
-    val incrementals: Seq[IncrementalState] = Seq(callInfos, defBlockers)
+    val incrementals: Seq[IncrementalState] = Seq(state)
 
-    def unrollGeneration: Option[Int] = callInfos.generation
+    def unrollGeneration: Option[Int] = state.get.calls.generation
 
     def satisfactionAssumptions: Seq[Encoded] =
-      callInfos.satisfactionAssumptions ++ (if (rankedCalls) Seq(mkNot(diverges)) else Seq.empty)
+      state.get.calls.keys.toSeq.map(b => functionCaches.negations.getOrElseUpdate(b, mkNot(b))) ++
+        (if (functionCaches.rankedCalls) Seq(mkNot(diverges)) else Seq.empty)
     def refutationAssumptions: Seq[Encoded] = Seq.empty
 
-    def promoteBlocker(b: Encoded): Boolean = callInfos.promote(b)
+    def promoteBlocker(b: Encoded): Boolean = state.get.calls.promote(b) match {
+      case Some(calls) =>
+        state.update(_.copy(calls = calls))
+        true
+      case None =>
+        false
+    }
 
-    def unroll: Clauses = if (callInfos.isEmpty) Seq.empty else {
+    def unroll: Clauses = if (state.get.calls.isEmpty) Seq.empty else {
       val newClauses = new scala.collection.mutable.ListBuffer[Encoded]
 
-      val thisCallInfos = callInfos.dequeue()
+      val (thisCallInfos, rest) = state.get.calls.dequeue
+      state.update(_.copy(calls = rest))
       val remainingBlockers = MutableSet.empty ++ thisCallInfos.map(_._1)
 
       // an interruption stops the unrolling between blockers, never within the calls of one
@@ -318,7 +343,7 @@ trait FunctionTemplates { self: Templates =>
            call @ Call(callee, args, tpSubst) <- calls) {
         val newCls = new scala.collection.mutable.ListBuffer[Encoded]
 
-        val defBlocker = defBlockers.get(call) match {
+        val defBlocker = state.get.defBlockers.get(call) match {
           case Some(defBlocker) =>
             // we already have defBlocker => f(args) = body
             defBlocker
@@ -326,11 +351,11 @@ trait FunctionTemplates { self: Templates =>
           case None =>
             // we need to define this defBlocker and link it to definition
             val defBlocker = encodeSymbol(Variable.fresh("d", BooleanType(), true))
-            defBlockers += call -> defBlocker
+            state.update(s => s.copy(defBlockers = s.defBlockers.updated(call, defBlocker)))
 
             // we generate helper equality clauses that stem from purity (see [[purityClauses]])
             if (equalitiesInstantiated) {
-              for ((pcall, pblocker) <- defBlockers if pcall.callee == callee && pcall != call) {
+              for ((pcall, pblocker) <- state.get.defBlockers if pcall.callee == callee && pcall != call) {
                 newClauses ++= purityClauses(pcall, pblocker, call, defBlocker)
               }
             }
@@ -402,7 +427,9 @@ trait FunctionTemplates { self: Templates =>
       }
 
       // the blockers that an interruption left out are unfolded later
-      for ((b, gen, calls) <- thisCallInfos if remainingBlockers(b)) callInfos.register(b, gen, calls)
+      for ((b, gen, calls) <- thisCallInfos if remainingBlockers(b)) {
+        state.update(s => s.copy(calls = s.calls.register(b, gen, calls)))
+      }
 
       reporter.debug(s"   - ${newClauses.size} new clauses")
 
