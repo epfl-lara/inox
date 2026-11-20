@@ -47,7 +47,7 @@ between the two:
 | Expression to clause translation | `TemplateGenerator.mkExprClauses` |
 | Function templates and call unfolding | `FunctionTemplates.scala` |
 | Template contents, guarded items and their instantiation (`Instantiation`) | `Templates.scala` |
-| The rules that build the clauses, each with why its clauses hold for every solution (`Rule`); calls and equalities so far | `RuleKernel.scala` |
+| The rules that build the clauses, each with why its clauses hold for every solution (`Rule`); all but the quantifiers and witnesses so far | `RuleKernel.scala` |
 | Implications and equalities between blockers | `BlockerGraph.scala` |
 | Conjunctions and disjunctions that grow with the unrolling (`OpenAnd`, `OpenOr`), and the assumptions that they are complete | `OpenJunctions.scala` |
 | Partial functions: the failure literals of calls and applications | `PartialFunctions.scala` |

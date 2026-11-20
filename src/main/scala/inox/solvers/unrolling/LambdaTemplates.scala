@@ -168,7 +168,7 @@ trait LambdaTemplates { self: Templates =>
         val freshBlocker = encodeSymbol(Variable.fresh("tb", BooleanType()))
 
         registerImplication(typeBlocker, freshBlocker)
-        clauses += mkImplies(mkAnd(b, mkEquals(f, app.caller), typeBlocker), freshBlocker)
+        clauses ++= Rule.Enables(mkAnd(b, mkEquals(f, app.caller), typeBlocker), freshBlocker).clauses
 
         val vars = typeOps.variablesOf(tpe).toSeq.sortBy(_.id)
         // A function type `A => B` is the non-dependent Pi type `Pi(x: A). B`, so both are
@@ -206,7 +206,7 @@ trait LambdaTemplates { self: Templates =>
 
         val appResult = if (domainResults.isEmpty) toResult else {
           val appResult = encodeSymbol(Variable.fresh("result", BooleanType(), true))
-          clauses += mkImplies(freshBlocker, mkEquals(appResult, mkImplies(mkAnd(domainResults*), toResult)))
+          clauses ++= Rule.ApplicationTyping(freshBlocker, appResult, domainResults, toResult).clauses
           appResult
         }
 
@@ -236,12 +236,12 @@ trait LambdaTemplates { self: Templates =>
       val equalLambdas = OpenOr("b_next", AssumedComplete.Always)
       nonFreeBlockers += f -> ((isFree, equalLambdas))
 
-      clauses += mkImplies(active, mkEquals(isFree, mkNot(equalLambdas.withOperands((for {
+      clauses ++= Rule.NonFree(active, isFree, equalLambdas, (for {
         template <- byType(ft).values
         if canBeEqual(template.ids._2, f)
       } yield {
         mkAnd(template.start, mkEquals(template.ids._2, f))
-      }).toSeq))))
+      }).toSeq).clauses
     }
 
     // Add type blocker clause
@@ -255,17 +255,18 @@ trait LambdaTemplates { self: Templates =>
         (typeBlocker, appResult, appClauses) <- registerApplication(b, f, app, tpe, closures, free)
       } yield {
         clauses ++= appClauses
-        clauses += mkImplies(bApp, typeBlocker)
+        clauses ++= Rule.Enables(bApp, typeBlocker).clauses
         mkImplies(typeBlocker, appResult)
       }
 
-      clauses += mkImplies(b, mkEquals(r, typedResults.withOperands(blockedResults.toSeq)))
+      clauses ++= Rule.FunctionTyping(b, r, typedResults, blockedResults.toSeq).clauses
     }
 
     if (ft.from.isEmpty) clauses ++= (for {
       template <- byType(ft).values.toList
       if canBeEqual(template.ids._2, f) && isPureTemplate(template)
-    } yield arglessEquality(b, isFree, f, ft, template))
+      clause <- arglessEquality(b, isFree, f, ft, template)
+    } yield clause)
 
     lazy val gen = nextGeneration(currentGeneration)
     for (app @ (_, App(caller, _, args, _)) <- applications(ft)) {
@@ -318,13 +319,13 @@ trait LambdaTemplates { self: Templates =>
 
     for ((b, g) <- freeFunctions(ft) if g == f) {
       if (ft.from.isEmpty && isPureTemplate(template)) {
-        clauses += arglessEquality(b, nonFreeBlockers(f)._1, f, ft, template)
+        clauses ++= arglessEquality(b, nonFreeBlockers(f)._1, f, ft, template)
       }
 
       val (isFree, equalLambdas) = nonFreeBlockers(f)
-      val (next, definition) = equalLambdas.extend(Seq(mkAnd(template.start, mkEquals(lambda, f))))
+      val next = equalLambdas.next
       nonFreeBlockers += f -> ((isFree, next))
-      clauses += mkImplies(b, definition)
+      clauses ++= Rule.Link(equalLambdas, next, Seq(mkAnd(template.start, mkEquals(lambda, f))), Some(b)).clauses
     }
 
     // the model that made them equal is only checked again once these applications are unrolled
@@ -341,7 +342,7 @@ trait LambdaTemplates { self: Templates =>
   }
 
   /** Equates the free function `f` with the pure, argument-less lambda of `template` when they
-    * return the same value.
+    * return the same value (see [[Rule.ArglessEquality]]).
     *
     * A free function's model is the lambda that returns its value (`() => f()`), which is
     * structurally equal to the pure lambda's model when the values agree, so the solver must not
@@ -350,11 +351,8 @@ trait LambdaTemplates { self: Templates =>
     * equal. Without the `isFree` guard, `f == () => g(x)` and `() => Uu` (both of type `() => Unit`)
     * would force `() => g(x) == () => Uu`, which is UNSAT although both lambdas exist.
     */
-  private def arglessEquality(b: Encoded, isFree: Encoded, f: Encoded, ft: FunctionType, template: LambdaTemplate): Encoded = {
-    val lambda = template.ids._2
-    val (tmplApp, fApp) = (mkApp(lambda, ft, Seq.empty), mkApp(f, ft, Seq.empty))
-    mkImplies(mkAnd(b, isFree, template.start, mkEquals(tmplApp, fApp)), mkEquals(lambda, f))
-  }
+  private def arglessEquality(b: Encoded, isFree: Encoded, f: Encoded, ft: FunctionType, template: LambdaTemplate): Clauses =
+    Rule.ArglessEquality(b, isFree, f, ft, template.start, template.ids._2).clauses
 
   private def registerAppInfo(gen: Int, key: (Encoded, App), template: Either[LambdaTemplate, Encoded], equals: Encoded, args: Seq[Arg]): Unit = {
     appInfos.register(key, gen, Set(TemplateAppInfo(template, equals, args)))
@@ -416,18 +414,17 @@ trait LambdaTemplates { self: Templates =>
       val arglessEqClauses: Clauses = if (newTemplate.tpe.from.nonEmpty || !isPureTemplate(newTemplate)) {
         Seq.empty
       } else {
-        for ((b,f) <- freeFunctions(newTemplate.tpe).toSeq if canBeEqual(idT, f)) yield {
-          arglessEquality(b, nonFreeBlockers(f)._1, f, newTemplate.tpe, newTemplate)
-        }
+        for ((b,f) <- freeFunctions(newTemplate.tpe).toSeq if canBeEqual(idT, f);
+             clause <- arglessEquality(b, nonFreeBlockers(f)._1, f, newTemplate.tpe, newTemplate)) yield clause
       }
 
-      val nonFreeClauses = for ((b,f) <- freeFunctions(newTemplate.tpe).toSeq if canBeEqual(idT, f)) yield {
+      val nonFreeClauses = (for ((b,f) <- freeFunctions(newTemplate.tpe).toSeq if canBeEqual(idT, f)) yield {
         val (isFree, equalLambdas) = nonFreeBlockers(f)
-        val (next, definition) = equalLambdas.extend(Seq(mkAnd(newTemplate.start, mkEquals(newTemplate.ids._2, f))))
+        val next = equalLambdas.next
         nonFreeBlockers += f -> ((isFree, next))
 
-        mkImplies(b, definition)
-      }
+        Rule.Link(equalLambdas, next, Seq(mkAnd(newTemplate.start, mkEquals(newTemplate.ids._2, f))), Some(b)).clauses
+      }).flatten
 
       // make sure we have sound equality between the new lambda and previously defined ones
       val clauses = newTemplate.structure.instantiation ++
@@ -465,13 +462,13 @@ trait LambdaTemplates { self: Templates =>
 
       if (modes.functionWitnesses && ft.to.isInstanceOf[FunctionType]) {
         val active = resultGuards.cached(app.encoded)(encodeSymbol(Variable.fresh("b_active", BooleanType(), true)))
-        clauses :+= mkImplies(blocker, active)
+        clauses ++= Rule.Enables(blocker, active).clauses
       }
 
       if (!appBlockers.isDefinedAt(key)) {
         val dispatch = OpenOr("b_lambda", AssumedComplete.ForModels)
         registerAppBlocker(key, dispatch)
-        clauses :+= mkImplies(mkNot(dispatch.rest), mkNot(blocker))
+        clauses ++= Rule.Dispatched(blocker, dispatch).clauses
       }
 
       if (byID `contains` caller) {
@@ -508,11 +505,11 @@ trait LambdaTemplates { self: Templates =>
           clauses ++= appClauses
 
           registerImplication(blocker, typeBlocker)
-          clauses :+= mkImplies(blocker, typeBlocker)
+          clauses ++= Rule.Enables(blocker, typeBlocker).clauses
 
-          val (next, definition) = typedResults.extend(Seq(mkImplies(typeBlocker, appResult)))
+          val next = typedResults.next
           freeBlockers += ft -> (freeBlockers(ft) - old + ((next, b, tpe, f, closures, free)))
-          clauses :+= definition
+          clauses ++= Rule.Link(typedResults, next, Seq(mkImplies(typeBlocker, appResult)), None).clauses
         }
 
         clauses ++= congruenceClauses(blocker, app)
@@ -539,17 +536,12 @@ trait LambdaTemplates { self: Templates =>
       val clauses = new scala.collection.mutable.ListBuffer[Encoded]
       for ((b, that) <- applications(app.tpe) if that != app && canBeEqual(caller, that.caller)) {
         val bc = encodeSymbol(Variable.fresh("b_cong", BooleanType(), true))
-        clauses += mkEquals(bc, mkAnd(blocker, b, mkEquals(caller, that.caller)))
 
         val argEqs = (from zip (args zip that.args)).map { case (tpe, (a1, a2)) =>
-          val (equality, equalityClauses) = mkEqualities(bc, tpe, a1.encoded, a2.encoded)
-          clauses ++= equalityClauses
-          equality
+          registeredEquality(bc, tpe, a1.encoded, a2.encoded)
         }
-
-        val (resEq, resClauses) = mkEqualities(bc, to, encoded, that.encoded)
-        clauses ++= resClauses
-        clauses += mkImplies(mkAnd(bc +: argEqs*), resEq)
+        val resEq = registeredEquality(bc, to, encoded, that.encoded)
+        clauses ++= Rule.Congruence(bc, blocker, b, caller, that.caller, argEqs, resEq).clauses
       }
       clauses.toSeq
     }
@@ -576,13 +568,12 @@ trait LambdaTemplates { self: Templates =>
       lambdaClasses += classKey -> symbol
       symbol
     })
-    clauses += mkImplies(template.start, mkEquals(template.ids._2, representative))
+    clauses ++= Rule.SameLambda(template.start, template.ids._2, representative).clauses
 
     for (that <- byType(template.tpe).values) {
       val sameBody = body == typeOps.simplify(that.structure.body)
       val differingLocals = (template.structure.locals zip that.structure.locals).filter(p => p._1 != p._2)
       if (!sameBody || differingLocals.nonEmpty) {
-        val equals = mkEquals(template.ids._2, that.ids._2)
         val (blocker, blockerClauses) = encodeBlockers(Set(template.start, that.start))
         clauses ++= blockerClauses
 
@@ -591,20 +582,16 @@ trait LambdaTemplates { self: Templates =>
             Some(mkAnd(differingLocals.map { case ((v, e1), (_, e2)) =>
               // The equality is registered so that it is unrolled before a model is accepted:
               // the identifiers of lambdas with equal closures must be equal in the model.
-              val (equality, equalityClauses) = mkEqualities(blocker, v.getType, e1, e2, register = true)
-              clauses ++= equalityClauses
-              equality
+              registeredEquality(blocker, v.getType, e1, e2)
             }*))
           } else {
             None
           }
 
-        closuresEqual match {
-          case Some(eqs) if !modes.functionWitnesses => clauses += mkImplies(blocker, mkEquals(eqs, equals))
-          case None if !modes.functionWitnesses => clauses += mkImplies(blocker, mkNot(equals))
-          case _ =>
-            for (eqs <- closuresEqual) clauses += mkImplies(mkAnd(blocker, eqs), equals)
-            clauses ++= registerWitness(blocker, template.tpe, template.ids._2, that.ids._2, onDemand = modes.onDemandLambdaWitnesses)
+        val intensional = !modes.functionWitnesses
+        clauses ++= Rule.LambdaEquality(blocker, template.ids._2, that.ids._2, closuresEqual, intensional).clauses
+        if (!intensional) {
+          clauses ++= registerWitness(blocker, template.tpe, template.ids._2, that.ids._2, onDemand = modes.onDemandLambdaWitnesses)
         }
       }
     }
@@ -751,16 +738,16 @@ trait LambdaTemplates { self: Templates =>
         if (interrupted) {
           // the application is dispatched later, from `next`: `last` is linked to it with no
           // operands, so that the disjunction stays open
-          newClauses += last.link(next, Seq.empty)
+          newClauses ++= Rule.Link(last, next, Seq.empty, None).clauses
         } else {
           remainingApps -= app
 
-          val clause = last.link(next, infos.map(info => info.template match {
+          val linkClauses = Rule.Link(last, next, infos.map(info => info.template match {
             case Left(template) => mkAnd(template.start, info.equals)
             case Right(_) => info.equals
-          }).toSeq)
-          reporter.debug(" -> extending lambda blocker: " + clause)
-          newClauses += clause
+          }).toSeq, None).clauses
+          reporter.debug(" -> extending lambda blocker: " + linkClauses.mkString(", "))
+          newClauses ++= linkClauses
 
           for (info @ TemplateAppInfo(tmpl, equals, args) <- infos; template <- tmpl.left) {
             val newCls = new scala.collection.mutable.ListBuffer[Encoded]
@@ -784,9 +771,9 @@ trait LambdaTemplates { self: Templates =>
 
             val enabler = if (equals == trueT) b else mkAnd(equals, b)
             registerImplication(b, lambdaBlocker)
-            newCls += mkImplies(enabler, lambdaBlocker)
+            newCls ++= Rule.Enables(enabler, lambdaBlocker).clauses
             // the application fails iff the body of the lambda it is dispatched to does
-            if (modes.partialFunctions) newCls += mkImplies(enabler, mkEquals(appFailure(app._2), lambdaFailure))
+            if (modes.partialFunctions) newCls ++= Rule.DispatchFailure(enabler, appFailure(app._2), lambdaFailure).clauses
 
             reporter.debug("Unrolling behind "+info+" ("+newCls.size+")")
             for (cl <- newCls) {
