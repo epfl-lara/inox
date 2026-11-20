@@ -180,7 +180,7 @@ trait TypeTemplates { self: Templates =>
               (instantiate: => Clauses): Clauses = {
       val key = (tpe, arg, closures, generator, inDomain, ground, blocker)
       results.get(key) match {
-        case Some(res) => Rule.SameTyping(result, res).clauses
+        case Some(res) => Rule.Define(None, result, res).clauses
         case None =>
           results += key -> result
           instantiate
@@ -255,7 +255,7 @@ trait TypeTemplates { self: Templates =>
 
       registerImplication(blocker, typeBlocker)
       Rule.Enables(mkAnd(blocker, guard), typeBlocker).clauses ++
-        Rule.Link(reads, next, Seq(mkImplies(guard, result)), Some(blocker)).clauses ++
+        reads.link(next, Seq(mkImplies(guard, result)), Some(blocker)) ++
         instantiateType(typeBlocker, Typing(elemTpe, value, Constraint(result, elemClosures, free)))
     }
   }
@@ -317,9 +317,9 @@ trait TypeTemplates { self: Templates =>
     }
 
     def holds: Clauses = typing.instantiator match {
-      case Constraint(res, _, _, _, _) => Rule.TrivialTyping(blocker, res).clauses
-      case Membership(res, _) => Rule.TrivialTyping(blocker, res).clauses
-      case Collection(res, _, _) => Rule.TrivialTyping(blocker, res).clauses
+      case Constraint(res, _, _, _, _) => Rule.Define(Some(blocker), res, trueT).clauses
+      case Membership(res, _) => Rule.Define(Some(blocker), res, trueT).clauses
+      case Collection(res, _, _) => Rule.Define(Some(blocker), res, trueT).clauses
       case _ => Seq.empty
     }
 
@@ -458,7 +458,7 @@ trait TypeTemplates { self: Templates =>
       for ((b, tps) <- types; tp <- tps) tp match {
         case Typing(t @ (_: FunctionType | _: PiType), arg, Capture(containerT, containerType)) =>
           val ft = t.getType.asInstanceOf[FunctionType]
-          funClauses ++= Rule.CapturedBefore(b, lessThan(order(ft)(arg), order(containerType)(containerT))).clauses
+          funClauses ++= Rule.Decreases(b, lessThan(order(ft)(arg), order(containerType)(containerT)), None).clauses
           functions += arg
         case _ => typeBlockers += b -> (typeBlockers.getOrElse(b, Set.empty) + tp)
       }

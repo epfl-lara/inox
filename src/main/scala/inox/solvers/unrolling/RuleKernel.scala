@@ -16,15 +16,19 @@ package unrolling
   *    equality, its custom equality (see [[ast.Definitions.ADTSort.equality]]) or the structural
   *    one built from those of its fields.
   *
-  * Each case states why its clauses hold under that interpretation, which is what the soundness of
-  * proofs relies on. The managers only choose which rules to apply and when.
+  * The rules come in two kinds:
+  *  - [[Rule.Define]] and [[Rule.Enables]] introduce fresh symbols: any interpretation can be
+  *    extended to them, as long as each symbol is defined once;
+  *  - the other rules are facts about the semantics, and each one states why its clauses hold
+  *    under that interpretation.
+  * The soundness of proofs relies on both. The managers only choose which rules to apply and when.
   *
-  * The equality rules assume that custom equalities are equivalence relations, and [[Rule.Purity]]
-  * that functions respect them. Nothing checks either.
+  * The equality rules assume that custom equalities are equivalence relations, and
+  * [[Rule.Congruence]] that functions respect them. Nothing checks either.
   *
   * The kernel covers the calls, equalities, types and lambdas so far; the quantifiers and the
-  * witnesses still build their clauses themselves. [[Rule.Unfold]] also registers the items of the template with their managers,
-  * like any instantiation does.
+  * witnesses still build their clauses themselves. [[Rule.Unfold]] also registers the items of the
+  * template with their managers, like any instantiation does.
   */
 trait RuleKernel { self: Templates =>
   import context.{given, _}
@@ -34,49 +38,71 @@ trait RuleKernel { self: Templates =>
 
   enum Rule {
 
+    // Fresh symbols
+
+    /** `literal == value`, under `guard` if there is one, where `literal` is a fresh symbol that
+      * no other rule defines.
+      *
+      * Interpreting `literal` as `value` where `guard` holds satisfies the clause. What `literal`
+      * stands for only matters for the assumptions that the checks make about it (see
+      * [[OpenJunctions]]). The definitions are:
+      *  - the typing of an application result, `domain1 && ... && domainN ==> codomain`, and of a
+      *    function, the conjunction of the typings of its applications;
+      *  - a typing whose type needs no unrolling, `true`, and one that is already instantiated under
+      *    the same blocker, its result;
+      *  - whether a free function is equal to none of the lambdas of its type;
+      *  - the `rest` of an [[OpenJunction]], as the new operands and the `rest` of the next one;
+      *  - the guard of the [[Congruence]] of two applications. */
+    case Define(guard: Option[Encoded], literal: Encoded, value: Encoded)
+
     /** `blocker ==> target`, where `target` is the blocker of an instantiation that is reached
       * from several places, such as the definition blocker of a call, the blocker of an equality,
       * or the type blocker of an application result. `blocker` may be a conjunction, such as an
       * application's blocker and the condition under which it is dispatched to a lambda.
       *
-      * Under the intended interpretation, `target` holds iff one of the conditions that enable it
-      * does, and `blocker` is one of them. */
+      * Interpreting `target` as the disjunction of the conditions that enable it satisfies the
+      * clause, and the instantiation under `target` holds wherever one of them does. */
     case Enables(blocker: Encoded, target: Encoded)
 
-    /** `!blocker`, where `blocker` guards a call whose ground arguments fail to evaluate.
-      *
-      * Evaluation fails before it reaches the call, so no solution reaches it. */
-    case Unreachable(blocker: Encoded)
+    // Unfolding
 
     /** The instantiation of `template` on `args` under `blocker`, as the body of a call that fails
       * iff `failure` holds, or as a template that doesn't fail when `failure` is `None` (see
       * [[Template.instantiate]]).
       *
       * The template generator gives clauses that hold for the template's expression whenever its
-      * blocker holds, and substituting the arguments preserves them. */
+      * blocker holds, and substituting the arguments preserves them. When the template is that of
+      * a ground call's value, the evaluator computed that value, which is the call's value under
+      * every solution. */
     case Unfold(template: Template, blocker: Encoded, args: Seq[Arg], failure: Option[Encoded])
 
-    /** The call `tfd(args)`, under `blocker`, whose ground arguments evaluate to the result `value`.
-      * The call fails iff `failure` holds.
+    /** `!blocker`, where `blocker` guards a call whose ground arguments fail to evaluate.
       *
-      * The evaluator computes the value of the call, which is its value under every solution. */
-    case UnfoldValue(tfd: TypedFunDef, value: Expr, blocker: Encoded, args: Seq[Arg], failure: Encoded)
+      * Evaluation fails before it reaches the call, so no solution reaches it. */
+    case Unreachable(blocker: Encoded)
 
-    /** `blocker ==> (decrease || diverges)`, or `blocker ==> decrease` without `diverges`, where
-      * `decrease` states that a call ranks higher than a call that its body reaches under `blocker`
-      * (see [[FunctionTemplates.rankClauses]]).
-      *
-      * Ranking each call that returns by the depth of its evaluation satisfies `decrease`. Only a
-      * call that doesn't return can't be ranked, and `diverges` then holds. Without `diverges`,
-      * the front-end has checked that every call returns (see `optAssumeChecked`). */
-    case Decreases(blocker: Encoded, decrease: Encoded, diverges: Option[Encoded])
+    /** `blocker ==> (decrease || unless)`, or `blocker ==> decrease` without `unless`, where
+      * `decrease` states that a well-founded measure decreases:
+      *  - the rank of a call is higher than that of a call its body reaches under `blocker` (see
+      *    [[FunctionTemplates.rankClauses]]). Ranking each call that returns by the depth of its
+      *    evaluation satisfies this, and only a call that doesn't return can't be ranked, in which
+      *    case `unless` (`diverges`) holds. Without `unless`, the front-end has checked that every
+      *    call returns (see `optAssumeChecked`).
+      *  - a function that a lambda captures comes before the lambda (see
+      *    [[TypeTemplates.CaptureTemplate]]). A lambda value contains the values it captures, so
+      *    ordering function values by their size satisfies this. This only holds under intensional
+      *    equality: otherwise, `() => f()` is equal to the function `f` it captures. */
+    case Decreases(blocker: Encoded, decrease: Encoded, unless: Option[Encoded])
 
-    /** `blocker1 && blocker2 && args1 == args2 ==> tfd(args1) == tfd(args2)`, comparing the
-      * arguments and the results with the equalities of their types.
+    // Functions and equality
+
+    /** `premise1 && ... && premiseN ==> resultEq`, where the premises are the blockers of two calls or
+      * applications of the same function and the equalities of their arguments, and `resultEq` the
+      * equality of their results, each compared with the equality of its type.
       *
-      * The result of a call is a function of its arguments. These clauses only shortcut the
-      * unfolding of both calls, so the equalities in them are not unfolded. */
-    case Purity(tfd: TypedFunDef, args1: Seq[Encoded], blocker1: Encoded, args2: Seq[Encoded], blocker2: Encoded)
+      * A call or application is a function of its callee and arguments. This assumes that functions
+      * respect custom equalities. */
+    case Congruence(premises: Seq[Encoded], resultEq: Encoded)
 
     /** `e1 == e2 ==> eq(e1, e2)`, under `guard` if there is one, where `eq` is the equality
       * symbol of `tpe`.
@@ -94,35 +120,7 @@ trait RuleKernel { self: Templates =>
       * Equalities are transitive. */
     case Transitivity(tpe: Type, guard: Encoded, e1: Encoded, e2: Encoded, e3: Encoded)
 
-    /** `blocker ==> (result == (domain1 && ... && domainN ==> codomain))`, where `result` is a fresh
-      * literal for the typing of an application result, `domainI` the memberships of its arguments
-      * in the parameter types, and `codomain` the typing of the result in the return type.
-      *
-      * A function of type `Pi(x: A). B` maps the arguments in `A` to results in `B`, and nothing is
-      * said of the others, so `result` stands for this implication. */
-    case ApplicationTyping(blocker: Encoded, result: Encoded, domain: Seq[Encoded], codomain: Encoded)
-
-    /** `blocker ==> (result == typings.withOperands(operands))`, where `result` is the typing result
-      * of a function, and `operands` the typings of its applications found so far.
-      *
-      * A function lies in its type iff the results of all its applications do (see
-      * [[ApplicationTyping]]). `typings.rest` stands for the applications still to come. */
-    case FunctionTyping(blocker: Encoded, result: Encoded, typings: OpenAnd, operands: Seq[Encoded])
-
-    /** `blocker ==> (isFree == !equalities.withOperands(operands))`, where `isFree` is a fresh literal,
-      * and `operands` are the equalities of a free function to the lambdas of its type found so far,
-      * under their start blockers.
-      *
-      * `isFree` stands for the function being equal to none of the lambdas of its type, and
-      * `equalities.rest` for its equalities to the lambdas still to come. */
-    case NonFree(blocker: Encoded, isFree: Encoded, equalities: OpenOr, operands: Seq[Encoded])
-
-    /** `last.rest == next.withOperands(operands)`, under `guard` if there is one, where `next` is
-      * [[OpenJunction.next]] of `last`.
-      *
-      * `last.rest` stands for the operands still to come, which are now `operands` and those that
-      * the fresh `next.rest` stands for. */
-    case Link[J <: OpenJunction[J]](last: J, next: J, operands: Seq[Encoded], guard: Option[Encoded])
+    // First-class functions
 
     /** `!dispatch.rest ==> !blocker`, where `dispatch` is the dispatch disjunction of an application
       * reached under `blocker`, before any of its operands are found.
@@ -137,24 +135,6 @@ trait RuleKernel { self: Templates =>
       *
       * The application evaluates that body on its arguments, so it fails iff the body does. */
     case DispatchFailure(enabler: Encoded, appFailure: Encoded, bodyFailure: Encoded)
-
-    /** `bc == (blocker1 && blocker2 && caller1 == caller2)` and `bc && argEqs ==> resultEq`, where
-      * `bc` is a fresh literal, and `argEqs` and `resultEq` compare the arguments and the results
-      * of two applications with the equalities of their types.
-      *
-      * An application is a function of its caller and arguments. Like [[Purity]], this assumes that
-      * functions respect custom equalities. */
-    case Congruence(bc: Encoded, blocker1: Encoded, blocker2: Encoded, caller1: Encoded, caller2: Encoded,
-                    argEqs: Seq[Encoded], resultEq: Encoded)
-
-    /** `blocker && isFree && start && lambda() == f() ==> lambda == f`, where `f` is a free function
-      * with no parameters, and `lambda` a pure lambda with no parameters, i.e. one that returns a
-      * value it captures, created under `start`.
-      *
-      * The value of a free function that is equal to no lambda (`isFree`, see [[NonFree]]) is the
-      * lambda that returns its result, and lambdas are equal when their normalized bodies and
-      * closures are. Without `isFree`, `f` may be equal to another lambda, whose body differs. */
-    case ArglessEquality(blocker: Encoded, isFree: Encoded, f: Encoded, tpe: FunctionType, start: Encoded, lambda: Encoded)
 
     /** `start ==> lambda == representative`, where `representative` is a fresh symbol shared by the
       * lambdas with the same type, normalized body and closures, and `lambda` is created under `start`.
@@ -175,67 +155,38 @@ trait RuleKernel { self: Templates =>
     case LambdaEquality(blocker: Encoded, lambda1: Encoded, lambda2: Encoded, closuresEqual: Option[Encoded],
                         intensional: Boolean)
 
-    /** `result == cached`, where both are the results of the same typing of the same value under
-      * the same blocker (see [[TypeTemplates.instantiateTyping]]).
+    /** `blocker && isFree && start && lambda() == f() ==> lambda == f`, where `f` is a free function
+      * with no parameters, `isFree` holds iff it is equal to none of the lambdas of its type, and
+      * `lambda` is a pure lambda with no parameters, i.e. one that returns a value it captures,
+      * created under `start`.
       *
-      * They stand for the same proposition. */
-    case SameTyping(result: Encoded, cached: Encoded)
-
-    /** `blocker ==> result`, where `result` is the result of a typing in a type that needs no
-      * unrolling.
-      *
-      * Such a type constrains its values no more than their sort does, so every value lies in it. */
-    case TrivialTyping(blocker: Encoded, result: Encoded)
-
-    /** `blocker ==> less`, where `less` orders a function that a lambda captures before the lambda
-      * (see [[TypeTemplates.CaptureTemplate]]).
-      *
-      * A lambda value contains the values it captures, so ordering function values by their size
-      * satisfies `less`. This only holds under intensional equality: otherwise, `() => f()` is
-      * equal to the function `f` it captures. */
-    case CapturedBefore(blocker: Encoded, less: Encoded)
+      * The value of a free function that is equal to no lambda is the lambda that returns its
+      * result, and lambdas are equal when their normalized bodies and closures are. Without
+      * `isFree`, `f` may be equal to another lambda, whose body differs. */
+    case ArglessEquality(blocker: Encoded, isFree: Encoded, f: Encoded, tpe: FunctionType, start: Encoded, lambda: Encoded)
 
     /** The clauses of this rule. This is the only code that builds them. */
     def clauses: Clauses = this match {
+      case Define(guard, literal, value) =>
+        val definition = mkEquals(literal, value)
+        Seq(guard.fold(definition)(mkImplies(_, definition)))
+
       case Enables(blocker, target) =>
         Seq(mkImplies(blocker, target))
-
-      case Unreachable(blocker) =>
-        Seq(mkNot(blocker))
 
       case Unfold(template, blocker, args, failure) => failure match {
         case Some(failure) => template.instantiate(blocker, args, failure)
         case None => template.instantiate(blocker, args)
       }
 
-      case UnfoldValue(tfd, value, blocker, args, failure) =>
-        val start = Variable.fresh("cs", BooleanType())
-        val (p, cls) = mkExprClauses(start, value, Map(start -> blocker))
-        val tmplClauses = cls + (start -> Equals(tfd.applied, p))
+      case Unreachable(blocker) =>
+        Seq(mkNot(blocker))
 
-        val (contents, _) = Template.contents(
-          start -> blocker,
-          tfd.params.map(_.toVariable) zip args.map(_.encoded),
-          tmplClauses,
-          optCall = Some(Defined(tfd)),
-          partial = true
-        )
+      case Decreases(blocker, decrease, unless) =>
+        Seq(mkImplies(blocker, unless.fold(decrease)(mkOr(decrease, _))))
 
-        contents.instantiation(blocker, Map.empty[Encoded, Arg]).clauses(failure = Some(failure))
-
-      case Decreases(blocker, decrease, diverges) =>
-        Seq(mkImplies(blocker, diverges.fold(decrease)(mkOr(decrease, _))))
-
-      case Purity(tfd, args1, blocker1, args2, blocker2) =>
-        val (equalities, equalityClauses) = (tfd.params.map(_.getType) zip (args1 zip args2)).map {
-          case (tpe, (e1, e2)) => guardedEquality(blocker1, tpe, e1, e2)
-        }.unzip
-
-        val (entail, entailClauses) =
-          guardedEquality(blocker1, tfd.getType, mkCall(tfd, args1), mkCall(tfd, args2))
-
-        equalityClauses.flatten ++ entailClauses :+
-          mkImplies(mkAnd(blocker1 +: blocker2 +: equalities*), entail)
+      case Congruence(premises, resultEq) =>
+        Seq(mkImplies(mkAnd(premises*), resultEq))
 
       case Reflexivity(tpe, e1, e2, guard) =>
         val premise = guard.fold(mkEquals(e1, e2))(g => mkAnd(g, mkEquals(e1, e2)))
@@ -247,33 +198,11 @@ trait RuleKernel { self: Templates =>
       case Transitivity(tpe, guard, e1, e2, e3) =>
         Seq(mkImplies(mkAnd(guard, equality(tpe, e1, e2), equality(tpe, e2, e3)), equality(tpe, e1, e3)))
 
-      case ApplicationTyping(blocker, result, domain, codomain) =>
-        Seq(mkImplies(blocker, mkEquals(result, mkImplies(mkAnd(domain*), codomain))))
-
-      case FunctionTyping(blocker, result, typings, operands) =>
-        Seq(mkImplies(blocker, mkEquals(result, typings.withOperands(operands))))
-
-      case NonFree(blocker, isFree, equalities, operands) =>
-        Seq(mkImplies(blocker, mkEquals(isFree, mkNot(equalities.withOperands(operands)))))
-
-      case Link(last, next, operands, guard) =>
-        val link = last.link(next, operands)
-        Seq(guard.fold(link)(mkImplies(_, link)))
-
       case Dispatched(blocker, dispatch) =>
         Seq(mkImplies(mkNot(dispatch.rest), mkNot(blocker)))
 
       case DispatchFailure(enabler, appFailure, bodyFailure) =>
         Seq(mkImplies(enabler, mkEquals(appFailure, bodyFailure)))
-
-      case Congruence(bc, blocker1, blocker2, caller1, caller2, argEqs, resultEq) =>
-        Seq(
-          mkEquals(bc, mkAnd(blocker1, blocker2, mkEquals(caller1, caller2))),
-          mkImplies(mkAnd(bc +: argEqs*), resultEq))
-
-      case ArglessEquality(blocker, isFree, f, tpe, start, lambda) =>
-        val (lambdaApp, fApp) = (mkApp(lambda, tpe, Seq.empty), mkApp(f, tpe, Seq.empty))
-        Seq(mkImplies(mkAnd(blocker, isFree, start, mkEquals(lambdaApp, fApp)), mkEquals(lambda, f)))
 
       case SameLambda(start, lambda, representative) =>
         Seq(mkImplies(start, mkEquals(lambda, representative)))
@@ -287,14 +216,9 @@ trait RuleKernel { self: Templates =>
           case (None, false) => Seq.empty
         }
 
-      case SameTyping(result, cached) =>
-        Seq(mkEquals(result, cached))
-
-      case TrivialTyping(blocker, result) =>
-        Seq(mkImplies(blocker, mkEquals(result, trueT)))
-
-      case CapturedBefore(blocker, less) =>
-        Seq(mkImplies(blocker, less))
+      case ArglessEquality(blocker, isFree, f, tpe, start, lambda) =>
+        val (lambdaApp, fApp) = (mkApp(lambda, tpe, Seq.empty), mkApp(f, tpe, Seq.empty))
+        Seq(mkImplies(mkAnd(blocker, isFree, start, mkEquals(lambdaApp, fApp)), mkEquals(lambda, f)))
     }
   }
 

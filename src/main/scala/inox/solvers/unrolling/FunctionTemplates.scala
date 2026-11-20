@@ -217,16 +217,44 @@ trait FunctionTemplates { self: Templates =>
       exprOps.exists { case _: UninterpretedCall => true case _ => false } (fd.fullBody)
     })
 
-  /** The [[Rule.Purity]] clauses of the calls `call1` and `call2` of the same function, when some
-    * of its parameters or its result need equality unrolling. Otherwise, the solver already knows
-    * that the calls are functions of their arguments. */
+  /** The [[Rule.Congruence]] of the calls `call1` and `call2` of the same function, when some of
+    * its parameters or its result need equality unrolling. Otherwise, the solver already knows that
+    * the calls are functions of their arguments.
+    *
+    * These clauses only shortcut the unfolding of both calls, so their equalities are not unrolled. */
   private def purityClauses(call1: Call, blocker1: Encoded, call2: Call, blocker2: Encoded): Clauses = call1.callee match {
     // The calls of an interpreted function are applications of the same free function
     case _: Interpreted => Seq.empty
     case Defined(tfd) =>
-      if (tfd.params.exists(vd => unrollEquality(vd.getType)) || unrollEquality(tfd.getType))
-        Rule.Purity(tfd, call1.args.map(_.encoded), blocker1, call2.args.map(_.encoded), blocker2).clauses
-      else Seq.empty
+      if (tfd.params.exists(vd => unrollEquality(vd.getType)) || unrollEquality(tfd.getType)) {
+        val (equalities, equalityClauses) = (tfd.params.map(_.getType) zip (call1.args zip call2.args)).map {
+          case (tpe, (e1, e2)) => guardedEquality(blocker1, tpe, e1.encoded, e2.encoded)
+        }.unzip
+
+        val (entail, entailClauses) = guardedEquality(blocker1, tfd.getType,
+          mkCall(tfd, call1.args.map(_.encoded)), mkCall(tfd, call2.args.map(_.encoded)))
+
+        equalityClauses.flatten ++ entailClauses ++
+          Rule.Congruence(blocker1 +: blocker2 +: equalities, entail).clauses
+      } else Seq.empty
+  }
+
+  /** The template of the call `tfd(args)` under `blocker`, as the value that the evaluator computed
+    * for it. */
+  private def valueTemplate(tfd: TypedFunDef, value: Expr, blocker: Encoded, args: Seq[Arg]): Template = {
+    val start = Variable.fresh("cs", BooleanType())
+    val (p, cls) = mkExprClauses(start, value, Map(start -> blocker))
+    val tmplClauses = cls + (start -> Equals(tfd.applied, p))
+
+    val (valueContents, _) = Template.contents(
+      start -> blocker,
+      tfd.params.map(_.toVariable) zip args.map(_.encoded),
+      tmplClauses,
+      optCall = Some(Defined(tfd)),
+      partial = true
+    )
+
+    new Template { val contents = valueContents }
   }
 
   /** The purity clauses between the calls unrolled so far, which [[equalitiesInstantiated]] delays.
@@ -349,7 +377,8 @@ trait FunctionTemplates { self: Templates =>
                 val rule =
                   if (skip) Rule.Unreachable(defBlocker)
                   else inlining.flatMap(_.result) match {
-                    case Some(value) => Rule.UnfoldValue(tfd, value, defBlocker, args, callFailure(call))
+                    case Some(value) =>
+                      Rule.Unfold(valueTemplate(tfd, value, defBlocker, args), defBlocker, Seq.empty, Some(callFailure(call)))
                     case None => Rule.Unfold(FunctionTemplate(tfd), defBlocker, args ++ tpSubst, Some(callFailure(call)))
                   }
                 newCls ++= rule.clauses
