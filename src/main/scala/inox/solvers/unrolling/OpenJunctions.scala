@@ -48,14 +48,10 @@ trait OpenJunctions { self: Templates =>
     /** The same conjunction (or disjunction) with a fresh `rest`, which [[link]] then defines. */
     def next: J = withRest(encodeSymbol(Variable.fresh(restName, BooleanType(), true)))
 
-    /** The clause that defines `rest` as `operands` and the `rest` of `next`. */
-    def link(next: J, operands: Seq[Encoded]): Encoded = mkEquals(rest, next.withOperands(operands))
-
-    /** Extends it with `operands`, and returns the extended one and the clause that defines it. */
-    def extend(operands: Seq[Encoded]): (J, Encoded) = {
-      val extended = next
-      (extended, link(extended, operands))
-    }
+    /** The clause that defines `rest` as `operands` and the `rest` of `next`, under `guard` if there
+      * is one (see [[Rule.Define]]). */
+    def link(next: J, operands: Seq[Encoded], guard: Option[Encoded] = None): Clauses =
+      Rule.Define(guard, rest, next.withOperands(operands)).clauses
   }
 
   /** A conjunction whose operands the unrolling discovers over time. */

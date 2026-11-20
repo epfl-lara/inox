@@ -206,7 +206,7 @@ trait LambdaTemplates { self: Templates =>
 
         val appResult = if (domainResults.isEmpty) toResult else {
           val appResult = encodeSymbol(Variable.fresh("result", BooleanType(), true))
-          clauses ++= Rule.ApplicationTyping(freshBlocker, appResult, domainResults, toResult).clauses
+          clauses ++= Rule.Define(Some(freshBlocker), appResult, mkImplies(mkAnd(domainResults*), toResult)).clauses
           appResult
         }
 
@@ -236,12 +236,12 @@ trait LambdaTemplates { self: Templates =>
       val equalLambdas = OpenOr("b_next", AssumedComplete.Always)
       nonFreeBlockers += f -> ((isFree, equalLambdas))
 
-      clauses ++= Rule.NonFree(active, isFree, equalLambdas, (for {
+      clauses ++= Rule.Define(Some(active), isFree, mkNot(equalLambdas.withOperands((for {
         template <- byType(ft).values
         if canBeEqual(template.ids._2, f)
       } yield {
         mkAnd(template.start, mkEquals(template.ids._2, f))
-      }).toSeq).clauses
+      }).toSeq))).clauses
     }
 
     // Add type blocker clause
@@ -259,7 +259,7 @@ trait LambdaTemplates { self: Templates =>
         mkImplies(typeBlocker, appResult)
       }
 
-      clauses ++= Rule.FunctionTyping(b, r, typedResults, blockedResults.toSeq).clauses
+      clauses ++= Rule.Define(Some(b), r, typedResults.withOperands(blockedResults.toSeq)).clauses
     }
 
     if (ft.from.isEmpty) clauses ++= (for {
@@ -325,7 +325,7 @@ trait LambdaTemplates { self: Templates =>
       val (isFree, equalLambdas) = nonFreeBlockers(f)
       val next = equalLambdas.next
       nonFreeBlockers += f -> ((isFree, next))
-      clauses ++= Rule.Link(equalLambdas, next, Seq(mkAnd(template.start, mkEquals(lambda, f))), Some(b)).clauses
+      clauses ++= equalLambdas.link(next, Seq(mkAnd(template.start, mkEquals(lambda, f))), Some(b))
     }
 
     // the model that made them equal is only checked again once these applications are unrolled
@@ -423,7 +423,7 @@ trait LambdaTemplates { self: Templates =>
         val next = equalLambdas.next
         nonFreeBlockers += f -> ((isFree, next))
 
-        Rule.Link(equalLambdas, next, Seq(mkAnd(newTemplate.start, mkEquals(newTemplate.ids._2, f))), Some(b)).clauses
+        equalLambdas.link(next, Seq(mkAnd(newTemplate.start, mkEquals(newTemplate.ids._2, f))), Some(b))
       }).flatten
 
       // make sure we have sound equality between the new lambda and previously defined ones
@@ -509,7 +509,7 @@ trait LambdaTemplates { self: Templates =>
 
           val next = typedResults.next
           freeBlockers += ft -> (freeBlockers(ft) - old + ((next, b, tpe, f, closures, free)))
-          clauses ++= Rule.Link(typedResults, next, Seq(mkImplies(typeBlocker, appResult)), None).clauses
+          clauses ++= typedResults.link(next, Seq(mkImplies(typeBlocker, appResult)))
         }
 
         clauses ++= congruenceClauses(blocker, app)
@@ -541,7 +541,8 @@ trait LambdaTemplates { self: Templates =>
           registeredEquality(bc, tpe, a1.encoded, a2.encoded)
         }
         val resEq = registeredEquality(bc, to, encoded, that.encoded)
-        clauses ++= Rule.Congruence(bc, blocker, b, caller, that.caller, argEqs, resEq).clauses
+        clauses ++= Rule.Define(None, bc, mkAnd(blocker, b, mkEquals(caller, that.caller))).clauses
+        clauses ++= Rule.Congruence(bc +: argEqs, resEq).clauses
       }
       clauses.toSeq
     }
@@ -738,14 +739,14 @@ trait LambdaTemplates { self: Templates =>
         if (interrupted) {
           // the application is dispatched later, from `next`: `last` is linked to it with no
           // operands, so that the disjunction stays open
-          newClauses ++= Rule.Link(last, next, Seq.empty, None).clauses
+          newClauses ++= last.link(next, Seq.empty)
         } else {
           remainingApps -= app
 
-          val linkClauses = Rule.Link(last, next, infos.map(info => info.template match {
+          val linkClauses = last.link(next, infos.map(info => info.template match {
             case Left(template) => mkAnd(template.start, info.equals)
             case Right(_) => info.equals
-          }).toSeq, None).clauses
+          }).toSeq)
           reporter.debug(" -> extending lambda blocker: " + linkClauses.mkString(", "))
           newClauses ++= linkClauses
 
