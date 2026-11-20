@@ -13,7 +13,9 @@ inputs:
       finds its cache doesn't save it again.
     required: true
   sbt-args:
-    description: The sbt arguments that resolve the dependencies.
+    description: >
+      The sbt arguments that resolve the dependencies. The compiler bridge,
+      which sbt resolves apart from update, is always fetched too.
     default: update Test/update IntegrationTest/update
   working-directory:
     description: The directory of the sbt build, relative to the workspace.
@@ -41,15 +43,18 @@ runs:
           ~/.sbt/boot
           ${{ inputs.sbt-global-base }}/boot
           ${{ inputs.sbt-global-base }}/staging
-        # "sbt-boot" rather than "sbt": the caches saved before the boot
-        # directory was cached would otherwise match exactly and never be
-        # saved again with it.
+        # "sbt-bridge" rather than "sbt-boot" or "sbt": the caches saved
+        # before the boot directory and the compiler bridge were cached would
+        # otherwise match exactly and never be saved again with them.
         key: >-
-          sbt-boot-${{ inputs.key }}-${{ runner.os }}-${{ runner.arch }}-${{
+          sbt-bridge-${{ inputs.key }}-${{ runner.os }}-${{ runner.arch }}-${{
           hashFiles('**/*.sbt', '**/project/build.properties', '**/project/*.scala') }}
         # A build change only adds or bumps a few dependencies: start from the
-        # previous cache and download the rest.
-        restore-keys: sbt-boot-${{ inputs.key }}-${{ runner.os }}-${{ runner.arch }}-
+        # previous cache (or one saved before the compiler bridge was) and
+        # download the rest.
+        restore-keys: |
+          sbt-bridge-${{ inputs.key }}-${{ runner.os }}-${{ runner.arch }}-
+          sbt-boot-${{ inputs.key }}-${{ runner.os }}-${{ runner.arch }}-
     - name: Fetch sbt dependencies
       shell: bash
       working-directory: ${{ inputs.working-directory }}
@@ -57,9 +62,13 @@ runs:
         SBT_ARGS: ${{ inputs.sbt-args }}
       run: |
         # Resolution only downloads, so a failure is most likely a network
-        # error: retry it, waiting a bit longer each time.
+        # error: retry it, waiting a bit longer each time. update doesn't
+        # fetch the Scala 3 compiler bridge (sbt resolves it on its own when
+        # it first compiles), so it is fetched here too: otherwise it isn't
+        # cached, and a failed download of it fails the build with
+        # "Missing org.scala-lang:scala3-sbt-bridge".
         for attempt in 1 2 3 4; do
-          if sbt -batch $SBT_ARGS; then exit 0; fi
+          if sbt -batch $SBT_ARGS scalaCompilerBridgeBinaryJar; then exit 0; fi
           if [ "$attempt" -lt 4 ]; then
             echo "::warning::Fetching the sbt dependencies failed (attempt $attempt), retrying."
             sleep $((attempt * 30))
