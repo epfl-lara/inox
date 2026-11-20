@@ -6,6 +6,7 @@ package unrolling
 
 import utils._
 
+import scala.collection.immutable.VectorMap
 import scala.collection.mutable.{Set => MutableSet, Map => MutableMap}
 
 /** Incrementally unfolds equality relations between types for which the
@@ -21,15 +22,31 @@ trait EqualityTemplates { self: Templates =>
 
   import equalityManager._
 
-  private val checking: MutableSet[TypedADTSort] = MutableSet.empty
-  private val unrollCache: MutableMap[Type, Boolean] = MutableMap.empty
+  /** The caches of the equality templates, which push and pop leave as they are. Each one maps its
+    * key to a value that only depends on the key and the program, or to a fresh symbol that stands
+    * for the same thing wherever it is used (see [[functionCaches]]).
+    *
+    * The equality symbols are among them: the cached templates, of equalities and of functions,
+    * mention the symbols of the types they compare, so a pop can't give a type a new one. */
+  private object equalityCaches {
+    /** Whether the equality of each type is unrolled (see [[unrollEquality]]), and the sorts whose
+      * equality is being decided. */
+    val unroll: MutableMap[Type, Boolean] = MutableMap.empty
+    val checking: MutableSet[TypedADTSort] = MutableSet.empty
+    /** The equality symbol of each type (see [[equalitySymbol]]). */
+    val symbols: MutableMap[Type, (Variable, Encoded)] = MutableMap.empty
+    /** The template of the equality of each type (see [[EqualityTemplate]]). */
+    val templates: MutableMap[Type, EqualityTemplate] = MutableMap.empty
+    /** The negation of each blocker of equalities (see [[equalityManager.satisfactionAssumptions]]). */
+    val negations: MutableMap[Encoded, Encoded] = MutableMap.empty
+  }
 
-  def unrollEquality(tpe: Type): Boolean = unrollCache.getOrElse(tpe, {
+  def unrollEquality(tpe: Type): Boolean = equalityCaches.unroll.getOrElse(tpe, {
     val res = tpe match {
       case adt: ADTType =>
         val sort = adt.getSort
-        sort.hasEquality || (!checking(sort) && {
-          checking += sort
+        sort.hasEquality || (!equalityCaches.checking(sort) && {
+          equalityCaches.checking += sort
           sort.constructors.exists(c => c.fields.exists(vd => unrollEquality(vd.getType)))
         })
 
@@ -43,7 +60,7 @@ trait EqualityTemplates { self: Templates =>
       case NAryType(tpes, _) => tpes.exists(unrollEquality)
     }
 
-    unrollCache(tpe) = res
+    equalityCaches.unroll(tpe) = res
     res
   })
 
@@ -66,10 +83,10 @@ trait EqualityTemplates { self: Templates =>
   } (tpe)
 
   def equalitySymbol(tpe: Type): (Variable, Encoded) = {
-    typeSymbols.cached(tpe) {
+    equalityCaches.symbols.getOrElseUpdate(tpe, {
       val v = Variable.fresh("eq" + tpe, FunctionType(Seq(tpe, tpe), BooleanType()))
       v -> encodeSymbol(v)
-    }
+    })
   }
 
   /** The equality of `e1` and `e2` at `tpe`, which is unrolled under `blocker` when `tpe` has an
@@ -88,9 +105,7 @@ trait EqualityTemplates { self: Templates =>
   }
 
   object EqualityTemplate {
-    private val cache: MutableMap[Type, EqualityTemplate] = MutableMap.empty
-
-    def apply(tpe: Type): EqualityTemplate = cache.getOrElse(tpe, {
+    def apply(tpe: Type): EqualityTemplate = equalityCaches.templates.getOrElse(tpe, {
       val (f, fT) = equalitySymbol(tpe)
       val args @ Seq(e1, e2) = Seq("e1", "e2").map(s => Variable.fresh(s, tpe))
       val argsT = args.map(encodeSymbol)
@@ -127,7 +142,7 @@ trait EqualityTemplates { self: Templates =>
       )
 
       val res = new EqualityTemplate(tpe, contents)
-      cache(tpe) = res
+      equalityCaches.templates(tpe) = res
       res
     })
   }
@@ -135,14 +150,18 @@ trait EqualityTemplates { self: Templates =>
   /** Whether an equality was instantiated, i.e. whether equality symbols can hold on distinct
     * terms (see [[delayedPurityClauses]]).
     */
-  def equalitiesInstantiated: Boolean = eqBlockers.nonEmpty
+  def equalitiesInstantiated: Boolean = state.get.eqBlockers.nonEmpty
 
   def instantiateEquality(blocker: Encoded, equality: Equality): Clauses = {
     val Equality(tpe, e1, e2) = equality
     val clauses = new scala.collection.mutable.ListBuffer[Encoded]
 
-    if (!instantiated(tpe)((blocker, e1, e2))) {
-      val eqBlocker = eqBlockers.get(equality) match {
+    def instantiated: Set[(Encoded, Encoded, Encoded)] = state.get.instantiated.getOrElse(tpe, Set.empty)
+    def addInstantiated(is: (Encoded, Encoded, Encoded)*): Unit =
+      state.update(s => s.copy(instantiated = s.instantiated.updated(tpe, s.instantiated.getOrElse(tpe, Set.empty) ++ is)))
+
+    if (!instantiated((blocker, e1, e2))) {
+      val eqBlocker = state.get.eqBlockers.get(equality) match {
         case Some(eqBlocker) =>
           eqBlocker
 
@@ -150,25 +169,25 @@ trait EqualityTemplates { self: Templates =>
           if (!equalitiesInstantiated) clauses ++= delayedPurityClauses
 
           val eqBlocker = encodeSymbol(Variable.fresh("q", BooleanType(), true))
-          eqBlockers += equality -> eqBlocker
+          state.update(s => s.copy(eqBlockers = s.eqBlockers.updated(equality, eqBlocker)))
 
           clauses ++= Rule.Unfold(EqualityTemplate(tpe), eqBlocker, Seq(Left(e1), Left(e2)), None).clauses
 
           // the equalities instantiated so far that chain with this one
-          for ((tb, te1, te2) <- instantiated(tpe); cond = mkAnd(eqBlocker, tb)) {
+          for ((tb, te1, te2) <- instantiated; cond = mkAnd(eqBlocker, tb)) {
             if (e2 == te1) {
               clauses ++= Rule.Transitivity(tpe, cond, e1, e2, te2).clauses
-              instantiated += tpe -> (instantiated(tpe) + ((cond, e1, te2)))
+              addInstantiated((cond, e1, te2))
             }
 
             if (te2 == e1) {
               clauses ++= Rule.Transitivity(tpe, cond, te1, te2, e2).clauses
-              instantiated += tpe -> (instantiated(tpe) + ((cond, te1, e2)))
+              addInstantiated((cond, te1, e2))
             }
           }
 
           clauses ++= Rule.Symmetry(tpe, eqBlocker, e1, e2).clauses
-          instantiated += tpe -> (instantiated(tpe) + ((eqBlocker, e1, e2)) + ((eqBlocker, e2, e1)))
+          addInstantiated((eqBlocker, e1, e2), (eqBlocker, e2, e1))
 
           clauses ++= Rule.Reflexivity(tpe, e1, e2, None).clauses
           eqBlocker
@@ -194,30 +213,48 @@ trait EqualityTemplates { self: Templates =>
 
   def registerEquality(blocker: Encoded, equality: Equality): Encoded = {
     val tpe = equality.tpe
-    equalityInfos.register(blocker, nextGeneration(currentGeneration), Set(equality))
+    state.update(s => s.copy(equalities = s.equalities.register(blocker, nextGeneration(currentGeneration), Set(equality))))
 
     mkApp(equalitySymbol(tpe)._2, FunctionType(Seq(tpe, tpe), BooleanType()), Seq(equality.e1, equality.e2))
   }
 
+  /** The state of [[equalityManager]], which push saves and pop restores as a whole.
+    *
+    * @param equalities the equalities that each blocker guards, which are unfolded with it
+    * @param eqBlockers the blocker of each unfolded equality, under which its template is
+    *                   instantiated, in the order in which the equalities were unfolded
+    * @param instantiated the pairs of terms of each type whose equality holds under a condition,
+    *                     with that condition, which [[Rule.Transitivity]] chains */
+  private[unrolling] case class EqualityState(
+    equalities: Pending[Encoded, Equality],
+    eqBlockers: VectorMap[Equality, Encoded],
+    instantiated: Map[Type, Set[(Encoded, Encoded, Encoded)]])
+
   private[unrolling] object equalityManager extends Manager {
-    private[EqualityTemplates] val eqBlockers = new IncrementalMap[Equality, Encoded]()
-    private[EqualityTemplates] val typeSymbols = new IncrementalMap[Type, (Variable, Encoded)]
-    private[EqualityTemplates] val equalityInfos = new BlockerQueue[Equality]
-    private[EqualityTemplates] val instantiated = new IncrementalMap[Type, Set[(Encoded, Encoded, Encoded)]].withDefaultValue(Set.empty)
+    private[EqualityTemplates] val state = new Snapshots(EqualityState(Pending.empty, VectorMap.empty, Map.empty))
 
-    val incrementals: Seq[IncrementalState] = Seq(eqBlockers, typeSymbols, equalityInfos, instantiated)
+    val incrementals: Seq[IncrementalState] = Seq(state)
 
-    def unrollGeneration: Option[Int] = equalityInfos.generation
+    def unrollGeneration: Option[Int] = state.get.equalities.generation
 
-    def satisfactionAssumptions: Seq[Encoded] = equalityInfos.satisfactionAssumptions
+    def satisfactionAssumptions: Seq[Encoded] =
+      state.get.equalities.keys.toSeq.map(b => equalityCaches.negations.getOrElseUpdate(b, mkNot(b)))
     def refutationAssumptions: Seq[Encoded] = Seq.empty
 
-    def promoteBlocker(b: Encoded): Boolean = equalityInfos.promote(b)
+    def promoteBlocker(b: Encoded): Boolean = state.get.equalities.promote(b) match {
+      case Some(equalities) =>
+        state.update(_.copy(equalities = equalities))
+        true
+      case None =>
+        false
+    }
 
-    def unroll: Clauses = if (equalityInfos.isEmpty) Seq.empty else {
+    def unroll: Clauses = if (state.get.equalities.isEmpty) Seq.empty else {
       val newClauses = new scala.collection.mutable.ListBuffer[Encoded]
 
-      for ((blocker, _, eqs) <- equalityInfos.dequeue(); e <- eqs) {
+      val (due, rest) = state.get.equalities.dequeue
+      state.update(_.copy(equalities = rest))
+      for ((blocker, _, eqs) <- due; e <- eqs) {
         newClauses ++= instantiateEquality(blocker, e)
       }
 
