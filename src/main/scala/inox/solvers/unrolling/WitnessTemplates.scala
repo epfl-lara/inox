@@ -50,7 +50,7 @@ trait WitnessTemplates { self: Templates =>
     pendingWitnesses += PendingWitness(cond, tpe, f1, f2, depth, equality, onDemand)
     // the equality of on-demand pairs isn't assumed until they are promoted, and a free literal
     // implying it lets the solver merge lambdas in models, which extraction then can't tell apart
-    if (onDemand) Seq.empty else Seq(mkImplies(mkAnd(equality, cond), mkEquals(f1, f2)))
+    if (onDemand) Seq.empty else Rule.Hypothesis(equality, cond, mkEquals(f1, f2)).clauses
   }
 
   /** The equality literals of the pending distinguishing inputs, along with their depth.
@@ -83,10 +83,10 @@ trait WitnessTemplates { self: Templates =>
   /** Turns the on-demand distinguishing inputs with the given equality literals into regular ones,
     * which are unfolded through their equality (see [[witnessEqualities]]). */
   protected def promoteWitnesses(equalities: Set[Encoded]): Clauses = {
-    pendingWitnesses.toSeq.filter(w => w.onDemand && equalities(w.equality)).map { w =>
+    pendingWitnesses.toSeq.filter(w => w.onDemand && equalities(w.equality)).flatMap { w =>
       pendingWitnesses -= w
       pendingWitnesses += w.copy(onDemand = false)
-      mkImplies(mkAnd(w.equality, w.cond), mkEquals(w.f1, w.f2))
+      Rule.Hypothesis(w.equality, w.cond, mkEquals(w.f1, w.f2)).clauses
     }
   }
 

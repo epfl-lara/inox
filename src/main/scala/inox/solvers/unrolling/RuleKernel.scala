@@ -17,8 +17,8 @@ package unrolling
   *    one built from those of its fields.
   *
   * The rules come in two kinds:
-  *  - [[Rule.Define]] and [[Rule.Enables]] introduce fresh symbols: any interpretation can be
-  *    extended to them, as long as each symbol is defined once;
+  *  - [[Rule.Define]], [[Rule.Enables]] and [[Rule.Hypothesis]] introduce fresh symbols: any
+  *    interpretation can be extended to them, as long as each symbol is defined once;
   *  - the other rules are facts about the semantics, and each one states why its clauses hold
   *    under that interpretation.
   * The soundness of proofs relies on both. The managers only choose which rules to apply and when.
@@ -26,15 +26,23 @@ package unrolling
   * The equality rules assume that custom equalities are equivalence relations, and
   * [[Rule.Congruence]] that functions respect them. Nothing checks either.
   *
-  * The kernel covers the calls, equalities, types and lambdas so far; the quantifiers and the
-  * witnesses still build their clauses themselves. [[Rule.Unfold]] also registers the items of the
-  * template with their managers, like any instantiation does.
+  * Every clause that the procedure asserts comes from a rule. The clauses of the finite range check
+  * (see [[QuantificationTemplates.getFiniteRangeClauses]]) are not asserted: like the satisfaction
+  * assumptions, they only restrict the models of one check. [[Rule.Unfold]] and [[Rule.Instance]]
+  * also register the items of the instantiation with their managers.
   */
 trait RuleKernel { self: Templates =>
   import context.{given, _}
   import program._
   import program.trees._
   import program.symbols.{given, _}
+
+  /** What an [[Rule.Instance]] instantiates. */
+  enum InstanceOf {
+    case Expression(exempt: App => Boolean)
+    case OfAxiom
+    case Counterexample
+  }
 
   enum Rule {
 
@@ -52,7 +60,12 @@ trait RuleKernel { self: Templates =>
       *    the same blocker, its result;
       *  - whether a free function is equal to none of the lambdas of its type;
       *  - the `rest` of an [[OpenJunction]], as the new operands and the `rest` of the next one;
-      *  - the guard of the [[Congruence]] of two applications. */
+      *  - the guard of the [[Congruence]] of two applications, and the condition under which two
+      *    functions have a [[DistinguishingInput]];
+      *  - the conjunction of a set of blockers (see [[BlockerGraph.encodeBlockers]]);
+      *  - whether the body of a function or lambda fails, as whether one of its failure literals or
+      *    the calls and applications on its paths does, and whether an application fails, as the
+      *    failure predicate of its type (see [[PartialFunctions]]). */
     case Define(guard: Option[Encoded], literal: Encoded, value: Encoded)
 
     /** `blocker ==> target`, where `target` is the blocker of an instantiation that is reached
@@ -63,6 +76,14 @@ trait RuleKernel { self: Templates =>
       * Interpreting `target` as the disjunction of the conditions that enable it satisfies the
       * clause, and the instantiation under `target` holds wherever one of them does. */
     case Enables(blocker: Encoded, target: Encoded)
+
+    /** `literal && condition ==> fact`, where `literal` is a fresh symbol that only the model checks
+      * assume, such as the equality of two functions whose distinguishing input isn't instantiated
+      * yet (see [[WitnessTemplates.witnessEqualities]]).
+      *
+      * Interpreting `literal` as `false` satisfies the clause, and the refutation checks don't
+      * assume it. */
+    case Hypothesis(literal: Encoded, condition: Encoded, fact: Encoded)
 
     // Unfolding
 
@@ -76,10 +97,41 @@ trait RuleKernel { self: Templates =>
       * every solution. */
     case Unfold(template: Template, blocker: Encoded, args: Seq[Arg], failure: Option[Encoded])
 
-    /** `!blocker`, where `blocker` guards a call whose ground arguments fail to evaluate.
+    /** The clauses of `instantiation`, which is one of:
+      *  - an [[InstanceOf.Expression]]: the query, the typing of a free variable, or the definitions
+      *    of a distinguishing input, under their root blocker (see [[Root]]). As for [[Unfold]], the
+      *    generator gives clauses that hold for the expression whenever its blocker holds. The
+      *    applications that `exempt` picks may fail.
+      *  - an [[InstanceOf.OfAxiom]]: the body of a quantification that holds where its path does
+      *    (see [[Holds]]), on terms that its matchers matched, under an enabler that implies that
+      *    path. A quantification that holds has all its instances. The manager instantiates the
+      *    matchers of the instance itself.
+      *  - an [[InstanceOf.Counterexample]]: the body of a quantification that doesn't hold where its
+      *    path does, on fresh symbols. They stand for a counterexample when the quantification
+      *    doesn't hold, and for any value otherwise. */
+    case Instance(instantiation: Instantiation, of: InstanceOf)
+
+    /** `start`, where `start` is the root blocker of the query, or of the typing of a free variable.
       *
-      * Evaluation fails before it reaches the call, so no solution reaches it. */
-    case Unreachable(blocker: Encoded)
+      * Evaluation reaches the root of the query, and the values of the free variables lie in their
+      * types. */
+    case Root(start: Encoded)
+
+    /** `blocker ==> quantification`, where `quantification` stands for a
+      * quantification that occurs where it must hold, under `blocker`, and that an instantiated one
+      * subsumes.
+      *
+      * A solution makes the query hold, so it makes the quantification hold where evaluation
+      * reaches it. */
+    case Holds(blocker: Encoded, quantification: Encoded)
+
+    /** `!literal`, or `under ==> !literal`, where `literal` is something that no solution reaches:
+      *  - the blocker of a call whose ground arguments fail to evaluate, which evaluation fails
+      *    before it reaches;
+      *  - a failure of a template that isn't the body of a function or lambda, such as the query,
+      *    or of a call or application on its paths. A solution evaluates the query without
+      *    failing (see `partial-execution.md`). */
+    case Unreachable(literal: Encoded, under: Option[Encoded] = None)
 
     /** `blocker ==> (decrease || unless)`, or `blocker ==> decrease` without `unless`, where
       * `decrease` states that a well-founded measure decreases:
@@ -96,13 +148,24 @@ trait RuleKernel { self: Templates =>
 
     // Functions and equality
 
-    /** `premise1 && ... && premiseN ==> resultEq`, where the premises are the blockers of two calls or
-      * applications of the same function and the equalities of their arguments, and `resultEq` the
-      * equality of their results, each compared with the equality of its type.
+    /** `premise1 && ... && premiseN ==> resultEq`, where the premises are the blockers of two calls,
+      * applications or quantifications with the same callee or body, and the equalities of their
+      * arguments or closures, and `resultEq` the equality of their results, each compared with the
+      * equality of its type.
       *
-      * A call or application is a function of its callee and arguments. This assumes that functions
-      * respect custom equalities. */
+      * A call or application is a function of its callee and arguments, and a quantification of its
+      * body and closures. This assumes that functions respect custom equalities. */
     case Congruence(premises: Seq[Encoded], resultEq: Encoded)
+
+    /** `start ==> distinguished`, where `start` holds iff two functions `f1` and `f2` are distinct
+      * where a distinguishing input is needed, and `distinguished` states that they differ on fresh
+      * arguments `ws`: their applications differ, or, when `failures` gives whether each one fails,
+      * one fails and the other doesn't or neither fails and they differ.
+      *
+      * Distinguishing inputs are only used when function equality is extensional or unobservable,
+      * and functions can then be interpreted extensionally. Distinct functions then differ on some
+      * input, which `ws` stand for. */
+    case DistinguishingInput(start: Encoded, differ: Encoded, failures: Option[(Encoded, Encoded)])
 
     /** `e1 == e2 ==> eq(e1, e2)`, under `guard` if there is one, where `eq` is the equality
       * symbol of `tpe`.
@@ -174,19 +237,41 @@ trait RuleKernel { self: Templates =>
       case Enables(blocker, target) =>
         Seq(mkImplies(blocker, target))
 
+      case Hypothesis(literal, condition, fact) =>
+        Seq(mkImplies(mkAnd(literal, condition), fact))
+
       case Unfold(template, blocker, args, failure) => failure match {
         case Some(failure) => template.instantiate(blocker, args, failure)
         case None => template.instantiate(blocker, args)
       }
 
-      case Unreachable(blocker) =>
-        Seq(mkNot(blocker))
+      case Instance(instantiation, of) => of match {
+        case InstanceOf.Expression(exempt) => instantiation.clauses(exempt = exempt)
+        case InstanceOf.OfAxiom => instantiation.substClauses ++ instantiation.itemClauses(onMatcher = (_, _) => Seq.empty)
+        case InstanceOf.Counterexample => instantiation.clauses()
+      }
+
+      case Root(start) =>
+        Seq(start)
+
+      case Holds(blocker, quantification) =>
+        Seq(mkImplies(blocker, quantification))
+
+      case Unreachable(literal, under) =>
+        Seq(under.fold(mkNot(literal))(mkImplies(_, mkNot(literal))))
 
       case Decreases(blocker, decrease, unless) =>
         Seq(mkImplies(blocker, unless.fold(decrease)(mkOr(decrease, _))))
 
       case Congruence(premises, resultEq) =>
         Seq(mkImplies(mkAnd(premises*), resultEq))
+
+      case DistinguishingInput(start, differ, failures) =>
+        val distinguished = failures match {
+          case None => differ
+          case Some((err1, err2)) => mkOr(mkNot(mkEquals(err1, err2)), mkAnd(mkNot(err1), mkNot(err2), differ))
+        }
+        Seq(mkImplies(start, distinguished))
 
       case Reflexivity(tpe, e1, e2, guard) =>
         val premise = guard.fold(mkEquals(e1, e2))(g => mkAnd(g, mkEquals(e1, e2)))
