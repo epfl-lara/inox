@@ -8,6 +8,7 @@ import utils._
 
 import scala.collection.generic.CanBuildFrom
 import scala.collection.mutable.{Set => MutableSet}
+import scala.collection.immutable.VectorMap
 
 trait Templates
   extends TemplateGenerator
@@ -125,6 +126,36 @@ trait Templates
       pending --= due.map(_._1)
       due.map { case (k, (gen, items)) => (k, gen, items) }
     }
+  }
+
+  /** The pending unfoldings of a manager, as an immutable value: the items to unfold under each
+    * key, and the generation at which they are unfolded, in the order in which the keys were first
+    * registered. It behaves as an [[UnrollingQueue]], whose operations return the new value. */
+  final case class Pending[K, I](entries: VectorMap[K, (Int, Set[I])]) {
+    def isEmpty: Boolean = entries.isEmpty
+    def keys: Iterable[K] = entries.keys
+
+    /** The earliest generation of the pending keys, if any. */
+    def generation: Option[Int] = if (entries.isEmpty) None else Some(entries.values.map(_._1).min)
+
+    def register(key: K, gen: Int, items: Set[I]): Pending[K, I] = entries.get(key) match {
+      case Some((exGen, exItems)) => Pending(entries.updated(key, (gen min exGen, exItems ++ items)))
+      case None => Pending(entries.updated(key, (gen, items)))
+    }
+
+    /** The pending items with `key` moved to the current generation, if `key` is pending. */
+    def promote(key: K): Option[Pending[K, I]] =
+      entries.get(key).map { case (_, items) => Pending(entries.updated(key, (currentGeneration, items))) }
+
+    /** The keys that are due at the current generation, with their items, and the keys left. */
+    def dequeue: (Seq[(K, Int, Set[I])], Pending[K, I]) = {
+      val (due, rest) = entries.partition(_._2._1 <= currentGeneration)
+      (due.toSeq.map { case (k, (gen, items)) => (k, gen, items) }, Pending(rest))
+    }
+  }
+
+  object Pending {
+    def empty[K, I]: Pending[K, I] = Pending(VectorMap.empty)
   }
 
   /** A queue of the items that blockers guard, whose blockers the model checks assume false. */
