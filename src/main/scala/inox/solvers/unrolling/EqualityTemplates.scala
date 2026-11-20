@@ -37,7 +37,7 @@ trait EqualityTemplates { self: Templates =>
            RealType() | StringType() | (_: BVType) | (_: TypeParameter) => false
 
       // Functions are compared through their identifiers, and the equality clauses between
-      // lambdas compare their closures with `mkEqualities` (see [[LambdaTemplates]]).
+      // lambdas compare their closures with `registeredEquality` (see [[LambdaTemplates]]).
       case (_: FunctionType) | (_: PiType) => false
 
       case NAryType(tpes, _) => tpes.exists(unrollEquality)
@@ -72,16 +72,10 @@ trait EqualityTemplates { self: Templates =>
     }
   }
 
-  private[unrolling] def mkEqualities(
-    blocker: Encoded,
-    tpe: Type,
-    e1: Encoded,
-    e2: Encoded,
-    register: Boolean = true
-  ): (Encoded, Clauses) = {
-    if (register && unrollEquality(tpe)) (registerEquality(blocker, tpe, e1, e2), Seq())
-    else guardedEquality(blocker, tpe, e1, e2)
-  }
+  /** The equality of `e1` and `e2` at `tpe`, which is unrolled under `blocker` when `tpe` has an
+    * equality symbol (see [[guardedEquality]] for one that isn't). */
+  private[unrolling] def registeredEquality(blocker: Encoded, tpe: Type, e1: Encoded, e2: Encoded): Encoded =
+    if (unrollEquality(tpe)) registerEquality(blocker, tpe, e1, e2) else mkEquals(e1, e2)
 
   class EqualityTemplate private(val tpe: Type, val contents: TemplateContents) extends Template {
     override protected def instantiate(instantiation: Instantiation): Clauses = {
