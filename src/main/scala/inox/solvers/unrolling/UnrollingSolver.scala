@@ -10,6 +10,7 @@ import theories._
 import evaluators._
 import combinators._
 
+import scala.collection.immutable.ListSet
 import scala.collection.mutable.{Map => MutableMap, Set => MutableSet, ListBuffer}
 
 object optUnrollBound       extends IntOptionDef("unroll-bound", default = -1, "<Int> | -1 (unbounded)")
@@ -1354,7 +1355,7 @@ abstract class AbstractUnrollingSolver private
       def check(equalities: Iterable[Encoded]): Response =
         context.timers.solvers.unrolling.check.run {
           underlying.checkAssumptions(checkConfig)(
-            checking(encodedAssumptions.toSet ++ templates.unfolding.satisfactionAssumptions ++ equalities)
+            checking(ListSet.from(encodedAssumptions) ++ templates.unfolding.satisfactionAssumptions ++ equalities)
           )
         }
 
@@ -1600,7 +1601,7 @@ abstract class AbstractUnrollingSolver private
 
       val res = context.timers.solvers.unrolling.check.run {
           underlying.checkAssumptions(Configuration(model = false, unsatAssumptions = config.withUnsatAssumptions))(
-            checking(encodedAssumptions.toSet ++ templates.unfolding.refutationAssumptions)
+            checking(ListSet.from(encodedAssumptions) ++ templates.unfolding.refutationAssumptions)
           )
         }
 
@@ -1634,7 +1635,7 @@ abstract class AbstractUnrollingSolver private
       val res: Response =
         context.timers.solvers.unrolling.check.run {
           underlying.checkAssumptions(config `max` Configuration(model = true))(
-            checking(encodedAssumptions.toSet ++ templates.unfolding.refutationAssumptions)
+            checking(ListSet.from(encodedAssumptions) ++ templates.unfolding.refutationAssumptions)
           )
         }
 

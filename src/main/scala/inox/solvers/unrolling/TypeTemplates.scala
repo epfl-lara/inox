@@ -6,6 +6,7 @@ package unrolling
 
 import utils._
 
+import scala.collection.immutable.{ListSet, VectorMap}
 import scala.collection.mutable.{Map => MutableMap, Set => MutableSet}
 
 /** Performs incremental ADT unfolding and enables support for ADT invariants as well
@@ -271,14 +272,14 @@ trait TypeTemplates { self: Templates =>
       state.update(s => s.copy(readsTypings = s.readsTypings.updated(result, reads)))
     }
     if (free) {
-      state.update(s => s.copy(collections = s.collections.updated(ct, s.collections.getOrElse(ct, Set.empty) + info)))
-      state.get.reads.getOrElse(ct, Set.empty).toSeq.flatMap { case (readBlocker, read, key) =>
+      state.update(s => s.copy(collections = s.collections.updated(ct, s.collections.getOrElse(ct, ListSet.empty) + info)))
+      state.get.reads.getOrElse(ct, ListSet.empty).toSeq.flatMap { case (readBlocker, read, key) =>
         typeRead(info, readBlocker, read, key)
       }
     } else {
       state.update(s => s.copy(boundCollections =
-        s.boundCollections.updated(collection, s.boundCollections.getOrElse(collection, Set.empty) + info)))
-      state.get.readsOf.getOrElse(collection, Set.empty).toSeq.flatMap { case (readBlocker, key) =>
+        s.boundCollections.updated(collection, s.boundCollections.getOrElse(collection, ListSet.empty) + info)))
+      state.get.readsOf.getOrElse(collection, ListSet.empty).toSeq.flatMap { case (readBlocker, key) =>
         typeRead(info, readBlocker, collection, key)
       }
     }
@@ -296,10 +297,10 @@ trait TypeTemplates { self: Templates =>
         val readBlocker = encodeSymbol(Variable.fresh("rd", BooleanType(), true))
         state.update(s => s.copy(
           readBlockers = s.readBlockers.updated((collection, key), readBlocker),
-          reads = s.reads.updated(ct, s.reads.getOrElse(ct, Set.empty) + ((readBlocker, collection, key))),
-          readsOf = s.readsOf.updated(collection, s.readsOf.getOrElse(collection, Set.empty) + (readBlocker -> key))))
-        val infos = state.get.collections.getOrElse(ct, Set.empty).toSeq ++
-          state.get.boundCollections.getOrElse(collection, Set.empty)
+          reads = s.reads.updated(ct, s.reads.getOrElse(ct, ListSet.empty) + ((readBlocker, collection, key))),
+          readsOf = s.readsOf.updated(collection, s.readsOf.getOrElse(collection, ListSet.empty) + (readBlocker -> key))))
+        val infos = state.get.collections.getOrElse(ct, ListSet.empty).toSeq ++
+          state.get.boundCollections.getOrElse(collection, ListSet.empty)
         (readBlocker, infos.flatMap(info => typeRead(info, readBlocker, collection, key)))
     }
 
@@ -451,16 +452,16 @@ trait TypeTemplates { self: Templates =>
 
       val encoder: Expr => Encoded = mkEncoder(fullSubst)
 
-      var typeBlockers: Types = Map.empty
+      var typeBlockers: Types = VectorMap.empty
       var funClauses: Clauses = Seq.empty
-      var functions: Set[Encoded] = Set.empty
+      var functions: Set[Encoded] = ListSet.empty
 
       for ((b, tps) <- types; tp <- tps) tp match {
         case Typing(t @ (_: FunctionType | _: PiType), arg, Capture(containerT, containerType)) =>
           val ft = t.getType.asInstanceOf[FunctionType]
           funClauses ++= Rule.Decreases(b, lessThan(order(ft)(arg), order(containerType)(containerT)), None).clauses
           functions += arg
-        case _ => typeBlockers += b -> (typeBlockers.getOrElse(b, Set.empty) + tp)
+        case _ => typeBlockers = typeBlockers `merge` (b -> tp)
       }
 
       // the typings of functions are replaced by `funClauses`
@@ -557,8 +558,10 @@ trait TypeTemplates { self: Templates =>
     readsTypings: Map[Encoded, OpenAnd])
 
   private object TypesState {
-    val empty: TypesState = TypesState(Pending.empty, Map.empty, Set.empty, Map.empty, Map.empty, Vector.empty,
-      Map.empty, Map.empty, Map.empty, Map.empty, Map.empty, Set.empty, Map.empty)
+    // The maps and the sets that are iterated keep their insertion order, so that the clauses and the
+    // assumptions don't depend on hash codes (see [[Items]]), while those only looked up are hashed
+    val empty: TypesState = TypesState(Pending.empty, VectorMap.empty, Set.empty, VectorMap.empty, VectorMap.empty, Vector.empty,
+      VectorMap.empty, VectorMap.empty, VectorMap.empty, VectorMap.empty, VectorMap.empty, Set.empty, VectorMap.empty)
   }
 
   private[unrolling] object typesManager extends Manager {

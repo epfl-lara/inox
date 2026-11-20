@@ -8,7 +8,7 @@ import utils._
 
 import scala.collection.generic.CanBuildFrom
 import scala.collection.mutable.{Set => MutableSet}
-import scala.collection.immutable.VectorMap
+import scala.collection.immutable.{ListSet, VectorMap}
 
 trait Templates
   extends TemplateGenerator
@@ -335,11 +335,13 @@ trait Templates
 
   extension [A,B](map: Map[A,Set[B]]) {
     @annotation.targetName("mergeMapSetMap")
-    def merge(that: Map[A,Set[B]]): Map[A,Set[B]] = (map.keys ++ that.keys).map { k =>
-      k -> (map.getOrElse(k, Set.empty) ++ that.getOrElse(k, Set.empty))
-    }.toMap
+    // Keeps the keys and the elements in insertion order, so that the clauses don't depend on hash codes
+    def merge(that: Map[A,Set[B]]): Map[A,Set[B]] = that.foldLeft(VectorMap.from(map)) {
+      case (acc, (k, bs)) => acc.updated(k, ListSet.from(acc.getOrElse(k, ListSet.empty)) ++ bs)
+    }
     @annotation.targetName("mergeMapSetTuple")
-    def merge(that: (A,B)): Map[A,Set[B]] = map + (that._1 -> (map.getOrElse(that._1, Set.empty) + that._2))
+    def merge(that: (A,B)): Map[A,Set[B]] =
+      VectorMap.from(map).updated(that._1, ListSet.from(map.getOrElse(that._1, ListSet.empty)) + that._2)
   }
 
   extension [A,B](map: Map[A,Seq[B]]) {
@@ -369,13 +371,16 @@ trait Templates
   type Equalities = Map[Encoded, Set[Equality]]
   type Pointers   = Map[Encoded, Encoded]
 
-  /** The items of a template under their blockers. */
+  /** The items of a template under their blockers. The blockers and the items under each blocker
+    * are kept in the order in which they were found (as [[VectorMap]]s and [[ListSet]]s), so that the
+    * order in which they are instantiated, and thus the order of the clauses, doesn't depend on the
+    * hash codes of the encoded terms. */
   type Items      = Map[Encoded, Set[Item]]
 
   extension (items: Items) {
     /** The items that `select` picks, under their blockers. */
-    def ofKind[I](select: PartialFunction[Item, I]): Map[Encoded, Set[I]] = items.flatMap { case (b, is) =>
-      val selected = is.collect(select)
+    def ofKind[I](select: PartialFunction[Item, I]): Map[Encoded, Set[I]] = VectorMap.from(items).flatMap { case (b, is) =>
+      val selected = ListSet.from(is.iterator.collect(select))
       if (selected.isEmpty) None else Some(b -> selected)
     }
 
@@ -388,7 +393,8 @@ trait Templates
   }
 
   /** The items of a map from blockers to items of one kind. */
-  def asItems[I <: Item](guarded: Map[Encoded, Set[I]]): Items = guarded.map { case (b, is) => b -> is.toSet[Item] }
+  def asItems[I <: Item](guarded: Map[Encoded, Set[I]]): Items =
+    VectorMap.from(guarded).map { case (b, is) => b -> (ListSet.from(is): Set[Item]) }
 
   object TemplateContents {
     def empty(pathVar: (Variable, Encoded), args: Seq[(Variable, Encoded)]) =
@@ -424,7 +430,7 @@ trait Templates
         pathVar._1 -> substituter(pathVar._2),
         arguments, condVars, exprVars, condTree,
         clauses.map(substituter),
-        items.map { case (b, is) => substituter(b) -> is.map(_.substitute(substituter, msubst)) },
+        VectorMap.from(items).map { case (b, is) => substituter(b) -> ListSet.from(is.iterator.map(_.substitute(substituter, msubst))) },
         lambdas.map(_.substitute(substituter, msubst)),
         quantifications.map(_.substitute(substituter, msubst)),
         pointers.map(p => substituter(p._1) -> substituter(p._2)),
@@ -642,24 +648,25 @@ trait Templates
         case None => Left(encoder(arg))
       }
 
-      val calls = exprOps.collect[Call] {
+      // The items are collected in their order of occurrence rather than in hash order (see [[Items]])
+      val calls = exprOps.collectPreorder[Call] {
         case FunctionInvocation(id, tps, args) =>
           val tpVars = tps.flatMap(variableSeq).distinct
-          Set(Call(Defined(getFunction(id, tps)), args.map(encodeArg), tpVars.map(encodeArg)))
+          Seq(Call(Defined(getFunction(id, tps)), args.map(encodeArg), tpVars.map(encodeArg)))
         // The applications of the free functions of interpreted uninterpreted functions unfold their
         // interpretations
         case Application(f: Variable, args) => interpretedFunctions.get(f) match {
-          case Some(callee) => Set(Call(callee, args.map(encodeArg), Seq.empty))
-          case None => Set.empty
+          case Some(callee) => Seq(Call(callee, args.map(encodeArg), Seq.empty))
+          case None => Seq.empty
         }
-        case _ => Set.empty
+        case _ => Seq.empty
       } (expr).filter { case Call(callee, args, _) =>
         !optCall.exists(p => p._1 == callee && p._2 == args)
       }
 
-      val apps = exprOps.collect[Application] {
-        case app: Application => Set(app)
-        case _ => Set.empty
+      val apps = exprOps.collectPreorder[Application] {
+        case app: Application => Seq(app)
+        case _ => Seq.empty
       } (expr).filter {
         case Application(c, Seq(e1, e2)) => c != equalitySymbol(e1.getType)._1
         case _ => true
@@ -668,7 +675,7 @@ trait Templates
         App(encoder(c), tpe, args.map(encodeArg), encoder(app))
       }.filter(i => Some(i) != optApp)
 
-      val matchers = exprToMatcher.values.toSet
+      val matchers = exprOps.collectPreorder[Matcher](e => exprToMatcher.get(e).toSeq)(expr)
         .filter(i => Some(i.encoded) != optApp.map(_.encoded))
         .filter {
           case Matcher(Right(tfd), args, _) => !optCall.exists(p => p._1 == Defined(tfd) && p._2 == args)
@@ -696,17 +703,17 @@ trait Templates
       // A collection is read where the formula looks it up, and where it is built at the keys it
       // defines, so that a free collection that equals a built one types these keys. The collections
       // that type decompositions build are left out (see [[decompositionKeys]]).
-      val reads = exprOps.collect[Read] {
-        case MapApply(m, k) => Set(Read(m.getType, encoder(m), encoder(k)))
-        case ElementOfSet(e, s) => Set(Read(s.getType, encoder(s), encoder(e)))
-        case MultiplicityInBag(e, b) => Set(Read(b.getType, encoder(b), encoder(e)))
+      val reads = exprOps.collectPreorder[Read] {
+        case MapApply(m, k) => Seq(Read(m.getType, encoder(m), encoder(k)))
+        case ElementOfSet(e, s) => Seq(Read(s.getType, encoder(s), encoder(e)))
+        case MultiplicityInBag(e, b) => Seq(Read(b.getType, encoder(b), encoder(e)))
         case c @ (_: FiniteMap | _: MapUpdated | _: FiniteSet | _: SetAdd | _: SetUnion | _: SetIntersection |
                   _: SetDifference | _: FiniteBag | _: BagAdd | _: BagUnion | _: BagIntersection | _: BagDifference) =>
-          definedKeys(c).filterNot(decompositionKeys).map(k => Read(c.getType, encoder(c), encoder(k))).toSet
-        case _ => Set.empty
+          definedKeys(c).filterNot(decompositionKeys).map(k => Read(c.getType, encoder(c), encoder(k)))
+        case _ => Seq.empty
       } (expr)
 
-      ExtractedCalls(calls.toSet[Item] ++ apps ++ matchers ++ reads, pointers)
+      ExtractedCalls(ListSet.from[Item](calls ++ apps ++ matchers ++ reads), pointers)
     }
 
     /** The failure literals among the expression variables of a template (see [[failureSymbols]]). */
@@ -743,7 +750,7 @@ trait Templates
 
         val pv = pathVar._1
         for ((b,es) <- guardedExprs `merge` Map(pv -> eqs)) {
-          var bItems : Set[Item] = Set.empty
+          var bItems : Set[Item] = ListSet.empty
           for (e <- es) {
             val extracted = extractCalls(e, idToTrId, optIdCall, optIdApp)
             bItems ++= extracted.items

@@ -5,6 +5,7 @@ package solvers
 package unrolling
 
 import utils._
+import scala.collection.immutable.{ListSet, VectorMap}
 import scala.collection.mutable.{Map => MutableMap, Set => MutableSet}
 
 trait LambdaTemplates { self: Templates =>
@@ -695,8 +696,10 @@ trait LambdaTemplates { self: Templates =>
     resultGuards: Map[Encoded, Encoded])
 
   private object LambdasState {
-    val empty: LambdasState = LambdasState(Pending.empty, Map.empty, Map.empty, Map.empty, Map.empty, Map.empty,
-      Map.empty, Map.empty, Map.empty, Map.empty, Map.empty, Map.empty, Set.empty, Map.empty)
+    // The maps and the sets that are iterated keep their insertion order, so that the clauses and the
+    // assumptions don't depend on hash codes (see [[Items]]), while those only looked up are hashed
+    val empty: LambdasState = LambdasState(Pending.empty, VectorMap.empty, VectorMap.empty, VectorMap.empty, VectorMap.empty, VectorMap.empty,
+      VectorMap.empty, VectorMap.empty, VectorMap.empty, VectorMap.empty, VectorMap.empty, VectorMap.empty, Set.empty, VectorMap.empty)
   }
 
   /** The type blocker and the typing result of `key`, which `compute` gives the first time. */
@@ -712,14 +715,14 @@ trait LambdaTemplates { self: Templates =>
 
     private[LambdaTemplates] def byID: Map[Encoded, LambdaTemplate] = state.get.byID
     private[LambdaTemplates] def byType(tpe: FunctionType): Map[TemplateStructure, LambdaTemplate] =
-      state.get.byType.getOrElse(tpe, Map.empty)
+      state.get.byType.getOrElse(tpe, VectorMap.empty)
     private[LambdaTemplates] def applications(tpe: FunctionType): Set[(Encoded, App)] =
-      state.get.applications.getOrElse(tpe, Set.empty)
+      state.get.applications.getOrElse(tpe, ListSet.empty)
     private[LambdaTemplates] def freeBlockers(tpe: FunctionType): Set[(OpenAnd, Encoded, Type, Encoded, Seq[Arg], Boolean)] =
-      state.get.freeBlockers.getOrElse(tpe, Set.empty)
+      state.get.freeBlockers.getOrElse(tpe, ListSet.empty)
     private[LambdaTemplates] def nonFreeBlockers: Map[Encoded, (Encoded, OpenOr)] = state.get.nonFreeBlockers
     private[LambdaTemplates] def freeFunctions(tpe: FunctionType): Set[(Encoded, Encoded)] =
-      state.get.freeFunctions.getOrElse(tpe, Set.empty)
+      state.get.freeFunctions.getOrElse(tpe, ListSet.empty)
 
     val incrementals: Seq[IncrementalState] = Seq(state)
 
