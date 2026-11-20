@@ -69,10 +69,9 @@ class ValuePrinterSuite extends AnyFunSuite {
   test("functions") {
     val (program, v) = parseValue("f", "(lambda ((x Int)) (ite (= x 2) 5 0))")
     val Lambda(Seq(x), _) = v: @unchecked
-    val name = x.id.uniqueNameDelimited("!")
-    assert(printValue(program, v) == s"(lambda (($name Int)) (ite (= $name 2) 5 0))")
-    roundTrip("f", "(lambda ((x Int)) (ite (= x 2) 5 0))", printValue(program, v)
-      .replace(name, "x!0"))
+    // The printer numbers the symbols of bound variables itself, from 0
+    assert(printValue(program, v) == "(lambda ((x!0 Int)) (ite (= x!0 2) 5 0))")
+    roundTrip("f", "(lambda ((x Int)) (ite (= x 2) 5 0))", printValue(program, v))
     // Any expression the TIP printer supports can appear in a function value.
     roundTrip("f", "(lambda ((x Int)) (+ x (str.len s)))", "(lambda ((x Int)) (+ x (str.len s)))")
   }
@@ -133,6 +132,6 @@ class ValuePrinterSuite extends AnyFunSuite {
     val fv = Variable.fresh("f", FunctionType(Seq(IntegerType()), IntegerType()))
     val x = ValDef.fresh("x", IntegerType())
     val model = Map(lv.toVal -> nil, fv.toVal -> Lambda(Seq(x), IntegerLiteral(7)))
-    assert({ val p = new ValuePrinter(program, Context.empty); try p.model(model) finally p.free() } == s"((f (lambda ((${x.id.uniqueNameDelimited("!")} Int)) 7)) (l nil))")
+    assert({ val p = new ValuePrinter(program, Context.empty); try p.model(model) finally p.free() } == "((f (lambda ((x!0 Int)) 7)) (l nil))")
   }
 }

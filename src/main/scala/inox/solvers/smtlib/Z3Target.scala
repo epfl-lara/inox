@@ -151,15 +151,10 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
     case _ => super.computeSort(t)
   }
 
-  override protected def id2sym(id: Identifier): SSymbol = {
-    // @nv: Z3 uses identifiers of the shape 'k!\d+' to represent
-    //      its array functions, so we have to make sure to avoid collisions!
-    if (id.name == "k") {
-      SSymbol(s"k0!${id.id}")
-    } else {
-      super.id2sym(id)
-    }
-  }
+  // @nv: Z3 uses identifiers of the shape 'k!\d+' to represent
+  //      its array functions, so we have to make sure to avoid collisions!
+  override protected def symbolBase(id: Identifier): String =
+    if (id.name == "k") "k0" else super.symbolBase(id)
 
   protected def extractSet(e: Expr): Expr = e match {
     case FiniteMap(els, dflt, base, _) =>

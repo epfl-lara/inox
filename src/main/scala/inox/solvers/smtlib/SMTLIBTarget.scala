@@ -123,12 +123,25 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
 
   protected val adtManager = new ADTManager
 
-  protected def id2sym(id: Identifier): SSymbol = {
-    SSymbol(id.uniqueNameDelimited("!")
+  /* The symbols are numbered by the target rather than with the identifiers' ids, which come from
+   * global counters: the same query then gets the same symbols however the solvers of other queries
+   * interleave with it, and solvers such as Z3 depend on the symbols, so they do the same work. */
+  private val idSymbols = scala.collection.mutable.Map.empty[Identifier, SSymbol]
+  private val symbolCounts = scala.collection.mutable.Map.empty[String, Int]
+
+  /** The part of the symbols of `id` before their number */
+  protected def symbolBase(id: Identifier): String =
+    id.name
       .replace("|", "$pipe")
       .replace(":", "$colon")
-      .replace("\\", "$backslash"))
-  }
+      .replace("\\", "$backslash")
+
+  protected def id2sym(id: Identifier): SSymbol = idSymbols.getOrElseUpdate(id, {
+    val base = symbolBase(id)
+    val n = symbolCounts.getOrElse(base, 0)
+    symbolCounts(base) = n + 1
+    SSymbol(s"$base!$n")
+  })
 
   protected def freshSym(id: Identifier): SSymbol = freshSym(id.name)
   protected def freshSym(name: String): SSymbol = id2sym(FreshIdentifier(name))
