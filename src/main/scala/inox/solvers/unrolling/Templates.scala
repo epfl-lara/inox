@@ -1096,7 +1096,7 @@ trait Templates
     val encodedStart +: rest = clauses: @unchecked
     val (err1, err2) = (appFailure(f1, tpe, wsT), appFailure(f2, tpe, wsT))
     Rule.Define(None, encodedStart, mkAnd(guard, mkNot(mkEquals(f1, f2)))).clauses ++
-      Rule.DistinguishingInput(encodedStart, differT, if (partial) Some((err1, err2)) else None).clauses ++
+      Rule.Witness(encodedStart, differT, if (partial) Some((err1, err2)) else None).clauses ++
       rest ++ newFailureDefinitions()
   }
 
