@@ -99,6 +99,12 @@ class CustomEqualitySuite extends SolverTestSuite {
   override protected def options = Seq(optCheckModels(false),
     unrolling.optFunctionEquality(unrolling.FunctionEquality.Intensional))
 
+  private def withSolver(ctx: Context)(body: Solver { val program: InoxProgram } => Unit): Unit = {
+    val factory = program.getSolver(ctx)
+    val s = factory.getNewSolver()
+    try body(s) finally factory.reclaim(s)
+  }
+
   /** Checks that `e` is valid. */
   def valid(ctx: Context, e: Expr): Unit = solver(ctx).solveSAT(Not(e)) match {
     case Unsat => // OK
@@ -170,6 +176,19 @@ class CustomEqualitySuite extends SolverTestSuite {
     valid(ctx, Equals(box(ab), box(ba)))
     valid(ctx, Implies(Equals(box(a), box(b)), Equals(MultiplicityInBag(one, a), MultiplicityInBag(one, b))))
     satisfiable(ctx, And(Equals(box(a), box(b)), Equals(MultiplicityInBag(one, a), one)))
+  }
+
+  test("Bag equality within ADTs after a pop", Bags, ADTs) { ctx =>
+    // the equality symbol of `Box` and the template that defines it outlive the pop
+    withSolver(ctx) { s =>
+      s.push()
+      s.assertCnstr(Not(Equals(box(ab), box(ba))))
+      assert(s.check(Simple).isUNSAT)
+      s.pop()
+      s.assertCnstr(Not(Equals(box(ba), box(ab))))
+      val res = s.check(Simple)
+      assert(res.isUNSAT, s"expected UNSAT, got $res")
+    }
   }
 
   test("Bag arguments of functions", Bags) { ctx =>
