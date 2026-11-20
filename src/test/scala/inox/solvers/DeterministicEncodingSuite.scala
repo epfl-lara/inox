@@ -23,7 +23,7 @@ class DeterministicEncodingSuite extends AnyFunSuite {
     val reporter = new DefaultReporter(Set(smtlib.DebugSectionSMT))
     val ctx = Context(reporter, new utils.InterruptManager(reporter),
       Options(Seq(optSelectedSolvers(Set("smt-z3")), Main.optFiles(Seq(new File(source))))))
-    def outputs = Option(new File("smt-sessions").listFiles()).toSeq.flatten.filter(_.getName.contains(source))
+    def outputs = Option(new File("smt-sessions").listFiles()).toSeq.flatten.filter(_.getName.contains(source)).sortBy(_.getName)
     try {
       val s = program.getSolver(ctx).getNewSolver()
       s.assertCnstr(query)
@@ -59,7 +59,10 @@ class DeterministicEncodingSuite extends AnyFunSuite {
   test("The same query gives the same SMT-LIB text whatever identifiers were allocated before") {
     val y = Variable.fresh("y", IntegerType())
     val g = Variable.fresh("g", IntegerType() =>: IntegerType())
-    val query = And(Equals(y, E(BigInt(2))), Equals(E(hID)(g, y), E(fID)(y)))
+    // the axiom is instantiated on the six applications of `g`
+    val x = Variable.fresh("x", IntegerType())
+    val axiom = Forall(Seq(x.toVal), GreaterEquals(Application(g, Seq(x)), E(BigInt(0))))
+    val query = And(Seq(Equals(y, E(BigInt(2))), axiom, Equals(E(hID)(g, y), E(fID)(y))))
 
     val first = session(program, 1)(query)
     assert(first.nonEmpty)

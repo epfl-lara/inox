@@ -10,7 +10,7 @@ import theories._
 import evaluators._
 import combinators._
 
-import scala.collection.immutable.ListSet
+import scala.collection.immutable.{ListSet, VectorMap}
 import scala.collection.mutable.{Map => MutableMap, Set => MutableSet, ListBuffer}
 
 object optUnrollBound       extends IntOptionDef("unroll-bound", default = -1, "<Int> | -1 (unbounded)")
@@ -1032,11 +1032,14 @@ abstract class AbstractUnrollingSolver private
               (withConds, image(concreteArgs, imageType))
           }
 
-          // arguments whose conditions are trivial are covered by the default value
+          // arguments whose conditions are trivial are covered by the default value. The first
+          // argument of each condition is kept, in their order, so that the extracted function
+          // doesn't depend on the hashes of the conditions.
           val sortedArguments = withConds
             .filter(_._2 != BooleanLiteral(true))
-            .groupBy(_._2)
-            .view.mapValues(_.head)
+            .foldLeft(VectorMap.empty[Expr, (Seq[Encoded], Expr, Type)]) { (m, p) =>
+              if (m contains p._2) m else m + (p._2 -> p)
+            }
             .toSeq
             .sortBy(p => -exprOps.formulaSize(p._1))
 
