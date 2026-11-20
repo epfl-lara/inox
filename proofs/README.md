@@ -9,7 +9,10 @@ Its fenced `inox-sem` blocks are read by `inox.semantics.Codegen`, which writes
 the semantics for each tool that needs it. Today that is a Scala evaluator,
 [`src/test/scala/inox/semantics/generated/Semantics.scala`](src/test/scala/inox/semantics/generated/Semantics.scala),
 which `SemanticsSuite` compares with Inox's `RecursiveEvaluator` on the
-functions of the regression files. Lean and Eunoia backends come next.
+functions of the regression files and on random expressions over every theory.
+The functions that quantify over values (`forall`, `exists`) can't be computed,
+so the evaluator leaves them abstract, and the tests give them by enumerating
+small finite types. Lean and Eunoia backends come next.
 
 This directory is the sbt project `proofs`, which depends on Inox but is not
 part of it: it is not published, and Inox's jars don't contain it. `sbt test`

@@ -317,16 +317,18 @@ class SemanticsSuite extends AnyFunSuite {
 
   /** Evaluates `e` (closed, in the fragment) with both evaluators, and fails if they disagree. */
   def compare(e: Expr, sp: S.Program, label: => String)(using symbols: Symbols): Outcome = {
+    // the semantics first: when its oracles can't decide a quantifier, or it runs out of fuel, the
+    // recursive evaluator, which can be much slower on these (it solves quantifiers), isn't run
+    val ours = try Sem.eval(sp, fuel, S.Env(S.Nil(), S.Nil()), expr(e).get) catch {
+      case _: Unsupported => return Outcome.Skipped
+    }
+    if (ours == S.OutOfFuel()) return Outcome.Skipped
     val ctx = TestContext(Options(Seq(evaluators.optMaxCalls(maxCalls))))
     val ev = evaluators.RecursiveEvaluator(InoxProgram(symbols), ctx)
     val reference = try ev.eval(e) catch {
       case _: StackOverflowError => return Outcome.Skipped
     }
-    val ours = try Sem.eval(sp, fuel, S.Env(S.Nil(), S.Nil()), expr(e).get) catch {
-      case _: Unsupported => return Outcome.Skipped
-    }
     (reference, ours) match {
-      case (_, S.OutOfFuel()) => Outcome.Skipped
       case (evaluators.EvaluationResults.RuntimeError(msg), _) if msg.startsWith("Exceeded") => Outcome.Skipped
       case (evaluators.EvaluationResults.Successful(v), S.Ok(w)) =>
         // collections are compared by their contents
@@ -846,7 +848,7 @@ class SemanticsSuite extends AnyFunSuite {
         }
       }
     }
-    info(s"${valueCount + stuck} calls agree ($valueCount on a value, $stuck stuck), $skipped skipped for fuel, " +
+    info(s"${valueCount + stuck} calls agree ($valueCount on a value, $stuck stuck), $skipped skipped (out of fuel, or on a quantifier the tests can't decide), " +
       s"over $testedFunctions functions of ${files.size} files")
     assert(valueCount >= 1000 && stuck >= 50, s"only $valueCount values and $stuck stuck calls compared")
   }
