@@ -764,7 +764,7 @@ trait LambdaTemplates { self: Templates =>
                 // the lambda body is instantiated on the arguments of `app`, so it inherits their witness depth
                 val depth = appDepth(app._2) max functionDepth(template.ids._2)
                 val instClauses: Clauses =
-                  withWitnessDepth(depth)(template.instantiate(lambdaBlocker, args, lambdaFailure))
+                  withWitnessDepth(depth)(Rule.Unfold(template, lambdaBlocker, args, Some(lambdaFailure)).clauses)
 
                 newCls ++= instClauses
                 (lambdaBlocker, lambdaFailure)

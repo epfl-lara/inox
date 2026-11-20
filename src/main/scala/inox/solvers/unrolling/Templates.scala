@@ -21,6 +21,7 @@ trait Templates
      with PartialFunctions
      with OpenJunctions
      with RuleKernel
+     with RuleChecker
      with SolverFacades
      with IncrementalStateWrapper {
 
@@ -163,7 +164,8 @@ trait Templates
   // Set of variables that have already been declared in this solver
   private val declared = new IncrementalSet[(Variable, Encoded)]
 
-  val incrementals: Seq[IncrementalState] = managers ++ Seq(witnessState, blockerGraph, partialFunctionState, declared)
+  val incrementals: Seq[IncrementalState] =
+    managers ++ Seq(witnessState, blockerGraph, partialFunctionState, declared, ruleCheckerState)
 
   protected def promoteBlocker(b: Encoded, force: Boolean = false): Boolean = {
     var seen: Set[Encoded] = Set.empty
@@ -546,7 +548,7 @@ trait Templates
       */
     lazy val (key, instantiation, locals, instantiationSubst) = {
       val inst = contents.instantiation(contents.pathVar._2, Map.empty[Encoded, Arg])
-      val instantiation = inst.clauses()
+      val instantiation = Rule.Instance(inst, InstanceOf.Expression(_ => false)).clauses
       val substMap = inst.substMap
 
       val deps = dependencies.map(inst.substituter)
@@ -963,7 +965,7 @@ trait Templates
 
       val allClauses = new scala.collection.mutable.ListBuffer[Encoded]
       if (failure.isEmpty) allClauses ++= literals.flatMap(f => Rule.Unreachable(substituter(f)).clauses)
-      allClauses ++= contents.clauses.map(substituter)
+      allClauses ++= generated(contents.clauses.map(substituter))
 
       // Applies `f` to the items that `select` picks, under their substituted blockers
       def each[I](select: PartialFunction[Item, I])(f: (Encoded, I) => Unit): Unit =
@@ -1016,10 +1018,13 @@ trait Templates
     }
   }
 
+  /** The clauses of the expression that `gen` gives, under a fresh start blocker, which `root`
+    * gives the clauses of. */
   private def instantiate(
     bindings: Map[Variable, Encoded],
     gen: (Variable, Encoded) => TemplateClauses,
-    exempt: App => Boolean = _ => false
+    exempt: App => Boolean = _ => false,
+    root: Encoded => Clauses = Rule.Root(_).clauses
   ): Clauses = {
     val start = Variable.fresh("start", BooleanType(), true)
     val encodedStart = encodeSymbol(start)
@@ -1027,8 +1032,9 @@ trait Templates
     val tmplClauses = gen(start, encodedStart)
 
     val (contents, _) = Template.contents(start -> encodedStart, bindings.toSeq, tmplClauses)
-    val allClauses = Rule.Root(encodedStart).clauses ++
+    val instance =
       Rule.Instance(contents.instantiation(encodedStart, Map.empty[Encoded, Arg]), InstanceOf.Expression(exempt)).clauses
+    val allClauses = root(encodedStart) ++ instance
 
     for (cl <- allClauses) {
       reporter.debug("  . " + cl)
@@ -1080,6 +1086,13 @@ trait Templates
     def isWitnessApp(app: App): Boolean = partial &&
       (app.caller == f1 || app.caller == f2) && app.tpe == tpe && app.args.map(_.encoded) == wsT
 
+    // the witness condition starts the instantiation, where the query would be its root
+    def root(encodedStart: Encoded): Clauses = {
+      val (err1, err2) = (appFailure(f1, tpe, wsT), appFailure(f2, tpe, wsT))
+      Rule.Define(None, encodedStart, mkAnd(guard, mkNot(mkEquals(f1, f2)))).clauses ++
+        Rule.Witness(encodedStart, differT, if (partial) Some((err1, err2)) else None).clauses
+    }
+
     val clauses = instantiate(bindings + (differ -> differT), { (start, encodedStart) =>
       val substMap = bindings + (differ -> differT) + (start -> encodedStart)
       val tmplClauses = mkClauses0(start,
@@ -1090,14 +1103,9 @@ trait Templates
       }
 
       tpeClauses.foldLeft(tmplClauses)(_ ++ _)
-    }, isWitnessApp)
+    }, isWitnessApp, root)
 
-    // `instantiate` asserts the start blocker, which we replace with the witness condition
-    val encodedStart +: rest = clauses: @unchecked
-    val (err1, err2) = (appFailure(f1, tpe, wsT), appFailure(f2, tpe, wsT))
-    Rule.Define(None, encodedStart, mkAnd(guard, mkNot(mkEquals(f1, f2)))).clauses ++
-      Rule.Witness(encodedStart, differT, if (partial) Some((err1, err2)) else None).clauses ++
-      rest ++ newFailureDefinitions()
+    clauses ++ newFailureDefinitions()
   }
 
   protected def instantiateExpr(expr: Expr, bindings: Map[Variable, Encoded]): Clauses = {

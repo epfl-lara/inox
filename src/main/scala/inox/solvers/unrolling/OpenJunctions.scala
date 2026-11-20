@@ -56,6 +56,7 @@ trait OpenJunctions { self: Templates =>
 
   /** A conjunction whose operands the unrolling discovers over time. */
   case class OpenAnd(restName: String, assumedComplete: AssumedComplete, rest: Encoded) extends OpenJunction[OpenAnd] {
+    declared(this)
     protected def join(operands: Seq[Encoded]): Encoded = mkAnd(operands*)
     protected def withRest(rest: Encoded): OpenAnd = copy(rest = rest)
     def completenessAssumption: Encoded = rest
@@ -69,6 +70,7 @@ trait OpenJunctions { self: Templates =>
 
   /** A disjunction whose operands the unrolling discovers over time. */
   case class OpenOr(restName: String, assumedComplete: AssumedComplete, rest: Encoded) extends OpenJunction[OpenOr] {
+    declared(this)
     protected def join(operands: Seq[Encoded]): Encoded = mkOr(operands*)
     protected def withRest(rest: Encoded): OpenOr = copy(rest = rest)
     def completenessAssumption: Encoded = mkNot(rest)

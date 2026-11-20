@@ -30,6 +30,10 @@ package unrolling
   * (see [[QuantificationTemplates.getFiniteRangeClauses]]) are not asserted: like the satisfaction
   * assumptions, they only restrict the models of one check. [[Rule.Unfold]] and [[Rule.Instance]]
   * also register the items of the instantiation with their managers.
+  *
+  * [[RuleChecker]] checks, as the solver runs, that the clauses it asserts are those of the rules,
+  * that the rules introduce each fresh symbol once, and that its refutations only make the
+  * assumptions that refutations may make.
   */
 trait RuleKernel { self: Templates =>
   import context.{given, _}
@@ -98,8 +102,10 @@ trait RuleKernel { self: Templates =>
     case Unfold(template: Template, blocker: Encoded, args: Seq[Arg], failure: Option[Encoded])
 
     /** The clauses of `instantiation`, which is one of:
-      *  - an [[InstanceOf.Expression]]: the query, the typing of a free variable, or the definitions
-      *    of a distinguishing input, under their root blocker (see [[Root]]). As for [[Unfold]], the
+      *  - an [[InstanceOf.Expression]]: the query or the typing of a free variable, under their root
+      *    blocker (see [[Root]]), the definitions of a witness, under the condition that it needs
+      *    one (see [[Templates.instantiateWitness]]), or the closures of a lambda or quantification,
+      *    under the blocker where it is created (see [[TemplateStructure]]). As for [[Unfold]], the
       *    generator gives clauses that hold for the expression whenever its blocker holds. The
       *    applications that `exempt` picks may fail.
       *  - an [[InstanceOf.OfAxiom]]: the body of a quantification that holds where its path does
@@ -116,6 +122,13 @@ trait RuleKernel { self: Templates =>
       * Evaluation reaches the root of the query, and the values of the free variables lie in their
       * types. */
     case Root(start: Encoded)
+
+    /** `blocker ==> (typing == true)`, where `typing` is the result of the typing of a free value
+      * that `blocker` reaches, which is deferred until the solver has a use for empty type
+      * parameters (see [[TypeTemplates.deferredTypings]]). Its unfolding may define `typing` later.
+      *
+      * The values of the free variables lie in their types, and so do the values they hold. */
+    case Typed(blocker: Encoded, typing: Encoded)
 
     /** `blocker ==> quantification`, where `quantification` stands for a
       * quantification that occurs where it must hold, under `blocker`, and that an instantiated one
@@ -229,7 +242,9 @@ trait RuleKernel { self: Templates =>
     case ArglessEquality(blocker: Encoded, isFree: Encoded, f: Encoded, tpe: FunctionType, start: Encoded, lambda: Encoded)
 
     /** The clauses of this rule. This is the only code that builds them. */
-    def clauses: Clauses = this match {
+    def clauses: Clauses = applying(this)(build)
+
+    private def build: Clauses = this match {
       case Define(guard, literal, value) =>
         val definition = mkEquals(literal, value)
         Seq(guard.fold(definition)(mkImplies(_, definition)))
@@ -253,6 +268,9 @@ trait RuleKernel { self: Templates =>
 
       case Root(start) =>
         Seq(start)
+
+      case Typed(blocker, typing) =>
+        Seq(mkImplies(blocker, mkEquals(typing, trueT)))
 
       case Holds(blocker, quantification) =>
         Seq(mkImplies(blocker, quantification))

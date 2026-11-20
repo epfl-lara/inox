@@ -159,6 +159,12 @@ abstract class AbstractUnrollingSolver private
 
   protected def declareVariable(v: t.Variable): Encoded
 
+  /** Asserts `clause` for good, as a clause that a rule built (see [[RuleChecker]]). */
+  private def assertClause(clause: Encoded): Unit = {
+    templates.checkAsserted(clause)
+    underlying.assertCnstr(clause)
+  }
+
   /** The model that the solver operates under, as when an evaluator solves for the foralls of an
     * expression that it evaluates in this model (see [[SolverFactory.getFromName]]).
     * The uninterpreted functions that the model interprets take their values in the model instead of
@@ -190,7 +196,7 @@ abstract class AbstractUnrollingSolver private
 
     context.timers.solvers.declare.underlying.run {
       for (cl <- newClauses) {
-        underlying.assertCnstr(cl)
+        assertClause(cl)
       }
     }
   } catch {
@@ -244,7 +250,7 @@ abstract class AbstractUnrollingSolver private
 
     context.timers.solvers.assert.underlying.run {
       for (cl <- newClauses) {
-        underlying.assertCnstr(cl)
+        assertClause(cl)
       }
     }
   } catch {
@@ -1226,7 +1232,21 @@ abstract class AbstractUnrollingSolver private
       }
 
       val CheckResult(res) = currentState: @unchecked
+      res match {
+        case _: Unsatisfiable => templates.checkRefutation(lastCheck, encodedAssumptions.toSet)
+        case _ =>
+      }
       res
+    }
+
+    /** The assumptions of the last check of the underlying solver, or `None` if it had clauses of
+      * its own, which an unsatisfiable answer comes from (see [[RuleChecker.checkRefutation]]). */
+    private var lastCheck: Option[Set[Encoded]] = None
+
+    /** Records `assumptions` as those of the next check of the underlying solver. */
+    private def checking(assumptions: Set[Encoded]): Set[Encoded] = {
+      lastCheck = Some(assumptions)
+      assumptions
     }
 
     /** `model`, extracted from `umodel`, with the type parameters whose flags are off in `umodel`
@@ -1287,7 +1307,7 @@ abstract class AbstractUnrollingSolver private
       if (current.nonEmpty) {
         reporter.debug(" - Instantiating distinguishing function inputs")
         for (cl <- templates.witnesses.instantiate(current)) {
-          underlying.assertCnstr(cl)
+          assertClause(cl)
         }
         ModelCheck
       } else {
@@ -1334,7 +1354,7 @@ abstract class AbstractUnrollingSolver private
       def check(equalities: Iterable[Encoded]): Response =
         context.timers.solvers.unrolling.check.run {
           underlying.checkAssumptions(checkConfig)(
-            encodedAssumptions.toSet ++ templates.unfolding.satisfactionAssumptions ++ equalities
+            checking(encodedAssumptions.toSet ++ templates.unfolding.satisfactionAssumptions ++ equalities)
           )
         }
 
@@ -1409,10 +1429,12 @@ abstract class AbstractUnrollingSolver private
           for (cl <- encodedAssumptions.toSeq ++ templates.unfolding.satisfactionAssumptions ++ clauses) {
             underlying.assertCnstr(cl)
           }
-          def check(equalities: Iterable[Encoded]) =
+          def check(equalities: Iterable[Encoded]) = {
+            lastCheck = None
             underlying.checkAssumptions(Configuration(model = true, unsatAssumptions = equalities.nonEmpty))(
               equalities.toSet
             )
+          }
           val res = check(equalities.keys)
           val next = res match {
             case _: Unsatisfiable if equalities.nonEmpty && !abort =>
@@ -1458,7 +1480,7 @@ abstract class AbstractUnrollingSolver private
         // (see [[LambdaTemplates.equalCaptures]]), so the model needs them before it can be trusted
         reporter.debug(" - Relating lambdas to the captured functions that the model makes equal")
         for ((lambda, f) <- equalCaptures(umodel); cl <- templates.model.relateCapture(lambda, f)) {
-          underlying.assertCnstr(cl)
+          assertClause(cl)
         }
         // the applications of the functions are then related to the lambdas by unrolling them
         if (templates.unfolding.canUnroll) Unroll else ModelCheck
@@ -1490,7 +1512,7 @@ abstract class AbstractUnrollingSolver private
       if (requested.nonEmpty && !abort) {
         reporter.debug(" - Instantiating requested distinguishing function inputs")
         for (cl <- templates.witnesses.instantiate(requested)) {
-          underlying.assertCnstr(cl)
+          assertClause(cl)
         }
         ModelCheck
       } else if (requestedWitnesses.nonEmpty && functionEquality == FunctionEquality.None && !abort) {
@@ -1502,7 +1524,7 @@ abstract class AbstractUnrollingSolver private
       } else if (exposedWitnesses.nonEmpty && !abort) {
         reporter.debug(" - Unfolding the distinguishing inputs of the functions in the model")
         for (cl <- templates.witnesses.promote(exposedWitnesses)) {
-          underlying.assertCnstr(cl)
+          assertClause(cl)
         }
         ModelCheck
       } else if (checkModels && valid) {
@@ -1578,7 +1600,7 @@ abstract class AbstractUnrollingSolver private
 
       val res = context.timers.solvers.unrolling.check.run {
           underlying.checkAssumptions(Configuration(model = false, unsatAssumptions = config.withUnsatAssumptions))(
-            encodedAssumptions.toSet ++ templates.unfolding.refutationAssumptions
+            checking(encodedAssumptions.toSet ++ templates.unfolding.refutationAssumptions)
           )
         }
 
@@ -1612,7 +1634,7 @@ abstract class AbstractUnrollingSolver private
       val res: Response =
         context.timers.solvers.unrolling.check.run {
           underlying.checkAssumptions(config `max` Configuration(model = true))(
-            encodedAssumptions.toSet ++ templates.unfolding.refutationAssumptions
+            checking(encodedAssumptions.toSet ++ templates.unfolding.refutationAssumptions)
           )
         }
 
@@ -1672,7 +1694,7 @@ abstract class AbstractUnrollingSolver private
         for (i <- 1 to unrollFactor.toInt if templates.unfolding.canUnroll && !abort) {
           val newClauses = templates.unfolding.unroll
           for (ncl <- newClauses) {
-            underlying.assertCnstr(ncl)
+            assertClause(ncl)
           }
         }
 
