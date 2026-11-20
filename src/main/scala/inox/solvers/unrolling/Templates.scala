@@ -392,9 +392,10 @@ trait Templates
 
   extension [A,B](map: Map[A,Seq[B]]) {
     @annotation.targetName("mergeMapSeqMap")
-    def merge(that: Map[A,Seq[B]]): Map[A,Seq[B]] = (map.keys ++ that.keys).map { k =>
-      k -> (map.getOrElse(k, Seq.empty) ++ that.getOrElse(k, Seq.empty)).distinct
-    }.toMap
+    // Keeps the keys in insertion order, so that the clauses don't depend on hash codes
+    def merge(that: Map[A,Seq[B]]): Map[A,Seq[B]] = that.foldLeft(VectorMap.from(map)) {
+      case (acc, (k, bs)) => acc.updated(k, (acc.getOrElse(k, Seq.empty) ++ bs).distinct)
+    }
 
     @annotation.targetName("mergeMapSeqTuple")
     def merge(that: (A,B)): Map[A,Seq[B]] = map + (that._1 -> (map.getOrElse(that._1, Seq.empty) :+ that._2))
@@ -804,7 +805,7 @@ trait Templates
           pointers ++= resultPointers(encoder)(e)
         }
 
-        clauses ++= (for ((b,es) <- guardedExprs; e <- es) yield encoder(Implies(b, e)))
+        clauses ++= (for ((b,es) <- guardedExprs.toSeq; e <- es) yield encoder(Implies(b, e)))
         clauses ++= eqs.map(encoder)
 
         // The failure literals of the body of a function or lambda define whether it fails (see

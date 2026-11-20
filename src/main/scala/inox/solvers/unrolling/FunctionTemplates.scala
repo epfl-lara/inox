@@ -70,10 +70,10 @@ trait FunctionTemplates { self: Templates =>
 
       // The calls that evaluating the body reaches, with the blockers of their paths (see `rankClauses`)
       val bodySites: Seq[(Variable, FunctionInvocation)] = {
-        def invocations(e: Expr): Seq[FunctionInvocation] = exprOps.collect[FunctionInvocation] {
-          case fi: FunctionInvocation => Set(fi)
-          case _ => Set.empty
-        } (e).toSeq
+        def invocations(e: Expr): Seq[FunctionInvocation] = exprOps.collectPreorder[FunctionInvocation] {
+          case fi: FunctionInvocation => Seq(fi)
+          case _ => Seq.empty
+        } (e)
         (bodyClauses.guardedExprs.toSeq.flatMap { case (b, es) => es.flatMap(invocations).map(b -> _) } ++
           invocations(p).map(start -> _)).distinct
       }
