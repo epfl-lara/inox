@@ -67,6 +67,9 @@ abstract class AbstractPrincessSolver(override val program: Program,
   // Internal maps storing created Constant, Variables, ADT and Function symbols
   private[princess] val variables = new IncrementalBijection[Variable, IExpression]
   private[princess] val functions = new IncrementalBijection[TypedFunDef, IFunction]
+
+  // The symbols are named by the solver rather than with the identifiers' global ids
+  private val symbolNames = new SymbolNames
   private[princess] val lambdas = new IncrementalBijection[FunctionType, IFunction]
 
   private[princess] val constructors = new IncrementalBijection[ConsType, IFunction]
@@ -106,10 +109,10 @@ abstract class AbstractPrincessSolver(override val program: Program,
       }
 
       val adt = new PADT(
-        adts.map(p => p._2.sym.uniqueName),
+        adts.map(p => symbolNames(p._2.sym)),
         adts.flatMap(p => p._2.cases.map { c =>
-          c.sym.uniqueName -> PADT.CtorSignature(c.fields.map {
-            case (id, tpe) => id.uniqueName -> typeToSortRef(tpe)
+          symbolNames(c.sym) -> PADT.CtorSignature(c.fields.map {
+            case (id, tpe) => symbolNames(id) -> typeToSortRef(tpe)
           }, PADT.ADTSort(indexMap(p._1)))
         })
       )
@@ -218,14 +221,14 @@ abstract class AbstractPrincessSolver(override val program: Program,
       val res: ITerm = expr match {
         case FunctionInvocation(id, tps, args) =>
           val f = functions.cachedB(getFunction(id, tps.map(_.getType))) {
-            declared(p.createFunction(id.uniqueName, args.size))(p.addFunction(_))
+            declared(p.createFunction(symbolNames(id), args.size))(p.addFunction(_))
           }
           val pArgs = for (a <- args) yield parseTerm(a)
           IFunApp(f, pArgs)
 
         case Application(caller, args) =>
           val f = lambdas.cachedB(caller.getType.asInstanceOf[FunctionType]) {
-            declared(p.createFunction(FreshIdentifier("dynLambda").uniqueName, args.size + 1))(p.addFunction(_))
+            declared(p.createFunction(symbolNames.fresh("dynLambda"), args.size + 1))(p.addFunction(_))
           }
           val pArgs = for (a <- caller +: args) yield parseTerm(a)
           IFunApp(f, pArgs)
@@ -643,8 +646,8 @@ abstract class AbstractPrincessSolver(override val program: Program,
   def declareVariable(v: Variable): IExpression = variables.cachedB(v)(freshSymbol(v))
 
   def freshSymbol(v: Variable): IExpression = v.getType match {
-    case BooleanType() => declared(p.createBooleanVariable(v.id.freshen.uniqueName))(p.addBooleanVariable(_))
-    case tpe => declared(p.createConstant(v.id.freshen.uniqueName, typeToSort(tpe)))(p.addConstant(_))
+    case BooleanType() => declared(p.createBooleanVariable(symbolNames.fresh(v.id.name)))(p.addBooleanVariable(_))
+    case tpe => declared(p.createConstant(symbolNames.fresh(v.id.name), typeToSort(tpe)))(p.addConstant(_))
   }
 
   def assertCnstr(formula: Trees): Unit = p !! formula.asInstanceOf[IFormula]
@@ -717,8 +720,8 @@ abstract class AbstractPrincessSolver(override val program: Program,
    * them, or where a distinguishing input shows that a function fails (see
    * `unrolling/partial-execution.md`). `x / 0` and `x % 0` are uninterpreted functions of `x` instead, as in SMT-LIB, where the
    * remainder and the modulo are both `mod`. */
-  private lazy val divByZero = declared(p.createFunction(FreshIdentifier("divByZero").uniqueName, 1))(p.addFunction(_))
-  private lazy val modByZero = declared(p.createFunction(FreshIdentifier("modByZero").uniqueName, 1))(p.addFunction(_))
+  private lazy val divByZero = declared(p.createFunction(symbolNames.fresh("divByZero"), 1))(p.addFunction(_))
+  private lazy val modByZero = declared(p.createFunction(symbolNames.fresh("modByZero"), 1))(p.addFunction(_))
 
   private def byZero(lhs: ITerm, rhs: ITerm, zero: => IFunction)(op: (ITerm, ITerm) => ITerm): ITerm = rhs match {
     case IIntLit(n) if !n.isZero => op(lhs, rhs)
@@ -727,7 +730,7 @@ abstract class AbstractPrincessSolver(override val program: Program,
 
   /** A fresh first-order uninterpreted function. */
   def declareFunction(name: String, arity: Int): IFunction =
-    declared(p.createFunction(FreshIdentifier(name).uniqueName, arity))(p.addFunction(_))
+    declared(p.createFunction(symbolNames.fresh(name), arity))(p.addFunction(_))
 
   private def declared[T](symbol: T)(redeclare: T => Unit): T = {
     for (scope <- scopes.headOption) scope += (() => redeclare(symbol))

@@ -115,13 +115,13 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       val sortSeq    = tfd.params.map(vd => typeToSort(vd.getType))
       val returnSort = typeToSort(tfd.getType)
 
-      z3.mkFreshFuncDecl(tfd.id.uniqueName, sortSeq, returnSort)
+      z3.mkFuncDecl(freshName(tfd.id.name), sortSeq, returnSort)
     }
   }
 
   /** A fresh first-order uninterpreted function. */
   def declareFunction(name: String, from: Seq[Type], to: Type): Z3FuncDecl =
-    z3.mkFreshFuncDecl(name, from.map(typeToSort), typeToSort(to))
+    z3.mkFuncDecl(freshName(name), from.map(typeToSort), typeToSort(to))
 
   def declareVariable(v: Variable): Z3AST = variables.cachedB(v) {
     symbolToFreshZ3Symbol(v)
@@ -132,6 +132,15 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
 
   // Bijections between Inox Types/Functions/Ids to Z3 Sorts/Decls/ASTs
   private[z3] val functions = new IncrementalBijection[TypedFunDef, Z3FuncDecl]()
+
+  // The symbols are named by the solver rather than with the identifiers' global ids
+  private val symbolNames = new SymbolNames
+
+  // @nv: Z3 uses identifiers of the shape 'k!\d+' to represent
+  //      its array functions, so we have to make sure to avoid collisions!
+  private def symbolBase(name: String): String = if (name == "k") "k0" else name
+  private def freshName(name: String): String = symbolNames.fresh(symbolBase(name))
+  private def idName(id: Identifier): String = symbolNames(id, symbolBase(id.name))
   private[z3] val lambdas   = new IncrementalBijection[FunctionType, Z3FuncDecl]()
   private[z3] val firstOrderFunctions = new IncrementalBijection[Identifier, Z3FuncDecl]()
   private[z3] val variables = new IncrementalBijection[Variable, Z3AST]()
@@ -172,9 +181,9 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
 
     // Define stuff
     val defs = for ((_, DataType(sym, cases)) <- adts) yield {(
-      sym.uniqueName,
-      cases.map(c => c.sym.uniqueName),
-      cases.map(c => c.fields.map { case (id, tpe) => (id.uniqueName, typeToSortRef(tpe))})
+      idName(sym),
+      cases.map(c => idName(c.sym)),
+      cases.map(c => c.fields.map { case (id, tpe) => (idName(id), typeToSortRef(tpe))})
     )}
 
     val resultingZ3Info = z3.mkADTSorts(defs)
@@ -243,7 +252,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
 
     case ft @ FunctionType(from, to) =>
       sorts.cached(ft) {
-        val symbol = z3.mkFreshStringSymbol(ft.toString)
+        val symbol = z3.mkStringSymbol(freshName(ft.toString))
         z3.mkUninterpretedSort(symbol)
       }
 
@@ -271,10 +280,10 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
 
     case a @ Assume(cond, body) =>
       val (rc, rb) = (toZ3(cond), toZ3(body))
-      z3.mkITE(rc, rb, z3.mkFreshConst("fail", typeToSort(body.getType)))
+      z3.mkITE(rc, rb, z3.mkConst(freshName("fail"), typeToSort(body.getType)))
 
     case v: Variable => bindings.getOrElse(v,
-      variables.cachedB(v)(z3.mkFreshConst(v.id.uniqueName, typeToSort(v.getType)))
+      variables.cachedB(v)(z3.mkConst(freshName(v.id.name), typeToSort(v.getType)))
     )
 
     case ite @ IfExpr(c, t, e) => z3.mkITE(toZ3(c), toZ3(t), toZ3(e))
@@ -329,7 +338,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
 
     // first-order uninterpreted functions of the unrolling solver (see [[unrolling.Templates.mkFunction]])
     case UninterpretedCall(id, Seq(), args, FunctionType(from, to)) =>
-      val funDecl = firstOrderFunctions.cachedB(id)(declareFunction(id.uniqueName, from, to))
+      val funDecl = firstOrderFunctions.cachedB(id)(declareFunction(id.name, from, to))
       z3.mkApp(funDecl, args.map(toZ3)*)
 
     case fa @ Application(caller, args) =>
@@ -338,8 +347,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
         val sortSeq    = (ft +: froms).map(tpe => typeToSort(tpe))
         val returnSort = typeToSort(to)
 
-        val name = FreshIdentifier("dynLambda").uniqueName
-        z3.mkFreshFuncDecl(name, sortSeq, returnSort)
+        z3.mkFuncDecl(freshName("dynLambda"), sortSeq, returnSort)
       }
       z3.mkApp(funDecl, (caller +: args).map(toZ3)*)
 
@@ -526,9 +534,9 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       def getIteFuncDecl(valueTpe: Type) = {
         val valueSort = typeToSort(valueTpe)
         val app = z3.mkITE(
-          z3.mkFreshConst("b", typeToSort(BooleanType())),
-          z3.mkFreshConst("v1", valueSort),
-          z3.mkFreshConst("v2", valueSort))
+          z3.mkConst(freshName("b"), typeToSort(BooleanType())),
+          z3.mkConst(freshName("v1"), valueSort),
+          z3.mkConst(freshName("v2"), valueSort))
         z3.getASTKind(app) match {
           case Z3AppAST(decl, _) => decl
           case _ => error("Unexpected non-app AST " + app)
@@ -839,7 +847,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
   }
 
   def symbolToFreshZ3Symbol(v: Variable): Z3AST = {
-    z3.mkFreshConst(v.id.uniqueName, typeToSort(v.getType))
+    z3.mkConst(freshName(v.id.name), typeToSort(v.getType))
   }
 
   def extractNot(e: Z3AST): Option[Z3AST] = z3.getASTKind(e) match {
