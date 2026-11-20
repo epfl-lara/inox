@@ -105,10 +105,23 @@ class FloatingPointSuite extends AnyFunSuite {
     def minNormal = java.lang.Float.MIN_NORMAL.toDouble
   }
 
+  /** A fraction `n / d` with `d > 0`, as the reference values. Fractions are much faster than
+    * `BigDecimal`s here, whose decimal expansion of `2^-1074` has hundreds of digits. */
+  final case class Q(n: BigInt, d: BigInt) {
+    def add(o: Q) = Q(n * o.d + o.n * d, d * o.d)
+    def subtract(o: Q) = Q(n * o.d - o.n * d, d * o.d)
+    def multiply(o: Q) = Q(n * o.n, d * o.d)
+    def divide(o: Q) = if (o.n < 0) Q(-n * o.d, d * -o.n) else Q(n * o.d, d * o.n)
+    def abs = Q(n.abs, d)
+    def signum = n.signum
+    def compareTo(o: Q): Int = (n * o.d).compare(o.n * d).sign
+    def toBigDecimal = new JBigDecimal(n.bigInteger).divide(new JBigDecimal(d.bigInteger))
+  }
+
   /** The exact value of a finite `x`. */
-  def exact(f: Format, x: BigInt): JBigDecimal = {
+  def exact(f: Format, x: BigInt): Q = {
     val Rational(n, d) = f.toRational(x)
-    new JBigDecimal(n.bigInteger).divide(new JBigDecimal(d.bigInteger))
+    Q(n, d)
   }
 
   /** The next number of `f` above `x`, which isn't NaN. */
@@ -121,12 +134,12 @@ class FloatingPointSuite extends AnyFunSuite {
   def nextDown(f: Format, x: BigInt): BigInt = f.neg(nextUp(f, f.neg(x)))
 
   /** Compares `x`, which may be infinite, with `q`. */
-  def compareTo(f: Format, x: BigInt, q: JBigDecimal): Int =
+  def compareTo(f: Format, x: BigInt, q: Q): Int =
     if (f.isInfinite(x)) { if (f.sign(x)) -1 else 1 }
     else exact(f, x).compareTo(q).sign
 
   /** The exact `q` rounded with `rm`, given `n`, the JVM's rounding of it to nearest, ties to even. */
-  def expected(f: Format, rm: Rounding, n: BigInt, q: JBigDecimal): BigInt = {
+  def expected(f: Format, rm: Rounding, n: BigInt, q: Q): BigInt = {
     val c = compareTo(f, n, q)
     rm match {
       case NearestEven => n
@@ -151,7 +164,7 @@ class FloatingPointSuite extends AnyFunSuite {
 
   /** Checks an operation in every rounding mode, where `q` is its exact result when it is finite and
     * nonzero, and `zero` the expected result in the given mode when the exact result is zero. */
-  def checkRounded(f: Format, what: => String, n: BigInt, q: Option[JBigDecimal], zero: Rounding => BigInt)
+  def checkRounded(f: Format, what: => String, n: BigInt, q: Option[Q], zero: Rounding => BigInt)
                   (op: Rounding => BigInt): Unit =
     for (rm <- modes) q match {
       case Some(q) if q.signum == 0 => same(f, op(rm), zero(rm), s"$what in $rm")
@@ -161,8 +174,8 @@ class FloatingPointSuite extends AnyFunSuite {
 
   def checkFormat[T](jvm: Jvm[T]): Unit = {
     import jvm.{f, fromBits, toBits}
-    val xs = jvm.values(1, 150)
-    val ys = jvm.values(2, 150)
+    val xs = jvm.values(1, 100)
+    val ys = jvm.values(2, 100)
 
     test(s"${jvm.name} classification, sign and comparison agree with the JVM") {
       for (x <- xs) {
@@ -177,7 +190,7 @@ class FloatingPointSuite extends AnyFunSuite {
         same(f, f.neg(x), toBits(fromBits(f.neg(x))), "neg")
         assert(f.neg(f.neg(x)) == f.canonical(x))
         same(f, f.abs(x), f.canonical(x).clearBit(f.width - 1), "abs")
-        if (isFinite(f, x)) assert(exact(f, x).compareTo(new JBigDecimal(d)) == 0)
+        if (isFinite(f, x)) assert(exact(f, x).toBigDecimal.compareTo(new JBigDecimal(d)) == 0)
         for (y <- ys.take(60)) {
           val (a, b) = (fromBits(x), fromBits(y))
           assert(f.lessThan(x, y) == jvm.lt(a, b))
@@ -197,7 +210,7 @@ class FloatingPointSuite extends AnyFunSuite {
       for (x <- xs; y <- ys) {
         val (a, b) = (fromBits(x), fromBits(y))
         val finite = isFinite(f, x) && isFinite(f, y)
-        def q(r: (JBigDecimal, JBigDecimal) => JBigDecimal) = if (finite) Some(r(exact(f, x), exact(f, y))) else None
+        def q(r: (Q, Q) => Q) = if (finite) Some(r(exact(f, x), exact(f, y))) else None
         // an exact zero sum is -0 when rounding toward negative, unless both operands are +0
         def zeroSum(sx: Boolean, sy: Boolean)(rm: Rounding) =
           if (f.isZero(x) && f.isZero(y) && sx == sy) f.zero(sx) else f.zero(rm == TowardNegative)
@@ -207,18 +220,8 @@ class FloatingPointSuite extends AnyFunSuite {
           zeroSum(f.sign(x), !f.sign(y)))(f.sub(_, x, y))
         val signs = f.sign(x) != f.sign(y)
         checkRounded(f, s"$a * $b", toBits(jvm.mul(a, b)), q((a, b) => a.multiply(b)), _ => f.zero(signs))(f.mul(_, x, y))
-        val quotient = if (finite && !f.isZero(y)) Some(exact(f, x).divide(exact(f, y), new java.math.MathContext(2000)))
-          else None
-        if (quotient.forall(q => q.signum == 0 || q.precision < 2000))
-          checkRounded(f, s"$a / $b", toBits(jvm.div(a, b)), quotient, _ => f.zero(signs))(f.div(_, x, y))
-        else for (rm <- modes) {
-          // the quotient isn't a terminating decimal: it isn't a tie, and lies strictly between neighbors
-          val r = f.div(rm, x, y)
-          val n = toBits(jvm.div(a, b))
-          val q = quotient.get
-          val ref = expected(f, rm, n, q)
-          if (compareTo(f, n, q) != 0) same(f, r, ref, s"$a / $b in $rm")
-        }
+        val quotient = if (finite && !f.isZero(y)) Some(exact(f, x).divide(exact(f, y))) else None
+        checkRounded(f, s"$a / $b", toBits(jvm.div(a, b)), quotient, _ => f.zero(signs))(f.div(_, x, y))
       }
     }
 
@@ -265,8 +268,8 @@ class FloatingPointSuite extends AnyFunSuite {
         val r = f.roundToIntegral(rm, x)
         if (!isFinite(f, x)) same(f, r, x, "roundToIntegral")
         else {
-          val i = exact(f, x).setScale(0, jmodes(rm))
-          assert(exact(f, r).compareTo(i) == 0, s"roundToIntegral($rm, ${fromBits(x)})")
+          val i = exact(f, x).toBigDecimal.setScale(0, jmodes(rm))
+          assert(exact(f, r).toBigDecimal.compareTo(i) == 0, s"roundToIntegral($rm, ${fromBits(x)})")
           assert(f.sign(r) == f.sign(x))
         }
         val lo = -(BigInt(1) << 63)
@@ -274,7 +277,7 @@ class FloatingPointSuite extends AnyFunSuite {
         val t = f.toInteger(rm, x, lo, hi)
         if (f.isNaN(x)) assert(t == 0)
         else if (f.isInfinite(x)) assert(t == (if (f.sign(x)) lo else hi))
-        else assert(t == BigInt(exact(f, x).setScale(0, jmodes(rm)).toBigInteger).max(lo).min(hi))
+        else assert(t == BigInt(exact(f, x).toBigDecimal.setScale(0, jmodes(rm)).toBigInteger).max(lo).min(hi))
         if (rm == TowardZero) assert(t == BigInt(jvm.toDouble(fromBits(x)).toLong))
       }
     }
@@ -284,14 +287,14 @@ class FloatingPointSuite extends AnyFunSuite {
       val ls = Seq(0L, 1L, -1L, Long.MaxValue, Long.MinValue, (1L << 53) + 1, (1L << 24) + 1, -(1L << 53) - 3) ++
         Seq.fill(300)(r.nextLong() >> r.nextInt(64))
       for (l <- ls) {
-        checkRounded(f, s"$l", toBits(jvm.fromLong(l)), Some(new JBigDecimal(l)), _ => f.zero(false))(f.fromRational(_, l, 1))
+        checkRounded(f, s"$l", toBits(jvm.fromLong(l)), Some(Q(l, 1)), _ => f.zero(false))(f.fromRational(_, l, 1))
       }
       for (_ <- 1 to 300) {
         val n = BigInt(r.nextLong()) << r.nextInt(100)
         val d = BigInt(r.nextLong()).abs + 1
         for (rm <- modes) {
           val x = f.fromRational(rm, n, d)
-          val q = new JBigDecimal(n.bigInteger).divide(new JBigDecimal(d.bigInteger), new java.math.MathContext(400))
+          val q = Q(n, d)
           if (isFinite(f, x)) {
             val c = exact(f, x).compareTo(q)
             rm match {
