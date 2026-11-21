@@ -77,6 +77,34 @@ abstract class SMTLIBSolver private(override val program: Program,
     }
   }
 
+  // What each check spent, see `resourceUsage`
+  private val resourceCounts = new scala.collection.mutable.ArrayBuffer[Long]
+  private var lastResourceCount = 0L
+
+  override def resourceUsage: ResourceUsage = ResourceUsage(resourceCounts.toSeq)
+
+  /** The resources that the solver process spent so far, for the solvers that count them. */
+  protected def resourceCount(): Option[Long] = None
+
+  /** Whether a check is charged all that the process spent since the previous check, which saves
+    * the query of the counter before the check. */
+  protected def resourcesSinceLastCheck: Boolean = false
+
+  /** Emits a check command and records the resources that it spent, unless the solver was
+    * interrupted (its process is then dead).
+    */
+  protected def emitCheck(cmd: SExpr): SExpr = {
+    val before = if (resourcesSinceLastCheck) Some(lastResourceCount) else resourceCount()
+    try emit(cmd)
+    finally {
+      for (b <- before; a <- (if (aborted) None else resourceCount())) {
+        // the counter restarts when the solver is reset
+        resourceCounts += (if (a >= b) a - b else a)
+        lastResourceCount = a
+      }
+    }
+  }
+
   /* Public solver interface */
   def assertCnstr(expr: Expr): Unit = {
     // `toSMT` declares the free variables of `expr` as it meets them
@@ -182,7 +210,7 @@ abstract class SMTLIBSolver private(override val program: Program,
 
   def check(config: CheckConfiguration): config.Response[Model, Assumptions] = {
     clearResourceOut()
-    extractResponse(config, emit(CheckSat()), Set())
+    extractResponse(config, emitCheck(CheckSat()), Set())
   }
 
   def checkAssumptions(config: Configuration)(assumptions: Set[Expr]): config.Response[Model, Assumptions] = {
@@ -193,7 +221,7 @@ abstract class SMTLIBSolver private(override val program: Program,
       case t => unsupported(t, "Assumptions must be either variables or their negation")
     }
 
-    extractResponse(config, emit(CheckSatAssuming(props)), assumptions)
+    extractResponse(config, emitCheck(CheckSatAssuming(props)), assumptions)
   }
 
   def push(): Unit = {

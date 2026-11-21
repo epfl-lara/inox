@@ -19,6 +19,14 @@ trait Z3Solver extends SMTLIBSolver with Z3Target { self =>
     super.isResourceOutReason(reason) ||
     (context.options.findOptionOrDefault(optZ3Rlimit) >= 0 && reason.toLowerCase.contains("canceled"))
 
+  // The counter that `rlimit` bounds: z3 lets each check spend `rlimit` more than its value at the
+  // start of the check
+  override protected def resourceCount(): Option[Long] =
+    emit(SList(SSymbol("get-info"), SKeyword("rlimit")), rawOut = true) match {
+      case SList(List(SKeyword("rlimit"), SNumeral(count))) => Some(count.toLong)
+      case _ => None
+    }
+
   // Completes the solver's models, in which function values are compared as such. The evaluation
   // of a huge model stops when the solver is interrupted (see `RecursiveEvaluator.e`).
   protected lazy val evalContext: inox.Context =
@@ -78,7 +86,7 @@ trait Z3Solver extends SMTLIBSolver with Z3Target { self =>
     }
 
     val cmd = SList(SSymbol("check-sat") +: assumptions.toSeq.map(as => toSMT(as)(using Map.empty))*)
-    val res = emit(cmd) match {
+    val res = emitCheck(cmd) match {
       case SSymbol("sat") => CheckSatStatus(SatStatus)
       case SSymbol("unsat") => CheckSatStatus(UnsatStatus)
       case res => res
