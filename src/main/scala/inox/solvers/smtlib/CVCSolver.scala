@@ -30,10 +30,17 @@ trait CVCSolver extends SMTLIBSolver with CVCTarget {
       ++ options.findOptionOrDefault(optCVCOptions)
   }
 
+  /** The proof that the session has no model, after an unsat check (while its assumptions are
+    * still asserted), or why there is none: a check with proofs answers unsat with it. */
+  protected def proof(): Either[String, certificates.Proof] = Left("the solver does not produce proofs")
+
   override def checkAssumptions(config: Configuration)(assumptions: Set[Expr]): config.Response[program.Model, Assumptions] = {
     push()
     for (cl <- assumptions) assertCnstr(cl)
-    val res: SolverResponse[Model, Assumptions] = check(Model `min` config)
+    val res: SolverResponse[Model, Assumptions] = check(Model `min` config) match {
+      case Unsat if config.withProof => UnsatWithProof(proof())
+      case res => res
+    }
     pop()
 
     config.cast(res match {

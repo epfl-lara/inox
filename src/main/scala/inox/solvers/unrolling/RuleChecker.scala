@@ -51,45 +51,69 @@ trait RuleChecker { self: Templates =>
 
   import ruleCheckerState._
 
-  /** The clauses that the generator gave for the instantiations in progress, innermost first. */
-  private var instantiations: List[scala.collection.mutable.ListBuffer[Encoded]] = Nil
+  /** The rule applications in progress, innermost first, each with the clauses that the generator
+    * gave for its instantiation. */
+  private var instantiations: List[(Rule, scala.collection.mutable.ListBuffer[Encoded])] = Nil
 
   private def fail(msg: String): Nothing = throw new RuleCheckFailure(msg)
 
+  /** Whether the rules that the solver applies are logged (see [[logged]]), such as for the
+    * certificates of its answers (see [[certificates.Certificates]]). */
+  protected def loggingRules: Boolean = false
+
+  /** Called, when [[loggingRules]], with each rule application of kind `kind` and the clauses that
+    * it builds: for [[Rule.Unfold]] and [[Rule.Instance]], the clauses that the generator gave for
+    * `template`, the instantiated template contents with the values of their symbols. */
+  protected def logged(kind: String, template: Option[(TemplateContents, Map[Encoded, Encoded])], clauses: Clauses): Unit = ()
+
+  private def tracking: Boolean = checkingRules || loggingRules
+
   /** The clauses that `build` builds for `rule`, which are recorded as its clauses. */
-  private[unrolling] def applying(rule: Rule)(build: => Clauses): Clauses = if (!checkingRules) build else {
+  private[unrolling] def applying(rule: Rule)(build: => Clauses): Clauses = if (!tracking) build else {
     val generated = scala.collection.mutable.ListBuffer.empty[Encoded]
-    instantiations = generated :: instantiations
+    instantiations = (rule -> generated) :: instantiations
     val clauses = try build finally instantiations = instantiations.tail
 
-    built ++= (rule match {
-      case _: Rule.Unfold | _: Rule.Instance => generated
-      case _ => clauses
-    })
-
-    val symbol = rule match {
-      case Rule.Define(_, literal, _) => Some(literal)
-      case Rule.Hypothesis(literal, _, _) => Some(literal)
-      case Rule.Root(start) => Some(start)
-      case _ => None
+    rule match {
+      case _: Rule.Unfold | _: Rule.Instance => // logged as they are generated
+      case _ => if (loggingRules && clauses.nonEmpty) logged(rule.productPrefix, None, clauses)
     }
 
-    for (s <- symbol) introduced.get(s) match {
-      case Some(other) =>
-        fail(s"${asString(s)} is introduced by both a ${other} and a ${rule.productPrefix} rule")
-      case None =>
-        introduced += s -> rule.productPrefix
+    if (checkingRules) {
+      built ++= (rule match {
+        case _: Rule.Unfold | _: Rule.Instance => generated
+        case _ => clauses
+      })
+
+      val symbol = rule match {
+        case Rule.Define(_, literal, _) => Some(literal)
+        case Rule.Hypothesis(literal, _, _) => Some(literal)
+        case Rule.Root(start) => Some(start)
+        case _ => None
+      }
+
+      for (s <- symbol) introduced.get(s) match {
+        case Some(other) =>
+          fail(s"${asString(s)} is introduced by both a ${other} and a ${rule.productPrefix} rule")
+        case None =>
+          introduced += s -> rule.productPrefix
+      }
     }
 
     clauses
   }
 
-  /** The substituted clauses that the generator gave for a template, which the innermost rule
-    * application instantiates. */
-  private[unrolling] def generated(clauses: Clauses): Clauses = {
-    if (checkingRules) instantiations match {
-      case gen :: _ => gen ++= clauses
-      case Nil => fail("A template is instantiated outside of a rule: " + clauses.map(asString).mkString(", "))
+  /** The clauses that the generator gave for `contents`, substituted with `subst`, which give the
+    * values of their start blocker and arguments and the fresh symbols that replace their other
+    * symbols, and which the innermost rule application instantiates. */
+  private[unrolling] def generated(contents: TemplateContents, subst: Map[Encoded, Encoded], clauses: Clauses): Clauses = {
+    if (tracking) instantiations match {
+      case (rule, gen) :: _ =>
+        gen ++= clauses
+        if (loggingRules && clauses.nonEmpty) logged(rule.productPrefix, Some(contents -> subst), clauses)
+      case Nil =>
+        if (checkingRules) fail("A template is instantiated outside of a rule: " + clauses.map(asString).mkString(", "))
+        if (loggingRules && clauses.nonEmpty) logged("Template", Some(contents -> subst), clauses)
     }
     clauses
   }

@@ -48,14 +48,17 @@ class Parser(reader: Reader, file: Option[File]) {
     var infos: Map[String, String] = Map.empty
     var options: Map[String, String] = Map.empty
 
-    (for (cmd <- script.commands) yield cmd match {
+    var queries = Vector[Parser.Query]()
+    for (cmd <- script.commands) cmd match {
       case CheckSat() =>
         val (symbols, expr) = Parser.callDeclarations(locals.symbols, andJoin(assertions))
-        Some(Parser.Query(InoxProgram(symbols), expr, infos, options, smtlibPositionToPosition(cmd.optPos)))
+        queries :+= Parser.Query(InoxProgram(symbols), expr, infos, options, smtlibPositionToPosition(cmd.optPos))
+
+      case GetProof() if queries.nonEmpty =>
+        queries = queries.init :+ queries.last.copy(getProof = true)
 
       case Push(n) =>
         for (_ <- 0 until n) scopes = (assertions, locals, saveScope()) :: scopes
-        None
 
       case Pop(n) =>
         if (n > scopes.size) {
@@ -68,22 +71,19 @@ class Parser(reader: Reader, file: Option[File]) {
           restoreScope(state)
           scopes = scopes.tail
         }
-        None
 
       case SetInfo(Attribute(SKeyword(key), value)) =>
         infos += key -> attributeValue(value)
-        None
 
       case SetOption(AttributeOption(Attribute(SKeyword(key), value))) =>
         options += key -> attributeValue(value)
-        None
 
       case _ =>
         val (newAssertions, newLocals) = extractCommand(cmd)(using locals)
         assertions ++= newAssertions
         locals = newLocals
-        None
-    }).flatten
+    }
+    queries
   }
 
   private def attributeValue(value: Option[AttributeValue]): String = value match {
@@ -650,9 +650,10 @@ object Parser {
     *
     * @param infos   the values of the `set-info` attributes before the query, e.g. `status`
     * @param options the values of the `set-option` attributes before the query
+    * @param getProof whether a `get-proof` follows the query's `check-sat`
     */
   case class Query(program: InoxProgram, expr: inox.trees.Expr, infos: Map[String, String],
-                   options: Map[String, String], pos: Position) {
+                   options: Map[String, String], pos: Position, getProof: Boolean = false) {
     /** The expected status, `sat`, `unsat` or `unknown`, if the script gives one. */
     def status: Option[String] = infos.get("status")
   }
