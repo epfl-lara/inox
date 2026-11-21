@@ -97,6 +97,44 @@ class PortfolioSolverSuite extends AnyFunSuite {
     assert(releasedByInterrupt.get, "The portfolio waited for the blocking solver to give up")
   }
 
+  val proof = certificates.ScriptProof(Seq(), Seq())
+
+  test("With proofs, an unsat answer without a proof lets the other solvers keep working") {
+    val (fast, ff) = scripted("fast", Unsat)
+    val (slow, sf) = scripted("slow", { Thread.sleep(200); UnsatWithProof(Right(proof)) })
+    val s = PortfolioSolverFactory(program)(Seq(ff, sf)).getNewSolver()
+    assert(s.check(Proof) == UnsatWithProof(Right(proof)))
+    assert(s.getResultSolver == Some(slow))
+  }
+
+  test("With proofs, an unsat answer without a proof is taken when no solver proves it") {
+    val (fast, ff) = scripted("fast", UnsatWithProof(Left("no proof")))
+    val (_, sf) = scripted("slow", { Thread.sleep(200); Unknown })
+    val s = PortfolioSolverFactory(program)(Seq(ff, sf)).getNewSolver()
+    assert(s.check(ModelAndProof) == UnsatWithProof(Left("no proof")))
+    assert(s.getResultSolver == Some(fast))
+  }
+
+  test("With proofs, a solver that doesn't produce them says so") {
+    val (_, f) = scripted("unsat", Unsat)
+    val s = PortfolioSolverFactory(program)(Seq(f)).getNewSolver()
+    assert(s.check(Proof) == UnsatWithProof(Left("the solver does not produce proofs")))
+  }
+
+  test("Without proofs, a proof is left out") {
+    val (_, f) = scripted("proving", UnsatWithProof(Right(proof)))
+    val s = PortfolioSolverFactory(program)(Seq(f)).getNewSolver()
+    assert(s.check(Model) == Unsat)
+  }
+
+  test("Without proofs, the first unsat answer wins") {
+    val (fast, ff) = scripted("fast", Unsat)
+    val (_, sf) = scripted("slow", { Thread.sleep(200); Unsat })
+    val s = PortfolioSolverFactory(program)(Seq(ff, sf)).getNewSolver()
+    assert(s.check(Simple) == Unsat)
+    assert(s.getResultSolver == Some(fast))
+  }
+
   test("Unknown when no solver knows the answer") {
     val (_, a) = scripted("a", Unknown)
     val (_, b) = scripted("b", Unknown)

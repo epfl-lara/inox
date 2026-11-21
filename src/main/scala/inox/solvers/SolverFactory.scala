@@ -359,6 +359,7 @@ object SolverFactory {
             extends smtlib.SMTLIBSolver(program, ctx)
               with smtlib.CVC5Solver
 
+
           protected val underlying = nonIncrementalWrap(ctx, nonIncremental)(targetProgram)(finalName, targetSemantics, () => new Underlying(targetProgram))
 
           // Used to report SMT Lib files <-> VCs correspondence

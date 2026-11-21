@@ -297,7 +297,7 @@ class InoxMain extends MainHelpers {
 
     for {
       file <- getFilesOrExit(ctx)
-      (program, exprOpt) <- parse(ctx, file)
+      (program, exprOpt, getProof) <- parse(ctx, file)
     } {
       import ctx.{given, _}
       import program._
@@ -308,14 +308,17 @@ class InoxMain extends MainHelpers {
       }
 
       exprOpt.foreach { expr =>
+        // with a get-proof, the solvers that can produce proofs do so
+        val solverCtx = if (getProof) ctx.withOpts(solvers.certificates.optProduceProofs(true)) else ctx
         val sf = ctx.options.findOption(optTimeout) match {
-          case Some(to) => program.getSolver.withTimeout(to)
-          case None => program.getSolver
+          case Some(to) => program.getSolver(solverCtx).withTimeout(to)
+          case None => program.getSolver(solverCtx)
         }
 
         import SolverResponses._
         val smtlibOutput = ctx.options.findOptionOrDefault(optModelFormat) == SMTLIBModels
-        SimpleSolverAPI(sf).solveSAT(expr) match {
+        // with a get-proof, an unsat answer comes with the proof
+        SimpleSolverAPI(sf).solveSAT(expr, proof = getProof) match {
           case SatWithModel(model) if smtlibOutput =>
             val printer = new tip.ValuePrinter(program, ctx)
             val printed = try Some(printer.model(model.vars)) catch {
@@ -328,6 +331,9 @@ class InoxMain extends MainHelpers {
             if (printed.isEmpty) error = true
           case Unsat if smtlibOutput =>
             println("unsat")
+          case UnsatWithProof(proof) if smtlibOutput =>
+            println("unsat")
+            println(answer(proof))
           case Unknown if smtlibOutput =>
             println("unknown")
             error = true
@@ -336,6 +342,9 @@ class InoxMain extends MainHelpers {
             reporter.info("  " + model.asString.replaceAll("\n", "\n  "))
           case Unsat =>
             reporter.info(s"$file => UNSAT")
+          case UnsatWithProof(proof) =>
+            reporter.info(s"$file => UNSAT")
+            println(answer(proof))
           case Unknown =>
             reporter.info(s"$file => UNKNOWN")
             error = true
@@ -351,33 +360,42 @@ class InoxMain extends MainHelpers {
     exit(error)
   }
 
-  protected def parse(ctx: Context, file: File): Seq[(InoxProgram, Option[Expr])] = {
+  /** The answer to a `get-proof` after a query that Inox proved: the solver's certificate (see
+    * [[solvers.certificates.Certificates]]), or an error that says why there is none. */
+  private def answer(proof: Either[String, solvers.certificates.Proof]): String = proof match {
+    case Right(certificate) => certificate.toString
+    case Left(why) => "(error \"" + why.replace("\"", "\"\"") + "\")"
+  }
+
+  /** The queries of `file`, with whether a `get-proof` follows each of them. */
+  protected def parse(ctx: Context, file: File): Seq[(InoxProgram, Option[Expr], Boolean)] = {
     val quantifiers = ctx.options.findOptionOrDefault(ast.optQuantifiers)
     // the input formats only have booleans, so the propositions are inferred
-    parseFile(ctx, file).map { case (p, e) =>
+    parseFile(ctx, file).map { case (p, e, getProof) =>
       val inference = transformers.PropositionInference(inox.trees)
       val symbols = inference.transform(p.symbols.withQuantifiers(quantifiers))
-      (InoxProgram(symbols), e.map(inference.transform(_)(using symbols)))
+      (InoxProgram(symbols), e.map(inference.transform(_)(using symbols)), getProof)
     }
   }
 
-  private def parseFile(ctx: Context, file: File): Seq[(InoxProgram, Option[Expr])] =
+  private def parseFile(ctx: Context, file: File): Seq[(InoxProgram, Option[Expr], Boolean)] =
     ctx.options.findOption(optFormat).getOrElse(if (file.getName.endsWith(".smt3")) SMTLIB3 else Tip) match {
       case SMTLIB3 =>
-        smtlib3.Parser(file).parseScript.map{ case (p, e) => (p, Some(e)) }
+        smtlib3.Parser(file).parseQueries.map(q => (q.program, Some(q.expr), q.getProof))
 
       case Tip =>
-        tip.Parser(file).parseScript.map{ case (p, e) => (p, Some(e)) }
+        tip.Parser(file).parseQueries.map(q => (q.program, Some(q.expr), q.getProof))
 
       case Binary(None) =>
-        Seq((InoxProgram(deserializeSymbols(ctx, file)), None))
+        Seq((InoxProgram(deserializeSymbols(ctx, file)), None, false))
 
       case Binary(Some(methodName)) =>
         val symbols = deserializeSymbols(ctx, file)
         Seq(
           (
             InoxProgram(symbols),
-            symbols.functions.find(_._1.name == methodName).map(_._2.fullBody)
+            symbols.functions.find(_._1.name == methodName).map(_._2.fullBody),
+            false
           )
         )
 
