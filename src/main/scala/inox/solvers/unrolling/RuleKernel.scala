@@ -236,9 +236,15 @@ trait RuleKernel { self: Templates =>
       * `lambda` is a pure lambda with no parameters, i.e. one that returns a value it captures,
       * created under `start`.
       *
-      * The value of a free function that is equal to no lambda is the lambda that returns its
-      * result, and lambdas are equal when their normalized bodies and closures are. Without
-      * `isFree`, `f` may be equal to another lambda, whose body differs. */
+      * Under intensional equality, interpreting `isFree` as "`f` is the lambda that returns its
+      * result, `() => f()`, and none of the lambdas found so far" satisfies the clause, as lambdas
+      * are equal when their normalized bodies and closures are. This leaves the `rest` of the
+      * disjunction that defines `isFree` true when `f` is another lambda, such as
+      * `() => if (false) error else y`, so the refutation checks must not assume that disjunction
+      * complete (see [[LambdaTemplates.registerFunction]]). When functions have witnesses, their
+      * equality is extensional or unobservable, `f` and `lambda` are equal whenever their results
+      * are, and `isFree` is what it states. Without `isFree`, `f` may be equal to another lambda,
+      * whose body differs. */
     case ArglessEquality(blocker: Encoded, isFree: Encoded, f: Encoded, tpe: FunctionType, start: Encoded, lambda: Encoded)
 
     /** The clauses of this rule. This is the only code that builds them. */

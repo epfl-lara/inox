@@ -230,10 +230,14 @@ trait LambdaTemplates { self: Templates =>
     // so the result is also considered active whenever the application is (see [[resultGuards]])
     val active = state.get.resultGuards.get(f).map(a => mkOr(b, a)).getOrElse(b)
 
-    // Add non-free blocker clause
+    // Add non-free blocker clause. Under intensional equality, the refutation checks don't assume
+    // that `f` equals none of the lambdas left to find: a free function may be a lambda that returns
+    // the same value as a pure lambda without being equal to it, such as `() => if (false) error
+    // else y` and `() => y`, which `isFree` would equate (see [[Rule.ArglessEquality]]).
     val isFree = encodeSymbol(Variable.fresh("b_free", BooleanType(), true))
     locally {
-      val equalLambdas = OpenOr("b_next", AssumedComplete.Always)
+      val assumed = if (modes.functionWitnesses) AssumedComplete.Always else AssumedComplete.ForModels
+      val equalLambdas = OpenOr("b_next", assumed)
       state.update(s => s.copy(nonFreeBlockers = s.nonFreeBlockers.updated(f, (isFree, equalLambdas))))
 
       clauses ++= Rule.Define(Some(active), isFree, mkNot(equalLambdas.withOperands((for {
@@ -666,9 +670,13 @@ trait LambdaTemplates { self: Templates =>
     *                        equalities to the lambdas of its type found so far: `isFree` holds iff
     *                        the function equals none of them (see [[registerFunction]]), so that the
     *                        applications of a free function that equals a lambda are dispatched to
-    *                        its body. The disjunction is extended with each new lambda, and is
-    *                        assumed complete in every check, so that `isFree` means "equal to none of
-    *                        the lambdas unrolled so far".
+    *                        its body. The disjunction is extended with each new lambda. It is
+    *                        assumed complete in the model checks, so that `isFree` means "equal to
+    *                        none of the lambdas unrolled so far", and in the refutation checks only
+    *                        when functions have witnesses: under intensional equality, `isFree`
+    *                        equates `f` with a pure lambda that returns the same value (see
+    *                        [[Rule.ArglessEquality]]), which only holds of the models that the
+    *                        solver extracts, not of every value of `f`.
     * @param typeBlockers the type blocker and the typing result of the result of each application
     *                     of a free function, keyed by the function and the application (see
     *                     [[registerApplication]])
