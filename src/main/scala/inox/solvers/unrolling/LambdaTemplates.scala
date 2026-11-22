@@ -356,7 +356,8 @@ trait LambdaTemplates { self: Templates =>
     * would force `() => g(x) == () => Uu`, which is UNSAT although both lambdas exist.
     */
   private def arglessEquality(b: Encoded, isFree: Encoded, f: Encoded, ft: FunctionType, template: LambdaTemplate): Clauses =
-    Rule.ArglessEquality(b, isFree, f, ft, template.start, template.ids._2).clauses
+    Rule.ArglessEquality(b, isFree, f, ft, template.start, template.ids._2,
+      if (modes.partialFunctions) Some(appFailure(f, ft, Seq.empty)) else None).clauses
 
   private def registerAppInfo(gen: Int, key: (Encoded, App), template: Either[LambdaTemplate, Encoded], equals: Encoded, args: Seq[Arg]): Unit = {
     state.update(s => s.copy(appInfos = s.appInfos.register(key, gen, Set(TemplateAppInfo(template, equals, args)))))
