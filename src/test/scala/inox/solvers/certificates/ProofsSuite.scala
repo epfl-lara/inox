@@ -66,6 +66,15 @@ class ProofsSuite extends AnyFunSuite {
     assert(Ref.Tester(None, UnitType()).describe == Seq("tester", "Unit"))
   }
 
+  test("A CPC answer is unwrapped, and its errors and trusted steps are refused") {
+    assert(Certificates.cpc("(\n(assume @p1 a)\n(step @p2 false :rule resolution)\n)") ==
+      Right(Seq(parsed("(assume @p1 a)").head, parsed("(step @p2 false :rule resolution)").head)))
+    assert(Certificates.cpc("(error \"no proof\")") == Left("cvc5 answered: (error \"no proof\")"))
+    assert(Certificates.cpc("(\n(step @p1 a :rule trust)\n)") == Left("cvc5's proof has trusted steps"))
+    assert(Certificates.cpc("((a)").isLeft)
+    assert(Certificates.cpc("unsat") == Left("cvc5 answered: unsat"))
+  }
+
   test("Configurations combine proofs, except with unsat assumptions") {
     assert(Configuration(proof = true) == Proof)
     assert(Configuration(model = true, proof = true) == ModelAndProof)
