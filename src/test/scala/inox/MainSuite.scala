@@ -50,6 +50,43 @@ class MainSuite extends AnyFunSuite {
   val groundSat = "(assert (= (+ 1 1) 2))\n(check-sat)\n"
   val groundUnsat = "(assert (= (+ 1 1) 3))\n(check-sat)\n"
 
+  /** The answer to the get-proof of an unsat query with `solvers`. */
+  def proofOf(solvers: String): String = withFiles(unsat + "(get-proof)\n") { case Seq(file) =>
+    val main = new TestMain
+    val out = new java.io.ByteArrayOutputStream
+    Console.withOut(out)(assert(!main.exitCode(s"--solvers=$solvers", "--timeout=30", file)))
+    assert(main.messages.contains(s"$file => UNSAT"))
+    out.toString
+  }
+
+  // certificates need cvc5 1.4 or later, which cvc5 says when it is older
+  lazy val cvc5Proof: String = {
+    assume(solvers.SolverFactory.hasCVC5, "needs cvc5")
+    val proof = proofOf("smt-cvc5")
+    assume(!proof.startsWith("(error \"certificates need cvc5"), proof)
+    proof
+  }
+
+  test("get-proof prints the certificate of a proved query") {
+    assert(cvc5Proof.startsWith("(inox-certificate 1\n(script\n") && cvc5Proof.contains("\n(cpc\n"), cvc5Proof)
+  }
+
+  test("get-proof says why the solver gives no certificate") {
+    withFiles(unsat + "(get-proof)\n") { case Seq(file) =>
+      val main = new TestMain
+      val out = new java.io.ByteArrayOutputStream
+      Console.withOut(out)(assert(!main.exitCode("--solvers=princess", "--timeout=30", file)))
+      assert(main.messages.contains(s"$file => UNSAT"))
+      assert(out.toString == "(error \"the solver does not produce proofs\")\n", out.toString)
+    }
+  }
+
+  test("get-proof prints the certificate of a portfolio with a solver that proves the query") {
+    cvc5Proof
+    val proof = proofOf("princess,smt-cvc5")
+    assert(proof.startsWith("(inox-certificate 1\n(script\n") && proof.contains("\n(cpc\n"), proof)
+  }
+
   test("Satisfiable files are reported with their model") {
     withFiles(sat) { case Seq(file) =>
       val main = new TestMain
