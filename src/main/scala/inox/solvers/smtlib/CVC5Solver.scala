@@ -24,7 +24,8 @@ trait CVC5Solver extends CVCSolver with CVC5Target {
 
   override def interpreterOpts = {
     val rlimit = options.findOptionOrDefault(optCVC5Rlimit).toLong * 1000000L
-    super.interpreterOpts ++ (if (rlimit >= 0) Seq(s"--rlimit-per=$rlimit") else Seq())
+    // cvc5 1.4 refuses constant arrays, which Inox's maps and bags use, without `--arrays-exp`
+    super.interpreterOpts ++ Seq("--arrays-exp") ++ (if (rlimit >= 0) Seq(s"--rlimit-per=$rlimit") else Seq())
   }
 
   // Under `--strings-bmp`, restrict the string alphabet to the BMP (by default, cvc5 uses all
