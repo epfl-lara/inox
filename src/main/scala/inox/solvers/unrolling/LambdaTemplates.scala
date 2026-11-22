@@ -230,14 +230,10 @@ trait LambdaTemplates { self: Templates =>
     // so the result is also considered active whenever the application is (see [[resultGuards]])
     val active = state.get.resultGuards.get(f).map(a => mkOr(b, a)).getOrElse(b)
 
-    // Add non-free blocker clause. Under intensional equality, the refutation checks don't assume
-    // that `f` equals none of the lambdas left to find: a free function may be a lambda that returns
-    // the same value as a pure lambda without being equal to it, such as `() => if (false) error
-    // else y` and `() => y`, which `isFree` would equate (see [[Rule.ArglessEquality]]).
+    // Add non-free blocker clause
     val isFree = encodeSymbol(Variable.fresh("b_free", BooleanType(), true))
     locally {
-      val assumed = if (modes.functionWitnesses) AssumedComplete.Always else AssumedComplete.ForModels
-      val equalLambdas = OpenOr("b_next", assumed)
+      val equalLambdas = OpenOr("b_next", AssumedComplete.Always)
       state.update(s => s.copy(nonFreeBlockers = s.nonFreeBlockers.updated(f, (isFree, equalLambdas))))
 
       clauses ++= Rule.Define(Some(active), isFree, mkNot(equalLambdas.withOperands((for {
@@ -265,12 +261,6 @@ trait LambdaTemplates { self: Templates =>
 
       clauses ++= Rule.Define(Some(b), r, typedResults.withOperands(blockedResults.toSeq)).clauses
     }
-
-    if (ft.from.isEmpty) clauses ++= (for {
-      template <- byType(ft).values.toList
-      if canBeEqual(template.ids._2, f) && isPureTemplate(template)
-      clause <- arglessEquality(b, isFree, f, ft, template)
-    } yield clause)
 
     lazy val gen = nextGeneration(currentGeneration)
     for (app @ (_, App(caller, _, args, _)) <- applications(ft)) {
@@ -322,10 +312,6 @@ trait LambdaTemplates { self: Templates =>
     val clauses = new scala.collection.mutable.ListBuffer[Encoded]
 
     for ((b, g) <- freeFunctions(ft) if g == f) {
-      if (ft.from.isEmpty && isPureTemplate(template)) {
-        clauses ++= arglessEquality(b, nonFreeBlockers(f)._1, f, ft, template)
-      }
-
       val (isFree, equalLambdas) = nonFreeBlockers(f)
       val next = equalLambdas.next
       state.update(s => s.copy(nonFreeBlockers = s.nonFreeBlockers.updated(f, (isFree, next))))
@@ -339,25 +325,6 @@ trait LambdaTemplates { self: Templates =>
 
     clauses.toSeq
   }
-
-  private def isPureTemplate(template: LambdaTemplate): Boolean = template.structure.body match {
-    case Lambda(_, _: Variable) => true
-    case _ => false
-  }
-
-  /** Equates the free function `f` with the pure, argument-less lambda of `template` when they
-    * return the same value (see [[Rule.ArglessEquality]]).
-    *
-    * A free function's model is the lambda that returns its value (`() => f()`), which is
-    * structurally equal to the pure lambda's model when the values agree, so the solver must not
-    * consider them distinct. This only holds while `f` is free: when `f` is equal to another lambda,
-    * the model of `f` is that lambda, and agreeing on their value doesn't make the two lambdas
-    * equal. Without the `isFree` guard, `f == () => g(x)` and `() => Uu` (both of type `() => Unit`)
-    * would force `() => g(x) == () => Uu`, which is UNSAT although both lambdas exist.
-    */
-  private def arglessEquality(b: Encoded, isFree: Encoded, f: Encoded, ft: FunctionType, template: LambdaTemplate): Clauses =
-    Rule.ArglessEquality(b, isFree, f, ft, template.start, template.ids._2,
-      if (modes.partialFunctions) Some(appFailure(f, ft, Seq.empty)) else None).clauses
 
   private def registerAppInfo(gen: Int, key: (Encoded, App), template: Either[LambdaTemplate, Encoded], equals: Encoded, args: Seq[Arg]): Unit = {
     state.update(s => s.copy(appInfos = s.appInfos.register(key, gen, Set(TemplateAppInfo(template, equals, args)))))
@@ -417,14 +384,6 @@ trait LambdaTemplates { self: Templates =>
         case (v, dep) if v.getType.isInstanceOf[FunctionType] => dep
       })
 
-      // make sure we introduce sound equality constraints between closures that take no arguments
-      val arglessEqClauses: Clauses = if (newTemplate.tpe.from.nonEmpty || !isPureTemplate(newTemplate)) {
-        Seq.empty
-      } else {
-        for ((b,f) <- freeFunctions(newTemplate.tpe).toSeq if canBeEqual(idT, f);
-             clause <- arglessEquality(b, nonFreeBlockers(f)._1, f, newTemplate.tpe, newTemplate)) yield clause
-      }
-
       val nonFreeClauses = (for ((b,f) <- freeFunctions(newTemplate.tpe).toSeq if canBeEqual(idT, f)) yield {
         val (isFree, equalLambdas) = nonFreeBlockers(f)
         val next = equalLambdas.next
@@ -437,7 +396,6 @@ trait LambdaTemplates { self: Templates =>
       val clauses = newTemplate.structure.instantiation ++
         equalityClauses(newTemplate) ++
         orderingClauses ++
-        arglessEqClauses ++
         nonFreeClauses
 
       state.update(s => s.copy(byID = s.byID.updated(idT, newTemplate)))
@@ -671,18 +629,14 @@ trait LambdaTemplates { self: Templates =>
     *                        equalities to the lambdas of its type found so far: `isFree` holds iff
     *                        the function equals none of them (see [[registerFunction]]), so that the
     *                        applications of a free function that equals a lambda are dispatched to
-    *                        its body. The disjunction is extended with each new lambda. It is
-    *                        assumed complete in the model checks, so that `isFree` means "equal to
-    *                        none of the lambdas unrolled so far", and in the refutation checks only
-    *                        when functions have witnesses: under intensional equality, `isFree`
-    *                        equates `f` with a pure lambda that returns the same value (see
-    *                        [[Rule.ArglessEquality]]), which only holds of the models that the
-    *                        solver extracts, not of every value of `f`.
+    *                        its body. The disjunction is extended with each new lambda, and
+    *                        assumed complete, so that `isFree` means "equal to none of the lambdas
+    *                        unrolled so far": the applications of `f` are then left uninterpreted,
+    *                        which holds whatever `f` is.
     * @param typeBlockers the type blocker and the typing result of the result of each application
     *                     of a free function, keyed by the function and the application (see
     *                     [[registerApplication]])
-    * @param freeFunctions the free functions of each type, under their blocker, which make models
-    *                      of functions that take no arguments sound
+    * @param freeFunctions the free functions of each type, under their blocker
     * @param instantiated the applications that were instantiated, under their blocker
     * @param resultGuards for function-typed applications, a literal that holds whenever the
     *                     application is reached. Results of applications are registered as free

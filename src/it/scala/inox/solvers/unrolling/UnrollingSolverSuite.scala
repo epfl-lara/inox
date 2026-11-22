@@ -342,6 +342,23 @@ class UnrollingSolverSuite extends TestSuite with DatastructureUtils {
     }
   }
 
+  // Functions on `Unit` agree with a lambda on every input once they agree on `()`, like functions
+  // with no parameters: distinguishing inputs relate them under extensional equality, and models
+  // keep them structurally distinct under intensional equality.
+  test("functions on Unit are compared with the lambdas of their type like argument-less ones") {
+    val fu = Variable.fresh("fu", FunctionType(Seq(UnitType()), RefinementType(posVd, posVd.toVariable > int(0))))
+    val lu = Lambda(Seq(ValDef.fresh("u", UnitType())), y)
+    val clause = Application(fu, Seq(UnitLiteral())) === y && !(fu === lu)
+    assert(check(clause, Simple, optFunctionEquality(FunctionEquality.Extensional)) == Unsat)
+    check(clause, Model, optCheckModels(true)) match {
+      case SatWithModel(model) =>
+        val bindings = model.vars.toSeq.map { case (vd, v) => vd -> v }
+        val evaluated = program.getEvaluator.eval(bindings.foldRight(clause) { case ((vd, v), e) => Let(vd, v, e) }, model)
+        assert(evaluated.result == Some(BooleanLiteral(true)))
+      case res => fail(s"Expected a model, got $res")
+    }
+  }
+
   // Argument-less lambdas whose bodies may fail: an error, a division and an assumption. Their
   // bodies aren't lifted out of the lambdas (see `normalizeStructure`), so argument-less functions
   // are only equal to them when they are these lambdas, which then must not fail.
