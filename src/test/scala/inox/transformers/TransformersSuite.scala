@@ -105,9 +105,9 @@ class TransformersSuite extends AnyFunSuite {
 
   test("Tree transformers transform flags, definitions and compositions") {
     val r = new Renamer
-    val flagged = ValDef(FreshIdentifier("v"), IntegerType(), Seq(Annotation("ann", Seq(x, IntegerType(), "str"))))
+    val flagged = ValDef(FreshIdentifier("v"), IntegerType(), Seq(Annotation("ann", Seq(x, StringLiteral("str")))))
     val renamed = r.transform(flagged)
-    assert(renamed.flags == Seq(Annotation("ann", Seq(y, IntegerType(), "str"))))
+    assert(renamed.flags == Seq(Annotation("ann", Seq(y, StringLiteral("str")))))
 
     val unchanged = ValDef(FreshIdentifier("w"), IntegerType(), Seq(Annotation("ann", Seq(y))))
     assert(r.transform(unchanged) eq unchanged)
@@ -144,7 +144,7 @@ class TransformersSuite extends AnyFunSuite {
     val composed = (new Second).compose(r)
     assert(composed.transform(Plus(x, y)) == Plus(z, z))
     assert(composed.transform(IntegerType()) == IntegerType())
-    assert(composed.transform(flagged).flags == Seq(Annotation("ann", Seq(z, IntegerType(), "str"))))
+    assert(composed.transform(flagged).flags == Seq(Annotation("ann", Seq(z, StringLiteral("str")))))
     assert(composed.transform(Annotation("a", Seq(x))) == Annotation("a", Seq(z)))
     assert(composed.transform(fd).fullBody == Plus(z, composed.transform(flagged).toVariable))
     assert(composed.transform(sort).flags == Seq(Annotation("sort", Seq(z))))

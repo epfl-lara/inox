@@ -378,10 +378,8 @@ trait Definitions { self: Trees =>
   /** Denotes that this adt has an overriden equality relation given by ''id'' */
   sealed case class HasADTEquality(id: Identifier) extends Flag("equality", Seq(id))
 
-  /** Compiler annotations given in the source code as @annot.
-    *
-    * @see [[Flag]] for some notes on the actual type of [[args]]. */
-  sealed case class Annotation(override val name: String, val args: Seq[Any]) extends Flag(name, args)
+  /** Compiler annotations given in the source code as @annot, with their arguments. */
+  sealed case class Annotation(override val name: String, val args: Seq[Expr]) extends Flag(name, args)
 
   /** Algebraic datatype sort definition.
     * An ADT sort is linked to a series of constructors ([[ADTConstructor]]) for this particular sort. */
