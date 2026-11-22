@@ -52,6 +52,39 @@ class ProofsSuite extends AnyFunSuite {
     assert(proof.toString == "(script\n(declare-const a Bool)\n(assert a)\n(assert (not a))\n(check-sat)\n)\n(cpc\n(assume @p1 a)\n)")
   }
 
+  // clauses c0, c1 asserted, then the assumptions a and r; a template t with parameter p and clause tc
+  import Certificates.{AppliedRule, Assumed}
+  def refutation(rules: Seq[AppliedRule[String]]) = Certificates.Refutation(
+    Seq("c0", "c1"), Seq(Assumed("a", false), Assumed("r", true)), Seq(Certificates.TemplateClauses(Seq("p"), Seq("tc"))), rules)
+  val x = inox.trees.Variable.fresh("x", inox.trees.IntegerType())
+  val c0 = Sym("c0", Ref.Variable(x))
+  val proof = ScriptProof(Seq(SList(Seq(Atom("assert"), c0)), asserting("c1"), asserting("a"), asserting("r")), parsed("(assume @p1 c0)"))
+  def print(es: Seq[String]) = Certificates.Printed(es.map(Atom(_)), Seq(SList(Seq(Atom("declare-const"), Atom("p"), Atom("Bool")))))
+
+  test("A certificate names the asserts of each rule, the templates and the assumptions") {
+    val rules = Seq(
+      AppliedRule("Root", Seq(Argument("start", Seq("c0"))), None, Seq("c0")),
+      AppliedRule("Unfold", Seq(Argument("blocker", Seq("c0")), Argument("flag", Seq())), Some(Instance(0, Seq(Value("p", "c0")))), Seq("c1", "c1")))
+    Certificates.certificate(proof, refutation(rules), print) match {
+      case Right(c) =>
+        assert(c.rules == Seq(
+          Rule("Root", Seq(Argument("start", Seq(Atom("c0")))), None, Seq(0)),
+          Rule("Unfold", Seq(Argument("blocker", Seq(Atom("c0"))), Argument("flag", Seq())),
+            Some(Instance(0, Seq(Value(Atom("p"), Atom("c0"))))), Seq(1))))
+        assert(c.templates == Seq(Template(Seq(Atom("p")), Seq(0))))
+        assert(c.assumptions == Assumptions(Seq(2), Seq(3)))
+        assert(c.symbols == Seq("c0" -> Ref.Variable(x)))
+        assert(c.toString ==
+          "(inox-certificate 1\n(script\n(assert c0)\n(assert c1)\n(assert a)\n(assert r)\n(check-sat)\n)\n" +
+          "(templates\n(script\n(declare-const p Bool)\n(assert tc)\n)\n(0 (params p) 0)\n)\n" +
+          "(rules\n(Root (args (start c0)) 0)\n(Unfold (args (blocker c0) (flag)) (instance 0 ((p c0))) 1)\n)\n" +
+          "(assumptions (query 2) (complete 3))\n" +
+          s"(symbols\n(c0 variable \"${x.id.uniqueName}\" \"BigInt\")\n)\n" +
+          "(cpc\n(assume @p1 c0)\n))")
+      case Left(why) => fail(why)
+    }
+  }
+
   test("Symbols are described by their kind, identifiers and types") {
     import inox.trees._
     val id = FreshIdentifier("f")
@@ -64,6 +97,31 @@ class ProofsSuite extends AnyFunSuite {
     assert(Ref.Constructor(None, UnitType()).describe == Seq("constructor", "Unit"))
     assert(Ref.Selector(Some(id), ADTType(id, Seq()), 1).describe == Seq("selector", id.uniqueName, id.uniqueName, "1"))
     assert(Ref.Tester(None, UnitType()).describe == Seq("tester", "Unit"))
+  }
+
+  test("A clause asserted twice is named by both asserts") {
+    val twice = Certificates.Refutation(Seq("c0", "c0"), Seq(), Seq(), Seq(AppliedRule[String]("Root", Seq(), None, Seq("c0"))))
+    val p = ScriptProof(Seq(asserting("c0"), asserting("c0")), Seq())
+    assert(Certificates.certificate(p, twice, print).map(_.rules) == Right(Seq(Rule("Root", Seq(), None, Seq(0, 1)))))
+  }
+
+  test("A certificate needs one assert per clause and assumption") {
+    val missing = ScriptProof(Seq(asserting("c0")), Seq())
+    assert(Certificates.certificate(missing, refutation(Seq()), print) ==
+      Left("the solver's session has 1 asserts, for 2 clauses and 2 assumptions"))
+  }
+
+  test("A certificate whose terms can't be printed says why") {
+    val failing: Seq[String] => Certificates.Printed = _ => throw new IllegalStateException("no SMT-LIB form")
+    val rules = Seq(AppliedRule[String]("Root", Seq(), None, Seq("c0", "c1")))
+    assert(Certificates.certificate(proof, refutation(rules), failing) ==
+      Left("the certificate's terms can't be printed in SMT-LIB (no SMT-LIB form)"))
+  }
+
+  test("A certificate needs each clause to be the clause of a rule") {
+    val rules = Seq(AppliedRule[String]("Root", Seq(), None, Seq("c0")))
+    assert(Certificates.certificate(proof, refutation(rules), print) ==
+      Left("clause 1 of the solver's session is the clause of no rule"))
   }
 
   test("A CPC answer is unwrapped, and its errors and trusted steps are refused") {

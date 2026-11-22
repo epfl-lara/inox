@@ -957,7 +957,7 @@ trait Templates
 
       val allClauses = new scala.collection.mutable.ListBuffer[Encoded]
       if (failure.isEmpty) allClauses ++= literals.flatMap(f => Rule.Unreachable(substituter(f)).clauses)
-      allClauses ++= generated(contents.clauses.map(substituter))
+      allClauses ++= generated(contents, substMap.view.mapValues(_.encoded).toMap, contents.clauses.map(substituter))
 
       // Applies `f` to the items that `select` picks, under their substituted blockers
       def each[I](select: PartialFunction[Item, I])(f: (Encoded, I) => Unit): Unit =
