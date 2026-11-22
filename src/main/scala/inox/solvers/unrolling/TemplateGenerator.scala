@@ -707,6 +707,20 @@ trait TemplateGenerator { self: Templates =>
         storeEquality(pathVar, re1, re2)
         Application(v, Seq(re1, re2))
 
+      case adt: ADT if guard(adt).isDefined =>
+        // The construction fails unless the value satisfies the sort's invariant, which may call the
+        // sort's invariant on the constructed value, bound to a variable so as not to construct it again
+        val res = ADT(adt.id, adt.tps, adt.args.map(a => rec(pathVar, a, None)))
+        val v = Variable.fresh("adt", res.getType, true)
+        storeExpr(v)
+        storeGuarded(pathVar, Equals(v, res))
+        if (!guard(adt).exists(factsOf(pathVar))) constructionInvariant(res).foreach { inv =>
+          // the invariant only mentions the encoded fields, or calls the sort's invariant on the value
+          val cond = exprOps.replace(Map(res -> v), inv)
+          storeFailure(pathVar, rec(pathVar, cond, None))
+        }
+        v
+
       case e if guard(e).isDefined =>
         val Operator(as, r) = e: @unchecked
         val res = r(as.map(a => rec(pathVar, a, None)))
