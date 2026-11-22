@@ -86,6 +86,120 @@ abstract class AbstractUnrollingSolver private
     type Trees = Encoded
   }
 
+  /** Whether the solver produces proofs (see [[certificates.optProduceProofs]]): a check with
+    * proofs (see [[SolverResponses.Proof]]) that is unsat then answers with the certificate of
+    * what the solver checked, when the underlying solver proves its refutation. */
+  protected final lazy val producesProofs: Boolean = options.findOptionOrDefault(certificates.optProduceProofs)
+
+  /** A rule that the solver applied, with its kind, its arguments and the clauses that it built,
+    * which are the instance under `subst` of the clauses of `template` when it instantiates one. */
+  private case class Applied(kind: String, arguments: Seq[(String, Seq[Encoded])],
+                             template: Option[(templates.TemplateContents, Map[Encoded, Encoded])], clauses: Seq[Encoded])
+
+  // With proofs, the clauses asserted to the underlying solver in its scopes, the rules that gave
+  // them, in the solver's scopes, and the clauses and assumptions of its last unsat check, which
+  // certificates are made of
+  private val asserted = new IncrementalSeq[Encoded]
+  private val rules = new IncrementalSeq[Applied]
+  // the clauses of a template that was instantiated outside of a rule, if one was
+  private var unruled: Option[Encoded] = None
+  // whether the current check asks for a proof, and the assumptions of its query
+  private var provingCheck = false
+  private var queryAssumptions: Set[Encoded] = Set.empty
+  private var refuted: Option[Refuted] = None
+
+  /** The clauses and assumptions of an unsat check of the underlying solver, and its proof. */
+  private case class Refuted(clauses: Seq[Encoded], assumptions: Seq[Encoded], proof: Either[String, certificates.Proof])
+
+  /** Logs a rule application with proofs (see [[RuleChecker.logged]]). */
+  protected final def logRule(kind: String, arguments: Seq[(String, Seq[Encoded])],
+                              template: Option[(templates.TemplateContents, Map[Encoded, Encoded])], clauses: Seq[Encoded]): Unit =
+    rules += Applied(kind, arguments, template, clauses)
+
+  /** Logs a template that is instantiated outside of a rule (see [[RuleChecker.unruled]]). */
+  protected final def logUnruled(clauses: Seq[Encoded]): Unit =
+    if (unruled.isEmpty) unruled = clauses.headOption
+
+  protected final def assertUnderlying(clause: Encoded): Unit = {
+    if (producesProofs) asserted += clause
+    underlying.assertCnstr(clause)
+  }
+
+  protected final def pushUnderlying(): Unit = {
+    asserted.push()
+    underlying.push()
+  }
+
+  protected final def popUnderlying(): Unit = {
+    asserted.pop()
+    underlying.pop()
+  }
+
+  protected final def resetUnderlying(): Unit = {
+    asserted.clear()
+    rules.clear()
+    unruled = None
+    underlying.reset()
+  }
+
+  /** Checks the underlying solver under `assumptions`. With proofs, a check whose answer can be
+    * that of the solver (`refutes`) asks the underlying solver for its proof, and the clauses,
+    * assumptions and proof of an unsat check are recorded. */
+  protected final def checkUnderlying(config: Configuration, refutes: Boolean = false)(assumptions: Set[Encoded]): config.Response[underlying.Model, underlying.Assumptions] = {
+    val proving = producesProofs && provingCheck && refutes
+    val response = underlying.checkAssumptions(if (proving) config `max` Proof else config)(assumptions)
+    if (producesProofs && response.isUNSAT) refuted = Some(Refuted(asserted.toSeq, assumptions.toSeq, response match {
+      case UnsatWithProof(proof) => proof
+      case _ if proving && config.withUnsatAssumptions =>
+        Left("the check that refuted the query asks for its unsat assumptions, which a proof doesn't come with")
+      case _ => Left("the check that refuted the query has no proof")
+    }))
+    config.cast(response)
+  }
+
+  /** The certificate of the last check, which answered unsat from the last unsat check of the
+    * underlying solver: the clauses and assumptions of that check, and the rules that gave them. */
+  private def certify(): Either[String, certificates.Proof] = refuted match {
+    case Some(Refuted(_, _, Left(why))) => Left(why)
+    case Some(_) if unruled.nonEmpty =>
+      Left("a template was instantiated outside of a rule: " + templates.asString(unruled.get))
+    case Some(Refuted(clauses, assumptions, Right(proof: certificates.ScriptProof))) =>
+      import certificates.Certificates.{Refutation, TemplateClauses, AppliedRule, Assumed, Printed, SessionPrinter}
+      import certificates.{Argument, Instance, Value}
+      val inScope = clauses.toSet
+      // a rule may give clauses that this check doesn't have, when the solver didn't assert them
+      val applied = rules.toSeq.map(r => r.copy(clauses = r.clauses.filter(inScope))).filter(_.clauses.nonEmpty)
+      // each template once, in the order of the rules
+      val index = new java.util.IdentityHashMap[templates.TemplateContents, Int]
+      for (r <- applied; (contents, _) <- r.template if !index.containsKey(contents)) index.put(contents, index.size)
+      val templateSeq = scala.collection.mutable.ArrayBuffer.fill(index.size)(TemplateClauses[Encoded](Seq(), Seq()))
+      index.forEach { (contents, i) => templateSeq(i) = TemplateClauses(contents.pathVar._2 +: contents.args, contents.clauses) }
+      val ruleSeq = applied.map { r =>
+        // the values of the start blocker and arguments, which are themselves when not given, then
+        // of the fresh symbols
+        AppliedRule(r.kind, r.arguments.map(Argument(_, _)), r.template.map { case (contents, subst) =>
+          val params = contents.pathVar._2 +: contents.args
+          Instance(index.get(contents): Int,
+            (params.map(p => p -> subst.getOrElse(p, p)) ++ subst.toSeq.filterNot(kv => params.contains(kv._1))).map(Value(_, _)))
+        }, r.clauses)
+      }
+      // a refutation only assumes the query's assumptions and what refutations may assume
+      val assumed = assumptions.map(a => Assumed(a, complete = !queryAssumptions(a) && templates.assumedComplete(a)))
+      val print: Seq[Encoded] => Printed = underlying match {
+        // the solver's proof is one of a program of Inox trees
+        case s: SessionPrinter => es => s.printed(es.asInstanceOf[Seq[inox.trees.Expr]])
+        case _ => _ => throw new UnsupportedOperationException("the solver's terms have no SMT-LIB form")
+      }
+      assumptions.find(a => !queryAssumptions(a) && !templates.assumedComplete(a)) match {
+        case Some(a) => Left("the check that refuted the query assumes " + templates.asString(a) + ", which refutations don't assume")
+        case None => certificates.Certificates.certificate(proof, Refutation(clauses, assumed, templateSeq.toSeq, ruleSeq), print)
+      }
+    case Some(Refuted(_, _, Right(proof))) =>
+      Left(s"the underlying solver's proof is not one of a script ($proof)")
+    case None =>
+      Left("the solver did not refute the query")
+  }
+
   protected final def encode(vd: ValDef): t.ValDef = programEncoder.encode(vd)
   protected final def decode(vd: t.ValDef): ValDef = programEncoder.decode(vd)
 
@@ -129,12 +243,14 @@ abstract class AbstractUnrollingSolver private
   protected var abort: Boolean = false
 
   def push(): Unit = {
+    rules.push()
     templates.push()
     constraints.push()
     freeVars.push()
   }
 
   def pop(): Unit = {
+    rules.pop()
     templates.pop()
     constraints.pop()
     freeVars.pop()
@@ -148,7 +264,7 @@ abstract class AbstractUnrollingSolver private
     templates.reset()
     constraints.reset()
     freeVars.reset()
-    underlying.reset()
+    resetUnderlying()
   }
 
   def interrupt(): Unit = {
@@ -163,7 +279,7 @@ abstract class AbstractUnrollingSolver private
   /** Asserts `clause` for good, as a clause that a rule built (see [[RuleChecker]]). */
   private def assertClause(clause: Encoded): Unit = {
     templates.checkAsserted(clause)
-    underlying.assertCnstr(clause)
+    assertUnderlying(clause)
   }
 
   /** The model that the solver operates under, as when an evaluator solves for the foralls of an
@@ -1116,7 +1232,12 @@ abstract class AbstractUnrollingSolver private
     // Multiple calls to registerForInterrupts are (almost) idempotent and acceptable
     context.interruptManager.registerForInterrupts(this)
 
-    new Check[config.type](config, assumptions).run()
+    refuted = None
+    provingCheck = config.withProof
+    queryAssumptions = Set.empty
+    val response = new Check[config.type](config, assumptions).run()
+    if (config.withProof && response.isUNSAT && producesProofs) config.cast(UnsatWithProof(certify()))
+    else response
   }).recover {
     case e @ (_: InternalSolverError | _: Unsupported) =>
       if (reporter.isDebugEnabled) reporter.debug(e)
@@ -1145,6 +1266,7 @@ abstract class AbstractUnrollingSolver private
       val vars = exprOps.variablesOf(expr)
       templates.mkEncoder(vars.map(v => encode(v) -> freeVars(v)).toMap)(encode(expr))
     }
+    queryAssumptions = encodedAssumptions.toSet
     private val encodedToAssumptions : Map[Encoded, Expr] = (encodedAssumptions zip assumptionsSeq).toMap
 
     private def decodeAssumptions(core: Set[Encoded]): Set[Expr] = {
@@ -1351,13 +1473,14 @@ abstract class AbstractUnrollingSolver private
 
       val equalities = witnessEqualities
       val getModel = !templates.quantifiers.requiresFiniteRangeCheck || checkModels || templates.quantifiers.hasAxioms || config.withModel
-      val getAssumptions = (unrollAssumptions && templates.unfolding.canUnroll) || config.withUnsatAssumptions ||
-        equalities.nonEmpty
-      val checkConfig = Configuration(model = getModel && !ignoreModels, unsatAssumptions = getAssumptions)
+      val getAssumptions = (unrollAssumptions && templates.unfolding.canUnroll) || config.withUnsatAssumptions
 
+      // the check without equalities doesn't ask for unsat assumptions for them, so that it can
+      // ask for a proof
       def check(equalities: Iterable[Encoded]): Response =
         context.timers.solvers.unrolling.check.run {
-          underlying.checkAssumptions(checkConfig)(
+          val checkConfig = Configuration(model = getModel && !ignoreModels, unsatAssumptions = getAssumptions || equalities.nonEmpty)
+          checkUnderlying(checkConfig, refutes = templates.unfolding.satisfactionAssumptions.isEmpty)(
             checking(ListSet.from(encodedAssumptions) ++ templates.unfolding.satisfactionAssumptions ++ equalities)
           )
         }
@@ -1429,13 +1552,13 @@ abstract class AbstractUnrollingSolver private
 
       val next: Either[CheckState, Response] =
         context.timers.solvers.unrolling.check.run {
-          underlying.push()
+          pushUnderlying()
           for (cl <- encodedAssumptions.toSeq ++ templates.unfolding.satisfactionAssumptions ++ clauses) {
-            underlying.assertCnstr(cl)
+            assertUnderlying(cl)
           }
           def check(equalities: Iterable[Encoded]) = {
             lastCheck = None
-            underlying.checkAssumptions(Configuration(model = true, unsatAssumptions = equalities.nonEmpty))(
+            checkUnderlying(Configuration(model = true, unsatAssumptions = equalities.nonEmpty))(
               equalities.toSet
             )
           }
@@ -1450,7 +1573,7 @@ abstract class AbstractUnrollingSolver private
               }
             case _ => Right(res)
           }
-          underlying.pop()
+          popUnderlying()
           next.left.map { needed =>
             if (needed.nonEmpty) instantiateWitnesses(needed) else InstantiateQuantifiers
           }
@@ -1603,7 +1726,7 @@ abstract class AbstractUnrollingSolver private
       reporter.debug(" - Running search without blocked literals (w/o lucky test)")
 
       val res = context.timers.solvers.unrolling.check.run {
-          underlying.checkAssumptions(Configuration(model = false, unsatAssumptions = config.withUnsatAssumptions))(
+          checkUnderlying(Configuration(model = false, unsatAssumptions = config.withUnsatAssumptions), refutes = true)(
             checking(ListSet.from(encodedAssumptions) ++ templates.unfolding.refutationAssumptions)
           )
         }
@@ -1637,7 +1760,7 @@ abstract class AbstractUnrollingSolver private
       // are keeping quantified clause instantiations from being considered
       val res: Response =
         context.timers.solvers.unrolling.check.run {
-          underlying.checkAssumptions(config `max` Configuration(model = true))(
+          checkUnderlying(config `max` Configuration(model = true), refutes = true)(
             checking(ListSet.from(encodedAssumptions) ++ templates.unfolding.refutationAssumptions)
           )
         }
@@ -1763,6 +1886,14 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
     }
 
     def decodePartial(e: Expr, tpe: Type): Option[Expr] = Some(e)
+
+    override protected def loggingRules: Boolean = self.producesProofs
+
+    override protected def logged(kind: String, arguments: Seq[(String, Seq[Encoded])],
+                                  template: Option[(TemplateContents, Map[Encoded, Encoded])], clauses: Clauses): Unit =
+      self.logRule(kind, arguments, template.asInstanceOf[Option[(self.templates.TemplateContents, Map[Encoded, Encoded])]], clauses)
+
+    override protected def unruled(clauses: Clauses): Unit = self.logUnruled(clauses)
   }
 
   protected def declareVariable(v: t.Variable): t.Variable = v
@@ -1816,16 +1947,16 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
 
   override def push(): Unit = {
     super.push()
-    underlying.push()
+    pushUnderlying()
   }
 
   override def pop(): Unit = {
     super.pop()
-    underlying.pop()
+    popUnderlying()
   }
 
   override def reset(): Unit = {
-    underlying.reset()
+    resetUnderlying()
     super.reset()
   }
 

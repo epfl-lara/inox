@@ -33,7 +33,7 @@ jobs:
       INSTALL_SOLVERS: 1
       Z3_VER: 5.4.1
       CVC4_VER: 1.8
-      CVC5_VER: 1.2.1
+      CVC5_VER: 1.4.2
       BITWUZLA_VER: 0.8.2
     steps:
     - name: Checkout
@@ -112,3 +112,59 @@ jobs:
         path: test-timings/
     - name: Clean up
       run: rm -rf $JAVA_OPTS_TMP_DIR
+
+  certificates:
+    # The certificates of unsat answers (proofs/certificates): the checker of the proofs project
+    # checks those of the corpus (proofs/certificates/corpus.txt), and Ethos, at the commit that
+    # cvc5 pins, checks their CPC proofs against cvc5's signature. The tests job runs the checker
+    # too; this job adds Ethos.
+    name: Certificates (Ethos)
+    runs-on: ubuntu-latest
+    env:
+      INSTALL_SOLVERS: 1
+      Z3_VER: 5.4.1
+      CVC4_VER: 1.8
+      CVC5_VER: 1.4.2
+      BITWUZLA_VER: 0.8.2
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v7
+      with:
+        submodules: recursive
+    - name: Setup JDK
+      uses: actions/setup-java@v6
+      with:
+        distribution: temurin
+        java-version: 21
+    - name: Set Java and SBT options
+      run: |
+        echo "XDG_RUNTIME_DIR=$(realpath ..)" >> $GITHUB_ENV
+        echo "JAVA_OPTS=-Xss64M -Xms1024M -Xmx8G" >> $GITHUB_ENV
+        echo "SBT_OPTS=-Dsbt.global.base=$GITHUB_WORKSPACE/.sbt-global" >> $GITHUB_ENV
+    - name: Install sbt
+      uses: ./.github/actions/install-sbt
+    - name: Fetch sbt dependencies
+      uses: ./.github/actions/sbt-dependencies
+      with:
+        key: inox
+        sbt-args: update Test/update IntegrationTest/update
+    - name: Install solvers
+      uses: ./.github/actions/install-solvers
+      with:
+        z3: ${{ env.Z3_VER }}
+        cvc4: ${{ env.CVC4_VER }}
+        cvc5: ${{ env.CVC5_VER }}
+        bitwuzla: ${{ env.BITWUZLA_VER }}
+    - name: GMP for Ethos
+      run: sudo apt-get install -y libgmp-dev
+    - name: Cache Ethos and Cpc.eo
+      uses: actions/cache@v6
+      with:
+        path: ${{ runner.temp }}/ethos
+        key: ethos-${{ runner.os }}-${{ hashFiles('proofs/certificates/get-ethos.sh') }}
+    - name: Ethos and Cpc.eo
+      run: proofs/certificates/get-ethos.sh "$RUNNER_TEMP/ethos" | tee -a "$GITHUB_ENV"
+    - name: Check the certificates of the corpus
+      run: INOX_CPC_DIR="$RUNNER_TEMP/cpc" sbt -batch "proofs/testOnly inox.certificates.CheckerSuite"
+    - name: Check their proofs with Ethos
+      run: proofs/certificates/check.sh "$RUNNER_TEMP/cpc" 4

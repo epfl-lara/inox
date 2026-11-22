@@ -38,6 +38,18 @@ trait SimpleSolverAPI { self =>
     }
   }
 
+  /** Like [[solveSAT]], with the proof of an unsat answer when `proof` holds. */
+  def solveSAT(expression: Expr, proof: Boolean): ResponseWithModel[Model { val program: self.program.type }] |
+                                                   ResponseWithModelAndProof[Model { val program: self.program.type }] = {
+    val s = factory.getNewSolver()
+    try {
+      s.assertCnstr(expression)
+      if (proof) s.check(ModelAndProof) else s.check(Model)
+    } finally {
+      factory.reclaim(s)
+    }
+  }
+
   def solveSATWithUnsatAssumptions(expression: Expr, assumptions: Set[Expr]):
                                    ResponseWithModelAndAssumptions[Model { val program: self.program.type }, Set[Expr]] = {
     val s = factory.getNewSolver()

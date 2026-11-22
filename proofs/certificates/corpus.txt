@@ -1,0 +1,30 @@
+# The regression files whose certificates are checked (see README.md): each has a
+# `get-proof` added after its `check-sat` commands, and every unsat answer must
+# come with a certificate that holds. They cover the kinds of rules, and the
+# constant arrays of cvc5's expert signature.
+src/it/resources/regression/tip/UNSAT/FunctionMatchers.tip
+src/it/resources/regression/tip/UNSAT/Lambdas3.scala-1.tip
+src/it/resources/regression/tip/UNSAT/SchedulerMulti.scala-0.tip
+src/it/resources/regression/tip/UNSAT/LambdaPointers-Issue115.tip
+src/it/resources/regression/tip/UNSAT/STLCTerms.scala-3.tip
+src/it/resources/regression/smtlib3/bags/split-preserves-content.smt3
+src/it/resources/regression/smtlib3/function-semantics/none-comparisons-with-constructors-without-functions.smt3
+src/it/resources/regression/smtlib3/function-semantics/none-nullary-lambda-that-calls-a-captured-function.smt3
+src/it/resources/regression/smtlib3/inductive-unrolling/size-negative.smt3
+src/it/resources/regression/smtlib3/inductive-unrolling/sort-preserves-content-1.smt3
+src/it/resources/regression/smtlib3/map-merge/element-in-mask.smt3
+src/it/resources/regression/smtlib3/partial-operations/bitvector-division-by-zero-is-total.smt3
+src/it/resources/regression/smtlib3/partial-operations/real-division-by-zero-is-infeasible.smt3
+src/it/resources/regression/smtlib3/quantifiers/unification.smt3
+src/it/resources/regression/smtlib3/quantifiers/propositional-bound-quantifier.smt3
+src/it/resources/regression/smtlib3/refined-calls/dependent-not-lucky.smt3
+src/it/resources/regression/smtlib3/refined-calls/in-recursive-function-3.smt3
+src/it/resources/regression/smtlib3/sets-bags-maps/sets-with-empty-base-type-are-empty.smt3
+src/it/resources/regression/smtlib3/type-unrolling/empty-type-parameter.smt3
+src/it/resources/regression/smtlib3/type-unrolling/empty-function-codomains.smt3
+src/it/resources/regression/smtlib3/type-unrolling/refined-result-of-a-curried-function.smt3
+src/it/resources/regression/smtlib3/type-unrolling/domain-map-with-refined-values.smt3
+src/it/resources/regression/tip/UNSAT/Lambdas3.scala-0.tip
+src/it/resources/regression/tip/UNSAT/MergeSort2.scala-1.tip
+src/it/resources/regression/smtlib3/type-unrolling/cache-inductive-adt-inside-and-outside-of-a-quantifier-domain.smt3
+src/it/resources/regression/smtlib3/type-unrolling/cache-tree-inside-and-outside-of-a-quantifier-domain.smt3
