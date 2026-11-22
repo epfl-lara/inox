@@ -11,17 +11,19 @@ class DefinitionsSuite extends AnyFunSuite {
   import inox.trees.dsl._
 
   val tp = TypeParameter.fresh("A")
+  // Annotation arguments are expressions, so an empty set carries the types that instantiation changes
+  def at(tpe: Type): Expr = FiniteSet(Seq(), tpe)
   val boxId = FreshIdentifier("Box")
   val consId = FreshIdentifier("MkBox")
   val fieldId = FreshIdentifier("content")
-  val annotated = ValDef(fieldId, tp, Seq(Annotation("field", Seq(tp, IntegerLiteral(1)))))
+  val annotated = ValDef(fieldId, tp, Seq(Annotation("field", Seq(at(tp), IntegerLiteral(1)))))
   val box = new ADTSort(boxId, Seq(TypeParameterDef(tp)), Seq(new ADTConstructor(consId, boxId, Seq(annotated))),
-    Seq(Annotation("sort", Seq(tp))))
+    Seq(Annotation("sort", Seq(at(tp)))))
 
   val idFd = {
     val ftp = TypeParameter.fresh("T")
-    val x = ValDef(FreshIdentifier("x"), ftp, Seq(Annotation("param", Seq(ftp))))
-    new FunDef(FreshIdentifier("id"), Seq(TypeParameterDef(ftp)), Seq(x), ftp, x.toVariable, Seq(Annotation("fun", Seq(ftp))))
+    val x = ValDef(FreshIdentifier("x"), ftp, Seq(Annotation("param", Seq(at(ftp)))))
+    new FunDef(FreshIdentifier("id"), Seq(TypeParameterDef(ftp)), Seq(x), ftp, x.toVariable, Seq(Annotation("fun", Seq(at(ftp)))))
   }
 
   given symbols: Symbols = NoSymbols.withSorts(Seq(box)).withFunctions(Seq(idFd))
@@ -150,11 +152,11 @@ class DefinitionsSuite extends AnyFunSuite {
     assert(intercept[RuntimeException](cons.selectorID2Index(FreshIdentifier("nope"))).getMessage.contains("Could not find"))
 
     val typed = box.typed(Seq(IntegerType()))
-    assert(typed.flags == Seq(Annotation("sort", Seq(IntegerType()))))
+    assert(typed.flags == Seq(Annotation("sort", Seq(at(IntegerType())))))
     val v = Variable.fresh("v", tp)
     assert(typed.instantiate(v).getType == IntegerType())
     val tcons = typed.constructors.head
-    assert(tcons.fields.head.flags == Seq(Annotation("field", Seq(IntegerType(), IntegerLiteral(1)))))
+    assert(tcons.fields.head.flags == Seq(Annotation("field", Seq(at(IntegerType()), IntegerLiteral(1)))))
     assert(tcons.fields.head.tpe == IntegerType())
 
     val tupleSort = mkSort(FreshIdentifier("Pairs"))() { _ =>
@@ -169,11 +171,11 @@ class DefinitionsSuite extends AnyFunSuite {
     assert(idFd.getTpe(stripRefinements = false) == idFd.returnType)
     assert(idFd.copy(fullBody = idFd.fullBody).fullBody == idFd.fullBody)
     val typed = idFd.typed(Seq(IntegerType()))
-    assert(typed.flags == Seq(Annotation("fun", Seq(IntegerType()))))
-    assert(typed.params.head.flags == Seq(Annotation("param", Seq(IntegerType()))))
+    assert(typed.flags == Seq(Annotation("fun", Seq(at(IntegerType())))))
+    assert(typed.params.head.flags == Seq(Annotation("param", Seq(at(IntegerType())))))
     assert(typed.getTpe(stripRefinements = false) == IntegerType())
-    assert(typed.instantiate(Annotation("f", Seq(idFd.tparams.head.tp))) == Annotation("f", Seq(IntegerType())))
-    assert(box.typed(Seq(BooleanType())).instantiate(Annotation("s", Seq(tp))) == Annotation("s", Seq(BooleanType())))
+    assert(typed.instantiate(Annotation("f", Seq(at(idFd.tparams.head.tp)))) == Annotation("f", Seq(at(IntegerType()))))
+    assert(box.typed(Seq(BooleanType())).instantiate(Annotation("s", Seq(at(tp)))) == Annotation("s", Seq(at(BooleanType()))))
   }
 
   test("Types") {

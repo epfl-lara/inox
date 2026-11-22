@@ -29,8 +29,8 @@ class DeserializationSuite extends AnyFunSpec with ResourceUtils {
       }
 
       def makeIdentity(): FunDef = {
-        val idX = new Identifier("x", 1, 1)
-        val idF = new Identifier("f", 2, 1)
+        val idX = FreshIdentifier.restore("x", 1, 1)
+        val idF = FreshIdentifier.restore("f", 2, 1)
         val varX = Variable(idX, Int32Type(), Seq.empty)
         new FunDef(idF, Seq.empty, Seq(varX.toVal), Int32Type(), varX, Seq.empty)
       }

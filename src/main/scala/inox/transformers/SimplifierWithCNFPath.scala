@@ -216,7 +216,7 @@ trait SimplifierWithCNFPath extends SimplifierWithPC { self =>
           path.exprSubst.getB(vd.toVariable).orElse(path.boolSubst.get(vd.toVariable)) match {
             case Some(expr) =>
               localCounter = localCounter + 1
-              val newVd = vd.copy(id = new Identifier("x", localCounter, localCounter))
+              val newVd = vd.copy(id = FreshIdentifier.canonical(localCounter))
               subst(vd) = newVd
               bindings(newVd) = transform(expr)
               newVd

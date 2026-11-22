@@ -734,16 +734,7 @@ trait TreeDeconstructor {
     case s.HasADTEquality(id) =>
       (Seq(id), Seq(), Seq(), (ids, _, _) => t.HasADTEquality(ids.head))
     case s.Annotation(name, args) =>
-      val withIndex = args.zipWithIndex
-      val (exprs, exprIndexes) = withIndex.collect { case (e: s.Expr, i) => e -> i }.unzip
-      val (types, typeIndexes) = withIndex.collect { case (tp: s.Type, i) => tp -> i }.unzip
-
-      // we use the implicit contract on Flags here that states that a flag is either
-      // an instance of Expr | Type, or it has nothing to do with a tree
-      val rest = withIndex.filterNot(_._1.isInstanceOf[s.Tree])
-      (Seq(), exprs, types, (_, es, tps) => t.Annotation(name,
-        ((es zip exprIndexes) ++ (tps zip typeIndexes) ++ rest).sortBy(_._2).map(_._1)
-      ))
+      (Seq(), args, Seq(), (_, es, _) => t.Annotation(name, es))
   }
 }
 
