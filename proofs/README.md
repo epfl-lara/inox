@@ -14,6 +14,9 @@ The functions that quantify over values (`forall`, `exists`) can't be computed,
 so the evaluator leaves them abstract, and the tests give them by enumerating
 small finite types. Lean and Eunoia backends come next.
 
+[`certificates`](certificates/README.md) checks the certificates that Inox
+prints for its unsat answers, apart from the solver.
+
 This directory is the sbt project `proofs`, which depends on Inox but is not
 part of it: it is not published, and Inox's jars don't contain it. `sbt test`
 runs its tests along with Inox's, and `sbt proofs/test` runs them alone.
