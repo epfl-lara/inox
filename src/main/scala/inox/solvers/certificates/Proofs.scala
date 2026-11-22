@@ -157,6 +157,71 @@ final case class ScriptProof(script: Seq[SExpr], cpc: Seq[SExpr]) extends Proof 
   override def toString: String = Proof.block("script", script :+ SList(Seq(Atom("check-sat")))) + "\n" + Proof.block("cpc", cpc)
 }
 
+/** A template of a [[Certificate]]: the terms of its start blocker and arguments, and the indices
+  * of the asserts of its clauses in the certificate's template script. */
+final case class Template(params: Seq[SExpr], asserts: Seq[Int])
+
+/** A rule of a [[Certificate]] (see [[unrolling.RuleKernel]]): its kind, the arguments that its
+  * clauses are built from, the indices of the asserts of its clauses in the certificate's script,
+  * and when it instantiates a template, the template's index and the values of the template's
+  * symbols. */
+final case class Rule(kind: String, arguments: Seq[Argument[SExpr]], instance: Option[Instance[SExpr]], asserts: Seq[Int])
+
+/** An argument of a rule, by its name in the rule (see [[unrolling.RuleKernel.Rule.arguments]]). */
+final case class Argument[T](name: String, terms: Seq[T])
+
+/** An instance of the template of index `template`, with the values of its symbols. */
+final case class Instance[T](template: Int, values: Seq[Value[T]])
+
+/** The value of a template's symbol in an instance. */
+final case class Value[T](symbol: T, value: T)
+
+/** The assumptions of the check that a [[Certificate]] is for, as the indices of their asserts in
+  * the certificate's script: those of the `query`, and those that state that an open conjunction
+  * or disjunction is `complete` (see [[unrolling.OpenJunctions]]). */
+final case class Assumptions(query: Seq[Int], complete: Seq[Int])
+
+/** The certificate that the unrolling solver's query has no model: the underlying solver's
+  * `proof`, whose asserts are the clauses that the solver asserted and then the assumptions of
+  * its check, the rules that gave the clauses, and the templates that rules instantiate, whose
+  * clauses `templateScript` declares and asserts (see [[Certificates.certificate]]). */
+final case class Certificate(proof: ScriptProof, templateScript: Seq[SExpr], templates: Seq[Template],
+                             rules: Seq[Rule], assumptions: Assumptions) extends Proof {
+  /** What the symbols of the solver's session stand for, by their text and in its order. */
+  def symbols: Seq[(String, Ref)] =
+    (proof.script ++ templateScript ++ proof.cpc).flatMap(_.symbols).map(s => s.text -> s.ref).distinct.sortBy(_._1)
+
+  override def toString: String = {
+    def ints(is: Seq[Int]) = is.map(" " + _).mkString
+    def string(s: String) = "\"" + s.replace("\"", "\"\"") + "\""
+    val templateLines = templates.zipWithIndex.map { case (t, i) =>
+      s"($i (params ${t.params.mkString(" ")})${ints(t.asserts)})"
+    }
+    val ruleLines = rules.map { case Rule(kind, arguments, instance, asserts) =>
+      val args = arguments.map(a => s"(${a.name}${a.terms.map(" " + _).mkString})").mkString(" ")
+      val inst = instance.map { case Instance(i, values) =>
+        s" (instance $i (${values.map(v => s"(${v.symbol} ${v.value})").mkString(" ")}))"
+      }.getOrElse("")
+      s"($kind (args${if (args.isEmpty) "" else " " + args})$inst${ints(asserts)})"
+    }
+    val symbolLines = symbols.map { case (text, ref) =>
+      val kind +: rest = ref.describe: @unchecked
+      s"($text $kind${rest.map(" " + string(_)).mkString})"
+    }
+    s"(inox-certificate ${Certificate.version}\n" + Proof.block("script", proof.script :+ SList(Seq(Atom("check-sat")))) + "\n" +
+      "(templates\n" + Proof.block("script", templateScript) + "\n" + templateLines.map(_ + "\n").mkString + ")\n" +
+      "(rules\n" + ruleLines.map(_ + "\n").mkString + ")\n" +
+      s"(assumptions (query${ints(assumptions.query)}) (complete${ints(assumptions.complete)}))\n" +
+      "(symbols\n" + symbolLines.map(_ + "\n").mkString + ")\n" +
+      Proof.block("cpc", proof.cpc) + ")"
+  }
+}
+
+object Certificate {
+  /** The version of the format that certificates print in, which changes with it. */
+  val version = 1
+}
+
 object Proof {
   private[certificates] def block(name: String, es: Seq[Any]): String = s"($name\n${es.map(_.toString + "\n").mkString})"
 }

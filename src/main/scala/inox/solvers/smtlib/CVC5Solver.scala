@@ -22,7 +22,7 @@ object optCVC5Options extends SetOptionDef[String] {
 // An Int, so that the limit in resource units can't overflow the Long it is computed in
 object optCVC5Rlimit extends IntOptionDef("cvc5-rlimit", -1, "<N>")
 
-trait CVC5Solver extends CVCSolver with CVC5Target with certificates.Certificates.SessionPrinter {
+trait CVC5Solver extends CVCSolver with CVC5Target with certificates.Certificates.CertificatePrinter {
   import context.{given, _}
   import program.trees._
   import SolverResponses._
@@ -117,11 +117,11 @@ trait CVC5Solver extends CVCSolver with CVC5Target with certificates.Certificate
   }
 
   /** `es` as terms of the session, and the declarations of their symbols that printing them made. */
-  def printed(es: Seq[inox.trees.Expr]): certificates.Certificates.Printed = {
+  def printed(es: Seq[Expr]): certificates.Certificates.Printed = {
     val commands = ListBuffer.empty[SExpr]
     declared = commands
     try {
-      val terms = es.map(e => toSMT(e.asInstanceOf[Expr])(using Map()))
+      val terms = es.map(e => toSMT(e)(using Map()))
       // the symbols are known once the terms are translated
       val table = sessionSymbols
       certificates.Certificates.Printed(terms.map(proofSExpr(_, table)), commands.toSeq.map(proofSExpr(_, table)))
