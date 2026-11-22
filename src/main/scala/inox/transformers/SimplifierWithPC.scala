@@ -197,9 +197,9 @@ trait SimplifierWithPC extends Transformer { self =>
           case ADT(_, _, es) if pe =>
             (es(index), true)
 
-          // Note: no need to check invariant as if the ADT constructor is in
-          //       the path, then its invariant has already been checked.
-          case adt @ ADT(_, _, es) =>
+          // The other fields are kept for their effects, and so is the construction itself when it
+          // checks an invariant, as it then fails on values that don't satisfy it
+          case adt @ ADT(_, _, es) if !cons.sort.hasInvariant =>
             val value = es(index)
             val freshFields = cons.fields.map(_.freshen)
             val bindings = (freshFields zip es).filter(_._2 != value)

@@ -273,11 +273,31 @@ trait SymbolOps extends TypeOps { self =>
     case _ => false
   }
 
+  /** The invariant that the construction `adt` must satisfy, unless it trivially holds: the invariant
+    * of its sort applied to it, where the tests and selections of the constructed value are those of
+    * `adt`, which keeps constructions whose constructor the invariant doesn't constrain unguarded. */
+  def constructionInvariant(adt: ADT): Option[Expr] = adt.getConstructor.sort.invariant.flatMap { tfd =>
+    val param = tfd.params.head.toVariable
+    val cons = adt.getConstructor
+    val inlined = exprOps.postMap {
+      case IsConstructor(`param`, id) => Some(BooleanLiteral(id == adt.id))
+      case ADTSelector(`param`, sel) if cons.fields.exists(_.id == sel) && adt.args.forall(isAlwaysPure) =>
+        Some(adt.args(cons.definition.selectorID2Index(sel)))
+      case _ => None
+    }(tfd.fullBody)
+    simplifyByConstructors(inlined) match {
+      case BooleanLiteral(true) => None
+      case body if exprOps.variablesOf(body).contains(param) => Some(tfd.applied(Seq(adt)))
+      case body => Some(body)
+    }
+  }
+
   /** The condition under which the partial operation `expr` is defined, unless it always is.
     *
     * As in the evaluator, divisions, remainders and modulos of integers and reals fail on a zero
-    * divisor, selectors on another constructor, and conversions of floating points to reals on NaN
-    * and infinities. Bit-vector operations follow SMT-LIB and are total, and so do conversions of
+    * divisor, selectors on another constructor, constructions of a sort with an invariant on values
+    * that don't satisfy it, and conversions of floating points to reals on NaN and infinities.
+    * Bit-vector operations follow SMT-LIB and are total, and so do conversions of
     * floating points to bit-vectors, which saturate as on the JVM.
     */
   def definedness(expr: Expr): Option[Expr] = {
@@ -302,6 +322,7 @@ trait SymbolOps extends TypeOps { self =>
       case Remainder(_, d) => nonZero(d)
       case Modulo(_, d) => nonZero(d)
       case FPToReal(e) => Some(finite(e)).filter(_ != BooleanLiteral(true))
+      case adt: ADT => constructionInvariant(adt)
       case ADTSelector(adt, sel) => adt.getType match {
         case ADTType(id, tps) =>
           val sort = getSort(id, tps)
