@@ -132,6 +132,44 @@ trait PipelinedInterpreter extends ProcessInterpreter {
     res
   }
 
+  /** Evaluates `command`, and returns its answer as the solver prints it, the next s-expression of
+    * its output, such as for answers that the parser doesn't read (the proofs of cvc5). */
+  def raw(command: String): String = {
+    flush()
+    in.write(command)
+    in.write("\n")
+    in.flush()
+
+    val answer = new StringBuilder
+    var depth = 0
+    var done = false
+    def next(): Char = {
+      val c = out.read()
+      if (c < 0) throw new java.io.IOException("The solver's output ended")
+      answer += c.toChar
+      c.toChar
+    }
+    // skips the whitespace before the answer
+    var c = out.read()
+    while (c >= 0 && c.toChar.isWhitespace) c = out.read()
+    if (c < 0) throw new java.io.IOException("The solver's output ended")
+    answer += c.toChar
+    var ch = c.toChar
+    while (!done) {
+      ch match {
+        case '(' => depth += 1
+        case ')' => depth -= 1
+        case '|' => while (next() != '|') {}
+        case '"' => while (next() != '"') {}
+        case ';' => while (next() != '\n') {}
+        case _ =>
+      }
+      if (depth == 0 && (ch == ')' || ch.isWhitespace)) done = true
+      else ch = next()
+    }
+    answer.toString.trim
+  }
+
   override def eval(cmd: SExpr): SExpr = {
     flush()
     // a reset forgets the commands that were sent, and their errors with them: the process can
