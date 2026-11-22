@@ -231,10 +231,10 @@ trait RuleKernel { self: Templates =>
     case LambdaEquality(blocker: Encoded, lambda1: Encoded, lambda2: Encoded, closuresEqual: Option[Encoded],
                         intensional: Boolean)
 
-    /** `blocker && isFree && start && lambda() == f() ==> lambda == f`, where `f` is a free function
-      * with no parameters, `isFree` holds iff it is equal to none of the lambdas of its type, and
-      * `lambda` is a pure lambda with no parameters, i.e. one that returns a value it captures,
-      * created under `start`.
+    /** `blocker && isFree && start && lambda() == f() ==> lambda == f`, with `!fails` among the
+      * premises when functions are partial, where `f` is a free function with no parameters,
+      * `isFree` holds iff it is equal to none of the lambdas of its type, and `lambda` is a pure
+      * lambda with no parameters, i.e. one that returns a value it captures, created under `start`.
       *
       * Under intensional equality, interpreting `isFree` as "`f` is the lambda that returns its
       * result, `() => f()`, and none of the lambdas found so far" satisfies the clause, as lambdas
@@ -242,10 +242,14 @@ trait RuleKernel { self: Templates =>
       * disjunction that defines `isFree` true when `f` is another lambda, such as
       * `() => if (false) error else y`, so the refutation checks must not assume that disjunction
       * complete (see [[LambdaTemplates.registerFunction]]). When functions have witnesses, their
-      * equality is extensional or unobservable, `f` and `lambda` are equal whenever their results
-      * are, and `isFree` is what it states. Without `isFree`, `f` may be equal to another lambda,
-      * whose body differs. */
-    case ArglessEquality(blocker: Encoded, isFree: Encoded, f: Encoded, tpe: FunctionType, start: Encoded, lambda: Encoded)
+      * equality is extensional or unobservable, and `isFree` is what it states. `f` and `lambda` are
+      * then equal whenever their results are, unless `f` fails: extensional equality tells apart a
+      * function that fails from one that doesn't (see [[UnfoldingModes.partialFunctions]]), and on
+      * a type with a single value, such as `Unit`, their results are always equal. `fails`, the
+      * failure literal of `f()`, rules that out. Without `isFree`, `f` may be equal to another
+      * lambda, whose body differs. */
+    case ArglessEquality(blocker: Encoded, isFree: Encoded, f: Encoded, tpe: FunctionType, start: Encoded, lambda: Encoded,
+                         fails: Option[Encoded])
 
     /** The clauses of this rule. This is the only code that builds them. */
     def clauses: Clauses = applying(this)(build)
@@ -325,9 +329,10 @@ trait RuleKernel { self: Templates =>
           case (None, false) => Seq.empty
         }
 
-      case ArglessEquality(blocker, isFree, f, tpe, start, lambda) =>
+      case ArglessEquality(blocker, isFree, f, tpe, start, lambda, fails) =>
         val (lambdaApp, fApp) = (mkApp(lambda, tpe, Seq.empty), mkApp(f, tpe, Seq.empty))
-        Seq(mkImplies(mkAnd(blocker, isFree, start, mkEquals(lambdaApp, fApp)), mkEquals(lambda, f)))
+        val premises = Seq(blocker, isFree, start, mkEquals(lambdaApp, fApp)) ++ fails.map(mkNot)
+        Seq(mkImplies(mkAnd(premises*), mkEquals(lambda, f)))
     }
   }
 

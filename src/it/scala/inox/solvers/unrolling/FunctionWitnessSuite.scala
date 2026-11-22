@@ -101,8 +101,15 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
     Seq("b" :: BooleanType()), BooleanType() =>: BooleanType(), { case Seq(b) => \("x" :: BooleanType())(_ => b) })
   }
 
+  // applies the argument-less function it is given
+  val forceID = FreshIdentifier("force")
+  val forceFd = mkFunDef(forceID)() { _ => (
+    Seq("k" :: FunctionType(Seq(), UnitType())), UnitType(), { case Seq(k) => Application(k, Seq()) })
+  }
+
   val program = InoxProgram(new Symbols(
-    Map(sizeID -> sizeFd, sameID -> sameFd, sameViaID -> sameViaFd, polyID -> polyFd, constID -> constFd),
+    Map(sizeID -> sizeFd, sameID -> sameFd, sameViaID -> sameViaFd, polyID -> polyFd, constID -> constFd,
+      forceID -> forceFd),
     Map(listID -> List, boxID -> Box, objID -> Obj)))
 
   val intList = T(listID)(IntegerType())
@@ -283,6 +290,16 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
     val lambda = Lambda(Seq(), g(E(BigInt(5))))
     val model = solve(f !== lambda)
     assert(distinguishable(model)(model.vars(f.toVal), exprOps.replaceFromSymbols(Map(g -> model.vars(g.toVal)), lambda)))
+  }
+
+  test("nullary function that fails and a lambda on a type with a single value") {
+    // `f` may be `() => error`, which differs from `() => u` although their results can't differ
+    val f = ("f" :: FunctionType(Seq(), UnitType())).toVariable
+    val u = ("u" :: UnitType()).toVariable
+    val lambda = Lambda(Seq(), u)
+    val model = solve((f !== lambda) && (E(forceID)(lambda) === u))
+    assert(program.getEvaluator(withEquality(FunctionEquality.Extensional))
+      .eval(Let(f.toVal, model.vars(f.toVal), Let(u.toVal, model.vars(u.toVal), f !== lambda))).result == Some(BooleanLiteral(true)))
   }
 
   test("nullary functions with equal results") { ctx ?=>
