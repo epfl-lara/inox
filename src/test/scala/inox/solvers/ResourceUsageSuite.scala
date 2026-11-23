@@ -101,7 +101,11 @@ class ResourceUsageSuite extends AnyFunSuite {
       withSolver(solver.name, solver.rlimit(1)) { s =>
         s.assertCnstr(formula)
         assert(s.check(Simple) == Sat)
-        assert(s.resourceUsage.usage.contains(spent))
+        // Two solvers don't always spend exactly the same on the same formula (e.g. native z3, whose
+        // terms are named differently in each solver), so only roughly the same is required.
+        val limited = s.resourceUsage.usage.get
+        assert(limited < million)
+        assert(math.abs(limited - spent) <= spent / 10, s"spent $limited under the limit, $spent without")
       }
     }
   }
