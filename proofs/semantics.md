@@ -490,19 +490,22 @@ does.
 ```inox-sem
 (case eval (ADT c tps args)
   (let! ((vs (eval-list P fuel env args)))
-    (match P
-      ((Program _ cs ss _ _)
-        (let! ((k (lookup-ctor cs c)))
-          (match k
-            ((Constructor _ s _)
-              (let! ((srt (lookup-sort ss s)))
-                (match srt
-                  ((Sort _ _ (None)) (Ok (ADTV c vs)))
-                  ((Sort _ _ (Some inv))
-                    (let! ((holds (call P fuel inv tps (env-types env) (Cons (ADTV c vs) (Nil)))))
-                      (match holds
-                        ((BoolV true) (Ok (ADTV c vs)))
-                        (_ (Stuck))))))))))))))
+    (construct P fuel env c tps vs)))
+
+(define (construct (P Program) (fuel Int) (env Env) (c Id) (tps (List Type)) (vs (List Value))) (Result Value)
+  (match P
+    ((Program _ cs ss _ _)
+      (let! ((k (lookup-ctor cs c)))
+        (match k
+          ((Constructor _ s _)
+            (let! ((srt (lookup-sort ss s)))
+              (match srt
+                ((Sort _ _ (None)) (Ok (ADTV c vs)))
+                ((Sort _ _ (Some inv))
+                  (let! ((holds (call P fuel inv tps (env-types env) (Cons (ADTV c vs) (Nil)))))
+                    (match holds
+                      ((BoolV true) (Ok (ADTV c vs)))
+                      (_ (Stuck)))))))))))))
 
 (case eval (IsConstructor adt c)
   (let! ((v (eval P fuel env adt)))
@@ -529,43 +532,58 @@ have the same contents, and functions, which are compared as the program says
 
 ```inox-sem
 (define (value-eq (P Program) (a Value) (b Value)) (Result Bool)
-  (match a
-    ((ClosureV _ _ _)
-      (match P
-        ((Program _ _ _ _ eq)
-          (match eq
-            ((NoFunctionEquality) (Stuck))
-            ((ExtensionalEquality) (Ok (closures-equal P a b)))))))
-    ((ADTV c xs)
-      (match b
-        ((ADTV d ys) (if (= c d) (values-eq P xs ys) (Ok false)))
-        (_ (Ok false))))
-    ((TupleV xs)
-      (match b
-        ((TupleV ys) (values-eq P xs ys))
-        (_ (Ok false))))
-    ((SetV xs)
-      (match b
-        ((SetV ys)
-          (let! ((sub (subset P xs ys)))
-            (if sub (subset P ys xs) (Ok false))))
-        (_ (Ok false))))
-    ((BagV xs)
-      (match b
-        ((BagV ys)
-          (let! ((sub (sub-bag P xs ys)))
-            (if sub (sub-bag P ys xs) (Ok false))))
-        (_ (Ok false))))
-    ((MapV xs d)
-      (match b
-        ((MapV ys e)
-          (let! ((same (value-eq P d e)))
-            (if same
-              (let! ((l (same-entries P xs xs d ys e)))
-                (if l (same-entries P ys xs d ys e) (Ok false)))
-              (Ok false))))
-        (_ (Ok false))))
-    (_ (Ok (= a b)))))
+  :cases a)
+
+(case value-eq (IntV _) (Ok (= a b)))
+(case value-eq (BoolV _) (Ok (= a b)))
+(case value-eq (UnitV) (Ok (= a b)))
+(case value-eq (CharV _) (Ok (= a b)))
+(case value-eq (RealV _ _) (Ok (= a b)))
+(case value-eq (StringV _) (Ok (= a b)))
+(case value-eq (BVV _ _ _) (Ok (= a b)))
+(case value-eq (FPV _ _ _) (Ok (= a b)))
+(case value-eq (RoundingModeV _) (Ok (= a b)))
+
+(case value-eq (ClosureV _ _ _)
+  (match P
+    ((Program _ _ _ _ eq)
+      (match eq
+        ((NoFunctionEquality) (Stuck))
+        ((ExtensionalEquality) (Ok (closures-equal P a b)))))))
+
+(case value-eq (ADTV c xs)
+  (match b
+    ((ADTV d ys) (if (= c d) (values-eq P xs ys) (Ok false)))
+    (_ (Ok false))))
+
+(case value-eq (TupleV xs)
+  (match b
+    ((TupleV ys) (values-eq P xs ys))
+    (_ (Ok false))))
+
+(case value-eq (SetV xs)
+  (match b
+    ((SetV ys)
+      (let! ((sub (subset P xs ys)))
+        (if sub (subset P ys xs) (Ok false))))
+    (_ (Ok false))))
+
+(case value-eq (BagV xs)
+  (match b
+    ((BagV ys)
+      (let! ((sub (sub-bag P xs ys)))
+        (if sub (sub-bag P ys xs) (Ok false))))
+    (_ (Ok false))))
+
+(case value-eq (MapV xs d)
+  (match b
+    ((MapV ys e)
+      (let! ((same (value-eq P d e)))
+        (if same
+          (let! ((l (same-entries P xs xs d ys e)))
+            (if l (same-entries P ys xs d ys e) (Ok false)))
+          (Ok false))))
+    (_ (Ok false))))
 
 (define (values-eq (P Program) (xs (List Value)) (ys (List Value))) (Result Bool)
   (match xs
@@ -2050,74 +2068,103 @@ The quantifiers over values and fuel are in their own functions, so that
 
 ```inox-sem
 (define (has-type (P Program) (env Env) (v Value) (t Type)) Bool
-  (match t
-    ((IntegerType) (match v ((IntV _) true) (_ false)))
-    ((BooleanType) (match v ((BoolV _) true) (_ false)))
-    ((PropType) (match v ((BoolV _) true) (_ false)))
-    ((UnitType) (match v ((UnitV) true) (_ false)))
-    ((CharType) (match v ((CharV c) (and (<= 0 c) (< c 65536))) (_ false)))
-    ((RealType) (match v ((RealV n d) (and (< 0 d) (= (gcd (abs n) d) 1))) (_ false)))
-    ((StringType) (match v ((StringV cs) (valid-chars cs)) (_ false)))
-    ((BVType s w)
-      (match v
-        ((BVV s2 w2 x) (and (and (= s s2) (= w w2)) (and (<= 0 x) (< x (pow2 w)))))
-        (_ false)))
-    ((FPType e s)
-      (match v
-        ((FPV e2 s2 x)
-          (and (and (= e e2) (= s s2)) (and (and (<= 0 x) (< x (pow2 (+ e s)))) (= x (fp-canonical e s x)))))
-        (_ false)))
-    ((RoundingModeType) (match v ((RoundingModeV _) true) (_ false)))
-    ((TypeParameter x)
-      (match (lookup-type (env-types env) x)
-        ((Some (TypeBinding _ u uenv)) (has-type P (Env uenv (Nil)) v u))
-        ((None) (match v ((IntV _) true) (_ false)))))
-    ((TupleType ts) (match v ((TupleV vs) (have-types P env vs ts)) (_ false)))
-    ((SetType u)
-      (match v
-        ((SetV xs) (and (all-have-type P env xs u) (distinct-values P xs)))
-        (_ false)))
-    ((BagType u)
-      (match v
-        ((BagV xs) (and (bag-has-type P env xs u) (distinct-values P (bag-elems xs))))
-        (_ false)))
-    ((MapType u w)
-      (match v
-        ((MapV xs d)
-          (and (has-type P env d w)
-            (and (map-has-type P env xs u w) (distinct-values P (map-keys xs)))))
-        (_ false)))
-    ((FunctionType from to)
-      (match v
-        ((ClosureV params _ _) (and (same-arity params from) (function-has-type P env v from to)))
-        (_ false)))
-    ((PiType ps to)
-      (match v
-        ((ClosureV params _ _) (and (same-arity params (param-types ps)) (pi-has-type P env v ps to)))
-        (_ false)))
-    ((SigmaType ps to)
-      (match v
-        ((TupleV vs) (sigma-has-type P env vs ps to))
-        (_ false)))
-    ((ADTType s args)
-      (match v
-        ((ADTV c vs)
-          (match P
-            ((Program _ cs ss _ _)
-              (match (lookup-ctor cs c)
-                ((Ok (Constructor _ s2 fields))
-                  (match (lookup-sort ss s)
-                    ((Ok (Sort _ tparams inv))
-                      (and (= s s2)
-                        (and (params-have-types P (Env (bind-types tparams args (env-types env)) (Nil)) vs fields)
-                          (match inv
-                            ((None) true)
-                            ((Some f) (invariant-holds P f args (env-types env) v))))))
-                    (_ false)))
-                (_ false)))))
-        (_ false)))
-    ((RefinementType x u prop)
-      (and (has-type P env v u) (holds P (env-bind env x v) prop)))))
+  :cases t)
+
+(case has-type (IntegerType)
+  (match v ((IntV _) true) (_ false)))
+
+(case has-type (BooleanType)
+  (match v ((BoolV _) true) (_ false)))
+
+(case has-type (PropType)
+  (match v ((BoolV _) true) (_ false)))
+
+(case has-type (UnitType)
+  (match v ((UnitV) true) (_ false)))
+
+(case has-type (CharType)
+  (match v ((CharV c) (and (<= 0 c) (< c 65536))) (_ false)))
+
+(case has-type (RealType)
+  (match v ((RealV n d) (and (< 0 d) (= (gcd (abs n) d) 1))) (_ false)))
+
+(case has-type (StringType)
+  (match v ((StringV cs) (valid-chars cs)) (_ false)))
+
+(case has-type (BVType s w)
+  (match v
+    ((BVV s2 w2 x) (and (and (= s s2) (= w w2)) (and (<= 0 x) (< x (pow2 w)))))
+    (_ false)))
+
+(case has-type (FPType e s)
+  (match v
+    ((FPV e2 s2 x)
+      (and (and (= e e2) (= s s2)) (and (and (<= 0 x) (< x (pow2 (+ e s)))) (= x (fp-canonical e s x)))))
+    (_ false)))
+
+(case has-type (RoundingModeType)
+  (match v ((RoundingModeV _) true) (_ false)))
+
+(case has-type (TypeParameter x)
+  (match (lookup-type (env-types env) x)
+    ((Some (TypeBinding _ u uenv)) (has-type P (Env uenv (Nil)) v u))
+    ((None) (match v ((IntV _) true) (_ false)))))
+
+(case has-type (TupleType ts)
+  (match v ((TupleV vs) (have-types P env vs ts)) (_ false)))
+
+(case has-type (SetType u)
+  (match v
+    ((SetV xs) (and (all-have-type P env xs u) (distinct-values P xs)))
+    (_ false)))
+
+(case has-type (BagType u)
+  (match v
+    ((BagV xs) (and (bag-has-type P env xs u) (distinct-values P (bag-elems xs))))
+    (_ false)))
+
+(case has-type (MapType u w)
+  (match v
+    ((MapV xs d)
+      (and (has-type P env d w)
+        (and (map-has-type P env xs u w) (distinct-values P (map-keys xs)))))
+    (_ false)))
+
+(case has-type (FunctionType from to)
+  (match v
+    ((ClosureV params _ _) (and (same-arity params from) (function-has-type P env v from to)))
+    (_ false)))
+
+(case has-type (PiType ps to)
+  (match v
+    ((ClosureV params _ _) (and (same-arity params (param-types ps)) (pi-has-type P env v ps to)))
+    (_ false)))
+
+(case has-type (SigmaType ps to)
+  (match v
+    ((TupleV vs) (sigma-has-type P env vs ps to))
+    (_ false)))
+
+(case has-type (ADTType s args)
+  (match v
+    ((ADTV c vs)
+      (match P
+        ((Program _ cs ss _ _)
+          (match (lookup-ctor cs c)
+            ((Ok (Constructor _ s2 fields))
+              (match (lookup-sort ss s)
+                ((Ok (Sort _ tparams inv))
+                  (and (= s s2)
+                    (and (params-have-types P (Env (bind-types tparams args (env-types env)) (Nil)) vs fields)
+                      (match inv
+                        ((None) true)
+                        ((Some f) (invariant-holds P f args (env-types env) v))))))
+                (_ false)))
+            (_ false)))))
+    (_ false)))
+
+(case has-type (RefinementType x u prop)
+  (and (has-type P env v u) (holds P (env-bind env x v) prop)))
 
 (define (holds (P Program) (env Env) (prop Expr)) Bool
   (exists ((fuel Int))
@@ -2293,7 +2340,9 @@ path relative to it, and may then use two more forms:
 
 - `(extend-datatype Name (Ctor (field Type) ...) ...)` adds constructors to a
   datatype of an imported file; a function defined by `:cases` on it then
-  needs a case for each of them too.
+  needs a case for each of them too. `eval` on expressions, `value-eq` on values
+  and `has-type` on types are defined by `:cases`, so that an extension can
+  add expressions, values and types.
 - Extending `Result` adds outcomes of evaluation, which `let!` propagates as it
   does `Stuck` and `OutOfFuel`. They can't hold a value of the result's type.
 

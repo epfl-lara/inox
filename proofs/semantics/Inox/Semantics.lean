@@ -1690,31 +1690,7 @@ def eval (O : Oracle) (P : Program) (fuel : Int) (env : Env) (e : Expr) : Result
   | (Expr.ADT c tps args) =>
     (match (eval_list O P fuel env args) with
     | Result.Ok vs =>
-      (match P with
-      | (Program.Program _ cs ss _ _) =>
-        (match (lookup_ctor cs c) with
-        | Result.Ok k =>
-          (match k with
-          | (Constructor.Constructor _ s _) =>
-            (match (lookup_sort ss s) with
-            | Result.Ok srt =>
-              (match srt with
-              | (ADTSort.Sort _ _ Option.none) =>
-                (Result.Ok (Value.ADTV c vs))
-              | (ADTSort.Sort _ _ (Option.some inv)) =>
-                (match (call O P fuel inv tps (env_types env) (List.cons (Value.ADTV c vs) List.nil)) with
-                | Result.Ok holds =>
-                  (match holds with
-                  | (Value.BoolV true) =>
-                    (Result.Ok (Value.ADTV c vs))
-                  | _ =>
-                    Result.Stuck)
-                | Result.Stuck => Result.Stuck
-                | Result.OutOfFuel => Result.OutOfFuel))
-            | Result.Stuck => Result.Stuck
-            | Result.OutOfFuel => Result.OutOfFuel))
-        | Result.Stuck => Result.Stuck
-        | Result.OutOfFuel => Result.OutOfFuel))
+      (construct O P fuel env c tps vs)
     | Result.Stuck => Result.Stuck
     | Result.OutOfFuel => Result.OutOfFuel)
   | (Expr.IsConstructor adt c) =>
@@ -2676,6 +2652,34 @@ def eval_bool (O : Oracle) (P : Program) (fuel : Int) (env : Env) (e : Expr) : R
   | Result.OutOfFuel => Result.OutOfFuel)
 termination_by (fuel.toNat, sizeOf e, 1)
 
+def construct (O : Oracle) (P : Program) (fuel : Int) (env : Env) (c : Id) (tps : List Ty) (vs : List Value) : Result Value :=
+  (match P with
+  | (Program.Program _ cs ss _ _) =>
+    (match (lookup_ctor cs c) with
+    | Result.Ok k =>
+      (match k with
+      | (Constructor.Constructor _ s _) =>
+        (match (lookup_sort ss s) with
+        | Result.Ok srt =>
+          (match srt with
+          | (ADTSort.Sort _ _ Option.none) =>
+            (Result.Ok (Value.ADTV c vs))
+          | (ADTSort.Sort _ _ (Option.some inv)) =>
+            (match (call O P fuel inv tps (env_types env) (List.cons (Value.ADTV c vs) List.nil)) with
+            | Result.Ok holds =>
+              (match holds with
+              | (Value.BoolV true) =>
+                (Result.Ok (Value.ADTV c vs))
+              | _ =>
+                Result.Stuck)
+            | Result.Stuck => Result.Stuck
+            | Result.OutOfFuel => Result.OutOfFuel))
+        | Result.Stuck => Result.Stuck
+        | Result.OutOfFuel => Result.OutOfFuel))
+    | Result.Stuck => Result.Stuck
+    | Result.OutOfFuel => Result.OutOfFuel))
+termination_by (fuel.toNat, 0, 1)
+
 def eval_and (O : Oracle) (P : Program) (fuel : Int) (env : Env) (es : List Expr) : Result Value :=
   (match es with
   | List.nil =>
@@ -2872,7 +2876,31 @@ def instance_ (O : Oracle) (P : Program) (fuel : Int) (env : Env) (params : List
 /-- The oracle gives each of its functions as the semantics defines it. -/
 structure Oracle.Sound (O : Oracle) : Prop where
   value_eq : ∀ (P : Program) (a : Value) (b : Value), O.value_eq P a b = (
-    (match a with
+    match a with
+    | (Value.IntV _) =>
+      (Result.Ok (decide (a = b)))
+    | (Value.BoolV _) =>
+      (Result.Ok (decide (a = b)))
+    | Value.UnitV =>
+      (Result.Ok (decide (a = b)))
+    | (Value.CharV _) =>
+      (Result.Ok (decide (a = b)))
+    | (Value.RealV _ _) =>
+      (Result.Ok (decide (a = b)))
+    | (Value.StringV _) =>
+      (Result.Ok (decide (a = b)))
+    | (Value.BVV _ _ _) =>
+      (Result.Ok (decide (a = b)))
+    | (Value.FPV _ _ _) =>
+      (Result.Ok (decide (a = b)))
+    | (Value.RoundingModeV _) =>
+      (Result.Ok (decide (a = b)))
+    | (Value.TupleV xs) =>
+      (match b with
+      | (Value.TupleV ys) =>
+        (O.values_eq P xs ys)
+      | _ =>
+        (Result.Ok false))
     | (Value.ClosureV _ _ _) =>
       (match P with
       | (Program.Program _ _ _ _ eq) =>
@@ -2881,21 +2909,6 @@ structure Oracle.Sound (O : Oracle) : Prop where
           Result.Stuck
         | FunctionEquality.ExtensionalEquality =>
           (Result.Ok (O.closures_equal P a b))))
-    | (Value.ADTV c xs) =>
-      (match b with
-      | (Value.ADTV d ys) =>
-        (if _h : c = d then
-          (O.values_eq P xs ys)
-        else
-          (Result.Ok false))
-      | _ =>
-        (Result.Ok false))
-    | (Value.TupleV xs) =>
-      (match b with
-      | (Value.TupleV ys) =>
-        (O.values_eq P xs ys)
-      | _ =>
-        (Result.Ok false))
     | (Value.SetV xs) =>
       (match b with
       | (Value.SetV ys) =>
@@ -2942,8 +2955,15 @@ structure Oracle.Sound (O : Oracle) : Prop where
         | Result.OutOfFuel => Result.OutOfFuel)
       | _ =>
         (Result.Ok false))
-    | _ =>
-      (Result.Ok (decide (a = b))))
+    | (Value.ADTV c xs) =>
+      (match b with
+      | (Value.ADTV d ys) =>
+        (if _h : c = d then
+          (O.values_eq P xs ys)
+        else
+          (Result.Ok false))
+      | _ =>
+        (Result.Ok false))
     )
   values_eq : ∀ (P : Program) (xs : List Value) (ys : List Value), O.values_eq P xs ys = (
     (match xs with
@@ -3103,7 +3123,7 @@ structure Oracle.Sound (O : Oracle) : Prop where
       (List.cons (O.resolve tenv t) (O.resolve_all tenv rest)))
     )
   has_type : ∀ (P : Program) (env : Env) (v : Value) (t : Ty), O.has_type P env v t = (
-    (match t with
+    match t with
     | Ty.IntegerType =>
       (match v with
       | (Value.IntV _) =>
@@ -3111,12 +3131,6 @@ structure Oracle.Sound (O : Oracle) : Prop where
       | _ =>
         false)
     | Ty.BooleanType =>
-      (match v with
-      | (Value.BoolV _) =>
-        true
-      | _ =>
-        false)
-    | Ty.PropType =>
       (match v with
       | (Value.BoolV _) =>
         true
@@ -3204,18 +3218,6 @@ structure Oracle.Sound (O : Oracle) : Prop where
         ((same_arity params from_) && (O.function_has_type P env v from_ to))
       | _ =>
         false)
-    | (Ty.PiType ps to) =>
-      (match v with
-      | (Value.ClosureV params _ _) =>
-        ((same_arity params (param_types ps)) && (O.pi_has_type P env v ps to))
-      | _ =>
-        false)
-    | (Ty.SigmaType ps to) =>
-      (match v with
-      | (Value.TupleV vs) =>
-        (O.sigma_has_type P env vs ps to)
-      | _ =>
-        false)
     | (Ty.ADTType s args) =>
       (match v with
       | (Value.ADTV c vs) =>
@@ -3237,7 +3239,25 @@ structure Oracle.Sound (O : Oracle) : Prop where
       | _ =>
         false)
     | (Ty.RefinementType x u prop) =>
-      ((O.has_type P env v u) && (O.holds P (env_bind env x v) prop)))
+      ((O.has_type P env v u) && (O.holds P (env_bind env x v) prop))
+    | Ty.PropType =>
+      (match v with
+      | (Value.BoolV _) =>
+        true
+      | _ =>
+        false)
+    | (Ty.PiType ps to) =>
+      (match v with
+      | (Value.ClosureV params _ _) =>
+        ((same_arity params (param_types ps)) && (O.pi_has_type P env v ps to))
+      | _ =>
+        false)
+    | (Ty.SigmaType ps to) =>
+      (match v with
+      | (Value.TupleV vs) =>
+        (O.sigma_has_type P env vs ps to)
+      | _ =>
+        false)
     )
   holds : ∀ (P : Program) (env : Env) (prop : Expr), O.holds P env prop = (
     (decide (∃ (fuel : Int), (decide ((eval O P fuel env prop) = (Result.Ok (Value.BoolV true)))) = true))
