@@ -268,6 +268,16 @@ class CustomEqualitySuite extends SolverTestSuite {
     valid(bounded(ctx), Implies(Equals(a, b), Equals(deep(keep(a)), deep(keep(b)))))
   }
 
+  // The equality of the boxes compares their fields, which only the solver knows to be `a` and `b`.
+  test("Congruence of functions over bags within ADTs", Bags, ADTs) { ctx =>
+    valid(bounded(ctx), Implies(Equals(box(a), box(b)), Equals(deep(a), deep(b))))
+  }
+
+  // Without models, the proof checks get every congruence that waits for one.
+  test("Congruence of functions over bags without models", Bags) { ctx =>
+    valid(bounded(ctx).withOpts(optIgnoreModels(true)), Implies(Equals(a, b), Equals(deep(a), deep(b))))
+  }
+
   test("Bag arguments of free functions", Bags, Functions) { ctx =>
     val g = Variable.fresh("g", FunctionType(Seq(BT), IntegerType()))
     valid(ctx, Equals(Application(g, Seq(ab)), Application(g, Seq(ba))))

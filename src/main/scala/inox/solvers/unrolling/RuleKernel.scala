@@ -359,7 +359,7 @@ trait RuleKernel { self: Templates =>
   }
 
   /** The application of the equality symbol of `tpe` to `e1` and `e2`. */
-  private def equality(tpe: Type, e1: Encoded, e2: Encoded): Encoded =
+  private[unrolling] def equality(tpe: Type, e1: Encoded, e2: Encoded): Encoded =
     mkApp(equalitySymbol(tpe)._2, FunctionType(Seq(tpe, tpe), BooleanType()), Seq(e1, e2))
 
   /** The equality of `e1` and `e2` at `tpe`, which is only related to their structural equality

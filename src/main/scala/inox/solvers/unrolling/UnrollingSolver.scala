@@ -1697,9 +1697,11 @@ abstract class AbstractUnrollingSolver private
 
     /** Checks the query without the blockers: UNSAT proves the query unsatisfiable. */
     private def proofCheck(): CheckState = {
-      // The model of a proof check only serves to test whether we got lucky and to
-      // prioritize blockers during unrolling, so we don't request it when neither applies.
-      if (ignoreModels || !(feelingLucky || modelFinding || templates.quantifiers.hasInstantiationsWithBlockers)) {
+      // The model of a proof check only serves to test whether we got lucky, to prioritize blockers
+      // during unrolling and to find the congruences of calls that it breaks, so we don't request it
+      // when none of these applies.
+      if (ignoreModels || !(feelingLucky || modelFinding || templates.quantifiers.hasInstantiationsWithBlockers ||
+          templates.congruences.hasWaiting)) {
         proofCheckWithoutModel()
       } else {
         proofCheckWithModel()
@@ -1726,7 +1728,10 @@ abstract class AbstractUnrollingSolver private
           CheckResult.cast(res)
 
         case _: Satisfiable =>
-          Unroll
+          // without a model, every congruence of calls that waits for one may refute the check
+          val congruences = templates.congruences.ofModel(_ => true)
+          for (cl <- congruences) assertClause(cl)
+          if (congruences.nonEmpty) ProofCheck else Unroll
 
         case otherwise => sys.error(s"Unexpected case: $otherwise")
       }
@@ -1770,21 +1775,27 @@ abstract class AbstractUnrollingSolver private
           } else {
             val wrapped = wrapModel(model)
 
-            if (modelFinding) {
+            // the congruences of the calls whose arguments the model makes equal may refute it
+            val congruences = templates.congruences.ofModel(e => wrapped.eval(e, BooleanType()) == Some(BooleanLiteral(true)))
+            for (cl <- congruences) assertClause(cl)
+
+            if (congruences.nonEmpty) ProofCheck else {
+              if (modelFinding) {
+                for {
+                  b <- templates.unfolding.satisfactionAssumptions
+                  v = templates.extractNot(b).getOrElse(b)
+                  if wrapped.eval(v, BooleanType()) == Some(BooleanLiteral(true))
+                } templates.unfolding.promoteBlocker(v)
+              }
+
               for {
-                b <- templates.unfolding.satisfactionAssumptions
-                v = templates.extractNot(b).getOrElse(b)
-                if wrapped.eval(v, BooleanType()) == Some(BooleanLiteral(true))
-              } templates.unfolding.promoteBlocker(v)
+                (inst, bs) <- templates.quantifiers.instantiationsWithBlockers
+                if wrapped.eval(inst, BooleanType()) == Some(BooleanLiteral(false))
+                b <- bs
+              } templates.unfolding.promoteBlocker(b, force = true)
+
+              Unroll
             }
-
-            for {
-              (inst, bs) <- templates.quantifiers.instantiationsWithBlockers
-              if wrapped.eval(inst, BooleanType()) == Some(BooleanLiteral(false))
-              b <- bs
-            } templates.unfolding.promoteBlocker(b, force = true)
-
-            Unroll
           }
         case otherwise => sys.error(s"Unexpected case: $otherwise")
       }

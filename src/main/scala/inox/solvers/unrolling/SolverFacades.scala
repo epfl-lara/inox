@@ -5,7 +5,7 @@ package solvers
 package unrolling
 
 /** The view of the templates that the solver loop and model extraction have (see
-  * [[AbstractUnrollingSolver]]), in four groups. Each facade only delegates, and the members it
+  * [[AbstractUnrollingSolver]]), in five groups. Each facade only delegates, and the members it
   * delegates to are protected, so the solver depends on the templates through these and the
   * encoding primitives (`mkEncoder`, `mkApp`, `mkEquals`, `extractNot`, `push`, `pop`, `reset`).
   */
@@ -37,6 +37,15 @@ trait SolverFacades { self: Templates =>
     /** The clauses of the free variable `v`, the first time it is declared. */
     def instantiateVariable(v: Variable, bindings: Map[Variable, Encoded]): Clauses =
       self.instantiateVariable(v, bindings)
+  }
+
+  /** The congruences of calls, which the models of the proof checks call for (see
+    * [[FunctionTemplates.modelCongruences]]). */
+  object congruences {
+    def hasWaiting: Boolean = self.hasWaitingCongruences
+
+    /** @see [[FunctionTemplates.modelCongruences]] */
+    def ofModel(holds: Encoded => Boolean): Clauses = self.modelCongruences(holds)
   }
 
   /** The distinguishing inputs of first-class functions (see [[WitnessTemplates]]). */
