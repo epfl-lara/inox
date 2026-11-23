@@ -178,16 +178,10 @@ trait FunctionTemplates { self: Templates =>
     * shifting the ranks of each group above those of the groups it calls satisfies them all, as
     * the clauses only mention finitely many calls. */
   private def rankClauses(tfd: TypedFunDef, contents: TemplateContents,
-                          allSites: Seq[(Variable, FunctionInvocation)]): Clauses = {
+                          sites: Seq[(Variable, FunctionInvocation)]): Clauses = {
     val callers = transitiveCallers(tfd.id)
-    val sites = allSites.filter { case (_, fi) => callers(fi.id) }
-    if (sites.isEmpty) Seq.empty else rankedClauses(tfd, contents, sites)
-  }
-
-  private def rankedClauses(tfd: TypedFunDef, contents: TemplateContents,
-                            sites: Seq[(Variable, FunctionInvocation)]): Clauses = {
-    val self = rank(tfd, tfd.params.map(_.toVariable))
-    val ranked = sites.map { case (b, fi) => (b, fi, rank(fi.tfd, fi.args)) }
+    lazy val self = rank(tfd, tfd.params.map(_.toVariable))
+    val ranked = sites.collect { case (b, fi) if callers(fi.id) => (b, fi, rank(fi.tfd, fi.args)) }
     val allSymbols = Map(contents.pathVar) ++ contents.arguments ++ contents.condVars ++ contents.exprVars ++
       contents.lambdas.map(_.ids) ++ contents.quantifications.flatMap(_.mapping) ++ functionCaches.rankSymbols ++
       typeCaches.tpSubst ++ uninterpretedSubst
