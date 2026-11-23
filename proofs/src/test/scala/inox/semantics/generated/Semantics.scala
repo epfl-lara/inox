@@ -485,29 +485,7 @@ object Semantics {
         Ok(RoundingModeV(RTZ()))
       case ADT(c, tps, args) =>
         eval_list(v_P, fuel, env, args) match {
-          case Ok(vs) => ((v_P) match {
-            case Program(_, cs, ss, _, _) => lookup_ctor(cs, c) match {
-                case Ok(k) => ((k) match {
-                  case Constructor(_, s, _) => lookup_sort(ss, s) match {
-                      case Ok(srt) => ((srt) match {
-                        case Sort(_, _, None()) => Ok(ADTV(c, vs))
-                        case Sort(_, _, Some(inv)) => call(v_P, fuel, inv, tps, env_types(env), Cons(ADTV(c, vs), Nil())) match {
-                            case Ok(holds) => ((holds) match {
-                              case BoolV(true) => Ok(ADTV(c, vs))
-                              case _ => Stuck()
-                            })
-                            case Stuck() => Stuck()
-                            case OutOfFuel() => OutOfFuel()
-                          }
-                      })
-                      case Stuck() => Stuck()
-                      case OutOfFuel() => OutOfFuel()
-                    }
-                })
-                case Stuck() => Stuck()
-                case OutOfFuel() => OutOfFuel()
-              }
-          })
+          case Ok(vs) => construct(v_P, fuel, env, c, tps, vs)
           case Stuck() => Stuck()
           case OutOfFuel() => OutOfFuel()
         }
@@ -1452,72 +1430,119 @@ object Semantics {
         case OutOfFuel() => OutOfFuel()
       }
 
-    def value_eq(v_P: Program, a: Value, b: Value): Result[Boolean] =
-      ((a) match {
-        case ClosureV(_, _, _) => ((v_P) match {
-            case Program(_, _, _, _, eq) => ((eq) match {
-                case NoFunctionEquality() => Stuck()
-                case ExtensionalEquality() => Ok(closures_equal(v_P, a, b))
-              })
-          })
-        case ADTV(c, xs) => ((b) match {
-            case ADTV(d, ys) => (if ((c == d)) {
-                values_eq(v_P, xs, ys)
+    def construct(v_P: Program, fuel: BigInt, env: Env, c: Id, tps: List[Type], vs: List[Value]): Result[Value] =
+      ((v_P) match {
+        case Program(_, cs, ss, _, _) => lookup_ctor(cs, c) match {
+            case Ok(k) => ((k) match {
+              case Constructor(_, s, _) => lookup_sort(ss, s) match {
+                  case Ok(srt) => ((srt) match {
+                    case Sort(_, _, None()) => Ok(ADTV(c, vs))
+                    case Sort(_, _, Some(inv)) => call(v_P, fuel, inv, tps, env_types(env), Cons(ADTV(c, vs), Nil())) match {
+                        case Ok(holds) => ((holds) match {
+                          case BoolV(true) => Ok(ADTV(c, vs))
+                          case _ => Stuck()
+                        })
+                        case Stuck() => Stuck()
+                        case OutOfFuel() => OutOfFuel()
+                      }
+                  })
+                  case Stuck() => Stuck()
+                  case OutOfFuel() => OutOfFuel()
+                }
+            })
+            case Stuck() => Stuck()
+            case OutOfFuel() => OutOfFuel()
+          }
+      })
+
+    def value_eq(v_P: Program, a: Value, b: Value): Result[Boolean] = a match {
+      case IntV(_) =>
+        Ok((a == b))
+      case BoolV(_) =>
+        Ok((a == b))
+      case UnitV() =>
+        Ok((a == b))
+      case CharV(_) =>
+        Ok((a == b))
+      case RealV(_, _) =>
+        Ok((a == b))
+      case StringV(_) =>
+        Ok((a == b))
+      case BVV(_, _, _) =>
+        Ok((a == b))
+      case FPV(_, _, _) =>
+        Ok((a == b))
+      case RoundingModeV(_) =>
+        Ok((a == b))
+      case TupleV(xs) =>
+        ((b) match {
+          case TupleV(ys) => values_eq(v_P, xs, ys)
+          case _ => Ok(false)
+        })
+      case ClosureV(_, _, _) =>
+        ((v_P) match {
+          case Program(_, _, _, _, eq) => ((eq) match {
+              case NoFunctionEquality() => Stuck()
+              case ExtensionalEquality() => Ok(closures_equal(v_P, a, b))
+            })
+        })
+      case SetV(xs) =>
+        ((b) match {
+          case SetV(ys) => subset(v_P, xs, ys) match {
+              case Ok(sub) => (if (sub) {
+                subset(v_P, ys, xs)
               } else {
                 Ok(false)
               })
-            case _ => Ok(false)
-          })
-        case TupleV(xs) => ((b) match {
-            case TupleV(ys) => values_eq(v_P, xs, ys)
-            case _ => Ok(false)
-          })
-        case SetV(xs) => ((b) match {
-            case SetV(ys) => subset(v_P, xs, ys) match {
-                case Ok(sub) => (if (sub) {
-                  subset(v_P, ys, xs)
-                } else {
-                  Ok(false)
-                })
-                case Stuck() => Stuck()
-                case OutOfFuel() => OutOfFuel()
-              }
-            case _ => Ok(false)
-          })
-        case BagV(xs) => ((b) match {
-            case BagV(ys) => sub_bag(v_P, xs, ys) match {
-                case Ok(sub) => (if (sub) {
-                  sub_bag(v_P, ys, xs)
-                } else {
-                  Ok(false)
-                })
-                case Stuck() => Stuck()
-                case OutOfFuel() => OutOfFuel()
-              }
-            case _ => Ok(false)
-          })
-        case MapV(xs, d) => ((b) match {
-            case MapV(ys, e) => value_eq(v_P, d, e) match {
-                case Ok(same) => (if (same) {
-                  same_entries(v_P, xs, xs, d, ys, e) match {
-                    case Ok(l) => (if (l) {
-                      same_entries(v_P, ys, xs, d, ys, e)
-                    } else {
-                      Ok(false)
-                    })
-                    case Stuck() => Stuck()
-                    case OutOfFuel() => OutOfFuel()
-                  }
-                } else {
-                  Ok(false)
-                })
-                case Stuck() => Stuck()
-                case OutOfFuel() => OutOfFuel()
-              }
-            case _ => Ok(false)
-          })
-        case _ => Ok((a == b))
-      })
+              case Stuck() => Stuck()
+              case OutOfFuel() => OutOfFuel()
+            }
+          case _ => Ok(false)
+        })
+      case BagV(xs) =>
+        ((b) match {
+          case BagV(ys) => sub_bag(v_P, xs, ys) match {
+              case Ok(sub) => (if (sub) {
+                sub_bag(v_P, ys, xs)
+              } else {
+                Ok(false)
+              })
+              case Stuck() => Stuck()
+              case OutOfFuel() => OutOfFuel()
+            }
+          case _ => Ok(false)
+        })
+      case MapV(xs, d) =>
+        ((b) match {
+          case MapV(ys, e) => value_eq(v_P, d, e) match {
+              case Ok(same) => (if (same) {
+                same_entries(v_P, xs, xs, d, ys, e) match {
+                  case Ok(l) => (if (l) {
+                    same_entries(v_P, ys, xs, d, ys, e)
+                  } else {
+                    Ok(false)
+                  })
+                  case Stuck() => Stuck()
+                  case OutOfFuel() => OutOfFuel()
+                }
+              } else {
+                Ok(false)
+              })
+              case Stuck() => Stuck()
+              case OutOfFuel() => OutOfFuel()
+            }
+          case _ => Ok(false)
+        })
+      case ADTV(c, xs) =>
+        ((b) match {
+          case ADTV(d, ys) => (if ((c == d)) {
+              values_eq(v_P, xs, ys)
+            } else {
+              Ok(false)
+            })
+          case _ => Ok(false)
+        })
+    }
 
     def values_eq(v_P: Program, xs: List[Value], ys: List[Value]): Result[Boolean] =
       ((xs) match {
@@ -3026,100 +3051,119 @@ object Semantics {
           })
       })
 
-    def has_type(v_P: Program, env: Env, v: Value, t: Type): Boolean =
-      ((t) match {
-        case IntegerType() => ((v) match {
-            case IntV(_) => true
-            case _ => false
-          })
-        case BooleanType() => ((v) match {
-            case BoolV(_) => true
-            case _ => false
-          })
-        case PropType() => ((v) match {
-            case BoolV(_) => true
-            case _ => false
-          })
-        case UnitType() => ((v) match {
-            case UnitV() => true
-            case _ => false
-          })
-        case CharType() => ((v) match {
-            case CharV(c) => ((BigInt(0) <= c) && (c < BigInt(65536)))
-            case _ => false
-          })
-        case RealType() => ((v) match {
-            case RealV(n, d) => ((BigInt(0) < d) && (gcd(abs(n), d) == BigInt(1)))
-            case _ => false
-          })
-        case StringType() => ((v) match {
-            case StringV(cs) => valid_chars(cs)
-            case _ => false
-          })
-        case BVType(s, w) => ((v) match {
-            case BVV(s2, w2, x) => (((s == s2) && (w == w2)) && ((BigInt(0) <= x) && (x < pow2(w))))
-            case _ => false
-          })
-        case FPType(e, s) => ((v) match {
-            case FPV(e2, s2, x) => (((e == e2) && (s == s2)) && (((BigInt(0) <= x) && (x < pow2((e + s)))) && (x == fp_canonical(e, s, x))))
-            case _ => false
-          })
-        case RoundingModeType() => ((v) match {
-            case RoundingModeV(_) => true
-            case _ => false
-          })
-        case TypeParameter(x) => ((lookup_type(env_types(env), x)) match {
-            case Some(TypeBinding(_, u, uenv)) => has_type(v_P, Env(uenv, Nil()), v, u)
-            case None() => ((v) match {
-                case IntV(_) => true
-                case _ => false
-              })
-          })
-        case TupleType(ts) => ((v) match {
-            case TupleV(vs) => have_types(v_P, env, vs, ts)
-            case _ => false
-          })
-        case SetType(u) => ((v) match {
-            case SetV(xs) => (all_have_type(v_P, env, xs, u) && distinct_values(v_P, xs))
-            case _ => false
-          })
-        case BagType(u) => ((v) match {
-            case BagV(xs) => (bag_has_type(v_P, env, xs, u) && distinct_values(v_P, bag_elems(xs)))
-            case _ => false
-          })
-        case MapType(u, w) => ((v) match {
-            case MapV(xs, d) => (has_type(v_P, env, d, w) && (map_has_type(v_P, env, xs, u, w) && distinct_values(v_P, map_keys(xs))))
-            case _ => false
-          })
-        case FunctionType(from, to) => ((v) match {
-            case ClosureV(params, _, _) => (same_arity(params, from) && function_has_type(v_P, env, v, from, to))
-            case _ => false
-          })
-        case PiType(ps, to) => ((v) match {
-            case ClosureV(params, _, _) => (same_arity(params, param_types(ps)) && pi_has_type(v_P, env, v, ps, to))
-            case _ => false
-          })
-        case SigmaType(ps, to) => ((v) match {
-            case TupleV(vs) => sigma_has_type(v_P, env, vs, ps, to)
-            case _ => false
-          })
-        case ADTType(s, args) => ((v) match {
-            case ADTV(c, vs) => ((v_P) match {
-                case Program(_, cs, ss, _, _) => ((lookup_ctor(cs, c)) match {
-                    case Ok(Constructor(_, s2, fields)) => ((lookup_sort(ss, s)) match {
-                        case Ok(Sort(_, tparams, inv)) => ((s == s2) && (params_have_types(v_P, Env(bind_types(tparams, args, env_types(env)), Nil()), vs, fields) && ((inv) match {
-                            case None() => true
-                            case Some(f) => invariant_holds(v_P, f, args, env_types(env), v)
-                          })))
-                        case _ => false
-                      })
-                    case _ => false
-                  })
-              })
-            case _ => false
-          })
-        case RefinementType(x, u, prop) => (has_type(v_P, env, v, u) && holds(v_P, env_bind(env, x, v), prop))
-      })
+    def has_type(v_P: Program, env: Env, v: Value, t: Type): Boolean = t match {
+      case IntegerType() =>
+        ((v) match {
+          case IntV(_) => true
+          case _ => false
+        })
+      case BooleanType() =>
+        ((v) match {
+          case BoolV(_) => true
+          case _ => false
+        })
+      case UnitType() =>
+        ((v) match {
+          case UnitV() => true
+          case _ => false
+        })
+      case CharType() =>
+        ((v) match {
+          case CharV(c) => ((BigInt(0) <= c) && (c < BigInt(65536)))
+          case _ => false
+        })
+      case RealType() =>
+        ((v) match {
+          case RealV(n, d) => ((BigInt(0) < d) && (gcd(abs(n), d) == BigInt(1)))
+          case _ => false
+        })
+      case StringType() =>
+        ((v) match {
+          case StringV(cs) => valid_chars(cs)
+          case _ => false
+        })
+      case BVType(s, w) =>
+        ((v) match {
+          case BVV(s2, w2, x) => (((s == s2) && (w == w2)) && ((BigInt(0) <= x) && (x < pow2(w))))
+          case _ => false
+        })
+      case FPType(e, s) =>
+        ((v) match {
+          case FPV(e2, s2, x) => (((e == e2) && (s == s2)) && (((BigInt(0) <= x) && (x < pow2((e + s)))) && (x == fp_canonical(e, s, x))))
+          case _ => false
+        })
+      case RoundingModeType() =>
+        ((v) match {
+          case RoundingModeV(_) => true
+          case _ => false
+        })
+      case TypeParameter(x) =>
+        ((lookup_type(env_types(env), x)) match {
+          case Some(TypeBinding(_, u, uenv)) => has_type(v_P, Env(uenv, Nil()), v, u)
+          case None() => ((v) match {
+              case IntV(_) => true
+              case _ => false
+            })
+        })
+      case TupleType(ts) =>
+        ((v) match {
+          case TupleV(vs) => have_types(v_P, env, vs, ts)
+          case _ => false
+        })
+      case SetType(u) =>
+        ((v) match {
+          case SetV(xs) => (all_have_type(v_P, env, xs, u) && distinct_values(v_P, xs))
+          case _ => false
+        })
+      case BagType(u) =>
+        ((v) match {
+          case BagV(xs) => (bag_has_type(v_P, env, xs, u) && distinct_values(v_P, bag_elems(xs)))
+          case _ => false
+        })
+      case MapType(u, w) =>
+        ((v) match {
+          case MapV(xs, d) => (has_type(v_P, env, d, w) && (map_has_type(v_P, env, xs, u, w) && distinct_values(v_P, map_keys(xs))))
+          case _ => false
+        })
+      case FunctionType(from, to) =>
+        ((v) match {
+          case ClosureV(params, _, _) => (same_arity(params, from) && function_has_type(v_P, env, v, from, to))
+          case _ => false
+        })
+      case ADTType(s, args) =>
+        ((v) match {
+          case ADTV(c, vs) => ((v_P) match {
+              case Program(_, cs, ss, _, _) => ((lookup_ctor(cs, c)) match {
+                  case Ok(Constructor(_, s2, fields)) => ((lookup_sort(ss, s)) match {
+                      case Ok(Sort(_, tparams, inv)) => ((s == s2) && (params_have_types(v_P, Env(bind_types(tparams, args, env_types(env)), Nil()), vs, fields) && ((inv) match {
+                          case None() => true
+                          case Some(f) => invariant_holds(v_P, f, args, env_types(env), v)
+                        })))
+                      case _ => false
+                    })
+                  case _ => false
+                })
+            })
+          case _ => false
+        })
+      case RefinementType(x, u, prop) =>
+        (has_type(v_P, env, v, u) && holds(v_P, env_bind(env, x, v), prop))
+      case PropType() =>
+        ((v) match {
+          case BoolV(_) => true
+          case _ => false
+        })
+      case PiType(ps, to) =>
+        ((v) match {
+          case ClosureV(params, _, _) => (same_arity(params, param_types(ps)) && pi_has_type(v_P, env, v, ps, to))
+          case _ => false
+        })
+      case SigmaType(ps, to) =>
+        ((v) match {
+          case TupleV(vs) => sigma_has_type(v_P, env, vs, ps, to)
+          case _ => false
+        })
+    }
 
     /** `holds` in the semantics, which quantifies over values: an oracle gives it. */
     def holds(v_P: Program, env: Env, prop: Expr): Boolean

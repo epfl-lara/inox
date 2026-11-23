@@ -126,7 +126,7 @@ object LeanBackend {
       "eval-bag" -> ("sizeOf e", 1), "eval-set" -> ("sizeOf e", 1), "eval-rm" -> ("sizeOf e", 1),
       "eval-string" -> ("sizeOf e", 1), "eval-list" -> ("sizeOf es", 0), "eval-or" -> ("sizeOf es", 0),
       "eval-and" -> ("sizeOf es", 0), "eval-map-entries" -> ("sizeOf es", 0),
-      "eval-bag-entries" -> ("sizeOf es", 0), "call" -> ("0", 0), "apply" -> ("0", 0))
+      "eval-bag-entries" -> ("sizeOf es", 0), "call" -> ("0", 0), "apply" -> ("0", 0), "construct" -> ("0", 1))
     evalRank.map { case (f, (size, rank)) => f -> s"termination_by (fuel.toNat, $size, $rank)" }.toMap ++ Map(
       "gcd" -> "termination_by b.natAbs\ndecreasing_by\n  have := Int.emod_nonneg a _h\n  have := Int.emod_lt a _h\n  omega",
       "pow2" -> "termination_by n.toNat\ndecreasing_by omega",
