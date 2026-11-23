@@ -376,10 +376,9 @@ blocks, and total definitions `eval O P fuel env e` and
 are relative to an oracle `O` for the functions that quantify over values, and
 `O.Sound` states that it gives them as the semantics defines them. The checker
 and Logos, on the other side, work on SMT-LIB terms and on `SmtValue`s. This
-section says what connects them. Only the parts that don't depend on the
-generated evaluator are proved: the intended model over an abstract
-interpretation of the functions, and `Good` relativized to the calls that are
-`Ok` (see [What is proved of it so far](#what-is-proved-of-it-so-far)).
+section says what connects them. The proved part is the first-order integer and
+Boolean fragment, against the generated evaluator (see [What is proved of it so
+far](#what-is-proved-of-it-so-far)).
 
 ### The fragment
 
@@ -519,10 +518,9 @@ What is still missing:
 
 - **Fuel monotonicity.** "More fuel never changes a result other than
   `OutOfFuel`" is the lemma the intended model needs, since it makes a call's
-  value independent of the fuel that finds it. It has to be proved by induction
-  over `eval`'s cases, against the generated definitions.
-- **The dependency.** This package doesn't depend on `proofs/semantics` yet,
-  and the agreement theorem is stated against its datatypes.
+  value independent of the fuel that finds it. It is proved for the fragment
+  (`Inox/Mono.lean`), by induction over `eval`'s cases against the generated
+  definitions, and is still missing for the rest of `eval`.
 
 ### What is proved of it so far
 
@@ -599,8 +597,117 @@ regression corpus, `no_good_model_of_unfold_on` covers the 24 unfoldings of the
 1,176 facts that `no_good_model_of_instances` covers, and the other 1,152 stay
 in `hfacts`.
 
-**Left for the generated evaluator.** Fuel monotonicity and determinism, and
-the agreement theorem, against the generated `eval` and its datatypes.
+**Fuel monotonicity** ([`Inox/Mono.lean`](Inox/Mono.lean)), against the
+generated `eval` of [`proofs/semantics`](../semantics). `Le r r'` is
+`r = OutOfFuel ∨ r' = r`. For a program whose function bodies are in `Frag`
+(`ProgFrag`), and for `e` in `Frag`:
+
+```lean
+theorem eval_mono (hP : ProgFrag P) (hnm : n ≤ m) {e : Expr} (he : Frag e)
+    (env : Env) : Le (eval O P n env e) (eval O P m env e)
+theorem call_mono' (hP : ProgFrag P) (hnm : n ≤ m) (f tps tenv vs) :
+    Le (call O P n f tps tenv vs) (call O P m f tps tenv vs)
+```
+
+with `eval_ok_mono` and `call_ok_mono` for `Ok` results. `Frag` covers
+`Assume`, `Variable`, `Let`, `Lambda` (a value, so fuel-independent), `Error`,
+`FunctionInvocation`, `IfExpr`, the literals of characters, bit-vectors,
+integers, fractions, Booleans, strings and unit, `ADT`, `IsConstructor`,
+`ADTSelector`, `Equals`, `And`, `Or`, `Implies`, `Not`, `Plus`, `Minus`,
+`UMinus`, `Times`, `Division`, `Remainder`, `Modulo`, `LessThan`,
+`GreaterThan`, `LessEquals` and `GreaterEquals`. It leaves out `Application`
+(it calls the closure's body through `apply`), `Forall` and `UninterpretedCall`
+(they go through the oracle and classical choice), the floating-point literals
+and rounding modes, and the string, bit-vector and floating-point operations.
+
+**The agreement theorem** ([`Inox/Bridge.lean`](Inox/Bridge.lean)). The
+translation is for integers and Booleans: `trT` sends `IntegerType` and
+`BooleanType` to `Int` and `Bool`, `trV` sends `IntV i` and `BoolV b` to
+`Numeral i` and `Boolean b`, and `tr S Γ e` sends an expression to a Logos
+term: a variable `x` of type `T` in `Γ` to `UConst (nm x) (trT T)`, an
+invocation of `f` to the application spine of `f`'s constant, and the operators
+to their SMT-LIB counterparts. `S : List Sig` gives each function its
+parameters and return type, which the semantics' `FunDef` doesn't carry.
+`HasTy S Γ e T` is the typing of the fragment: variables, the integer and
+Boolean literals, `IfExpr`, `And`, `Or`, `Not`, `Implies`, `Equals`, `Plus`,
+`Minus`, `Times`, `UMinus`, `LessThan`, `GreaterThan`, `LessEquals`,
+`GreaterEquals`, `Assume`, and `FunctionInvocation` without type arguments of a
+function of `S`. For a model whose function constants agree with `call` at fuel
+`n` (`CallsOk`) and whose variable constants agree with the environment
+(`VarsOk`):
+
+```lean
+theorem ev (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S) {n : Int}
+    (hct : CallTy O P S n) {Γ : List (Id × Ty)} {e : Expr} {T : Ty}
+    (h : HasTy S Γ e T) : Ev O P S n Γ e T
+-- Ev: eval O P n env e = Ok v → HasV v T ∧
+--   ∀ M, model_wf M → CallsOk O P S n M → VarsOk Γ env M →
+--     __smtx_model_eval M (tr S Γ e) = trV v
+```
+
+The intended model is `Model.star (defs S) (interpOf O P S) M0 cd N`, with
+`interpOf` giving the function of `s` on `vs.map trV` the value of
+`call O P n s.name [] [] vs` for some fuel `n` where it is `Ok` (unique by fuel
+monotonicity). `callsOk_star` shows that it satisfies `CallsOk` at every fuel.
+`goodOn_star` then shows that it satisfies the defining equations (the equation
+of `s` relates the spine of its constant to `tr S s.params body`, `EqFor`) on
+the arguments where the calls give values (`okCall`), and so:
+
+```lean
+theorem no_star_model (sound : LogosSound) (hO : O.Sound) (hty : LogosTyping)
+    (hS : SigOk S) (hPF : ProgFrag P) (hP : ProgTy S P)
+    (hAccept : accept certificate = .ok checked)
+    (hr : termSteps checked = .ok r)
+    (hcheck : r.check = true) (hkeeps : r.keeps = true)
+    (hE : ∀ e ∈ r.equations, ∃ s ∈ S, EqFor P S s e)
+    (hfacts : FactsHoldBy (GoodOn (okCall O P S) r.equations)
+      (GuardedUnfold (okCall O P S) r.equations)
+      (extend r.base r.fresh) r.facts)
+    (cd : Codes) (hM0 : model_wf M0) (hN : model_wf N)
+    (hu : N.usortDom = M0.usortDom) :
+    ¬ Satisfies (Model.star (defs S) (interpOf O P S) M0 cd N) r.base
+```
+
+`GuardOk (okCall O P S)` is discharged for programs whose functions all
+terminate on values of their parameter types (`guardOk_total`). For others it
+stays a hypothesis, inside `hfacts`.
+
+**The hypotheses that remain.**
+
+- `GuardOk` for programs with non-terminating functions: that a guard true in
+  the intended model selects a call that is `Ok` at some fuel.
+- `LogosSound`, `LogosTyping` (discharged in `InoxClosed`), and `O.Sound`, that
+  the oracle of `Forall` and `UninterpretedCall` agrees with the semantics
+  (unused on the fragment but required by `call`).
+- The shape of the program: `ProgFrag P`, `ProgTy S P` (each function of `S` is
+  defined in `P` with no type parameters and a body typed by `HasTy`), and
+  `SigOk S` (parameter and return types are `Int` or `Bool`, function names are
+  distinct, parameter names are distinct and are not function names).
+- `EqFor`: each equation of the certificate is the translation of a body of
+  `P`. This is what the certificate's sources have to give. A reflexivity
+  axiom among the equations is not one, so the theorem doesn't apply to a
+  certificate that has one; the programs of the fragment have none.
+- `model_wf M0`, `model_wf N` and `N.usortDom = M0.usortDom`, for the models of
+  the sorts and of the free variables; and `cd : Codes`.
+- `hfacts` for the facts other than unfoldings, as in
+  `no_good_model_of_unfold_on`.
+- The link from a solution of the query to `N`: that the query's expression
+  evaluates to `Ok true` under it means that `N` satisfies `r.base`. That is
+  `ev` applied to the query, once the query is `HasTy`-typed.
+
+The translation stops at integers and Booleans: ADTs, unit, `Let`, `Error`,
+`Division`, `Remainder`, `Modulo`, type arguments, closures, `Forall` and
+`UninterpretedCall` are not translated.
+
+**What would make the generated Lean easier to prove things about.** The
+generated `match`es on `Result` (one auxiliary matcher per site) defeat generic
+lemmas about binding, so each proof splits them by hand (the `ok_split` macro);
+a `Result.bind` with `@[simp]` lemmas would let `simp` do it. `value-eq`
+decides with `open Classical`, so equalities of values go through `decide` on a
+classical instance. The root module `Inox` is shared between `proofs/semantics`
+(`Inox.Semantics`) and this package, so a file outside either package can't
+import both. `call` takes a type environment that doesn't matter for functions
+without type parameters, but only a lemma (`call_tenv`) shows it.
 
 ## What is not proved yet
 
@@ -610,8 +717,8 @@ the agreement theorem, against the generated `eval` and its datatypes.
   base, and the facts that hold as they are (congruence, the reflexivity of the
   declared equalities). The theorem to come is the one of an UNSAT answer in
   [`semantics.md`](../semantics.md): the query has no solution. It needs the
-  bridge from the generated semantics of Inox (see [The bridge to the
-  semantics](#the-bridge-to-the-semantics-partly-proved)): that its solutions
+  bridge beyond its first-order fragment (see [The bridge to the
+  semantics](#the-bridge-to-the-semantics-partly-proved)), that its solutions
   give `Good` models (where the declared equalities are reflexive and the
   completeness assumptions hold), and for each other kind of rule, that its
   clauses hold in them (`hfacts`): the decreases clauses; the preconditions,

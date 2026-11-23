@@ -1,5 +1,6 @@
 name: Lean proofs
-# The theorems of the certificate checker in Lean (proofs/lean/verification), when they change.
+# The theorems of the certificate checker in Lean (proofs/lean/verification), when they or the
+# generated semantics that they are about (proofs/semantics) change.
 # They take the soundness of Logos as a hypothesis, and so only need its definitions and
 # Mathlib, from its cache. Run by hand with `closed`, the workflow also builds the proofs of
 # Logos, which take hours, to check the theorems without that hypothesis: once for each version
@@ -14,12 +15,14 @@ on:
   pull_request:
     paths:
       - 'proofs/lean/**'
+      - 'proofs/semantics/**'
       - '.github/workflows/lean-proofs.yml'
   push:
     branches:
       - main
     paths:
       - 'proofs/lean/**'
+      - 'proofs/semantics/**'
       - '.github/workflows/lean-proofs.yml'
 
 concurrency:
