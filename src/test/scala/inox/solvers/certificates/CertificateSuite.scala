@@ -83,15 +83,23 @@ class CertificateSuite extends AnyFunSuite {
         assert(scriptRefs.exists(_.isInstanceOf[Ref.Variable]), scriptRefs)
         assert(certificate.proof.cpc.flatMap(refs).nonEmpty, text)
         assert(certificate.proof.asserts.size == certificate.rules.flatMap(_.asserts).toSet.size + certificate.assumptions.query.size + certificate.assumptions.complete.size, text)
-        assert(text.startsWith("(inox-certificate 1\n(script\n(set-logic ALL)\n"), text)
+        assert(text.startsWith("(inox-certificate 2\n(script\n(set-logic ALL)\n"), text)
         assert(text.contains("\n(templates\n(script\n"), text)
+        // the templates of the query and of the function that it unfolds have their sources
+        assert(certificate.templates.forall(_.source.nonEmpty), text)
+        assert(certificate.templates.head.source.exists(_.call.isEmpty) && text.contains(") (expression ("), text)
+        assert(certificate.templates.exists(_.source.exists(_.call.nonEmpty)) && text.contains(") (function ("), text)
+        // the sources are printed in SMT-LIB 3, with the session's variables and the printer's functions
+        assert(certificate.sourceSymbols.exists(_._2.isInstanceOf[Ref.Function]), text)
+        assert(certificate.sourceSymbols.exists(_._2.isInstanceOf[Ref.Variable]), text)
+        assert(text.contains("\n(source-symbols\n("), text)
         assert(text.contains("\n(rules\n") && text.contains("\n(Root "), text)
         assert(text.contains("\n(Unfold (args (blocker "), text)
         // the rules have their arguments, and the symbols what they stand for
         val root = certificate.rules.find(_.kind == "Root").get
         assert(root.arguments.map(_.name) == Seq("start") && root.asserts.map(certificate.proof.asserts) == root.arguments.head.terms, text)
-        assert(certificate.symbols.exists { case (_, Ref.Function(id, _)) => id == sizeID || id == posID; case _ => false }, text)
-        assert(text.contains("\n(assumptions (query) (complete") && text.contains("\n(symbols\n"), text)
+        assert(certificate.solverSymbols.exists { case (_, Ref.Function(id, _)) => id == sizeID || id == posID; case _ => false }, text)
+        assert(text.contains("\n(assumptions (query) (complete") && text.contains("\n(solver-symbols\n"), text)
         assert(text.contains("\n(cpc\n(declare-"), text)
         assert(text.contains("(assume "), text)
         assert(!text.contains(":rule trust"), text)
@@ -143,7 +151,7 @@ class CertificateSuite extends AnyFunSuite {
       (s.check(Proof): SolverResponse[program.Model, Set[Expr]]) match {
         case UnsatWithProof(Right(certificate: Certificate)) =>
           // the function of the popped scope is not in the session
-          assert(!certificate.symbols.exists { case (_, Ref.Function(id, _)) => id == posID; case _ => false }, certificate)
+          assert(!certificate.solverSymbols.exists { case (_, Ref.Function(id, _)) => id == posID; case _ => false }, certificate)
           assert(certificate.proof.asserts.indices.toSet ==
             (certificate.rules.flatMap(_.asserts) ++ certificate.assumptions.query ++ certificate.assumptions.complete).toSet, certificate)
         case UnsatWithProof(Left(why)) if why.startsWith("certificates need cvc5") => cancel(why)

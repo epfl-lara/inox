@@ -16,7 +16,7 @@ class CheckerSuite extends AnyFunSuite {
   // A template with the parameters `s` and `p` and its own symbol `c`, instantiated once under
   // the root blocker, a definition, an implication between blockers and an assumption.
   val certificate: String =
-    """(inox-certificate 1
+    """(inox-certificate 2
       |(script
       |(declare-const start Bool)
       |(declare-const b Bool)
@@ -38,7 +38,7 @@ class CheckerSuite extends AnyFunSuite {
       |(assert (=> s (= c (> p 0))))
       |(assert (=> s c))
       |)
-      |(0 (params s p) 0 1)
+      |(0 (params s p) (expression (> p 0)) 0 1)
       |)
       |(rules
       |(Root (args (start start)) 0)
@@ -47,8 +47,11 @@ class CheckerSuite extends AnyFunSuite {
       |(Enables (args (blocker start) (target d)) 4)
       |)
       |(assumptions (query 5) (complete))
-      |(symbols
+      |(solver-symbols
       |(x variable "x$1" "BigInt")
+      |)
+      |(source-symbols
+      |(p variable "p$2" "BigInt")
       |)
       |(cpc
       |(assume @p1 start)
@@ -74,6 +77,10 @@ class CheckerSuite extends AnyFunSuite {
     }))
   }
 
+  test("A template may come without its source") {
+    assert(checked(changed(" (expression (> p 0))", "")) == checked(certificate))
+  }
+
   test("Certificates are found among the other lines that Inox prints") {
     val text = "unsat\n" + certificate + "\nWarning: a | b (\nunsat\n(error \"no proof\")\n" + certificate + "\n"
     assert(certificates(text).size == 2)
@@ -81,7 +88,7 @@ class CheckerSuite extends AnyFunSuite {
   }
 
   test("A certificate of another version is refused") {
-    assert(refused(changed("(inox-certificate 1", "(inox-certificate 2")).contains("version 2"))
+    assert(refused(changed("(inox-certificate 2", "(inox-certificate 3")).contains("version 3"))
   }
 
   test("An assert that no rule names is refused") {

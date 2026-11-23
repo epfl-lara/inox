@@ -39,7 +39,11 @@ clauses of its script have no model, and that each of them is a clause that a
 rule of `unrolling.RuleKernel` builds. Two things are left to the reader:
 
 - **The templates.** The checker takes the clauses of each template as given.
-  Nothing yet relates them to the input query and its functions.
+  A template of a function, or of an expression that holds such as the query,
+  comes with its source, an Inox expression in SMT-LIB 3 syntax, but the
+  checker only parses it: it doesn't yet check that the clauses are those of
+  the source, and nothing relates the sources to the input query and its
+  functions.
 - **The side conditions of the rules.** The checker checks the shape of each
   rule, and that the symbols that `Define`, `Hypothesis` and `Root` introduce
   are introduced once. It doesn't check what a rule states about the program,
@@ -47,5 +51,5 @@ rule of `unrolling.RuleKernel` builds. Two things are left to the reader:
   same function, or that an assumption states the completeness of an open
   conjunction that refutations may assume (it checks that it is a literal).
 
-Both need the trace from the input to the templates, which the certificate
-doesn't hold yet.
+Both need the trace from the input to the templates, of which the certificate
+only holds the sources so far.

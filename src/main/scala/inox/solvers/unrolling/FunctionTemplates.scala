@@ -118,7 +118,9 @@ trait FunctionTemplates { self: Templates =>
 
       val (contents0, str) = Template.contents(
         pathVar, arguments, tmplClauses, optCall = Some(Defined(tfd)), partial = true)
-      val contents = contents0.copy(clauses = contents0.clauses ++ rankClauses(tfd, contents0, bodySites))
+      val contents = contents0.copy(
+        clauses = contents0.clauses ++ rankClauses(tfd, contents0, bodySites),
+        source = templateSource(substMap, Some(call), body))
 
       val funString : () => String = () => {
         "Template for def " + tfd.signature +
