@@ -46,6 +46,21 @@ theorem unsat_of_accept (sound : LogosSound)
 The conjunction of the assumptions of the proof, as Logos reads them, has no
 model in the semantics of SMT-LIB that Logos formalizes.
 
+[`Inox/NoModel.lean`](Inox/NoModel.lean) states it of the assumptions
+themselves: no well-formed model makes all of them true.
+
+```lean
+theorem no_model_of_accept (sound : LogosSound)
+    (certificate : Sexp) (checked : Checked) (assums : List Term) (cmds : CCmdList)
+    (hAccept : accept certificate = .ok checked)
+    (hParse : parseProof checked.proof = .ok (assums, cmds)) :
+    ∀ M, ¬ Satisfies M assums
+```
+
+`Satisfies M ts` is that `M` is a well-formed model in which each formula of
+`ts` evaluates to true. No model satisfies a list that contains the assumptions
+either (`no_model_of_unsat_of_subset`), such as the asserts of the script.
+
 The soundness of Logos is a hypothesis of the theorems, `LogosSound`, which is
 the statement of Logos's own theorem. They then only need the definitions of
 Logos, and Mathlib for its reals: the [`verification`](verification) project
