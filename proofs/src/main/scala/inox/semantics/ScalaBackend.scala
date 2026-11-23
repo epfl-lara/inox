@@ -68,6 +68,10 @@ object ScalaBackend {
 
   private def ind(n: Int) = "  " * n
 
+  /** The constructors of `Result` other than `Ok`, with their numbers of fields, which `let!`
+    * propagates; they hold no value of the result's type, so each is a `Result` of any type. */
+  private var outcomes: Seq[(String, Int)] = Seq()
+
   private def term(t: Term, d: Int): String = t match {
     case Term.Var(x) => name(x)
     case Term.IntLit(v) => if (v.isValidInt) s"BigInt($v)" else s"""BigInt("$v")"""
@@ -96,8 +100,9 @@ object ScalaBackend {
       val ((x, v), rest) = (bs.head, bs.tail)
       s"${term(v, d)} match {\n" +
       s"${ind(d + 1)}case Ok(${name(x)}) => ${term(Term.LetBang(rest, body), d + 1)}\n" +
-      s"${ind(d + 1)}case Stuck() => Stuck()\n" +
-      s"${ind(d + 1)}case OutOfFuel() => OutOfFuel()\n" +
+      outcomes.map { case (c, n) =>
+        if (n == 0) s"${ind(d + 1)}case $c() => $c()\n" else s"${ind(d + 1)}case r: $c => r\n"
+      }.mkString +
       s"${ind(d)}}"
     case Term.If(c, a, b) =>
       s"(if (${term(c, d)}) {\n${ind(d + 1)}${term(a, d + 1)}\n${ind(d)}} else {\n${ind(d + 1)}${term(b, d + 1)}\n${ind(d)}})"
@@ -121,7 +126,8 @@ object ScalaBackend {
     }
   }
 
-  def apply(spec: Spec, source: String, pkg: String): String = {
+  def apply(spec: Spec, source: String, pkg: String): String = synchronized {
+    outcomes = spec.datatypes.find(_.name == resultType).toSeq.flatMap(_.ctors.drop(1).map(c => (c.name, c.fields.size)))
     val b = new StringBuilder
     b ++= "/* Copyright 2009-2026 EPFL, Lausanne */\n\n"
     b ++= s"// Generated from $source by inox.semantics.Codegen. Do not edit: change $source\n"
