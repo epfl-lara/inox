@@ -97,15 +97,16 @@ class PartialExecutionSuite extends SolverTestSuite {
     // a call equals itself, whether it returns or not
     unsat(Not(E(loopID)(k) === E(loopID)(k)))
   }
-  test("a call that reaches itself never returns when the front-end has checked totality", Integers) { ctx =>
+  // The front-end has then checked that functions are total, so calls aren't ranked: the queries on
+  // functions that break this promise are left undecided by the check of their models
+  test("a call that reaches itself isn't ruled out when the front-end has checked totality", Integers) { ctx =>
     given Context = ctx.withOpts(optAssumeChecked(true))
-    unsat(E(loopID)(k) === E(BigInt(0)))
-    unsat(E(loopPosID)(k) === E(BigInt(5)))
-    unsat(E(pingID)(k) === E(BigInt(5)))
-    unsat(E(pongID)(k) === E(BigInt(5)))
-    sat(E(loopPosID)(k) === E(BigInt(0)))
+    unknown(E(loopID)(k) === E(BigInt(0)))
+    unknown(E(loopPosID)(k) === E(BigInt(5)))
+    unknown(E(pingID)(k) === E(BigInt(5)))
+    unknown(E(pongID)(k) === E(BigInt(5)))
     sat(Or(k === E(BigInt(5)), E(loopID)(k) === E(BigInt(0))))
-    unsat(Or(E(loopID)(k) === E(BigInt(0)), k === E(BigInt(5))))
+    unknown(Or(E(loopID)(k) === E(BigInt(0)), k === E(BigInt(5))))
   }
   test("a call whose unfolding is contradictory never returns", Integers) { ctx =>
     unsat(E(loopPlusOneID)(k) === E(BigInt(0)))(using ctx)
