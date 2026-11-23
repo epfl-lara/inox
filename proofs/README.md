@@ -27,3 +27,8 @@ it; a test fails while they are out of date:
 ```sh
 sbt proofs/run
 ```
+
+A language that compiles to Inox can extend this semantics in its own file,
+which imports `semantics.md` and adds constructors and cases (see the end of
+`semantics.md`). `sbt "proofs/run <file.md> <output.scala> <package>"`
+generates its evaluator, which gives the expressions of Inox the same meaning.

@@ -2283,6 +2283,20 @@ A block holds S-expressions of three kinds:
   binds the constructor's fields to `y ...`. Every constructor needs exactly
   one case, and the cases may be spread over several blocks.
 
+A semantics that extends this one, such as that of a language that compiles to
+Inox, is written in its own file, which starts with `(import "path.md")`, the
+path relative to it, and may then use two more forms:
+
+- `(extend-datatype Name (Ctor (field Type) ...) ...)` adds constructors to a
+  datatype of an imported file; a function defined by `:cases` on it then
+  needs a case for each of them too.
+- Extending `Result` adds outcomes of evaluation, which `let!` propagates as it
+  does `Stuck` and `OutOfFuel`. They can't hold a value of the result's type.
+
+Imports are read once each, before the file that imports them first, and only
+by `Spec.load`. An extension only adds cases for the constructors it adds, and
+changes none, so the expressions of the imported file keep their meaning.
+
 The built-in types are `Int` (mathematical integers), `Bool`, and `Id`, the
 names of variables, functions, constructors, sorts and fields, which can only
 be compared for equality.

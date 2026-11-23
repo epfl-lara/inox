@@ -107,9 +107,36 @@ object Spec {
     res.result()
   }
 
+  /** The definitions of a semantics file that imports no other file. */
   def parse(markdown: String): Spec = {
+    blocks(markdown).collectFirst { case i @ Sexp.Lst(Sexp.Atom("import") +: _) => i }
+      .foreach(i => fail(s"$i: a file read on its own can't import others (see Spec.load)"))
+    fromForms(blocks(markdown))
+  }
+
+  /** The definitions of the semantics file at `path`, after the files it imports with
+    * `(import "relative/path.md")`, each read once, before the forms of the file that imports it
+    * first. A file that extends a semantics imports it and extends its datatypes and functions. */
+  def load(path: java.nio.file.Path): Spec = {
     import Sexp._
-    val forms = blocks(markdown)
+    val seen = scala.collection.mutable.Set[java.nio.file.Path]()
+    def read(p: java.nio.file.Path, from: List[java.nio.file.Path]): Seq[Sexp] = {
+      val file = p.toAbsolutePath.normalize
+      if (from.contains(file)) fail(s"$file imports itself through ${from.reverse.mkString(", ")}")
+      if (!seen.add(file)) return Seq()
+      if (!java.nio.file.Files.exists(file)) fail(s"no semantics file $file")
+      blocks(java.nio.file.Files.readString(file)).flatMap {
+        case Lst(Seq(Atom("import"), Atom(q))) if q.length > 2 && q.head == '"' && q.last == '"' =>
+          read(file.getParent.resolve(q.drop(1).dropRight(1)), file :: from)
+        case i @ Lst(Atom("import") +: _) => fail(s"not an import: $i")
+        case f => Seq(f)
+      }
+    }
+    fromForms(read(path, Nil))
+  }
+
+  private def fromForms(forms: Seq[Sexp]): Spec = {
+    import Sexp._
 
     def isCapitalized(s: String) = s.nonEmpty && s.head.isUpper && s.forall(_.isLetterOrDigit)
     def isName(s: String) = s.nonEmpty && s.head.isLetter && s.forall(c => c.isLetterOrDigit || c == '-')
@@ -126,7 +153,7 @@ object Spec {
       case _ => fail(s"not a parameter: $s")
     }
 
-    val datatypes = forms.collect {
+    val declared = forms.collect {
       case Lst(Atom("datatype") +: head +: ctors) =>
         val (name, tparams) = head match {
           case Atom(n) => (n, Seq())
@@ -139,6 +166,22 @@ object Spec {
             Constructor(c, fields.map(param(_, tparams.toSet)))
           case c => fail(s"not a constructor of $name: $c")
         })
+    }
+    declared.map(_.name).diff(declared.map(_.name).distinct).headOption
+      .foreach(n => fail(s"datatype $n is declared twice"))
+
+    // `(extend-datatype Name (Ctor (field Type) ...) ...)` adds constructors to a datatype declared
+    // earlier, here or in an imported file, after its own.
+    val datatypes = forms.foldLeft(declared) {
+      case (dts, Lst(Atom("extend-datatype") +: Atom(name) +: ctors)) =>
+        val dt = dts.find(_.name == name).getOrElse(fail(s"extension of $name, which isn't declared"))
+        val added = ctors.map {
+          case Lst(Atom(c) +: fields) if isCapitalized(c) => Constructor(c, fields.map(param(_, dt.tparams.toSet)))
+          case c => fail(s"not a constructor of $name: $c")
+        }
+        dts.map(d => if (d.name == name) d.copy(ctors = d.ctors ++ added) else d)
+      case (_, e @ Lst(Atom("extend-datatype") +: _)) => fail(s"not an extension: $e")
+      case (dts, _) => dts
     }
     val ctorNames = datatypes.flatMap(_.ctors.map(_.name))
     ctorNames.diff(ctorNames.distinct).headOption.foreach(c => fail(s"constructor $c is declared twice"))
@@ -253,13 +296,18 @@ object Spec {
       .foreach(f => fail(s"case of $f, which isn't defined by cases"))
 
     forms.foreach {
-      case Lst(Atom("datatype" | "define" | "case") +: _) =>
-      case f => fail(s"not a datatype, a definition or a case: $f")
+      case Lst(Atom("datatype" | "extend-datatype" | "define" | "case") +: _) =>
+      case f => fail(s"not a datatype, an extension, a definition or a case: $f")
     }
 
     val spec = Spec(datatypes, functions)
     checkTypes(spec)
     spec
+  }
+
+  private def params(t: Type): Set[String] = t match {
+    case Type.Named(_, args) => args.flatMap(params).toSet
+    case Type.Param(p) => Set(p)
   }
 
   /** Every type that a definition names is declared, with its number of type parameters. */
@@ -291,8 +339,12 @@ object Spec {
         case Body.Cases(_, cs) => cs.foreach(c => checkTerm(c._2))
       }
     }
+    // A semantics that extends Inox's may give evaluation other outcomes, such as a failure that
+    // tells a violated assertion apart from being stuck; `let!` propagates them all.
     if (!spec.datatypes.exists(dt => dt.name == resultType && dt.tparams.size == 1 &&
-        dt.ctors.map(c => (c.name, c.fields.size)) == Seq(("Ok", 1), ("Stuck", 0), ("OutOfFuel", 0))))
-      fail(s"the file must declare (datatype ($resultType T) (Ok (value T)) (Stuck) (OutOfFuel))")
+        dt.ctors.take(3).map(c => (c.name, c.fields.size)) == Seq(("Ok", 1), ("Stuck", 0), ("OutOfFuel", 0)) &&
+        dt.ctors.drop(1).forall(_.fields.forall(f => !params(f._2)(dt.tparams.head)))))
+      fail(s"the file must declare (datatype ($resultType T) (Ok (value T)) (Stuck) (OutOfFuel)), " +
+        "whose other constructors don't hold a T")
   }
 }
