@@ -147,11 +147,6 @@ trait EqualityTemplates { self: Templates =>
     })
   }
 
-  /** Whether an equality was instantiated, i.e. whether equality symbols can hold on distinct
-    * terms (see [[delayedPurityClauses]]).
-    */
-  def equalitiesInstantiated: Boolean = state.get.eqBlockers.nonEmpty
-
   def instantiateEquality(blocker: Encoded, equality: Equality): Clauses = {
     val Equality(tpe, e1, e2) = equality
     val clauses = new scala.collection.mutable.ListBuffer[Encoded]
@@ -166,8 +161,6 @@ trait EqualityTemplates { self: Templates =>
           eqBlocker
 
         case None =>
-          if (!equalitiesInstantiated) clauses ++= delayedPurityClauses
-
           val eqBlocker = encodeSymbol(Variable.fresh("q", BooleanType(), true))
           state.update(s => s.copy(eqBlockers = s.eqBlockers.updated(equality, eqBlocker)))
 
@@ -190,6 +183,9 @@ trait EqualityTemplates { self: Templates =>
           addInstantiated((eqBlocker, e1, e2), (eqBlocker, e2, e1))
 
           clauses ++= Rule.Reflexivity(tpe, e1, e2, None).clauses
+
+          // the equality can now hold of distinct terms, which the calls on them wait for
+          clauses ++= comparedClauses(Seq(e1, e2))
           eqBlocker
       }
 
