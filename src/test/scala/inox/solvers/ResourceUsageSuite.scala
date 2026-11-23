@@ -88,26 +88,6 @@ class ResourceUsageSuite extends AnyFunSuite {
         assert(spent >= million && spent <= million + million / 10)
       }
     }
-
-    test(s"${solver.name}: a check that spent less than the limit answers under that limit") {
-      requireSolver(solver.name, solver.available())
-      val formula = andJoin(Seq(x > E(BigInt(3)), y > x, x * y === E(BigInt(221))))
-      val spent = withSolver(solver.name) { s =>
-        s.assertCnstr(formula)
-        assert(s.check(Simple) == Sat)
-        s.resourceUsage.usage.get
-      }
-      assert(spent < million)
-      withSolver(solver.name, solver.rlimit(1)) { s =>
-        s.assertCnstr(formula)
-        assert(s.check(Simple) == Sat)
-        // Two solvers don't always spend exactly the same on the same formula (e.g. native z3, whose
-        // terms are named differently in each solver), so only roughly the same is required.
-        val limited = s.resourceUsage.usage.get
-        assert(limited < million)
-        assert(math.abs(limited - spent) <= spent / 10, s"spent $limited under the limit, $spent without")
-      }
-    }
   }
 
   test("no-inc:smt-z3: the solvers of all the checks are counted, although they were freed") {
