@@ -248,6 +248,8 @@ trait QuantificationTemplates { self: Templates =>
     * @param axioms the axioms, in the order in which they were instantiated
     * @param axiomStates the state of each axiom
     * @param matcherBlockers the blocker of each instantiated matcher
+    * @param waitingMatchers the blockers that enable the blocker of a matcher, whose clauses wait for
+    *                        the first axiom (see [[instantiateMatcher0]])
     * @param substBlockers the blocker of each instantiated substitution of an axiom
     * @param templates the instantiated quantifications, by structure, with their result
     * @param deferred the instantiations that are deferred to a later generation */
@@ -255,13 +257,14 @@ trait QuantificationTemplates { self: Templates =>
     axioms: Vector[Axiom],
     axiomStates: Map[Axiom, AxiomState],
     matcherBlockers: VectorMap[Matcher, Encoded],
+    waitingMatchers: Vector[(Encoded, Encoded)],
     substBlockers: VectorMap[(Axiom, Map[Encoded, Arg]), Encoded],
     templates: VectorMap[TemplateStructure, (QuantificationTemplate, Encoded)],
     deferred: Deferred)
 
   private object QuantificationsState {
     val empty: QuantificationsState =
-      QuantificationsState(Vector.empty, Map.empty, VectorMap.empty, VectorMap.empty, VectorMap.empty, Deferred.empty)
+      QuantificationsState(Vector.empty, Map.empty, VectorMap.empty, Vector.empty, VectorMap.empty, VectorMap.empty, Deferred.empty)
   }
 
   private[unrolling] object quantificationsManager extends Manager {
@@ -371,7 +374,14 @@ trait QuantificationTemplates { self: Templates =>
       val (blocker, blockerClauses) = encodeBlockers(blockers)
       registerImplication(blocker, matcherBlocker)
       clauses ++= blockerClauses
-      clauses ++= enables(blocker, matcherBlocker)
+      // The blocker of a matcher guards the instances of the axioms, and tells which applications
+      // of a function belong to a model. Until there is an axiom, the blockers of the calls to
+      // named functions are thus not looked at, and the clauses that enable them wait for one.
+      if (axioms.isEmpty && matcher.key.isRight) {
+        state.update(s => s.copy(waitingMatchers = s.waitingMatchers :+ (blocker -> matcherBlocker)))
+      } else {
+        clauses ++= enables(blocker, matcherBlocker)
+      }
     }
 
     clauses.toSeq
@@ -785,6 +795,12 @@ trait QuantificationTemplates { self: Templates =>
         case Positive(subst) =>
           val axiom = new Axiom(newTemplate.contents, subst, newTemplate.body, newTemplate.isDeferred)
           state.update(s => s.copy(axioms = s.axioms :+ axiom))
+
+          // the blockers of the matchers now guard instances, so they must hold where enabled
+          for ((blocker, matcherBlocker) <- state.get.waitingMatchers) {
+            clauses ++= enables(blocker, matcherBlocker)
+          }
+          state.update(s => s.copy(waitingMatchers = Vector.empty))
 
           for ((m,b) <- matcherBlockers.toList) {
             clauses ++= axiom.instantiate(b, m)
