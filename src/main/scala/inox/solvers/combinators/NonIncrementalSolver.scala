@@ -27,6 +27,11 @@ trait NonIncrementalSolver extends AbstractSolver { self =>
     case Some(solver) => solver.resourceLimitReached
     case None => false
 
+  // The resources spent by the solvers of the previous checks, which are freed after their check
+  private var pastUsage: ResourceUsage = ResourceUsage.empty
+
+  override def resourceUsage: ResourceUsage = synchronized(pastUsage)
+
   val assertions: IncrementalSeq[Trees] = new IncrementalSeq[Trees]
 
   var currentSolver: Option[AbstractSolver] = None
@@ -62,7 +67,10 @@ trait NonIncrementalSolver extends AbstractSolver { self =>
         config.cast(SolverResponses.Unknown)
       }
     } finally {
-      synchronized { currentSolver = None }
+      synchronized {
+        currentSolver = None
+        pastUsage = pastUsage ++ newSolver.resourceUsage
+      }
       newSolver.free()
     }
   }
@@ -88,7 +96,10 @@ trait NonIncrementalSolver extends AbstractSolver { self =>
         config.cast(SolverResponses.Unknown)
       }
     } finally {
-      synchronized { currentSolver = None }
+      synchronized {
+        currentSolver = None
+        pastUsage = pastUsage ++ newSolver.resourceUsage
+      }
       newSolver.free()
     }
   }

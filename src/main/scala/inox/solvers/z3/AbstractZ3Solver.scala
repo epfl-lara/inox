@@ -66,7 +66,7 @@ trait AbstractZ3Solver
     }).getOrElse(Unknown))
 
   def check(config: CheckConfiguration): config.Response[Z3Model, Set[Z3AST]] =
-    extractResult(config)(recordResourceOut(solver.getReasonUnknown())(solver.check()))
+    extractResult(config)(recordResourceOut(solver.getReasonUnknown(), solver.getStatistics())(solver.check()))
   def checkAssumptions(config: Configuration)(assumptions: Set[Z3AST]) =
-    extractResult(config)(recordResourceOut(solver.getReasonUnknown())(solver.checkAssumptions(assumptions.toSeq*)))
+    extractResult(config)(recordResourceOut(solver.getReasonUnknown(), solver.getStatistics())(solver.checkAssumptions(assumptions.toSeq*)))
 }

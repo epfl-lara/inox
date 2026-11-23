@@ -32,6 +32,12 @@ trait PortfolioSolver extends Solver { self =>
 
   override def unrollBoundReached: Boolean = boundHit
 
+  // The resources spent by the solver that answered the last check, if one did: those of the
+  // other solvers depend on when they were interrupted, and are counted in other units
+  private var winnerUsage: ResourceUsage = ResourceUsage.empty
+
+  override def resourceUsage: ResourceUsage = winnerUsage
+
   protected var resultSolver: Option[Solver] = None
 
   private var tasks: Future[Unit] = Future(())
@@ -85,6 +91,7 @@ trait PortfolioSolver extends Solver { self =>
 
     def answer(s: SubSolver, r: config.Response[Model, Assumptions]) = {
       resultSolver = s.getResultSolver
+      winnerUsage = s.resourceUsage
       resultSolver.foreach { solv =>
         reporter.debug("Solved with "+solv)
       }
@@ -106,6 +113,7 @@ trait PortfolioSolver extends Solver { self =>
               // The solvers' reasons describe this check
               resourceOut = solvers.exists(_.resourceLimitReached)
               boundHit = solvers.exists(_.unrollBoundReached)
+              winnerUsage = ResourceUsage.empty
               config.cast(Unknown)
           }
       }

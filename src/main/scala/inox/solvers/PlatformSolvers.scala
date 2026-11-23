@@ -105,6 +105,8 @@ private[solvers] object PlatformSolvers {
           override protected def partialModel = model
 
           override def resourceLimitReached: Boolean = underlying.resourceLimitReached
+
+          override def resourceUsage: ResourceUsage = underlying.resourceUsage
         }
 
         () => new UnrollZ3Impl(p)(enc)
