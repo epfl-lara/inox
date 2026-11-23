@@ -170,20 +170,29 @@ trait FunctionTemplates { self: Templates =>
     * returns and the clauses hold unconditionally, in proofs as well.
     *
     * Only the calls of the body are ranked: the evaluator doesn't evaluate the calls in type checks,
-    * and those in lambdas and quantifiers belong to their own templates. */
+    * and those in lambdas and quantifiers belong to their own templates.
+    *
+    * Among these, only the calls to the functions that call `tfd` back are ranked. A cycle of calls
+    * stays among functions that call each other, so the clauses of the other calls don't rule out
+    * any: given ranks that satisfy the clauses within each group of mutually recursive functions,
+    * shifting the ranks of each group above those of the groups it calls satisfies them all, as
+    * the clauses only mention finitely many calls. */
   private def rankClauses(tfd: TypedFunDef, contents: TemplateContents,
-                          sites: Seq[(Variable, FunctionInvocation)]): Clauses = if (sites.isEmpty) Seq.empty else {
-    val self = rank(tfd, tfd.params.map(_.toVariable))
-    val ranked = sites.map { case (b, fi) => (b, fi, rank(fi.tfd, fi.args)) }
-    val allSymbols = Map(contents.pathVar) ++ contents.arguments ++ contents.condVars ++ contents.exprVars ++
-      contents.lambdas.map(_.ids) ++ contents.quantifications.flatMap(_.mapping) ++ functionCaches.rankSymbols ++
-      typeCaches.tpSubst ++ uninterpretedSubst
-    val encoder = mkEncoder(allSymbols)
-    ranked.flatMap { case (b, fi, callee) =>
-      // Calls whose arguments mention symbols that the template doesn't bind aren't ranked
-      if (!exprOps.variablesOf(callee).forall(allSymbols.contains)) Seq.empty
-      else Rule.Decreases(encoder(b), encoder(GreaterThan(self, callee)),
-        if (modes.assumeChecked) None else Some(diverges)).clauses
+                          sites: Seq[(Variable, FunctionInvocation)]): Clauses = {
+    val callers = transitiveCallers(tfd.id)
+    val ranked = sites.collect { case (b, fi) if callers(fi.id) => (b, fi, rank(fi.tfd, fi.args)) }
+    if (ranked.isEmpty) Seq.empty else {
+      val self = rank(tfd, tfd.params.map(_.toVariable))
+      val allSymbols = Map(contents.pathVar) ++ contents.arguments ++ contents.condVars ++ contents.exprVars ++
+        contents.lambdas.map(_.ids) ++ contents.quantifications.flatMap(_.mapping) ++ functionCaches.rankSymbols ++
+        typeCaches.tpSubst ++ uninterpretedSubst
+      val encoder = mkEncoder(allSymbols)
+      ranked.flatMap { case (b, fi, callee) =>
+        // Calls whose arguments mention symbols that the template doesn't bind aren't ranked
+        if (!exprOps.variablesOf(callee).forall(allSymbols.contains)) Seq.empty
+        else Rule.Decreases(encoder(b), encoder(GreaterThan(self, callee)),
+          if (modes.assumeChecked) None else Some(diverges)).clauses
+      }
     }
   }
 
