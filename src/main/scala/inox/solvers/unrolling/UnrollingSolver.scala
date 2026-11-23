@@ -1728,7 +1728,10 @@ abstract class AbstractUnrollingSolver private
           CheckResult.cast(res)
 
         case _: Satisfiable =>
-          Unroll
+          // without a model, every congruence of calls that waits for one may refute the check
+          val congruences = templates.congruences.ofModel(_ => true)
+          for (cl <- congruences) assertClause(cl)
+          if (congruences.nonEmpty) ProofCheck else Unroll
 
         case otherwise => sys.error(s"Unexpected case: $otherwise")
       }

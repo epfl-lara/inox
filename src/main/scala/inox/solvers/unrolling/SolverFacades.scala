@@ -39,7 +39,8 @@ trait SolverFacades { self: Templates =>
       self.instantiateVariable(v, bindings)
   }
 
-  /** The congruences of calls that wait for a model (see [[FunctionTemplates.modelCongruences]]). */
+  /** The congruences of calls, which the models of the proof checks call for (see
+    * [[FunctionTemplates.modelCongruences]]). */
   object congruences {
     def hasWaiting: Boolean = self.hasWaitingCongruences
 
