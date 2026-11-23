@@ -656,11 +656,12 @@ trait TemplateGenerator { self: Templates =>
           storeCond(pathVar, newBool2)
           storeExpr(newExpr)
 
-          // the path of the then branch is the one where the condition holds, and stands for the
-          // condition on `pathVar`
+          // The path of each branch is defined from the condition, rather than the second from the
+          // first, which solvers do worse with. The path of the then branch stands for the condition
+          // on `pathVar`.
           val crec = rec(pathVar, cond, None)
           define(pathVar, newBool1, crec)
-          iff(and(pathVar, not(newBool1)), newBool2)
+          define(pathVar, newBool2, not(crec))
 
           val (trec, tClauses) = mkExprClauses(newBool1, thenn, localSubst, pol, factsOf(pathVar) ++ conjuncts(cond))
           val (erec, eClauses) = mkExprClauses(newBool2, elze, localSubst, pol, factsOf(pathVar) ++ negated(cond))
