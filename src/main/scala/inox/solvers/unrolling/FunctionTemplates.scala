@@ -180,17 +180,19 @@ trait FunctionTemplates { self: Templates =>
   private def rankClauses(tfd: TypedFunDef, contents: TemplateContents,
                           sites: Seq[(Variable, FunctionInvocation)]): Clauses = {
     val callers = transitiveCallers(tfd.id)
-    lazy val self = rank(tfd, tfd.params.map(_.toVariable))
     val ranked = sites.collect { case (b, fi) if callers(fi.id) => (b, fi, rank(fi.tfd, fi.args)) }
-    val allSymbols = Map(contents.pathVar) ++ contents.arguments ++ contents.condVars ++ contents.exprVars ++
-      contents.lambdas.map(_.ids) ++ contents.quantifications.flatMap(_.mapping) ++ functionCaches.rankSymbols ++
-      typeCaches.tpSubst ++ uninterpretedSubst
-    val encoder = mkEncoder(allSymbols)
-    ranked.flatMap { case (b, fi, callee) =>
-      // Calls whose arguments mention symbols that the template doesn't bind aren't ranked
-      if (!exprOps.variablesOf(callee).forall(allSymbols.contains)) Seq.empty
-      else Rule.Decreases(encoder(b), encoder(GreaterThan(self, callee)),
-        if (modes.assumeChecked) None else Some(diverges)).clauses
+    if (ranked.isEmpty) Seq.empty else {
+      val self = rank(tfd, tfd.params.map(_.toVariable))
+      val allSymbols = Map(contents.pathVar) ++ contents.arguments ++ contents.condVars ++ contents.exprVars ++
+        contents.lambdas.map(_.ids) ++ contents.quantifications.flatMap(_.mapping) ++ functionCaches.rankSymbols ++
+        typeCaches.tpSubst ++ uninterpretedSubst
+      val encoder = mkEncoder(allSymbols)
+      ranked.flatMap { case (b, fi, callee) =>
+        // Calls whose arguments mention symbols that the template doesn't bind aren't ranked
+        if (!exprOps.variablesOf(callee).forall(allSymbols.contains)) Seq.empty
+        else Rule.Decreases(encoder(b), encoder(GreaterThan(self, callee)),
+          if (modes.assumeChecked) None else Some(diverges)).clauses
+      }
     }
   }
 
