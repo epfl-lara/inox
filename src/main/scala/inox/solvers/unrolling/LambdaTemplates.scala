@@ -168,7 +168,7 @@ trait LambdaTemplates { self: Templates =>
         val freshBlocker = encodeSymbol(Variable.fresh("tb", BooleanType()))
 
         registerImplication(typeBlocker, freshBlocker)
-        clauses ++= Rule.Enables(mkAnd(b, mkEquals(f, app.caller), typeBlocker), freshBlocker).clauses
+        clauses ++= enables(mkAnd(b, mkEquals(f, app.caller), typeBlocker), freshBlocker)
 
         val vars = typeOps.variablesOf(tpe).toSeq.sortBy(_.id)
         // A function type `A => B` is the non-dependent Pi type `Pi(x: A). B`, so both are
@@ -255,7 +255,7 @@ trait LambdaTemplates { self: Templates =>
         (typeBlocker, appResult, appClauses) <- registerApplication(b, f, app, tpe, closures, free)
       } yield {
         clauses ++= appClauses
-        clauses ++= Rule.Enables(bApp, typeBlocker).clauses
+        clauses ++= enables(bApp, typeBlocker)
         mkImplies(typeBlocker, appResult)
       }
 
@@ -431,7 +431,7 @@ trait LambdaTemplates { self: Templates =>
           state.update(s => s.copy(resultGuards = s.resultGuards.updated(app.encoded, active)))
           active
         })
-        clauses ++= Rule.Enables(blocker, active).clauses
+        clauses ++= enables(blocker, active)
       }
 
       if (!state.get.appBlockers.isDefinedAt(key)) {
@@ -474,7 +474,7 @@ trait LambdaTemplates { self: Templates =>
           clauses ++= appClauses
 
           registerImplication(blocker, typeBlocker)
-          clauses ++= Rule.Enables(blocker, typeBlocker).clauses
+          clauses ++= enables(blocker, typeBlocker)
 
           val next = typedResults.next
           state.update(s => s.copy(freeBlockers = s.freeBlockers.updated(ft, freeBlockers(ft) - old + ((next, b, tpe, f, closures, free)))))
@@ -761,7 +761,7 @@ trait LambdaTemplates { self: Templates =>
 
             val enabler = if (equals == trueT) b else mkAnd(equals, b)
             registerImplication(b, lambdaBlocker)
-            newCls ++= Rule.Enables(enabler, lambdaBlocker).clauses
+            newCls ++= enables(enabler, lambdaBlocker)
             // the application fails iff the body of the lambda it is dispatched to does
             if (modes.partialFunctions) newCls ++= Rule.DispatchFailure(enabler, appFailure(app._2), lambdaFailure).clauses
 

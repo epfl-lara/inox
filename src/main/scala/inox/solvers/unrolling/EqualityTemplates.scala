@@ -195,7 +195,7 @@ trait EqualityTemplates { self: Templates =>
 
       if (eqBlocker != blocker) {
         registerImplication(blocker, eqBlocker)
-        clauses ++= Rule.Enables(blocker, eqBlocker).clauses
+        clauses ++= enables(blocker, eqBlocker)
       }
 
       reporter.debug("Unrolling equality behind " + equality + " (" + clauses.size + ")")
