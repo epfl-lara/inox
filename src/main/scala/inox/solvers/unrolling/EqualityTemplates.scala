@@ -185,7 +185,7 @@ trait EqualityTemplates { self: Templates =>
           clauses ++= Rule.Reflexivity(tpe, e1, e2, None).clauses
 
           // the equality can now hold of distinct terms, which the calls on them wait for
-          clauses ++= comparedClauses(Seq(e1, e2))
+          clauses ++= comparedClauses(tpe, Seq(e1, e2))
           eqBlocker
       }
 

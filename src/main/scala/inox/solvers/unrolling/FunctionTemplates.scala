@@ -232,53 +232,62 @@ trait FunctionTemplates { self: Templates =>
       exprOps.exists { case _: UninterpretedCall => true case _ => false } (fd.fullBody)
     })
 
+  /** The arguments on which `call1` and `call2` differ and whose type needs equality unrolling, by
+    * type. */
+  private def differing(tfd: TypedFunDef, call1: Call, call2: Call): Seq[(Type, Encoded, Encoded)] =
+    (tfd.params zip (call1.args zip call2.args)).collect {
+      case (vd, (e1, e2)) if e1.encoded != e2.encoded && unrollEquality(vd.getType) => (vd.getType, e1.encoded, e2.encoded)
+    }
+
+  private def congruent(call1: Call, call2: Call): Boolean =
+    state.get.congruent(call1 -> call2) || state.get.congruent(call2 -> call1)
+
   /** The [[Rule.Congruence]] of the calls `call1` and `call2` of the same function, once it can
     * tell the solver something.
     *
     * The solver already knows that calls are functions of their arguments, so the rule only adds
     * to that when the calls differ on arguments whose type needs equality unrolling. Their equality
-    * symbol is left unconstrained until both arguments are among the terms that an unfolded
-    * equality or an earlier congruence compares, so the clauses wait for that
-    * (see [[comparedClauses]]). Each pair of calls of a function on values with a custom equality
-    * (e.g. bags on Princess) would otherwise get its own clauses, and formulas would grow
+    * symbol is left unconstrained until an unfolded equality or an earlier congruence relates
+    * them, so the clauses wait for that. Each pair of calls of a function on values with a custom
+    * equality (e.g. bags on Princess) would otherwise get its own clauses, and formulas would grow
     * quadratically with the number of calls.
     *
-    * The comparison is one of terms: arguments that the solver only knows to be equal to compared
-    * terms don't count. The clauses only shortcut the unfolding of both calls, so missing some
-    * doesn't change what holds, and their equalities are not unrolled. */
+    * The clauses are built as soon as both arguments are among the compared terms (see
+    * [[comparedClauses]]). This is a comparison of terms, which misses the arguments that the
+    * solver only knows to be equal to compared terms (e.g. `a` and the field of `Box(a)`), so
+    * the models of the proof checks find the remaining pairs (see [[modelCongruences]]).
+    *
+    * The clauses only shortcut the unfolding of both calls, so their equalities are not unrolled. */
   private def purityClauses(call1: Call, blocker1: Encoded, call2: Call, blocker2: Encoded): Clauses = call1.callee match {
     // The calls of an interpreted function are applications of the same free function
     case _: Interpreted => Seq.empty
     case Defined(tfd) =>
-      val differing = (tfd.params zip (call1.args zip call2.args)).collect {
-        case (vd, (e1, e2)) if e1.encoded != e2.encoded && unrollEquality(vd.getType) => Seq(e1.encoded, e2.encoded)
-      }.flatten
-
-      val compared = state.get.compared
-      if (differing.isEmpty || !differing.forall(compared) ||
-          state.get.congruent(call1 -> call2) || state.get.congruent(call2 -> call1)) Seq.empty
-      else {
-        state.update(s => s.copy(congruent = s.congruent + (call1 -> call2)))
-
-        val (equalities, equalityClauses) = (tfd.params.map(_.getType) zip (call1.args zip call2.args)).map {
-          case (tpe, (e1, e2)) => guardedEquality(blocker1, tpe, e1.encoded, e2.encoded)
-        }.unzip
-
-        val (result1, result2) = (mkCall(tfd, call1.args.map(_.encoded)), mkCall(tfd, call2.args.map(_.encoded)))
-        val (entail, entailClauses) = guardedEquality(blocker1, tfd.getType, result1, result2)
-
-        equalityClauses.flatten ++ entailClauses ++
-          Rule.Congruence(blocker1 +: blocker2 +: equalities, entail).clauses ++
-          // the rule compares the results of the calls
-          (if (unrollEquality(tfd.getType)) comparedClauses(Seq(result1, result2)) else Seq.empty)
-      }
+      val terms = differing(tfd, call1, call2).flatMap(d => Seq(d._2, d._3))
+      if (terms.isEmpty || !terms.forall(state.get.compared) || congruent(call1, call2)) Seq.empty
+      else congruence(tfd, call1, blocker1, call2, blocker2)
   }
 
-  /** The purity clauses that wait for `terms` to be compared (see [[purityClauses]]): those of the
-    * unfolded calls that take one of them, against the other calls of their function. */
-  private[unrolling] def comparedClauses(terms: Seq[Encoded]): Clauses = {
+  private def congruence(tfd: TypedFunDef, call1: Call, blocker1: Encoded, call2: Call, blocker2: Encoded): Clauses = {
+    state.update(s => s.copy(congruent = s.congruent + (call1 -> call2)))
+
+    val (equalities, equalityClauses) = (tfd.params.map(_.getType) zip (call1.args zip call2.args)).map {
+      case (tpe, (e1, e2)) => guardedEquality(blocker1, tpe, e1.encoded, e2.encoded)
+    }.unzip
+
+    val (result1, result2) = (mkCall(tfd, call1.args.map(_.encoded)), mkCall(tfd, call2.args.map(_.encoded)))
+    val (entail, entailClauses) = guardedEquality(blocker1, tfd.getType, result1, result2)
+
+    equalityClauses.flatten ++ entailClauses ++
+      Rule.Congruence(blocker1 +: blocker2 +: equalities, entail).clauses ++
+      // the rule compares the results of the calls
+      (if (unrollEquality(tfd.getType)) comparedClauses(tfd.getType, Seq(result1, result2)) else Seq.empty)
+  }
+
+  /** The purity clauses that wait for `terms` of type `tpe` to be compared (see [[purityClauses]]):
+    * those of the unfolded calls that take one of them, against the other calls of their function. */
+  private[unrolling] def comparedClauses(tpe: Type, terms: Seq[Encoded]): Clauses = {
     val fresh = terms.distinct.filterNot(state.get.compared)
-    state.update(s => s.copy(compared = s.compared ++ fresh))
+    state.update(s => s.copy(compared = s.compared ++ fresh, comparedTypes = s.comparedTypes + tpe))
 
     for {
       term <- fresh
@@ -288,6 +297,44 @@ trait FunctionTemplates { self: Templates =>
       if call2.callee == call1.callee && call2 != call1
       clause <- purityClauses(call1, blocker1, call2, blocker2)
     } yield clause
+  }
+
+  /** The pairs of unfolded calls whose congruence a model may still call for: those that differ on
+    * arguments of types whose equality symbol is constrained on some terms. */
+  private def waitingCongruences: Iterator[(TypedFunDef, (Call, Encoded), (Call, Encoded), Seq[(Type, Encoded, Encoded)])] = {
+    val comparedTypes = state.get.comparedTypes
+    if (comparedTypes.isEmpty) Iterator.empty else {
+      val calls = state.get.callsOf.valuesIterator.flatten.toSeq.distinct.groupBy(_.callee)
+      for {
+        (callee, tfdCalls) <- calls.iterator
+        tfd <- (callee match { case Defined(tfd) => Some(tfd) case _ => None }).iterator
+        (call1, i) <- tfdCalls.iterator.zipWithIndex
+        call2 <- tfdCalls.iterator.drop(i + 1)
+        if !congruent(call1, call2)
+        args = differing(tfd, call1, call2)
+        if args.nonEmpty && args.forall(d => comparedTypes(d._1))
+      } yield (tfd, call1 -> state.get.defBlockers(call1), call2 -> state.get.defBlockers(call2), args)
+    }
+  }
+
+  /** Whether a model of a proof check can call for more congruences (see [[modelCongruences]]). */
+  protected def hasWaitingCongruences: Boolean = waitingCongruences.hasNext
+
+  /** The [[Rule.Congruence]] of the pairs of unfolded calls that the model of a proof check reaches
+    * and whose differing arguments it makes equal, where `holds` tells whether the model satisfies
+    * a literal. The model can only be one of the query if it breaks one of these congruences, or
+    * if they don't matter. */
+  protected def modelCongruences(holds: Encoded => Boolean): Clauses = {
+    val cache = MutableMap.empty[Encoded, Boolean]
+    def cached(e: Encoded): Boolean = cache.getOrElseUpdate(e, holds(e))
+
+    val pairs = waitingCongruences.filter { case (_, (_, blocker1), (_, blocker2), args) =>
+      cached(blocker1) && cached(blocker2) && args.forall { case (tpe, e1, e2) => cached(equality(tpe, e1, e2)) }
+    }.toSeq
+
+    pairs.flatMap { case (tfd, (call1, blocker1), (call2, blocker2), _) =>
+      if (congruent(call1, call2)) Seq.empty else congruence(tfd, call1, blocker1, call2, blocker2)
+    }
   }
 
   /** The template of the call `tfd(args)` under `blocker`, as the value that the evaluator computed
@@ -328,16 +375,18 @@ trait FunctionTemplates { self: Templates =>
     * @param callsOf the unfolded calls that take each term as an argument whose type needs equality
     *                unrolling, in the order in which they were unfolded
     * @param compared the terms that an unfolded equality or a congruence compares
+    * @param comparedTypes the types of these terms
     * @param congruent the pairs of calls whose congruence was built (see [[purityClauses]]) */
   private[unrolling] case class FunctionsState(
     calls: Pending[Encoded, Call],
     defBlockers: VectorMap[Call, Encoded],
     callsOf: Map[Encoded, Vector[Call]],
     compared: Set[Encoded],
+    comparedTypes: Set[Type],
     congruent: Set[(Call, Call)])
 
   private[unrolling] object functionsManager extends Manager {
-    private[FunctionTemplates] val state = new Snapshots(FunctionsState(Pending.empty, VectorMap.empty, Map.empty, Set.empty, Set.empty))
+    private[FunctionTemplates] val state = new Snapshots(FunctionsState(Pending.empty, VectorMap.empty, Map.empty, Set.empty, Set.empty, Set.empty))
 
     private lazy val evaluator = semantics.getEvaluator(using context.withOpts(evaluators.optEvalQuantifiers(false)))
 
