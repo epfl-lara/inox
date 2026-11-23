@@ -419,18 +419,22 @@ object Semantics {
         forall_result(v_P, fuel, env, params, body)
       case UninterpretedCall(f, tps, args) =>
         eval_list(v_P, fuel, env, args) match {
-          case Ok(vs) => ((v_P) match {
-            case Program(_, _, _, is, _) => lookup_interpretation(is, f, resolve_all(env_types(env), tps)) match {
-                case Ok(i) => ((i) match {
-                  case Interpretation(_, _, params, body) => bind_all(params, vs) match {
-                      case Ok(bs) => eval(v_P, fuel, Env(Nil(), bs), body)
-                      case Stuck() => Stuck()
-                      case OutOfFuel() => OutOfFuel()
-                    }
-                })
-                case Stuck() => Stuck()
-                case OutOfFuel() => OutOfFuel()
-              }
+          case Ok(vs) => (if ((fuel <= BigInt(0))) {
+            OutOfFuel()
+          } else {
+            ((v_P) match {
+              case Program(_, _, _, is, _) => lookup_interpretation(is, f, resolve_all(env_types(env), tps)) match {
+                  case Ok(i) => ((i) match {
+                    case Interpretation(_, _, params, body) => bind_all(params, vs) match {
+                        case Ok(bs) => eval(v_P, (fuel - BigInt(1)), Env(Nil(), bs), body)
+                        case Stuck() => Stuck()
+                        case OutOfFuel() => OutOfFuel()
+                      }
+                  })
+                  case Stuck() => Stuck()
+                  case OutOfFuel() => OutOfFuel()
+                }
+            })
           })
           case Stuck() => Stuck()
           case OutOfFuel() => OutOfFuel()
@@ -1618,17 +1622,17 @@ object Semantics {
       emod(a, BigInt(2))
 
     def bit_and(a: BigInt, b: BigInt): BigInt =
-      (if (((a == BigInt(0)) || (b == BigInt(0)))) {
+      (if (((a <= BigInt(0)) || (b <= BigInt(0)))) {
         BigInt(0)
       } else {
         ((BigInt(2) * bit_and(ediv(a, BigInt(2)), ediv(b, BigInt(2)))) + (bit(a) * bit(b)))
       })
 
     def bit_or(a: BigInt, b: BigInt): BigInt =
-      (if ((a == BigInt(0))) {
+      (if ((a <= BigInt(0))) {
         b
       } else {
-        (if ((b == BigInt(0))) {
+        (if ((b <= BigInt(0))) {
           a
         } else {
           ((BigInt(2) * bit_or(ediv(a, BigInt(2)), ediv(b, BigInt(2)))) + ((bit(a) + bit(b)) - (bit(a) * bit(b))))
@@ -1636,10 +1640,10 @@ object Semantics {
       })
 
     def bit_xor(a: BigInt, b: BigInt): BigInt =
-      (if ((a == BigInt(0))) {
+      (if ((a <= BigInt(0))) {
         b
       } else {
-        (if ((b == BigInt(0))) {
+        (if ((b <= BigInt(0))) {
           a
         } else {
           ((BigInt(2) * bit_xor(ediv(a, BigInt(2)), ediv(b, BigInt(2)))) + emod((bit(a) + bit(b)), BigInt(2)))
@@ -2018,7 +2022,7 @@ object Semantics {
     def isqrt_from(n: BigInt, x: BigInt): BigInt =
       {
         val y = ediv((x + ediv(n, x)), BigInt(2))
-        (if ((y < x)) {
+        (if (((BigInt(0) < y) && (y < x))) {
           isqrt_from(n, y)
         } else {
           x

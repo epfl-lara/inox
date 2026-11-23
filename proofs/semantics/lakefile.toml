@@ -1,0 +1,6 @@
+name = "InoxSemantics"
+defaultTargets = ["InoxSemantics"]
+
+[[lean_lib]]
+name = "InoxSemantics"
+roots = ["Inox.Semantics"]
