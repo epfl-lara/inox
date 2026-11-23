@@ -151,8 +151,7 @@ trait RuleKernel { self: Templates =>
       *  - the rank of a call is higher than that of a call its body reaches under `blocker` (see
       *    [[FunctionTemplates.rankClauses]]). Ranking each call that returns by the depth of its
       *    evaluation satisfies this, and only a call that doesn't return can't be ranked, in which
-      *    case `unless` (`diverges`) holds. Without `unless`, the front-end has checked that every
-      *    call returns (see `optAssumeChecked`).
+      *    case `unless` (`diverges`) holds.
       *  - a function that a lambda captures comes before the lambda (see
       *    [[TypeTemplates.CaptureTemplate]]). A lambda value contains the values it captures, so
       *    ordering function values by their size satisfies this. This only holds under intensional
