@@ -26,6 +26,9 @@ trait TemplateGenerator { self: Templates =>
     * @param equalities      the equalities to unroll under each condition variable
     * @param lambdas         the templates of the lambdas in the expression
     * @param quantifications the templates of the quantifiers in the expression
+    * @param definitions     the definitions of condition variables that hold their own guard: these
+    *                        clauses aren't guarded, but the calls and other items of each belong
+    *                        under the condition variable it is listed under
     */
   protected case class TemplateClauses(
     condVars: Map[Variable, Encoded] = Map.empty,
@@ -36,7 +39,8 @@ trait TemplateGenerator { self: Templates =>
     types: Types = VectorMap.empty,
     equalities: Equalities = VectorMap.empty,
     lambdas: Seq[LambdaTemplate] = Seq.empty,
-    quantifications: Seq[QuantificationTemplate] = Seq.empty
+    quantifications: Seq[QuantificationTemplate] = Seq.empty,
+    definitions: Map[Variable, Seq[Expr]] = VectorMap.empty
   ) {
     def ++(that: TemplateClauses): TemplateClauses = TemplateClauses(
       condVars ++ that.condVars,
@@ -47,7 +51,8 @@ trait TemplateGenerator { self: Templates =>
       types `merge` that.types,
       equalities `merge` that.equalities,
       lambdas ++ that.lambdas,
-      quantifications ++ that.quantifications
+      quantifications ++ that.quantifications,
+      definitions `merge` that.definitions
     )
 
     def +(pair: (Variable, Expr)): TemplateClauses = copy(guardedExprs = guardedExprs `merge` pair)
@@ -213,6 +218,8 @@ trait TemplateGenerator { self: Templates =>
         .flatten
         .sortBy(p => countCalls(p._1._1) + countCalls(p._2._1))
 
+    val mergedBlockers = MutableMap.empty[Set[Variable], Variable]
+
     while (toMerge.nonEmpty) {
       val ((thenCall, thenBlockers), (elseCall, elseBlockers)) = toMerge.head
       toMerge = toMerge.tail
@@ -230,9 +237,13 @@ trait TemplateGenerator { self: Templates =>
         (replaceElse(p._2._1).asInstanceOf[FunctionInvocation], p._2._2)
       ))
 
-      val newBlocker: Variable = Variable.fresh("bm", BooleanType(), true)
-      builder.storeConds(thenBlockers ++ elseBlockers, newBlocker)
-      builder.iff(orJoin((thenBlockers ++ elseBlockers).toSeq), newBlocker)
+      // the calls that are merged on the same paths share their blocker
+      val newBlocker: Variable = mergedBlockers.getOrElseUpdate(thenBlockers ++ elseBlockers, {
+        val newBlocker: Variable = Variable.fresh("bm", BooleanType(), true)
+        builder.storeConds(thenBlockers ++ elseBlockers, newBlocker)
+        builder.iff(orJoin((thenBlockers ++ elseBlockers).toSeq), newBlocker)
+        newBlocker
+      })
 
       val newArgs = (thenCall.args zip elseCall.args).map { case (thenArg, elseArg) =>
         val (newArg, argClauses) = mkExprClauses(newBlocker, ifExpr(condVar, thenArg, elseArg), builder.localSubst)
@@ -410,6 +421,14 @@ trait TemplateGenerator { self: Templates =>
     var equations = Seq[Expr]()
     @inline def iff(e1: Expr, e2: Expr): Unit = equations :+= Equals(e1, e2)
 
+    // Defines the condition variable `id` as the path `guardVar` on which `cond` holds. Unlike an
+    // equation, `cond` may hold calls and other items, which belong under `guardVar`.
+    var definitions: Map[Variable, Seq[Expr]] = VectorMap.empty
+    def define(guardVar: Variable, id: Variable, cond: Expr): Unit = {
+      val prev = definitions.getOrElse(guardVar, Nil)
+      definitions += guardVar -> (Equals(id, and(guardVar, cond)) +: prev)
+    }
+
     var lambdas = Seq[LambdaTemplate]()
     @inline def registerLambda(lambda: LambdaTemplate): Unit = lambdas :+= lambda
 
@@ -428,7 +447,8 @@ trait TemplateGenerator { self: Templates =>
       substMap ++ uninterpretedSubst ++ condVars ++ exprVars ++ lambdas.map(_.ids)
 
     def result: TemplateClauses =
-      TemplateClauses(condVars, exprVars, condTree, guardedExprs, equations, types, equalities, lambdas, quantifications)
+      TemplateClauses(condVars, exprVars, condTree, guardedExprs, equations, types, equalities, lambdas, quantifications,
+        definitions)
 
     def ++=(that: TemplateClauses): this.type = {
       condVars ++= that.condVars
@@ -440,6 +460,7 @@ trait TemplateGenerator { self: Templates =>
       equalities ++= that.equalities
       lambdas ++= that.lambdas
       quantifications ++= that.quantifications
+      definitions = definitions `merge` that.definitions
       this
     }
   }
@@ -566,21 +587,19 @@ trait TemplateGenerator { self: Templates =>
                 storeGuarded(pathVar, Equals(newExpr, rec(pathVar, x, pol)))
 
               case x :: xs =>
-                val newRes: Variable = Variable.fresh("res", BooleanType(), true)
-                storeExpr(newRes)
-
                 // Only a conjunction that must hold forces each conjunct to hold. When it must not
                 // hold (e.g. under a negation), any conjunct may be the false one, so we cannot
                 // propagate the polarity: a universal quantifier inside `x` would otherwise be
                 // asserted under `pathVar`. This mirrors the non-last disjuncts in `Or` below.
                 val xrec = rec(pathVar, x, pol.filter(identity))
-                storeGuarded(pathVar, Equals(newRes, xrec))
 
+                // the rest is evaluated on the path where `x` holds, and the conjunction is false
+                // on the other one
                 val newBool: Variable = Variable.fresh("b", BooleanType(), true)
                 storeCond(pathVar, newBool)
 
-                storeGuarded(pathVar, implies(not(newRes), not(newExpr)))
-                iff(and(pathVar, newRes), newBool)
+                define(pathVar, newBool, xrec)
+                storeGuarded(pathVar, implies(not(newBool), not(newExpr)))
                 pathFacts(newBool) = factsOf(pathVar) ++ conjuncts(x)
 
                 recAnd(newBool, xs)
@@ -605,17 +624,15 @@ trait TemplateGenerator { self: Templates =>
                 storeGuarded(pathVar, Equals(newExpr, rec(pathVar, x, pol)))
 
               case x :: xs =>
-                val newRes: Variable = Variable.fresh("res", BooleanType(), true)
-                storeExpr(newRes)
-
                 val xrec = rec(pathVar, x, None)
-                storeGuarded(pathVar, Equals(newRes, xrec))
 
+                // the rest is evaluated on the path where `x` doesn't hold, and the disjunction is
+                // true on the other one
                 val newBool: Variable = Variable.fresh("b", BooleanType(), true)
                 storeCond(pathVar, newBool)
 
-                storeGuarded(pathVar, implies(newRes, newExpr))
-                iff(and(pathVar, not(newRes)), newBool)
+                define(pathVar, newBool, not(xrec))
+                storeGuarded(pathVar, implies(not(newBool), newExpr))
                 pathFacts(newBool) = factsOf(pathVar) ++ negated(x)
 
                 recOr(newBool, xs)
@@ -634,21 +651,20 @@ trait TemplateGenerator { self: Templates =>
           val newBool1 : Variable = Variable.fresh("b", BooleanType(), true)
           val newBool2 : Variable = Variable.fresh("b", BooleanType(), true)
           val newExpr  : Variable = Variable.fresh("e", i.getType, true)
-          val condVar  : Variable = Variable.fresh("c", BooleanType(), true)
 
           storeCond(pathVar, newBool1)
           storeCond(pathVar, newBool2)
           storeExpr(newExpr)
-          storeExpr(condVar)
 
+          // the path of the then branch is the one where the condition holds, and stands for the
+          // condition on `pathVar`
           val crec = rec(pathVar, cond, None)
-          storeGuarded(pathVar, Equals(condVar, crec))
-          iff(and(pathVar, condVar), newBool1)
-          iff(and(pathVar, not(condVar)), newBool2)
+          define(pathVar, newBool1, crec)
+          iff(and(pathVar, not(newBool1)), newBool2)
 
           val (trec, tClauses) = mkExprClauses(newBool1, thenn, localSubst, pol, factsOf(pathVar) ++ conjuncts(cond))
           val (erec, eClauses) = mkExprClauses(newBool2, elze, localSubst, pol, factsOf(pathVar) ++ negated(cond))
-          builder ++=  mergeCalls(pathVar, condVar, localSubst,
+          builder ++=  mergeCalls(pathVar, newBool1, localSubst,
                                   tClauses + (newBool1 -> Equals(newExpr, trec)),
                                   eClauses + (newBool2 -> Equals(newExpr, erec)))
 
