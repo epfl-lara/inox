@@ -124,7 +124,11 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
   protected val adtManager = new ADTManager
 
   // The symbols are numbered by the target rather than with the identifiers' global ids
-  private val symbolNames = new SymbolNames
+  private val ownSymbolNames = new SymbolNames
+
+  /** The names of the symbols of identifiers, which a target may share with another so that a
+    * name stands for the same identifier in both. */
+  protected def symbolNames: SymbolNames = ownSymbolNames
 
   /** The part of the symbols of `id` before their number */
   protected def symbolBase(id: Identifier): String =

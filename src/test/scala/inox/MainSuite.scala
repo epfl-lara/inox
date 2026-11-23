@@ -68,7 +68,7 @@ class MainSuite extends AnyFunSuite {
   }
 
   test("get-proof prints the certificate of a proved query") {
-    assert(cvc5Proof.startsWith("(inox-certificate 1\n(script\n") && cvc5Proof.contains("\n(cpc\n"), cvc5Proof)
+    assert(cvc5Proof.startsWith("(inox-certificate 2\n(script\n") && cvc5Proof.contains("\n(cpc\n"), cvc5Proof)
   }
 
   test("get-proof says why the solver gives no certificate") {
@@ -84,7 +84,7 @@ class MainSuite extends AnyFunSuite {
   test("get-proof prints the certificate of a portfolio with a solver that proves the query") {
     cvc5Proof
     val proof = proofOf("princess,smt-cvc5")
-    assert(proof.startsWith("(inox-certificate 1\n(script\n") && proof.contains("\n(cpc\n"), proof)
+    assert(proof.startsWith("(inox-certificate 2\n(script\n") && proof.contains("\n(cpc\n"), proof)
   }
 
   test("Satisfiable files are reported with their model") {

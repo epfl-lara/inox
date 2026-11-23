@@ -402,6 +402,17 @@ trait Templates
       TemplateContents(pathVar, args, Map(), Map(), Map(), Seq(), Map(), Seq(), Seq(), Map())
   }
 
+  /** What a template is of, in the solver's terms: the expression `expr` that its clauses are the
+    * clauses of, over its start blocker and arguments, and for the template of a function, the
+    * `call` whose value the expression gives. The certificates of the solver's answers hold it
+    * (see [[certificates.Certificates]]), so that a checker relates the clauses to it. */
+  case class Source(call: Option[Encoded], expr: Encoded)
+
+  /** The source of a template of `expr`, and of the function that is called as `call` if there
+    * is one, when the rules are logged. */
+  private[unrolling] def templateSource(bindings: Map[Variable, Encoded], call: Option[Expr], expr: Expr): Option[Source] =
+    if (!loggingRules) None else Some(Source(call.map(mkEncoder(bindings)), mkEncoder(bindings)(expr)))
+
   case class TemplateContents(
     val pathVar   : (Variable, Encoded),
     val arguments : Seq[(Variable, Encoded)],
@@ -422,7 +433,11 @@ trait Templates
 
     /** The failure literals of the body of a function or lambda, which define whether it fails
       * (see [[Instantiation.itemClauses]]), or `None` if the template asserts that they don't hold. */
-    val failures : Option[Seq[Encoded]] = None) {
+    val failures : Option[Seq[Encoded]] = None,
+
+    /** What the template is of, when the rules are logged and it has one
+      * (see [[Source]]). */
+    val source : Option[Source] = None) {
 
     lazy val args = arguments.map(_._2)
 
@@ -1010,20 +1025,21 @@ trait Templates
     }
   }
 
-  /** The clauses of the expression that `gen` gives, under a fresh start blocker, which `root`
-    * gives the clauses of. */
+  /** The clauses of the expression that `gen` gives, with its source if it has one (see
+    * [[templateSource]]), under a fresh start blocker, which `root` gives the clauses of. */
   private def instantiate(
     bindings: Map[Variable, Encoded],
-    gen: (Variable, Encoded) => TemplateClauses,
+    gen: (Variable, Encoded) => (TemplateClauses, Option[Source]),
     exempt: App => Boolean = _ => false,
     root: Encoded => Clauses = Rule.Root(_).clauses
   ): Clauses = {
     val start = Variable.fresh("start", BooleanType(), true)
     val encodedStart = encodeSymbol(start)
 
-    val tmplClauses = gen(start, encodedStart)
+    val (tmplClauses, source) = gen(start, encodedStart)
 
-    val (contents, _) = Template.contents(start -> encodedStart, bindings.toSeq, tmplClauses)
+    val (contents0, _) = Template.contents(start -> encodedStart, bindings.toSeq, tmplClauses)
+    val contents = contents0.copy(source = source)
     val instance =
       Rule.Instance(contents.instantiation(encodedStart, Map.empty[Encoded, Arg]), InstanceOf.Expression(exempt)).clauses
     val allClauses = root(encodedStart) ++ instance
@@ -1041,7 +1057,7 @@ trait Templates
     } else {
       declared += v -> bindings(v)
       instantiate(bindings, { (start, encodedStart) =>
-        mkClauses1(start, v.tpe, v, bindings + (start -> encodedStart))(using FreeGenerator)
+        (mkClauses1(start, v.tpe, v, bindings + (start -> encodedStart))(using FreeGenerator), None)
       })
     }
   }
@@ -1094,7 +1110,7 @@ trait Templates
         mkClauses1(start, w.tpe, w, substMap)(using FreeGenerator)
       }
 
-      tpeClauses.foldLeft(tmplClauses)(_ ++ _)
+      (tpeClauses.foldLeft(tmplClauses)(_ ++ _), None)
     }, isWitnessApp, root)
 
     clauses ++ newFailureDefinitions()
@@ -1110,7 +1126,7 @@ trait Templates
         mkClauses1(start, v.tpe, v, bindings + (start -> encodedStart))(using FreeGenerator)
       }
 
-      tpeClauses.foldLeft(tmplClauses)(_ ++ _)
+      (tpeClauses.foldLeft(tmplClauses)(_ ++ _), templateSource(bindings, None, instExpr))
     })
   }
 }

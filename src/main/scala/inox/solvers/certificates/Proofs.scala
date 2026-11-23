@@ -159,7 +159,17 @@ final case class ScriptProof(script: Seq[SExpr], cpc: Seq[SExpr]) extends Proof 
 
 /** A template of a [[Certificate]]: the terms of its start blocker and arguments, and the indices
   * of the asserts of its clauses in the certificate's template script. */
-final case class Template(params: Seq[SExpr], asserts: Seq[Int])
+final case class Template(params: Seq[SExpr], asserts: Seq[Int], source: Option[Source] = None)
+
+/** What a template is of (see [[unrolling.Templates.Source]]): the expression `expr` that its
+  * clauses are the clauses of, and for the template of a function, the `call` that it is the
+  * value of. */
+final case class Source(call: Option[SExpr], expr: SExpr) {
+  override def toString: String = call match {
+    case Some(c) => s"(function $c $expr)"
+    case None => s"(expression $expr)"
+  }
+}
 
 /** A rule of a [[Certificate]] (see [[unrolling.RuleKernel]]): its kind, the arguments that its
   * clauses are built from, the indices of the asserts of its clauses in the certificate's script,
@@ -188,14 +198,19 @@ final case class Assumptions(query: Seq[Int], complete: Seq[Int])
 final case class Certificate(proof: ScriptProof, templateScript: Seq[SExpr], templates: Seq[Template],
                              rules: Seq[Rule], assumptions: Assumptions) extends Proof {
   /** What the symbols of the solver's session stand for, by their text and in its order. */
-  def symbols: Seq[(String, Ref)] =
+  def solverSymbols: Seq[(String, Ref)] =
     (proof.script ++ templateScript ++ proof.cpc).flatMap(_.symbols).map(s => s.text -> s.ref).distinct.sortBy(_._1)
+
+  /** What the symbols of the sources of the templates stand for, by their text and in its order:
+    * those of the printer that printed them, and the variables of the session. */
+  def sourceSymbols: Seq[(String, Ref)] =
+    templates.flatMap(_.source.toSeq.flatMap(s => s.call.toSeq :+ s.expr)).flatMap(_.symbols).map(s => s.text -> s.ref).distinct.sortBy(_._1)
 
   override def toString: String = {
     def ints(is: Seq[Int]) = is.map(" " + _).mkString
     def string(s: String) = "\"" + s.replace("\"", "\"\"") + "\""
     val templateLines = templates.zipWithIndex.map { case (t, i) =>
-      s"($i (params ${t.params.mkString(" ")})${ints(t.asserts)})"
+      s"($i (params ${t.params.mkString(" ")})${t.source.map(" " + _).getOrElse("")}${ints(t.asserts)})"
     }
     val ruleLines = rules.map { case Rule(kind, arguments, instance, asserts) =>
       val args = arguments.map(a => s"(${a.name}${a.terms.map(" " + _).mkString})").mkString(" ")
@@ -204,7 +219,7 @@ final case class Certificate(proof: ScriptProof, templateScript: Seq[SExpr], tem
       }.getOrElse("")
       s"($kind (args${if (args.isEmpty) "" else " " + args})$inst${ints(asserts)})"
     }
-    val symbolLines = symbols.map { case (text, ref) =>
+    def symbolLines(symbols: Seq[(String, Ref)]) = symbols.map { case (text, ref) =>
       val kind +: rest = ref.describe: @unchecked
       s"($text $kind${rest.map(" " + string(_)).mkString})"
     }
@@ -212,14 +227,15 @@ final case class Certificate(proof: ScriptProof, templateScript: Seq[SExpr], tem
       "(templates\n" + Proof.block("script", templateScript) + "\n" + templateLines.map(_ + "\n").mkString + ")\n" +
       "(rules\n" + ruleLines.map(_ + "\n").mkString + ")\n" +
       s"(assumptions (query${ints(assumptions.query)}) (complete${ints(assumptions.complete)}))\n" +
-      "(symbols\n" + symbolLines.map(_ + "\n").mkString + ")\n" +
+      "(solver-symbols\n" + symbolLines(solverSymbols).map(_ + "\n").mkString + ")\n" +
+      "(source-symbols\n" + symbolLines(sourceSymbols).map(_ + "\n").mkString + ")\n" +
       Proof.block("cpc", proof.cpc) + ")"
   }
 }
 
 object Certificate {
   /** The version of the format that certificates print in, which changes with it. */
-  val version = 1
+  val version = 2
 }
 
 object Proof {

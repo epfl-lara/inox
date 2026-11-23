@@ -3,7 +3,7 @@
 A `(get-proof)` after a `(check-sat)` that Inox answers `unsat` prints the
 certificate of that query on standard output:
 
-    (inox-certificate 1
+    (inox-certificate 2
     (script
     <the SMT-LIB script of the clauses that the unrolling solver checked>
     )
@@ -11,15 +11,18 @@ certificate of that query on standard output:
     (script
     <the SMT-LIB script of the clauses of the templates that the solver instantiated>
     )
-    (<index> (params <its start blocker and arguments>) <the indices of the asserts of its clauses>)
+    (<index> (params <its start blocker and arguments>) <its source> <the indices of the asserts of its clauses>)
     ...)
     (rules
     (<kind> (args (<name> <term> ...) ...) <the indices of the asserts of its clauses>)
     (<kind> (args ...) (instance <template index> ((<template symbol> <value>) ...)) <the indices>)
     ...)
     (assumptions (query <the indices of their asserts>) (complete <the indices of their asserts>))
-    (symbols
+    (solver-symbols
     (<symbol of the script> <kind> "<identifier, type or index>" ...)
+    ...)
+    (source-symbols
+    (<symbol of the sources> <kind> "<identifier, type or index>" ...)
     ...)
     (cpc
     <cvc5's proof that the script has no model>
@@ -39,10 +42,27 @@ the function, lambda or query that the template is of. Together, they give
 that the query has no solution, which is the theorem of an UNSAT answer in
 [`proofs/semantics.md`](../../../../../../proofs/semantics.md).
 
-The certificate doesn't yet hold what relates the templates to the input: the
-input query, the encoding of its program, and why each clause of a template
-holds for its expression. Until it does, a checker takes the templates as
-given.
+The source of a template is the expression that its clauses are of:
+
+    (function <the call of the function on the template's arguments> <its body>)
+    (expression <a term that holds under the template's start blocker>)
+
+The body is the one that the solver unfolds, after its simplifications. A
+source is an Inox expression, which Inox's SMT-LIB 3 printer prints
+(`inox.smtlib3.Printer`, the syntax of `.smt3` inputs, with an
+`(assume <condition> <body>)` for each assumption). Its variables are those of
+the script, under the script's names, and its other symbols are those of the
+printer, which names identifiers as the script does. The source symbols say
+what each symbol of the sources stands for, as the solver symbols do for the script;
+the printer's declarations and definitions, such as the datatypes and the
+bodies of the functions, are left out.
+
+A checker can check that the clauses of the template are those of its source,
+under the encoding of the solver: they name the values of its subexpressions
+and the paths that lead to them. The templates of types, lambdas and
+quantifiers have no source yet. There is no certificate when a source can't be
+printed. The certificate doesn't yet hold the input query and the encoding of
+its program either, which relate the sources to the input.
 
 ## Through the solver interface
 

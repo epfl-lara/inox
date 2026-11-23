@@ -259,17 +259,25 @@ object Checker {
       SList(Atom("templates") :: SList(Atom("script") :: templateScript) :: templateLines),
       SList(Atom("rules") :: ruleLines),
       SList(List(Atom("assumptions"), SList(Atom("query") :: query), SList(Atom("complete") :: complete))),
-      SList(Atom("symbols") :: symbols),
+      SList(Atom("solver-symbols") :: solverSymbols),
+      // what the symbols of the sources stand for, which the checker doesn't relate to the clauses
+      SList(Atom("source-symbols") :: _),
       SList(Atom("cpc") :: cpc))) =>
 
-      if (version != "1") fail(s"the certificate has version $version, and the checker checks version 1")
+      if (version != "2") fail(s"the certificate has version $version, and the checker checks version 2")
 
       val clauses = asserts(script)
       val templateClauses = asserts(templateScript)
 
       val templates: Vector[(List[SExpr], Vector[SExpr])] = templateLines.zipWithIndex.map {
-        case (SList(Atom(i) :: SList(Atom("params") :: params) :: indices), n) if i == n.toString =>
+        case (SList(Atom(i) :: SList(Atom("params") :: params) :: rest), n) if i == n.toString =>
           if (params.distinct.size != params.size) fail(s"template $n has a parameter twice")
+          // the source of the template, which the checker doesn't relate to its clauses
+          val indices = rest match {
+            case SList(List(Atom("function"), _, _)) :: indices => indices
+            case SList(List(Atom("expression"), _)) :: indices => indices
+            case indices => indices
+          }
           (params, indices.map(i => templateClauses(index(i, templateClauses.size, "the templates"))).toVector)
         case (other, n) => fail(s"$other is not template $n")
       }.toVector
@@ -348,7 +356,7 @@ object Checker {
       }
       for (i <- named.indices if !named(i)) fail(s"assert $i, ${clauses(i)}, is the clause of no rule and no assumption")
 
-      for (line <- symbols) line match {
+      for (line <- solverSymbols) line match {
         case SList(Atom(_) :: Atom(_) :: described) if described.forall { case Atom(s) => s.startsWith("\""); case _ => false } =>
         case other => fail(s"$other doesn't describe a symbol")
       }
@@ -368,8 +376,8 @@ object Checker {
 
       Checked(clauses.size, ruleLines.size, instances, queryIndices.size + completeIndices.size, cpc)
 
-    case SList(Atom("inox-certificate") :: Atom(version) :: _) if version != "1" =>
-      fail(s"the certificate has version $version, and the checker checks version 1")
+    case SList(Atom("inox-certificate") :: Atom(version) :: _) if version != "2" =>
+      fail(s"the certificate has version $version, and the checker checks version 2")
     case _ => fail("this is not a certificate")
   }
 

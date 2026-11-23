@@ -65,7 +65,7 @@ class ProofsSuite extends AnyFunSuite {
     val rules = Seq(
       AppliedRule("Root", Seq(Argument("start", Seq("c0"))), None, Seq("c0")),
       AppliedRule("Unfold", Seq(Argument("blocker", Seq("c0")), Argument("flag", Seq())), Some(Instance(0, Seq(Value("p", "c0")))), Seq("c1", "c1")))
-    Certificates.certificate(proof, refutation(rules), print) match {
+    Certificates.certificate(proof, refutation(rules), print, print) match {
       case Right(c) =>
         assert(c.rules == Seq(
           Rule("Root", Seq(Argument("start", Seq(Atom("c0")))), None, Seq(0)),
@@ -73,14 +73,33 @@ class ProofsSuite extends AnyFunSuite {
             Some(Instance(0, Seq(Value(Atom("p"), Atom("c0"))))), Seq(1))))
         assert(c.templates == Seq(Template(Seq(Atom("p")), Seq(0))))
         assert(c.assumptions == Assumptions(Seq(2), Seq(3)))
-        assert(c.symbols == Seq("c0" -> Ref.Variable(x)))
+        assert(c.solverSymbols == Seq("c0" -> Ref.Variable(x)))
         assert(c.toString ==
-          "(inox-certificate 1\n(script\n(assert c0)\n(assert c1)\n(assert a)\n(assert r)\n(check-sat)\n)\n" +
+          "(inox-certificate 2\n(script\n(assert c0)\n(assert c1)\n(assert a)\n(assert r)\n(check-sat)\n)\n" +
           "(templates\n(script\n(declare-const p Bool)\n(assert tc)\n)\n(0 (params p) 0)\n)\n" +
           "(rules\n(Root (args (start c0)) 0)\n(Unfold (args (blocker c0) (flag)) (instance 0 ((p c0))) 1)\n)\n" +
           "(assumptions (query 2) (complete 3))\n" +
-          s"(symbols\n(c0 variable \"${x.id.uniqueName}\" \"BigInt\")\n)\n" +
+          s"(solver-symbols\n(c0 variable \"${x.id.uniqueName}\" \"BigInt\")\n)\n" +
+          "(source-symbols\n)\n" +
           "(cpc\n(assume @p1 c0)\n))")
+      case Left(why) => fail(why)
+    }
+  }
+
+  test("The symbols of the sources are apart from those of the session") {
+    val y = inox.trees.Variable.fresh("y", inox.trees.IntegerType())
+    val withSource = Certificates.Refutation(Seq("c0"), Seq(),
+      Seq(Certificates.TemplateClauses(Seq("p"), Seq("tc"), Some((None, "s")))),
+      Seq(AppliedRule[String]("Root", Seq(), None, Seq("c0"))))
+    val p = ScriptProof(Seq(SList(Seq(Atom("assert"), c0))), Seq())
+    // the source's symbol has the text of a symbol of the session, for another variable
+    def printSources(es: Seq[String]) = Certificates.Printed(es.map(_ => SList(Seq(Atom("assume"), Sym("c0", Ref.Variable(y)), Atom("true")))), Seq())
+    Certificates.certificate(p, withSource, print, printSources) match {
+      case Right(c) =>
+        assert(c.templates.map(_.source.map(_.toString)) == Seq(Some("(expression (assume c0 true))")))
+        assert(c.solverSymbols == Seq("c0" -> Ref.Variable(x)))
+        assert(c.sourceSymbols == Seq("c0" -> Ref.Variable(y)))
+        assert(c.toString.contains(s"\n(source-symbols\n(c0 variable \"${y.id.uniqueName}\" \"BigInt\")\n)\n"), c.toString)
       case Left(why) => fail(why)
     }
   }
@@ -102,25 +121,25 @@ class ProofsSuite extends AnyFunSuite {
   test("A clause asserted twice is named by both asserts") {
     val twice = Certificates.Refutation(Seq("c0", "c0"), Seq(), Seq(), Seq(AppliedRule[String]("Root", Seq(), None, Seq("c0"))))
     val p = ScriptProof(Seq(asserting("c0"), asserting("c0")), Seq())
-    assert(Certificates.certificate(p, twice, print).map(_.rules) == Right(Seq(Rule("Root", Seq(), None, Seq(0, 1)))))
+    assert(Certificates.certificate(p, twice, print, print).map(_.rules) == Right(Seq(Rule("Root", Seq(), None, Seq(0, 1)))))
   }
 
   test("A certificate needs one assert per clause and assumption") {
     val missing = ScriptProof(Seq(asserting("c0")), Seq())
-    assert(Certificates.certificate(missing, refutation(Seq()), print) ==
+    assert(Certificates.certificate(missing, refutation(Seq()), print, print) ==
       Left("the solver's session has 1 asserts, for 2 clauses and 2 assumptions"))
   }
 
   test("A certificate whose terms can't be printed says why") {
     val failing: Seq[String] => Certificates.Printed = _ => throw new IllegalStateException("no SMT-LIB form")
     val rules = Seq(AppliedRule[String]("Root", Seq(), None, Seq("c0", "c1")))
-    assert(Certificates.certificate(proof, refutation(rules), failing) ==
+    assert(Certificates.certificate(proof, refutation(rules), failing, failing) ==
       Left("the certificate's terms can't be printed in SMT-LIB (no SMT-LIB form)"))
   }
 
   test("A certificate needs each clause to be the clause of a rule") {
     val rules = Seq(AppliedRule[String]("Root", Seq(), None, Seq("c0")))
-    assert(Certificates.certificate(proof, refutation(rules), print) ==
+    assert(Certificates.certificate(proof, refutation(rules), print, print) ==
       Left("clause 1 of the solver's session is the clause of no rule"))
   }
 
