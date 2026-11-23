@@ -36,7 +36,10 @@ trait BlockerGraph { self: Templates =>
 
     private[BlockerGraph] val condEquals  = new IncrementalBijection[Encoded, Set[Encoded]]
 
-    val incrementals: Seq[IncrementalState] = Seq(condImplies, condImplied, potImplies, potImplied, condEquals)
+    // the pairs whose [[Rule.Enables]] clause was already built
+    private[BlockerGraph] val enabled = new IncrementalSet[(Encoded, Encoded)]
+
+    val incrementals: Seq[IncrementalState] = Seq(condImplies, condImplied, potImplies, potImplied, condEquals, enabled)
   }
 
   protected def freshConds(
@@ -93,6 +96,17 @@ trait BlockerGraph { self: Templates =>
   protected def registerImplication(b1: Encoded, b2: Encoded): Unit = {
     potImplies += b1 -> (potImplies(b1) + b2)
     potImplied += b2 -> (potImplied(b2) + b1)
+  }
+
+  /** The [[Rule.Enables]] clause of `target` under `blocker`, unless it was built already: the same
+    * blocker reaches the same target each time it meets the call, equality or application that the
+    * target stands for. */
+  protected def enables(blocker: Encoded, target: Encoded): Clauses = {
+    val pair = (blocker, target)
+    if (enabled(pair)) Seq.empty else {
+      enabled += pair
+      Rule.Enables(blocker, target).clauses
+    }
   }
 
   protected def blockerEquals(b: Encoded): Set[Encoded] = condEquals.getBorElse(b, Set.empty)

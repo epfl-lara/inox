@@ -254,7 +254,7 @@ trait TypeTemplates { self: Templates =>
       val elemClosures = typeOps.variablesOf(elemTpe).toSeq.sortBy(_.id).map(subst)
 
       registerImplication(blocker, typeBlocker)
-      Rule.Enables(mkAnd(blocker, guard), typeBlocker).clauses ++
+      enables(mkAnd(blocker, guard), typeBlocker) ++
         reads.link(next, Seq(mkImplies(guard, result)), Some(blocker)) ++
         instantiateType(typeBlocker, Typing(elemTpe, value, Constraint(result, elemClosures, free)))
     }
@@ -305,7 +305,7 @@ trait TypeTemplates { self: Templates =>
     }
 
     registerImplication(blocker, readBlocker)
-    readClauses ++ Rule.Enables(blocker, readBlocker).clauses
+    readClauses ++ enables(blocker, readBlocker)
   }
 
   /** A collection, whose reads typing is the conjunction that its `typing` result stands for (see

@@ -415,7 +415,7 @@ trait FunctionTemplates { self: Templates =>
         // We connect it to the defBlocker: blocker => defBlocker
         if (defBlocker != blocker) {
           registerImplication(blocker, defBlocker)
-          newCls ++= Rule.Enables(blocker, defBlocker).clauses
+          newCls ++= enables(blocker, defBlocker)
         }
 
         reporter.debug("Unrolling behind "+call+" ("+newCls.size+")")

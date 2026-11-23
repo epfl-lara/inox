@@ -371,7 +371,7 @@ trait QuantificationTemplates { self: Templates =>
       val (blocker, blockerClauses) = encodeBlockers(blockers)
       registerImplication(blocker, matcherBlocker)
       clauses ++= blockerClauses
-      clauses ++= Rule.Enables(blocker, matcherBlocker).clauses
+      clauses ++= enables(blocker, matcherBlocker)
     }
 
     clauses.toSeq
@@ -697,7 +697,7 @@ trait QuantificationTemplates { self: Templates =>
         val (blocker, blockerClauses) = encodeBlockers(bs)
         registerImplication(blocker, substBlocker)
         clauses ++= blockerClauses
-        clauses ++= Rule.Enables(blocker, substBlocker).clauses
+        clauses ++= enables(blocker, substBlocker)
       }
 
       clauses.toSeq
