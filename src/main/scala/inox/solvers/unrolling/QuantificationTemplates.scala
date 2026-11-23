@@ -257,14 +257,14 @@ trait QuantificationTemplates { self: Templates =>
     axioms: Vector[Axiom],
     axiomStates: Map[Axiom, AxiomState],
     matcherBlockers: VectorMap[Matcher, Encoded],
-    waitingMatchers: VectorMap[(Encoded, Encoded), Unit],
+    waitingMatchers: Vector[(Encoded, Encoded)],
     substBlockers: VectorMap[(Axiom, Map[Encoded, Arg]), Encoded],
     templates: VectorMap[TemplateStructure, (QuantificationTemplate, Encoded)],
     deferred: Deferred)
 
   private object QuantificationsState {
     val empty: QuantificationsState =
-      QuantificationsState(Vector.empty, Map.empty, VectorMap.empty, VectorMap.empty, VectorMap.empty, VectorMap.empty, Deferred.empty)
+      QuantificationsState(Vector.empty, Map.empty, VectorMap.empty, Vector.empty, VectorMap.empty, VectorMap.empty, Deferred.empty)
   }
 
   private[unrolling] object quantificationsManager extends Manager {
@@ -378,7 +378,7 @@ trait QuantificationTemplates { self: Templates =>
       // of a function belong to a model. Until there is an axiom, the blockers of the calls to
       // named functions are thus not looked at, and the clauses that enable them wait for one.
       if (axioms.isEmpty && matcher.key.isRight) {
-        state.update(s => s.copy(waitingMatchers = s.waitingMatchers.updated(blocker -> matcherBlocker, ())))
+        state.update(s => s.copy(waitingMatchers = s.waitingMatchers :+ (blocker -> matcherBlocker)))
       } else {
         clauses ++= enables(blocker, matcherBlocker)
       }
@@ -797,10 +797,10 @@ trait QuantificationTemplates { self: Templates =>
           state.update(s => s.copy(axioms = s.axioms :+ axiom))
 
           // the blockers of the matchers now guard instances, so they must hold where enabled
-          for ((blocker, matcherBlocker) <- state.get.waitingMatchers.keys) {
+          for ((blocker, matcherBlocker) <- state.get.waitingMatchers) {
             clauses ++= enables(blocker, matcherBlocker)
           }
-          state.update(s => s.copy(waitingMatchers = VectorMap.empty))
+          state.update(s => s.copy(waitingMatchers = Vector.empty))
 
           for ((m,b) <- matcherBlockers.toList) {
             clauses ++= axiom.instantiate(b, m)
