@@ -73,8 +73,51 @@ class CustomEqualitySuite extends SolverTestSuite {
     })
   }
 
+  /** The multiplicity of 1 in `x`, behind `n` recursive calls. No number of unfoldings relates the
+    * calls on two bags when `n` is free. */
+  val deepID = FreshIdentifier("deep")
+  val deepFd = mkFunDef(deepID)() { _ => (
+    Seq("x" :: BagType(IntegerType()), "n" :: IntegerType()), IntegerType(), {
+      case Seq(x, n) =>
+        if_ (n <= E(BigInt(0))) { MultiplicityInBag(E(BigInt(1)), x) } else_ { E(deepID)(x, n - E(BigInt(1))) }
+    })
+  }
+
+  /** `x`, behind `n` recursive calls. */
+  val keepID = FreshIdentifier("keep")
+  val keepFd = mkFunDef(keepID)() { _ => (
+    Seq("x" :: BagType(IntegerType()), "n" :: IntegerType()), BagType(IntegerType()), {
+      case Seq(x, n) => if_ (n <= E(BigInt(0))) { x } else_ { E(keepID)(x, n - E(BigInt(1))) }
+    })
+  }
+
+  /** Two functions that call `deep`, so that its calls are unfolded after their own. */
+  val leftID = FreshIdentifier("left")
+  val rightID = FreshIdentifier("right")
+  val Seq(leftFd, rightFd) = Seq(leftID, rightID).map(id => mkFunDef(id)() { _ => (
+    Seq("x" :: BagType(IntegerType()), "n" :: IntegerType()), IntegerType(), {
+      case Seq(x, n) => E(deepID)(x, n)
+    })
+  })
+
+  /** Whether `x` and `y` are equal, behind two calls, so that their equality is unfolded after the
+    * calls of the formula. */
+  val sameID = FreshIdentifier("same")
+  val laterID = FreshIdentifier("later")
+  val sameFd = mkFunDef(sameID)() { _ => (
+    Seq("x" :: BagType(IntegerType()), "y" :: BagType(IntegerType())), BooleanType(), {
+      case Seq(x, y) => Equals(x, y)
+    })
+  }
+  val laterFd = mkFunDef(laterID)() { _ => (
+    Seq("x" :: BagType(IntegerType()), "y" :: BagType(IntegerType())), BooleanType(), {
+      case Seq(x, y) => E(sameID)(x, y)
+    })
+  }
+
   override protected def symbols: Symbols =
-    NoSymbols.withSorts(Seq(boxSort, listSort)).withFunctions(Seq(countFd, pickFd, containsFd, totalFd))
+    NoSymbols.withSorts(Seq(boxSort, listSort)).withFunctions(
+      Seq(countFd, pickFd, containsFd, totalFd, deepFd, keepFd, leftFd, rightFd, sameFd, laterFd))
   given Symbols = symbols
 
   override protected def solverInfos = super.solverInfos.map { info =>
@@ -197,6 +240,32 @@ class CustomEqualitySuite extends SolverTestSuite {
 
   test("Bag arguments of functions with a refined uninterpreted call", Bags) { ctx =>
     valid(ctx, Equals(FunctionInvocation(pickID, Seq(), Seq(ab)), FunctionInvocation(pickID, Seq(), Seq(ba))))
+  }
+
+  // The calls of `deep` on equal bags are only equal by the congruence of the function: unfolding
+  // them never ends, so a bound on the unfoldings turns a missing congruence into a failure.
+  val n = Variable.fresh("n", IntegerType())
+  def deep(x: Expr, k: Expr = n): Expr = FunctionInvocation(deepID, Seq(), Seq(x, k))
+  def bounded(ctx: Context): Context = ctx.withOpts(unrolling.optUnrollBound(10))
+
+  test("Congruence of functions over bags", Bags) { ctx =>
+    valid(bounded(ctx), Implies(Equals(a, b), Equals(deep(a), deep(b))))
+    notRefuted(bounded(ctx), And(Not(Equals(a, b)), Not(Equals(deep(a), deep(b)))))
+  }
+
+  test("Congruence of functions over bags that are called after the equality", Bags) { ctx =>
+    valid(bounded(ctx), Implies(Equals(a, b),
+      Equals(FunctionInvocation(leftID, Seq(), Seq(a, n)), FunctionInvocation(rightID, Seq(), Seq(b, n)))))
+  }
+
+  test("Congruence of functions over bags that are called before the equality", Bags) { ctx =>
+    valid(bounded(ctx), Implies(FunctionInvocation(laterID, Seq(), Seq(a, b)), Equals(deep(a), deep(b))))
+  }
+
+  test("Congruence of functions over the bags of congruent calls", Bags) { ctx =>
+    val m = Variable.fresh("m", IntegerType())
+    def keep(x: Expr): Expr = FunctionInvocation(keepID, Seq(), Seq(x, m))
+    valid(bounded(ctx), Implies(Equals(a, b), Equals(deep(keep(a)), deep(keep(b)))))
   }
 
   test("Bag arguments of free functions", Bags, Functions) { ctx =>
