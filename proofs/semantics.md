@@ -9,7 +9,8 @@ It is written to be read by people and by a code generator. Only the fenced
 blocks tagged `inox-sem` are normative; the prose around them is commentary.
 The generator (`inox.semantics.Codegen`) reads those blocks and writes the
 semantics for each checker or tool that needs it: today, a Scala evaluator that
-the tests compare with Inox's `RecursiveEvaluator`. The language of the blocks
+the tests compare with Inox's `RecursiveEvaluator`, and Lean definitions that
+proofs are stated against. The language of the blocks
 is described at the end of this file.
 
 This version covers integers, Booleans, unit, characters, reals, strings,
@@ -34,8 +35,9 @@ expression `e`. Its result is one of:
 
 Fuel bounds the depth of nested function calls and applications: a call
 evaluates the callee's body with one less fuel, and so does the application of
-a first-class function, since a function stored in a value can apply itself;
-nothing else consumes fuel. Inox has no
+a first-class function, since a function stored in a value can apply itself,
+and the call of an uninterpreted function, whose interpretation in a model can
+call it again; nothing else consumes fuel. Inox has no
 non-deterministic construct, so evaluation is a function, and more fuel never
 changes a result other than `OutOfFuel`. An expression whose evaluation
 diverges is one that runs out of fuel for every amount of fuel, and Inox
@@ -703,21 +705,21 @@ integers, one bit at a time.
   (mod a 2))
 
 (define (bit-and (a Int) (b Int)) Int
-  (if (or (= a 0) (= b 0))
+  (if (or (<= a 0) (<= b 0))
     0
     (+ (* 2 (bit-and (div a 2) (div b 2))) (* (bit a) (bit b)))))
 
 (define (bit-or (a Int) (b Int)) Int
-  (if (= a 0)
+  (if (<= a 0)
     b
-    (if (= b 0)
+    (if (<= b 0)
       a
       (+ (* 2 (bit-or (div a 2) (div b 2))) (- (+ (bit a) (bit b)) (* (bit a) (bit b)))))))
 
 (define (bit-xor (a Int) (b Int)) Int
-  (if (= a 0)
+  (if (<= a 0)
     b
-    (if (= b 0)
+    (if (<= b 0)
       a
       (+ (* 2 (bit-xor (div a 2) (div b 2))) (mod (+ (bit a) (bit b)) 2)))))
 ```
@@ -1101,7 +1103,7 @@ integer square root with enough bits, and rounds it with the rounding mode.
 
 (define (isqrt-from (n Int) (x Int)) Int
   (let ((y (div (+ x (div n x)) 2)))
-    (if (< y x) (isqrt-from n y) x)))
+    (if (and (< 0 y) (< y x)) (isqrt-from n y) x)))
 
 (define (isqrt (n Int)) Int
   (if (<= n 0) 0 (isqrt-from n (pow2 (div (+ (bitlen n) 1) 2)))))
@@ -2006,13 +2008,15 @@ model rather than by the program.
 
 (case eval (UninterpretedCall f tps args)
   (let! ((vs (eval-list P fuel env args)))
-    (match P
-      ((Program _ _ _ is _)
-        (let! ((i (lookup-interpretation is f (resolve-all (env-types env) tps))))
-          (match i
-            ((Interpretation _ _ params body)
-              (let! ((bs (bind-all params vs)))
-                (eval P fuel (Env (Nil) bs) body)))))))))
+    (if (<= fuel 0)
+      (OutOfFuel)
+      (match P
+        ((Program _ _ _ is _)
+          (let! ((i (lookup-interpretation is f (resolve-all (env-types env) tps))))
+            (match i
+              ((Interpretation _ _ params body)
+                (let! ((bs (bind-all params vs)))
+                  (eval P (- fuel 1) (Env (Nil) bs) body))))))))))
 ```
 
 ### Types
@@ -2324,4 +2328,13 @@ A body is a term:
 
 A function whose body quantifies can't be computed. An executable backend
 leaves it abstract, for an oracle to give, and the functions that call it
-compute relative to that oracle. Proof checkers define it as written.
+compute relative to that oracle. A proof checker defines it as written, unless
+it is defined in terms of itself: the equality of two functions and the type
+of a function evaluate their bodies, which compare and type values in turn.
+Such a function is then also given by an oracle, of which the proofs assume
+that it satisfies the function's definition.
+
+Every function is total: its definition must terminate on all its arguments,
+also on those it is never called with, since a proof checker only accepts a
+recursion that it sees end. The helpers on non-negative integers therefore
+stop on negative ones.

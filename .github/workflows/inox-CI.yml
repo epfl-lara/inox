@@ -168,3 +168,15 @@ jobs:
       run: INOX_CPC_DIR="$RUNNER_TEMP/cpc" sbt -batch "proofs/testOnly inox.certificates.CheckerSuite"
     - name: Check their proofs with Ethos
       run: proofs/certificates/check.sh "$RUNNER_TEMP/cpc" 4
+
+  semantics-lean:
+    name: Semantics (Lean)
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v7
+    # the Lean definitions generated from proofs/semantics.md: Lean checks that they are total
+    - name: Build the Lean semantics
+      uses: leanprover/lean-action@v1
+      with:
+        lake-package-directory: proofs/semantics
