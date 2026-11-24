@@ -1,0 +1,29 @@
+name = "InoxCertificatesVerification"
+version = "0.1.0"
+srcDir = ".."
+defaultTargets = ["InoxVerification"]
+
+# The verification project of Logos: the semantics of SMT-LIB that its theorem is about, which
+# needs Mathlib, and its proofs, which take hours to build. It brings the checker of Logos that
+# the certificate checker is built on.
+[[require]]
+name = "LogosVerification"
+git = "https://github.com/cvc5/logos"
+rev = "33c7e71cd19f7d462895cf5f6c67d4ffbe059351"
+subDir = "verification"
+
+[[lean_lib]]
+name = "Inox"
+
+# The theorems, given the soundness of Logos: they only need the definitions of Logos.
+[[lean_lib]]
+name = "InoxVerification"
+roots = []
+globs = ["Inox.Correct"]
+
+# The theorems with the soundness of Logos discharged by its own theorem: `lake build InoxClosed`
+# builds the proofs of Logos.
+[[lean_lib]]
+name = "InoxClosed"
+roots = []
+globs = ["Inox.Closed"]

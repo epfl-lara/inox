@@ -209,9 +209,10 @@ apart from the solver. From the text of a certificate, it checks that:
   lowered to the syntax of the script;
 - the proof's `assume` commands are asserts of the script.
 
-Ethos then checks the proof (as can Logos in Lean, which is proved sound, for
-the proofs in cvc5's standard signature). CI does both for a corpus of
-regression files.
+Ethos then checks the proof. The checker also exists in Lean
+([`proofs/lean`](../../../../../../proofs/lean/README.md)), where Logos, which
+is proved sound, checks the proofs in cvc5's standard signature. CI does both
+for a corpus of regression files.
 
 Certificates need cvc5 1.4 or later (the `cvc5` of the `smt-cvc5` solver),
 whose proofs match the CPC signature that the checkers use. cvc5 runs with

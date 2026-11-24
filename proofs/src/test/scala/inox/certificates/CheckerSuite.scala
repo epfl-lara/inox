@@ -174,6 +174,10 @@ class CheckerSuite extends AnyFunSuite {
   // the CPC proofs of the corpus are written there, for a CPC checker (see `check.sh`)
   val cpcDir: Option[java.nio.file.Path] = sys.env.get("INOX_CPC_DIR").map(Paths.get(_))
 
+  // what Inox prints for each file of the corpus is written there, for the Lean checker
+  // (see `proofs/lean`)
+  val answersDir: Option[java.nio.file.Path] = sys.env.get("INOX_ANSWERS_DIR").map(Paths.get(_))
+
   for (file <- corpus) test(s"The certificates of $file hold") {
     assume(solvers.SolverFactory.hasCVC5, "needs cvc5")
     val text = answers(file)
@@ -182,6 +186,10 @@ class CheckerSuite extends AnyFunSuite {
     val found = certificates(text)
     assert(found.nonEmpty, s"Inox printed no certificate:\n${text.take(2000)}")
     assert(found.size == text.linesIterator.count(_ == "unsat"), "an unsat answer has no certificate")
+    for (dir <- answersDir) {
+      Files.createDirectories(dir)
+      Files.writeString(dir.resolve(file.replace('/', '_') + ".txt"), text)
+    }
     for ((certificate, n) <- found.zipWithIndex) {
       val checked = check(certificate)
       for (dir <- cpcDir) {
