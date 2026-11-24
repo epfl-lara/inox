@@ -117,10 +117,8 @@ trait FunctionTemplates { self: Templates =>
       }
 
       val (contents0, str) = Template.contents(
-        pathVar, arguments, tmplClauses, optCall = Some(Defined(tfd)), partial = true)
-      val contents = contents0.copy(
-        clauses = contents0.clauses ++ rankClauses(tfd, contents0, bodySites),
-        source = templateSource(substMap, Some(call), body))
+        pathVar, arguments, tmplClauses, optCall = Some(Defined(tfd)), partial = true, source = Some((Some(call), body)))
+      val contents = contents0.copy(clauses = contents0.clauses ++ rankClauses(tfd, contents0, bodySites))
 
       val funString : () => String = () => {
         "Template for def " + tfd.signature +
@@ -214,7 +212,8 @@ trait FunctionTemplates { self: Templates =>
       val (p, clauses) = mkExprClauses(start, interpreted, substMap)
       val tmplClauses = clauses + (start -> Equals(Application(callee.function, args), p))
 
-      val (contents, str) = Template.contents(pathVar, arguments, tmplClauses, optCall = Some(callee), partial = true)
+      val (contents, str) = Template.contents(pathVar, arguments, tmplClauses, optCall = Some(callee), partial = true,
+        source = Some((Some(Application(callee.function, args)), interpreted)))
       val res = new FunctionTemplate(contents, () => "Template for the interpretation of " + callee.signature + " is :\n" + str())
       functionCaches.interpreted(callee) = res
       res
@@ -323,7 +322,8 @@ trait FunctionTemplates { self: Templates =>
       tfd.params.map(_.toVariable) zip args.map(_.encoded),
       tmplClauses,
       optCall = Some(Defined(tfd)),
-      partial = true
+      partial = true,
+      source = Some((Some(tfd.applied), value))
     )
 
     new Template { val contents = valueContents }

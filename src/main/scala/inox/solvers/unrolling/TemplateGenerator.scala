@@ -8,6 +8,24 @@ import utils._
 import scala.collection.mutable.{Map => MutableMap, Set => MutableSet}
 import scala.collection.immutable.{ListSet, VectorMap}
 
+/** The functions that the sources of templates name, which are no functions of the program (see
+  * [[Templates.Source]]). They are Boolean uninterpreted calls whose type argument is the type
+  * `T` that they are about:
+  *  - `typing[T]("<mode>", x, <closures>)`: that `x` lies in the type `T`, which is
+  *    checked the way the mode says (see [[TypingGenerator]]): `free`, `contract` or `membership`,
+  *    then `-domain` when the check is the domain of a quantifier, and `-ground` when `x` is a
+  *    fresh ground;
+  *  - `typing[T]("capture", x, f)`: that the functions that the value `x` of type `T` holds
+  *    come before the lambda `f` that captures `x` (see [[TypeTemplates.CaptureTemplate]]);
+  *  - `reads[T]("<mode>", x, <closures>)`: that the values that the reads of the collection
+  *    `x` of type `T` give lie in their type (see [[Collection]]);
+  *  - `inhabited[T]()`: that the type parameter `T` has values. */
+object TemplateGenerator {
+  val typing: Identifier = FreshIdentifier("typing")
+  val reads: Identifier = FreshIdentifier("reads")
+  val inhabited: Identifier = FreshIdentifier("inhabited")
+}
+
 trait TemplateGenerator { self: Templates =>
   import context.{given, _}
   import program._
@@ -29,6 +47,9 @@ trait TemplateGenerator { self: Templates =>
     * @param definitions     the definitions of condition variables that hold their own guard: these
     *                        clauses aren't guarded, but the calls and other items of each belong
     *                        under the condition variable it is listed under
+    * @param meanings        the meanings of the symbols and markers that sources name (see [[Source]])
+    * @param bound           the symbols that the variables of lets are replaced with (see [[sourceExpr]])
+    * @param abstracted      the expressions that sources name by what the clauses have of them (see [[sourceExpr]])
     */
   protected case class TemplateClauses(
     condVars: Map[Variable, Encoded] = Map.empty,
@@ -40,7 +61,10 @@ trait TemplateGenerator { self: Templates =>
     equalities: Equalities = VectorMap.empty,
     lambdas: Seq[LambdaTemplate] = Seq.empty,
     quantifications: Seq[QuantificationTemplate] = Seq.empty,
-    definitions: Map[Variable, Seq[Expr]] = VectorMap.empty
+    definitions: Map[Variable, Seq[Expr]] = VectorMap.empty,
+    meanings: Seq[(Expr, Expr)] = Seq.empty,
+    bound: Map[Expr, Expr] = Map.empty,
+    abstracted: Map[Expr, Expr] = Map.empty
   ) {
     def ++(that: TemplateClauses): TemplateClauses = TemplateClauses(
       condVars ++ that.condVars,
@@ -52,7 +76,10 @@ trait TemplateGenerator { self: Templates =>
       equalities `merge` that.equalities,
       lambdas ++ that.lambdas,
       quantifications ++ that.quantifications,
-      definitions `merge` that.definitions
+      definitions `merge` that.definitions,
+      meanings ++ that.meanings,
+      bound ++ that.bound,
+      abstracted ++ that.abstracted
     )
 
     def +(pair: (Variable, Expr)): TemplateClauses = copy(guardedExprs = guardedExprs `merge` pair)
@@ -101,6 +128,58 @@ trait TemplateGenerator { self: Templates =>
       if (interpretation(uc.id, uc.tps).isDefined) interpretedFunctions(f) = Interpreted(uc.id, uc.tps)
       (f, fT)
     })._1
+
+  /** `expr` as the source of a template whose clauses encode the lambdas of `lambdas`: its lambdas
+    * are the symbols that their templates define the applications of, its quantifiers are what
+    * `abstracted` has of them, and its calls of uninterpreted functions are applications of their
+    * free functions, which are assumed to lie in their types (see the case of
+    * [[UninterpretedCall]] in [[mkExprClauses]]). The lambdas and quantifiers of the clauses have
+    * the symbols that `bound` gives to the variables of lets. */
+  private[unrolling] def sourceExpr(expr: Expr, lambdas: Seq[LambdaTemplate], bound: Map[Expr, Expr],
+                                    abstracted: Map[Expr, Expr]): Expr = {
+    val ids = lambdas.map(t => (t.lambda: Expr) -> (t.ids._1: Expr)).toMap ++ abstracted
+    // the form of an axiom has the axiom itself, which is not abstracted again, and the variables
+    // of the lets of the source where the clauses have their symbols
+    val unbound: Map[Expr, Expr] = bound.toSeq.collect { case (v, s: Variable) => s -> v }
+      .groupBy(_._1).collect { case (s, Seq((_, v))) => (s: Expr) -> v }
+    def named(e: Expr, seen: Set[Expr]): Expr = e match {
+      case (_: Lambda | _: Forall) if !seen(e) && ids.get(exprOps.replace(bound, e)).exists(_ != e) =>
+        ids(exprOps.replace(bound, e)) match {
+          case v: Variable => v
+          case form => named(exprOps.replace(unbound, form), seen + e)
+        }
+      case Operator(es, recons) => recons(es.map(named(_, seen)))
+    }
+    exprOps.postMap {
+      case uc @ UninterpretedCall(id, tps, args, _) if uninterpretedFunctions.contains(id -> tps) =>
+        val f = uninterpretedFunctions(id -> tps)._1
+        val (app, resTpe) = uninterpretedApplication(uc, f, args)
+        val (baseTpe, preds) = refinements(resTpe, app)
+        Some(Assume(freeTyping(f.tpe, f), Assume(andJoin(freeTyping(baseTpe, app) +: preds), app)))
+      // a construction needs the sort's invariant (see the case of [[ADT]] in [[mkExprClauses]])
+      case adt: ADT if guard(adt).isDefined => constructionInvariant(adt).map(Assume(_, adt))
+      case _ => None
+    }(named(expr, Set.empty))
+  }
+
+  /** The application of the free function `f` that stands for the uninterpreted call `uc` on the
+    * arguments `args`, with the type of its result, whose parameters are bound to the arguments. */
+  private def uninterpretedApplication(uc: UninterpretedCall, f: Variable, args: Seq[Expr]): (Expr, Type) = {
+    val app = if (uninterpretedConstants(uc.id -> uc.tps)) f else Application(f, args).copiedFrom(uc)
+    (app, uc.tpe match {
+      case PiType(params, to) => typeOps.replaceFromSymbols((params zip args).toMap, to)
+      case FunctionType(_, to) => to
+      case tpe => throw new IllegalArgumentException(s"Uninterpreted call with type $tpe: $uc")
+    })
+  }
+
+  /** The type that `tpe` refines, with what its refinements say of `value`. */
+  private def refinements(tpe: Type, value: Expr): (Type, Seq[Expr]) = tpe match {
+    case RefinementType(vd, pred) =>
+      val (base, preds) = refinements(vd.tpe, value)
+      (base, preds :+ exprOps.replaceFromSymbols(Map(vd -> value), pred))
+    case _ => (tpe, Seq.empty)
+  }
 
   private def guard(expr: Expr): Option[Expr] =
     if (modes.guardPartialOperations) definedness(expr) else None
@@ -268,7 +347,11 @@ trait TemplateGenerator { self: Templates =>
     val (struct, depsByScope) = normalizeStructure(expr)
     val deps = depsByScope.map { case (v, e, _) => v -> e }.toMap
 
-    val (depSubst, depContents) =
+    // the dependencies that aren't simple, which the source of their clauses is of, when the
+    // rules are logged (see [[dependenciesSource]])
+    val encoded = scala.collection.mutable.ListBuffer[EncodedDependency]()
+
+    val (depSubst, depContents0) =
       depsByScope.foldLeft(substMap, TemplateContents.empty(pathVar -> substMap(pathVar), Seq())) {
         case ((depSubst, contents), (v, expr, conditions)) =>
           if (isSimple(expr)) {
@@ -288,6 +371,7 @@ trait TemplateGenerator { self: Templates =>
 
             val extracted = Template.extractCalls(e, clauseSubst)
             val encoding = Template.encode(pathVar -> substMap(pathVar), Seq.empty, cls, clauseSubst)
+            if (loggingRules) encoded += EncodedDependency(e, expr, Seq.empty, cls, clauseSubst)
 
             (depSubst + (v -> mkEncoder(clauseSubst)(e)), contents `merge` (
               cls.condVars, cls.exprVars, cls.condTree, encoding.clauses,
@@ -306,6 +390,7 @@ trait TemplateGenerator { self: Templates =>
             val clauseSubst: Map[Variable, Encoded] = localSubst ++ cls.symbols
 
             val encoding = Template.encode(pathVar -> substMap(pathVar), Seq.empty, cls, clauseSubst)
+            if (loggingRules) encoded += EncodedDependency(exprVar, expr, conditions, cls, clauseSubst)
 
             (depSubst + (v -> localSubst(exprVar)), contents `merge` (
               cls.condVars + (condVar -> localSubst(condVar)),
@@ -316,6 +401,9 @@ trait TemplateGenerator { self: Templates =>
           }
       }
 
+    val depContents = if (!loggingRules) depContents0 else
+      depContents0.copy(source = dependenciesSource(pathVar -> substMap(pathVar), substMap, depSubst, encoded.toSeq))
+
     val sortedDeps = exprOps.variablesOf(struct).map(v => v -> deps(v)).toSeq.sortBy(_._1.id)
     val dependencies = sortedDeps.map(p => depSubst(p._1))
     val structure = new TemplateStructure(struct, dependencies, depContents)
@@ -323,6 +411,31 @@ trait TemplateGenerator { self: Templates =>
     val freshSubst = exprOps.variablesOf(struct).map(v => v -> v.freshen).toMap
     val freshDeps = depSubst.map { case (v, e) => freshSubst.getOrElse(v, v) -> e }
     (exprOps.replaceFromSymbols(freshSubst, struct), structure, freshDeps)
+  }
+
+  /** A dependency of a structure that isn't simple: the `result` that the `clauses` give to `expr`
+    * where the `conditions` hold, and the `symbols` of the clauses. */
+  private case class EncodedDependency(result: Expr, expr: Expr, conditions: Seq[Expr], clauses: TemplateClauses,
+                                       symbols: Map[Variable, Encoded])
+
+  /** What the clauses of the dependencies of a structure are of (see [[Template.contents]]): the
+    * values of the dependencies, each under its conditions. */
+  private def dependenciesSource(pathVar: (Variable, Encoded), substMap: Map[Variable, Encoded], depSubst: Map[Variable, Encoded],
+                                 deps: Seq[EncodedDependency]): Option[Source] = {
+    val clauses = deps.map(_.clauses).foldLeft(TemplateClauses())(_ ++ _)
+    val symbols = Template.symbols(pathVar, Seq.empty, clauses, deps.flatMap(_.symbols).toMap ++ depSubst)
+    // a result that is a symbol of the clauses means the dependency
+    val meanings = deps.collect { case EncodedDependency(r: Variable, expr, _, _, _) if !substMap.contains(r) => r -> expr }
+    val values = deps.map { dep =>
+      // a result that is a term over the symbols of the clauses, such as a product with the
+      // value of a conditional, is only reached: its symbols are those that the clauses define
+      val value = dep.result match {
+        case r: Variable if !substMap.contains(r) => Equals(r, dep.expr)
+        case _ => Let(ValDef.fresh("dep", dep.expr.getType), dep.expr, BooleanLiteral(true))
+      }
+      if (dep.conditions.isEmpty) value else IfExpr(andJoin(dep.conditions), value, BooleanLiteral(true))
+    }
+    templateSource(clauses, symbols, None, andJoin(values), meanings)
   }
 
   final private class Builder(pathVar: Variable, substMap: Map[Variable, Encoded]) {
@@ -368,11 +481,12 @@ trait TemplateGenerator { self: Templates =>
     // The typings and equalities are kept in the order in which they are stored (see [[Items]])
     var types: Map[Encoded, Set[Typing]] = VectorMap.empty
     def storeType(pathVar: Variable, tpe: Type, arg: Expr, inDomain: Boolean = false, ground: Boolean = false)
-                 (using generator: TypingGenerator): Expr = {
+                 (using generator: TypingGenerator): Check = {
       val b = encodedCond(pathVar)
       val encoder = mkEncoder(localSubst)
       val closures = typeOps.variablesOf(tpe).toSeq.sortBy(_.id).map(encoder).map(Left(_))
-      val (result, typing) = generator match {
+      // the source names the typing that another template unfolds (see [[instantiateTyping]])
+      val (result, typing, source) = generator match {
         case FreeGenerator | ContractGenerator=>
           val typeCall: Variable = Variable.fresh("tp", BooleanType(), true)
           storeExpr(typeCall)
@@ -381,31 +495,40 @@ trait TemplateGenerator { self: Templates =>
           // are checked as fresh grounds (see `ensureGrounds`)
           val domain = inDomain && (ground || !tpe.isInstanceOf[FunctionType | PiType])
           val constraint = Constraint(exprVars(typeCall), closures, generator == FreeGenerator, domain, ground && domain)
-          (typeCall, Typing(tpe, encoder(arg), constraint))
+          (typeCall, Typing(tpe, encoder(arg), constraint), typingMarker(typingMode(generator, domain, ground && domain), tpe, arg))
 
         case MembershipGenerator =>
           val typeCall: Variable = Variable.fresh("tp", BooleanType(), true)
           storeExpr(typeCall)
 
-          (typeCall, Typing(tpe, encoder(arg), Membership(exprVars(typeCall), closures)))
+          (typeCall, Typing(tpe, encoder(arg), Membership(exprVars(typeCall), closures)),
+            typingMarker(typingMode(generator, true, false), tpe, arg))
 
-        case CaptureGenerator(container, containerType) =>
+        case g @ CaptureGenerator(container, containerType, variable) =>
+          // a function that a lambda captures comes before it, which the capture template assumes
+          // (see [[CaptureTemplate]]), and the functions in the other values do, which another
+          // capture template assumes
+          val ordered = if (!loggingRules) BooleanLiteral(true) else Assume(tpe.getType match {
+            case ft: FunctionType =>
+              LessThan(Application(orderFunction(ft)._1, Seq(arg)), Application(orderFunction(containerType)._1, Seq(variable)))
+            case _ => typingSource(g, tpe.getType, arg, false, false)
+          }, BooleanLiteral(true))
           // @nv: note that we only store the non-dependent type here as we don't need
           //      to consider dependent types when looking at captures
-          (BooleanLiteral(true), Typing(tpe.getType, encoder(arg), Capture(container, containerType)))
+          (BooleanLiteral(true), Typing(tpe.getType, encoder(arg), Capture(container, containerType)), ordered)
       }
 
       types = types `merge` (b -> typing)
-      result
+      named(result, source)
     }
 
     // Types the reads of a collection whose elements have contracts or ADT invariants (see [[Collection]]).
     // The elements that only need unrolling as free values (e.g. sets, functions or type parameters) aren't typed:
     // their reads may be many (e.g. those of the heap in Stainless) and typing them doesn't help proofs.
     def storeReads(pathVar: Variable, tpe: Type, elemTpe: Type, arg: Expr, inDomain: Boolean)
-                  (using generator: TypingGenerator): Expr =
+                  (using generator: TypingGenerator): Check =
       if (!(generator == FreeGenerator || (generator == ContractGenerator && !inDomain)) ||
-          !(ReadUnrolling `unroll` elemTpe)) BooleanLiteral(true)
+          !(ReadUnrolling `unroll` elemTpe)) Check.trivial
       else {
         val b = encodedCond(pathVar)
         val encoder = mkEncoder(localSubst)
@@ -414,7 +537,7 @@ trait TemplateGenerator { self: Templates =>
         storeExpr(readsCall)
         val typing = Typing(tpe, encoder(arg), Collection(exprVars(readsCall), closures, generator == FreeGenerator))
         types = types `merge` (b -> typing)
-        readsCall
+        named(readsCall, typingMarker(typingMode(generator, false, false), tpe, arg, TemplateGenerator.reads))
       }
 
     // Represents equations (simple formulas)
@@ -446,9 +569,31 @@ trait TemplateGenerator { self: Templates =>
     @inline def localSubst: Map[Variable, Encoded] =
       substMap ++ uninterpretedSubst ++ condVars ++ exprVars ++ lambdas.map(_.ids)
 
+    // The meanings of the symbols and markers that sources name (see [[Source]]), which are only
+    // kept, as the bindings and abstractions below are, when the rules are logged
+    var meanings = Seq[(Expr, Expr)]()
+    def storeMeaning(lhs: Expr, rhs: Expr): Unit =
+      if (loggingRules && lhs != rhs && !lhs.isInstanceOf[Literal[?]]) meanings :+= lhs -> rhs
+
+    // The check whose result is `symbol`, which another template defines, and whose source names
+    // what that template is of
+    def named(symbol: Expr, source: Expr): Check = { storeMeaning(symbol, source); Check(symbol, source) }
+
+    // The check `body` under the assumption `clause`, which is a clause on the path `pathVar`
+    def assuming(pathVar: Variable, clause: Expr)(body: => Check): Check = {
+      storeGuarded(pathVar, clause)
+      body.assuming(clause)
+    }
+
+    // The symbols that the variables of lets are replaced with
+    var bound = Map[Expr, Expr]()
+
+    // The expressions that sources name by what the clauses have of them
+    var abstracted = Map[Expr, Expr]()
+
     def result: TemplateClauses =
       TemplateClauses(condVars, exprVars, condTree, guardedExprs, equations, types, equalities, lambdas, quantifications,
-        definitions)
+        definitions, meanings, bound, abstracted)
 
     def ++=(that: TemplateClauses): this.type = {
       condVars ++= that.condVars
@@ -461,6 +606,9 @@ trait TemplateGenerator { self: Templates =>
       lambdas ++= that.lambdas
       quantifications ++= that.quantifications
       definitions = definitions `merge` that.definitions
+      meanings ++= that.meanings
+      bound ++= that.bound
+      abstracted ++= that.abstracted
       this
     }
   }
@@ -509,27 +657,14 @@ trait TemplateGenerator { self: Templates =>
         storeGuarded(pathVar, fExpr)
         builder ++= fClauses
 
-        val recArgs = args.map(rec(pathVar, _, None))
-        val app = if (uninterpretedConstants(id -> tps)) f else Application(f, recArgs).copiedFrom(uc)
-        // The result type of the function, with its parameters bound to the arguments of the call
-        val resTpe = tpe match {
-          case PiType(params, to) => typeOps.replaceFromSymbols((params zip recArgs).toMap, to)
-          case FunctionType(_, to) => to
-          case _ => throw new IllegalArgumentException(s"Uninterpreted call with type $tpe: $uc")
-        }
+        val (app, resTpe) = uninterpretedApplication(uc, f, args.map(rec(pathVar, _, None)))
         val newExpr = Variable.fresh("uc", resTpe.getType, true)
         storeExpr(newExpr)
         storeGuarded(pathVar, Equals(newExpr, app))
 
         // The refinements of the result are assumed under the path, and the type that they refine
         // is the type of the result
-        def refinements(tpe: Type): (Type, Seq[Expr]) = tpe match {
-          case RefinementType(vd, pred) =>
-            val (base, preds) = refinements(vd.tpe)
-            (base, preds :+ exprOps.replaceFromSymbols(Map(vd -> newExpr), pred))
-          case _ => (tpe, Seq.empty)
-        }
-        val (baseTpe, preds) = refinements(resTpe)
+        val (baseTpe, preds) = refinements(resTpe, newExpr)
 
         val (tpeExpr, tmplClauses) = mkTypeClauses(pathVar, baseTpe, newExpr, localSubst)(using FreeGenerator)
         storeGuarded(pathVar, tpeExpr)
@@ -547,6 +682,7 @@ trait TemplateGenerator { self: Templates =>
 
       case l @ Let(i, e: Lambda, b) =>
         val re = rec(pathVar, e, None) // guaranteed variable!
+        if (loggingRules) bound += i.toVariable -> re
         val rb = rec(pathVar, exprOps.replace(Map(i.toVariable -> re), b), pol)
         rb
 
@@ -562,6 +698,7 @@ trait TemplateGenerator { self: Templates =>
             storeGuarded(pathVar, Equals(newExpr, re))
             newExpr
         }
+        if (loggingRules) builder.bound += i.toVariable -> bound
         rec(pathVar, exprOps.replace(Map(i.toVariable -> bound), b), pol)
 
       case n @ Not(e) =>
@@ -687,19 +824,21 @@ trait TemplateGenerator { self: Templates =>
 
         val TopLevelAnds(conjuncts) = without.body: @unchecked
 
-        val conjunctQs = conjuncts.map { conj =>
+        val conjunctQs: Seq[(Expr, Expr)] = conjuncts.map { conj =>
           val vars = exprOps.variablesOf(conj)
           val conjArgs = without.params.filter(vd => vars(vd.toVariable) || hasInstance(vd.tpe) != Some(true))
 
           if (conjArgs.isEmpty) {
-            rec(pathVar, conj, pol)
+            (rec(pathVar, conj, pol), conj)
           } else {
             val forall = Forall(conjArgs, conj)
             pol match {
               case Some(p) =>
                 val (res, template) = QuantificationTemplate(pathVar -> encodedCond(pathVar), p, forall, localSubst)
                 registerQuantification(template)
-                res
+                // an axiom holds where evaluation reaches it, and its instantiations are its
+                // templates' (see [[QuantificationTemplate]])
+                (res, if (p) Assume(forall, BooleanLiteral(true)) else res)
               case None =>
                 val (res, negTemplate) = QuantificationTemplate(pathVar -> encodedCond(pathVar), false, forall, localSubst)
 
@@ -710,12 +849,14 @@ trait TemplateGenerator { self: Templates =>
                 val (_, posTemplate) = QuantificationTemplate(inst -> exprVars(inst), true, forall, localSubst, defer = true)
                 registerQuantification(negTemplate)
                 registerQuantification(posTemplate)
-                res
+                (res, res)
             }
           }
         }
 
-        andJoin(conjunctQs)
+        // a source has the literals of the counterexamples of quantifiers that don't hold
+        if (loggingRules) builder.abstracted += f -> assumptions.foldRight(andJoin(conjunctQs.map(_._2)))(Assume(_, _))
+        andJoin(conjunctQs.map(_._1))
 
       case Equals(e1, e2) if unrollEquality(e1.getType) =>
         val (v, _) = equalitySymbol(e1.getType)
@@ -775,6 +916,26 @@ trait TemplateGenerator { self: Templates =>
     case _ => false
   }(tpe)
 
+  /** A type check, as [[mkTypeClauses]] unfolds it: the `result` that its clauses give it, a term
+    * over the symbols that they define, and its `source`, which is the same check without the
+    * clauses (see [[TemplateGenerator]]). The source has what the symbols stand for, the
+    * conditionals that the blockers encode, the typings that are left to other templates, and
+    * the assumptions that are clauses under a blocker; the fresh values that the check picks are
+    * values that it names freely. */
+  protected case class Check(result: Expr, source: Expr) {
+    /** The check where `clause` holds, which the clauses assert on their own. */
+    def assuming(clause: Expr): Check = Check(result, Assume(clause, source))
+    /** The check on the path of `guard`, the blocker of `choice` (see `membershipGuard`). */
+    def under(guard: Variable, choice: Variable): Check = Check(implies(guard, result), implies(choice, source))
+    /** The check that this one and `that` both hold. */
+    infix def and(that: Check): Check = Check.and(this, that)
+  }
+
+  protected object Check {
+    val trivial: Check = Check(BooleanLiteral(true), BooleanLiteral(true))
+    def and(checks: Check*): Check = Check(program.trees.and(checks.map(_.result)*), program.trees.and(checks.map(_.source)*))
+  }
+
   /** Generates the clauses and other bookkeeping relevant to a type unfolding template.
     *
     * `inDomain` is set when the type check is the domain of a quantifier, i.e. when it appears
@@ -831,17 +992,17 @@ trait TemplateGenerator { self: Templates =>
 
     // A blocker under `pathVar` that the solver sets freely, under which a membership check
     // instantiates its counterexample (see the function case below).
-    def membershipGuard(pathVar: Variable): Variable = {
+    def membershipGuard(pathVar: Variable): (Variable, Variable) = {
       val choice = Variable.fresh("choice", BooleanType(), true)
       storeExpr(choice)
       val w = Variable.fresh("w", BooleanType(), true)
       storeCond(pathVar, w)
       iff(and(pathVar, choice), w)
-      w
+      (w, choice)
     }
 
-    def rec(pathVar: Variable, tpe: Type, expr: Expr, state: RecursionState): Expr = tpe match {
-      case tpe if !(generator `unroll` tpe) => BooleanLiteral(true) // nothing to do here!
+    def rec(pathVar: Variable, tpe: Type, expr: Expr, state: RecursionState): Check = tpe match {
+      case tpe if !(generator `unroll` tpe) => Check.trivial // nothing to do here!
 
       // The typing is stored without being unfolded here, so that `instantiateType` can defer it
       case tpe if generator == FreeGenerator && !inDomain && typesManager.isParameterTyping(tpe) =>
@@ -866,10 +1027,10 @@ trait TemplateGenerator { self: Templates =>
           case _ => throw new InternalSolverError(s"Unexpected function type: ${tpe.asString}")
         }
 
-        val w = membershipGuard(pathVar)
+        val (w, choice) = membershipGuard(pathVar)
 
-        val (args, subst) = params.foldLeft((Seq.empty[Variable], Map.empty[ValDef, Expr])) {
-          case ((args, subst), vd) =>
+        val (args, subst, domains) = params.foldLeft((Seq.empty[Variable], Map.empty[ValDef, Expr], Seq.empty[Expr])) {
+          case ((args, subst, domains), vd) =>
             val paramType = typeOps.replaceFromSymbols(subst, vd.tpe)
             val arg = Variable.fresh(vd.id.name, paramType.getType, true)
             storeExpr(arg)
@@ -878,11 +1039,11 @@ trait TemplateGenerator { self: Templates =>
             val (p, paramClauses) = mkTypeClauses(w, paramType, arg, localSubst)(using FreeGenerator)
             builder ++= paramClauses
             storeGuarded(w, p)
-            (args :+ arg, subst + (vd -> arg))
+            (args :+ arg, subst + (vd -> arg), domains :+ freeTyping(paramType, arg))
         }
 
         val res = rec(w, typeOps.replaceFromSymbols(subst, to), Application(expr, args), state)
-        implies(w, res)
+        domains.foldRight(res)((domain, check) => check.assuming(domain)).under(w, choice)
 
       // Maps, sets and bags are checked the same way as functions: a map lies in `Map[A, B]` iff its
       // value at every key lies in `B`, and a set or bag lies in `Set[A]` or `Bag[A]` iff each of its
@@ -893,28 +1054,28 @@ trait TemplateGenerator { self: Templates =>
       // must be unrefined, as the value of a map at a key outside of `A` must be its default.
       case MapType(from, to) if !(ContractUnrolling `unroll` from) &&
           (generator == MembershipGenerator || (inDomain && (generator == ContractGenerator || ground))) =>
-        val w = membershipGuard(pathVar)
+        val (w, choice) = membershipGuard(pathVar)
         val key = Variable.fresh("key", from, true)
         storeExpr(key)
-        implies(w, rec(w, to, MapApply(expr, key), state))
+        rec(w, to, MapApply(expr, key), state).under(w, choice)
 
       case SetType(base) if generator == MembershipGenerator || (inDomain && generator == ContractGenerator) =>
-        val w = membershipGuard(pathVar)
+        val (w, choice) = membershipGuard(pathVar)
         val elem = Variable.fresh("elem", base.getType, true)
         storeExpr(elem)
-        storeGuarded(w, ElementOfSet(elem, expr))
-        implies(w, rec(w, base, elem, state))
+        assuming(w, ElementOfSet(elem, expr))(rec(w, base, elem, state)).under(w, choice)
 
       case BagType(base) if generator == MembershipGenerator || (inDomain && generator == ContractGenerator) =>
-        val w = membershipGuard(pathVar)
+        val (w, choice) = membershipGuard(pathVar)
         val elem = Variable.fresh("elem", base.getType, true)
         storeExpr(elem)
-        storeGuarded(w, GreaterThan(MultiplicityInBag(elem, expr), IntegerLiteral(0)))
-        implies(w, rec(w, base, elem, state))
+        assuming(w, GreaterThan(MultiplicityInBag(elem, expr), IntegerLiteral(0)))(rec(w, base, elem, state)).under(w, choice)
 
       case (_: FunctionType | _: PiType) => storeType(pathVar, tpe, expr, inDomain, ground)
 
-      case tp: TypeParameter if generator == FreeGenerator => typesManager.storeTypeParameter(tp)
+      case tp: TypeParameter if generator == FreeGenerator =>
+        named(typesManager.storeTypeParameter(tp),
+          if (!loggingRules) BooleanLiteral(true) else marker(TemplateGenerator.inhabited, tp, Seq.empty))
 
       case RefinementType(vd, pred) =>
         val newExpr: Variable = Variable.fresh("lt", vd.getType, true)
@@ -928,13 +1089,13 @@ trait TemplateGenerator { self: Templates =>
         // belongs to the base type, so its clauses are guarded by the base type check.
         // Otherwise, a predicate failing outside of the base type would falsify `pathVar`
         // instead of simply making the type check false.
-        val predVar = guardedBy(pathVar, recBase, mayFalsifyPath(pred), "rp")
+        val predVar = guardedBy(pathVar, recBase.result, mayFalsifyPath(pred), "rp")
 
         val (p, predClauses) = mkExprClauses(predVar,
           exprOps.replaceFromSymbols(Map(vd -> newExpr), pred), localSubst)
         builder ++= predClauses
 
-        and(recBase, guardedResult(pathVar, predVar, p, "rr"))
+        recBase and Check(guardedResult(pathVar, predVar, p, "rr"), exprOps.replaceFromSymbols(Map(vd -> expr), pred))
 
       case SigmaType(params, to) =>
         val (newExprs, recParams) = params.zipWithIndex.map { case (vd, i) =>
@@ -947,22 +1108,22 @@ trait TemplateGenerator { self: Templates =>
 
         // Similarly to refinements, the (dependent) last component is only checked
         // when the first components belong to their types.
-        val toVar = guardedBy(pathVar, andJoin(recParams), mayFalsifyPath(to), "sp")
+        val toVar = guardedBy(pathVar, Check.and(recParams*).result, mayFalsifyPath(to), "sp")
 
         val recTo = rec(toVar,
           typeOps.replaceFromSymbols((params zip newExprs).toMap, to),
           TupleSelect(expr, params.size + 1), state)
 
-        andJoin(recParams :+ guardedResult(pathVar, toVar, recTo, "sr"))
+        Check.and(recParams :+ recTo.copy(result = guardedResult(pathVar, toVar, recTo.result, "sr"))*)
 
       case adt: ADTType =>
         val sort = adt.getSort
+        val invariant = sort.invariant
+          .filter(_ => generator == FreeGenerator)
+          .map(_.applied(Seq(expr)))
+          .getOrElse(BooleanLiteral(true))
 
-        and(
-          sort.invariant
-            .filter(_ => generator == FreeGenerator)
-            .map(_.applied(Seq(expr)))
-            .getOrElse(BooleanLiteral(true)),
+        Check(invariant, invariant) and (
           if (sort.definition.isInductive && !state.recurseAdt) {
             storeType(pathVar, tpe, expr, inDomain, ground)
           } else {
@@ -977,39 +1138,39 @@ trait TemplateGenerator { self: Templates =>
                 // generate conditions for every ADT field to satisfy its type constraints,
                 // but substitute field references as dependent on the current instance
                 val fieldSubst = tcons.fields.map(vd => vd -> ADTSelector(expr, vd.id)).toMap
-                val recProps = tcons.fields.map { vd =>
+                val recProps = Check.and(tcons.fields.map { vd =>
                   val fieldType = typeOps.replaceFromSymbols(fieldSubst, vd.tpe)
                   rec(newBool, fieldType, ADTSelector(expr, vd.id), state.copy(recurseAdt = false))
-                }
-
-                val recProp = andJoin(recProps)
+                }*)
 
                 iff(and(pathVar, isCons(expr, tcons.id)), newBool)
-                storeGuarded(newBool, Equals(newExpr, recProp))
-                true
+                storeGuarded(newBool, Equals(newExpr, recProps.result))
+                Some(tcons.id -> recProps.source)
               } else {
                 // Constructors without fields to check trivially satisfy the type. Otherwise `newExpr`
                 // would be unconstrained for them, and the type check of a quantifier's domain could be
                 // falsified to weaken the formula. The clause is only added for quantifier domains
                 // (see `inDomain`), to keep the encoding unchanged elsewhere.
                 if (inDomain) storeGuarded(pathVar, Implies(isCons(expr, tcons.id), newExpr))
-                false
+                None
               }
             }
 
-            if (stored.foldLeft(false)(_ || _)) {
-              newExpr
-            } else {
-              BooleanLiteral(true)
-            }
+            // the fields of the constructor of the value lie in their types
+            if (stored.forall(_.isEmpty)) Check.trivial
+            else Check(newExpr, stored.flatten.foldRight(BooleanLiteral(true): Expr) {
+              case ((id, fields), rest) => IfExpr(isCons(expr, id), fields, rest)
+            })
           }
         )
 
       case TupleType(tpes) =>
-        andJoin(for ((tpe, idx) <- tpes.zipWithIndex) yield {
+        Check.and((for ((tpe, idx) <- tpes.zipWithIndex) yield {
           rec(pathVar, tpe, TupleSelect(expr, idx + 1), state)
-        })
+        })*)
 
+      // A map, set or bag is empty, or is the update or union of a smaller one, picked freely,
+      // where the source assumes that it is
       case MapType(from, to) =>
         if (!state.recurseMap) {
           storeType(pathVar, tpe, expr, inDomain, ground)
@@ -1033,19 +1194,21 @@ trait TemplateGenerator { self: Templates =>
           storeExpr(restExpr)
           decompositionKeys += keyExpr
 
-          storeGuarded(pathVar, Equals(condVar, Equals(expr, FiniteMap(Seq(), defaultExpr, from, to))))
+          val isEmpty = Equals(expr, FiniteMap(Seq(), defaultExpr, from, to))
+          storeGuarded(pathVar, Equals(condVar, isEmpty))
           iff(and(pathVar, condVar), newBool1)
           iff(and(pathVar, not(condVar)), newBool2)
 
           storeGuarded(newBool1, newExpr)
-          storeGuarded(newBool2, Equals(expr, MapUpdated(restExpr, keyExpr, valueExpr)))
-          storeGuarded(newBool2, Equals(newExpr, and(
-            rec(newBool2, tpe, restExpr, state.copy(recurseMap = false)),
-            rec(newBool2, from, keyExpr, state),
+          val parts = assuming(newBool2, Equals(expr, MapUpdated(restExpr, keyExpr, valueExpr))) {
+            rec(newBool2, tpe, restExpr, state.copy(recurseMap = false)) and
+            rec(newBool2, from, keyExpr, state) and
             rec(newBool2, to, valueExpr, state)
-          )))
+          }
+          storeGuarded(newBool2, Equals(newExpr, parts.result))
 
-          and(rec(pathVar, to, defaultExpr, state), newExpr, storeReads(pathVar, tpe, to, expr, inDomain))
+          rec(pathVar, to, defaultExpr, state) and Check(newExpr, IfExpr(isEmpty, BooleanLiteral(true), parts.source)) and
+            storeReads(pathVar, tpe, to, expr, inDomain)
         }
 
       case SetType(base) =>
@@ -1067,18 +1230,22 @@ trait TemplateGenerator { self: Templates =>
           storeExpr(restExpr)
           decompositionKeys += elemExpr
 
-          storeGuarded(pathVar, Equals(condVar, Equals(expr, FiniteSet(Seq(), base))))
+          val isEmpty = Equals(expr, FiniteSet(Seq(), base))
+          storeGuarded(pathVar, Equals(condVar, isEmpty))
           iff(and(pathVar, condVar), newBool1)
           iff(and(pathVar, not(condVar)), newBool2)
 
           storeGuarded(newBool1, newExpr)
-          storeGuarded(newBool2, Equals(expr, SetUnion(FiniteSet(Seq(elemExpr), base), restExpr)))
-          storeGuarded(newBool2, Equals(newExpr, and(
-            rec(newBool2, tpe, restExpr, state.copy(recurseSet = false)),
-            rec(newBool2, base, elemExpr, state)
-          )))
+          // the source states the element's typing first: the assumptions in it hold wherever the
+          // set is not empty, whether or not the rest lies in the set's type
+          val parts = assuming(newBool2, Equals(expr, SetUnion(FiniteSet(Seq(elemExpr), base), restExpr))) {
+            val rest = rec(newBool2, tpe, restExpr, state.copy(recurseSet = false))
+            val elem = rec(newBool2, base, elemExpr, state)
+            Check(and(rest.result, elem.result), and(elem.source, rest.source))
+          }
+          storeGuarded(newBool2, Equals(newExpr, parts.result))
 
-          and(newExpr, storeReads(pathVar, tpe, base, expr, inDomain))
+          Check(newExpr, IfExpr(isEmpty, BooleanLiteral(true), parts.source)) and storeReads(pathVar, tpe, base, expr, inDomain)
         }
 
       case BagType(base) =>
@@ -1102,26 +1269,62 @@ trait TemplateGenerator { self: Templates =>
           storeExpr(restExpr)
           decompositionKeys += elemExpr
 
-          storeGuarded(pathVar, Equals(condVar, Equals(expr, FiniteBag(Seq(), base))))
+          val isEmpty = Equals(expr, FiniteBag(Seq(), base))
+          storeGuarded(pathVar, Equals(condVar, isEmpty))
           iff(and(pathVar, condVar), newBool1)
           iff(and(pathVar, not(condVar)), newBool2)
 
           storeGuarded(newBool1, newExpr)
-          storeGuarded(newBool2, Equals(expr, BagUnion(FiniteBag(Seq((elemExpr, multExpr)), base), restExpr)))
-          storeGuarded(newBool2, GreaterThan(multExpr, IntegerLiteral(0)))
-          storeGuarded(newBool2, Equals(newExpr, and(
-            rec(newBool2, tpe, restExpr, state.copy(recurseBag = false)),
-            rec(newBool2, base, elemExpr, state),
-            rec(newBool2, IntegerType(), multExpr, state)
-          )))
+          val parts = assuming(newBool2, Equals(expr, BagUnion(FiniteBag(Seq((elemExpr, multExpr)), base), restExpr))) {
+            assuming(newBool2, GreaterThan(multExpr, IntegerLiteral(0))) {
+              rec(newBool2, tpe, restExpr, state.copy(recurseBag = false)) and
+              rec(newBool2, base, elemExpr, state) and
+              rec(newBool2, IntegerType(), multExpr, state)
+            }
+          }
+          storeGuarded(newBool2, Equals(newExpr, parts.result))
 
-          and(newExpr, storeReads(pathVar, tpe, base, expr, inDomain))
+          Check(newExpr, IfExpr(isEmpty, BooleanLiteral(true), parts.source)) and storeReads(pathVar, tpe, base, expr, inDomain)
         }
 
       case _ => throw new InternalSolverError(s"Unexpected unrollable: ${tpe.asString}")
     }
 
-    val p = rec(pathVar, tpe, expr, RecursionState(true, true, true, true))
-    (p, builder.result)
+    val check = rec(pathVar, tpe, expr, RecursionState(true, true, true, true))
+    storeMeaning(typingSource(generator, tpe, expr, inDomain, ground), check.source)
+    (check.result, builder.result)
   }
+
+  /** The mode of a typing marker (see [[TemplateGenerator]]). */
+  protected def typingMode(generator: TypingGenerator, inDomain: Boolean, ground: Boolean): String =
+    (generator match {
+      case FreeGenerator => "free"
+      case ContractGenerator => "contract"
+      case MembershipGenerator => "membership"
+      case _: CaptureGenerator => "capture"
+    }) + (if (inDomain) "-domain" else "") + (if (ground) "-ground" else "")
+
+  /** That `arg` lies in `tpe`, as `generator` checks it (see [[TemplateGenerator]]): a capture names
+    * the lambda that captures `arg`. */
+  protected def typingSource(generator: TypingGenerator, tpe: Type, arg: Expr, inDomain: Boolean, ground: Boolean): Expr =
+    generator match {
+      case CaptureGenerator(_, _, container) if loggingRules =>
+        marker(TemplateGenerator.typing, tpe.getType, Seq(StringLiteral(typingMode(generator, false, false)), arg, container))
+      case _ => typingMarker(typingMode(generator, inDomain, ground), tpe, arg)
+    }
+
+  /** That `arg` lies in `tpe` as a free variable does (see [[TemplateGenerator]]). */
+  def freeTyping(tpe: Type, arg: Expr): Expr = typingMarker(typingMode(FreeGenerator, false, false), tpe, arg)
+
+  /** A marker that a source names, about the type `tpe` (see [[TemplateGenerator]]). The type is the
+    * marker's type argument, which sources print as its sort. */
+  protected def marker(id: Identifier, tpe: Type, args: Seq[Expr]): Expr =
+    UninterpretedCall(id, Seq(tpe), args, FunctionType(args.map(_.getType), BooleanType()))
+
+  /** That `arg` lies in `tpe`, checked the way `mode` says (see [[TemplateGenerator]]). Markers are
+    * only named by sources, which are only kept when the rules are logged: otherwise, the marker
+    * is `true`, and the type isn't printed. */
+  protected def typingMarker(mode: String, tpe: Type, arg: Expr, id: Identifier = TemplateGenerator.typing): Expr =
+    if (!loggingRules) BooleanLiteral(true) else marker(id, tpe, Seq(StringLiteral(mode), arg) ++ typeOps.variablesOf(tpe).toSeq.sortBy(_.id))
+
 }

@@ -59,8 +59,11 @@ bodies of the functions, are left out.
 
 A checker can check that the clauses of the template are those of its source,
 under the encoding of the solver: they name the values of its subexpressions
-and the paths that lead to them. The templates of types, lambdas and
-quantifiers have no source yet. There is no certificate when a source can't be
+and the paths that lead to them. The solver gives every template a source, but
+some name symbols of the template, or functions that are no functions of the
+program (`unrolling.TemplateGenerator`), whose meanings the source gives: the
+certificate doesn't print these meanings yet, and leaves out the sources that
+give some. There is no certificate when a source can't be
 printed. The certificate doesn't yet hold the input query and the encoding of
 its program either, which relate the sources to the input.
 
