@@ -745,7 +745,7 @@ trait Templates
       optApp: Option[(Encoded, FunctionType)] = None,
       partial: Boolean = false
     ): Encoding = {
-      import tmplClauses.{condVars, exprVars, guardedExprs, equations => eqs, lambdas, quantifications => quants}
+      import tmplClauses.{condVars, exprVars, guardedExprs, equations => eqs, lambdas, quantifications => quants, definitions}
       val equals = tmplClauses.equalities
 
       val idToTrId : Map[Variable, Encoded] =
@@ -765,7 +765,7 @@ trait Templates
         var pointers : Pointers = Map.empty
 
         val pv = pathVar._1
-        for ((b,es) <- guardedExprs `merge` Map(pv -> eqs)) {
+        for ((b,es) <- guardedExprs `merge` definitions `merge` Map(pv -> eqs)) {
           var bItems : Set[Item] = ListSet.empty
           for (e <- es) {
             val extracted = extractCalls(e, idToTrId, optIdCall, optIdApp)
@@ -782,6 +782,7 @@ trait Templates
 
         clauses ++= (for ((b,es) <- guardedExprs.toSeq; e <- es) yield encoder(Implies(b, e)))
         clauses ++= eqs.map(encoder)
+        clauses ++= definitions.values.flatten.map(encoder)
 
         // The failure literals of the body of a function or lambda define whether it fails (see
         // [[Instantiation.itemClauses]]), while other templates assert that they don't hold

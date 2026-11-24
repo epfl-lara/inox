@@ -74,7 +74,7 @@ trait FunctionTemplates { self: Templates =>
           case fi: FunctionInvocation => Seq(fi)
           case _ => Seq.empty
         } (e)
-        (bodyClauses.guardedExprs.toSeq.flatMap { case (b, es) => es.flatMap(invocations).map(b -> _) } ++
+        ((bodyClauses.guardedExprs `merge` bodyClauses.definitions).toSeq.flatMap { case (b, es) => es.flatMap(invocations).map(b -> _) } ++
           invocations(p).map(start -> _)).distinct
       }
 
