@@ -39,13 +39,6 @@ def LogosTyping : Prop :=
 
 /-! ## The clauses, as Logos reads them -/
 
-/-- `(= a b)` -/
-def mkEq (a b : Term) : Term := Term.Apply (Term.Apply (Term.UOp UserOp.eq) a) b
-/-- `(=> a b)` -/
-def mkImp (a b : Term) : Term := Term.Apply (Term.Apply (Term.UOp UserOp.imp) a) b
-/-- `(and a b)` -/
-def mkAnd (a b : Term) : Term := Term.Apply (Term.Apply (Term.UOp UserOp.and) a) b
-
 @[simp] theorem eo_to_smt_mkEq (a b : Term) :
     __eo_to_smt (mkEq a b) = SmtTerm.eq (__eo_to_smt a) (__eo_to_smt b) := rfl
 @[simp] theorem eo_to_smt_mkImp (a b : Term) :
@@ -111,6 +104,10 @@ theorem satisfies_setConst {M : SmtModel} {assums : List Term} (hsat : Satisfies
     exact hsat.2 t ht
   · exact hnew t ht
 
+/-- `M'` is `M`, or `M` with the constant that `c` translates to reinterpreted. -/
+def Reinterprets (c : Term) (M M' : SmtModel) : Prop :=
+  M' = M ∨ ∃ s T v, __eo_to_smt c = SmtTerm.UConst s T ∧ M' = setConst s T M v
+
 section Rules
 
 variable (hty : LogosTyping) {M : SmtModel} {assums : List Term} (hsat : Satisfies M assums)
@@ -121,13 +118,13 @@ include hty hsat hc hs hfresh
 /-- `Define`: `(= c rhs)`, for a fresh constant `c` that `rhs` does not mention. -/
 theorem define_extends {rhs : Term} (hrhs : mentions s T (__eo_to_smt rhs) = false)
     (hbool : __smtx_typeof (__eo_to_smt (mkEq c rhs)) = SmtType.Bool) :
-    ∃ M', Satisfies M' (assums ++ [mkEq c rhs]) := by
+    ∃ M', Satisfies M' (assums ++ [mkEq c rhs]) ∧ Reinterprets c M M' := by
   rw [eo_to_smt_mkEq, hc] at hbool
   obtain ⟨hr, hne⟩ := typeof_eq_bool hbool
   rw [typeof_uconst hne] at hr hne
   obtain ⟨hv, hcan⟩ := hty.1 M _ hsat.1 (by rw [hr]; exact hne)
   rw [hr] at hv
-  refine ⟨_, satisfies_setConst hsat hs hfresh hv hcan ?_⟩
+  refine ⟨_, satisfies_setConst hsat hs hfresh hv hcan ?_, Or.inr ⟨_, _, _, hc, rfl⟩⟩
   intro t ht
   rw [List.mem_singleton.mp ht, eo_to_smt_mkEq, hc]
   exact (define_sat (cs := []) hs hsat.1 (by simp) hrhs hv hcan).2.2
@@ -137,14 +134,14 @@ mention. -/
 theorem define_guarded_extends {g rhs : Term} (hg : mentions s T (__eo_to_smt g) = false)
     (hrhs : mentions s T (__eo_to_smt rhs) = false)
     (hbool : __smtx_typeof (__eo_to_smt (mkImp g (mkEq c rhs))) = SmtType.Bool) :
-    ∃ M', Satisfies M' (assums ++ [mkImp g (mkEq c rhs)]) := by
+    ∃ M', Satisfies M' (assums ++ [mkImp g (mkEq c rhs)]) ∧ Reinterprets c M M' := by
   rw [eo_to_smt_mkImp, eo_to_smt_mkEq, hc] at hbool
   obtain ⟨hgb, heqb⟩ := typeof_imp_bool hbool
   obtain ⟨hr, hne⟩ := typeof_eq_bool heqb
   rw [typeof_uconst hne] at hr hne
   obtain ⟨hv, hcan⟩ := hty.1 M _ hsat.1 (by rw [hr]; exact hne)
   rw [hr] at hv
-  refine ⟨_, satisfies_setConst hsat hs hfresh hv hcan ?_⟩
+  refine ⟨_, satisfies_setConst hsat hs hfresh hv hcan ?_, Or.inr ⟨_, _, _, hc, rfl⟩⟩
   intro t ht
   rw [List.mem_singleton.mp ht, eo_to_smt_mkImp, eo_to_smt_mkEq, hc]
   exact (define_guarded_sat (cs := []) hs hsat.1 (by simp) hrhs hv hcan hg
@@ -153,12 +150,13 @@ theorem define_guarded_extends {g rhs : Term} (hg : mentions s T (__eo_to_smt g)
 omit hty in
 /-- The root literal: `c`, for a fresh constant `c`. -/
 theorem root_extends (hbool : __smtx_typeof (__eo_to_smt c) = SmtType.Bool) :
-    ∃ M', Satisfies M' (assums ++ [c]) := by
+    ∃ M', Satisfies M' (assums ++ [c]) ∧ Reinterprets c M M' := by
   rw [hc] at hbool
   have hT := uconst_bool hbool
   subst hT
   refine ⟨_, satisfies_setConst hsat hs hfresh (v := SmtValue.Boolean true)
-    (by simp [__smtx_typeof_value]) (by simp [__smtx_value_canonical]) ?_⟩
+    (by simp [__smtx_typeof_value]) (by simp [__smtx_value_canonical]) ?_,
+    Or.inr ⟨_, _, _, hc, rfl⟩⟩
   intro t ht
   rw [List.mem_singleton.mp ht, hc]
   exact eval_setConst_self M _
@@ -168,14 +166,15 @@ mention. -/
 theorem hypothesis_extends {a f : Term} (ha : mentions s T (__eo_to_smt a) = false)
     (hf : mentions s T (__eo_to_smt f) = false)
     (hbool : __smtx_typeof (__eo_to_smt (mkImp (mkAnd c a) f)) = SmtType.Bool) :
-    ∃ M', Satisfies M' (assums ++ [mkImp (mkAnd c a) f]) := by
+    ∃ M', Satisfies M' (assums ++ [mkImp (mkAnd c a) f]) ∧ Reinterprets c M M' := by
   rw [eo_to_smt_mkImp, eo_to_smt_mkAnd, hc] at hbool
   obtain ⟨hand, hfb⟩ := typeof_imp_bool hbool
   obtain ⟨hcb, hab⟩ := typeof_and_bool hand
   have hT := uconst_bool hcb
   subst hT
   refine ⟨_, satisfies_setConst hsat hs hfresh (v := SmtValue.Boolean false)
-    (by simp [__smtx_typeof_value]) (by simp [__smtx_value_canonical]) ?_⟩
+    (by simp [__smtx_typeof_value]) (by simp [__smtx_value_canonical]) ?_,
+    Or.inr ⟨_, _, _, hc, rfl⟩⟩
   intro t ht
   rw [List.mem_singleton.mp ht, eo_to_smt_mkImp, eo_to_smt_mkAnd, hc]
   exact (hypothesis_sat (cs := []) hs hsat.1 (by simp) ha hf (eval_bool hty hsat.1 hab)
@@ -186,9 +185,9 @@ do not mention. -/
 theorem enables_extends {bs : List Term}
     (hbs : ∀ b ∈ bs, mentions s T (__eo_to_smt b) = false)
     (hbool : ∀ b ∈ bs, __smtx_typeof (__eo_to_smt (mkImp b c)) = SmtType.Bool) :
-    ∃ M', Satisfies M' (assums ++ bs.map fun b => mkImp b c) := by
+    ∃ M', Satisfies M' (assums ++ bs.map fun b => mkImp b c) ∧ Reinterprets c M M' := by
   cases bs with
-  | nil => exact ⟨M, by simpa using hsat⟩
+  | nil => exact ⟨M, by simpa using hsat, Or.inl rfl⟩
   | cons b0 bs0 =>
     have h0 := hbool b0 List.mem_cons_self
     rw [eo_to_smt_mkImp, hc] at h0
@@ -205,7 +204,8 @@ theorem enables_extends {bs : List Term}
     refine ⟨_, satisfies_setConst hsat hs hfresh
       (v := SmtValue.Boolean
         (((b0 :: bs0).map __eo_to_smt).any fun b => __smtx_model_eval M b == SmtValue.Boolean true))
-      (by simp [__smtx_typeof_value]) (by simp [__smtx_value_canonical]) ?_⟩
+      (by simp [__smtx_typeof_value]) (by simp [__smtx_value_canonical]) ?_,
+      Or.inr ⟨_, _, _, hc, rfl⟩⟩
     intro t ht
     obtain ⟨b, hb, rfl⟩ := List.mem_map.mp ht
     rw [eo_to_smt_mkImp, hc]
@@ -215,57 +215,25 @@ end Rules
 
 /-! ## Sequences of steps -/
 
-/-- A fresh-symbol rule: the constant it introduces and the terms its clauses are built from. -/
-inductive Step where
-  /-- `(= c rhs)` -/
-  | define (c rhs : Term)
-  /-- `(=> g (= c rhs))` -/
-  | defineGuarded (c g rhs : Term)
-  /-- `c` -/
-  | root (c : Term)
-  /-- `(=> (and c a) f)` -/
-  | hypothesis (c a f : Term)
-  /-- `(=> b c)` for each `b` of `bs` -/
-  | enables (c : Term) (bs : List Term)
-
 namespace Step
 
-/-- The fresh constant. -/
-def const : Step → Term
-  | define c _ | defineGuarded c _ _ | root c | hypothesis c _ _ | enables c _ => c
-
-/-- The terms besides the fresh constant that the clauses are built from. -/
-def parts : Step → List Term
-  | define _ rhs => [rhs]
-  | defineGuarded _ g rhs => [g, rhs]
-  | root _ => []
-  | hypothesis _ a f => [a, f]
-  | enables _ bs => bs
-
-/-- The clauses of the step. -/
-def clauses : Step → List Term
-  | define c rhs => [mkEq c rhs]
-  | defineGuarded c g rhs => [mkImp g (mkEq c rhs)]
-  | root c => [c]
-  | hypothesis c a f => [mkImp (mkAnd c a) f]
-  | enables c bs => bs.map fun b => mkImp b c
-
-/-- The step can follow `assums`: its constant translates to a constant whose name Logos does not
-reserve, that neither `assums` nor the other terms of the step mention, and its clauses have type
-`Bool`. The name and the sort are those of the translation of the constant, so the condition is
-decided by computing that translation. -/
+/-- The step introduces a fresh constant and can follow `assums`: its constant translates to a
+constant whose name Logos does not reserve, that neither `assums` nor the other terms of the step
+mention, and its clauses have type `Bool`. The name and the sort are those of the translation of
+the constant, so the condition is decided by computing that translation. -/
 def Fresh (st : Step) (assums : List Term) : Prop :=
-  ∃ s T, __eo_to_smt st.const = SmtTerm.UConst s T ∧ Unreserved s ∧
+  st.isFact = false ∧ ∃ s T, __eo_to_smt st.const = SmtTerm.UConst s T ∧ Unreserved s ∧
     (∀ a ∈ assums, mentions s T (__eo_to_smt a) = false) ∧
     (∀ t ∈ st.parts, mentions s T (__eo_to_smt t) = false) ∧
     ∀ t ∈ st.clauses, __smtx_typeof (__eo_to_smt t) = SmtType.Bool
 
 /-- A model of `assums` extends to a model of `assums` and the clauses of a step that can follow
-them. -/
-theorem extends_ (hty : LogosTyping) {st : Step} {assums : List Term} (hst : st.Fresh assums)
-    {M : SmtModel} (hsat : Satisfies M assums) : ∃ M', Satisfies M' (assums ++ st.clauses) := by
-  obtain ⟨s, T, hc, hs, hfresh, hparts, hbool⟩ := hst
-  cases st <;> simp only [const, parts, clauses] at hc hparts hbool
+them, by reinterpreting the step's constant. -/
+theorem extends_reinterprets (hty : LogosTyping) {st : Step} {assums : List Term}
+    (hst : st.Fresh assums) {M : SmtModel} (hsat : Satisfies M assums) :
+    ∃ M', Satisfies M' (assums ++ st.clauses) ∧ Reinterprets st.const M M' := by
+  obtain ⟨hnf, s, T, hc, hs, hfresh, hparts, hbool⟩ := hst
+  cases st <;> simp only [isFact, const, parts, clauses] at hnf hc hparts hbool ⊢
   case define c rhs =>
     exact define_extends hty hsat hc hs hfresh (hparts rhs (by simp)) (hbool _ (by simp))
   case defineGuarded c g rhs =>
@@ -278,27 +246,124 @@ theorem extends_ (hty : LogosTyping) {st : Step} {assums : List Term} (hst : st.
   case enables c bs =>
     exact enables_extends hty hsat hc hs hfresh hparts
       (fun b hb => hbool _ (List.mem_map_of_mem hb))
+  case fact => exact absurd hnf (by simp)
+
+/-- A model of `assums` extends to a model of `assums` and the clauses of a step that can follow
+them. -/
+theorem extends_ (hty : LogosTyping) {st : Step} {assums : List Term} (hst : st.Fresh assums)
+    {M : SmtModel} (hsat : Satisfies M assums) : ∃ M', Satisfies M' (assums ++ st.clauses) :=
+  let ⟨M', h, _⟩ := extends_reinterprets hty hst hsat
+  ⟨M', h⟩
 
 end Step
-
-/-- The assumptions `assums` followed by the clauses of the steps `sts`. -/
-def extend (assums : List Term) (sts : List Step) : List Term :=
-  sts.foldl (fun acc st => acc ++ st.clauses) assums
 
 /-- Each step of `sts` can follow `assums` and the clauses of the steps before it. -/
 def StepsFresh : List Term → List Step → Prop
   | _, [] => True
   | assums, st :: sts => st.Fresh assums ∧ StepsFresh (assums ++ st.clauses) sts
 
+/-! ## Facts, and the models a program selects
+
+Some rules are facts about the semantics rather than definitions: they hold in the models that
+interpret the program as it defines its functions, and the free variables as a solution of the
+query. A predicate `Good` stands for these models. A fact can follow clauses when it holds in
+every model of them that `Good` selects, and a fresh constant when reinterpreting it keeps the
+models that `Good` selects, as it does when `Good` only depends on the program's symbols and the
+constant is not one of them. -/
+
+/-- Reinterpreting the constant `s` of sort `T` keeps the models that `Good` selects. -/
+def Keeps (Good : SmtModel → Prop) (s : native_String) (T : SmtType) : Prop :=
+  ∀ M v, Good M → Good (setConst s T M v)
+
+/-- Reinterpreting the constant that `c` translates to keeps the models that `Good` selects. -/
+def KeepsConst (Good : SmtModel → Prop) (c : Term) : Prop :=
+  ∀ s T, __eo_to_smt c = SmtTerm.UConst s T → Keeps Good s T
+
+/-- Every model that `Good` selects and that satisfies `assums` makes `t` true: the side
+condition of a fact. -/
+def Holds (Good : SmtModel → Prop) (assums : List Term) (t : Term) : Prop :=
+  ∀ M, Good M → Satisfies M assums →
+    __smtx_model_eval M (__eo_to_smt t) = SmtValue.Boolean true
+
+theorem good_of_reinterprets {Good : SmtModel → Prop} {c : Term} (hk : KeepsConst Good c)
+    {M M' : SmtModel} (hM : Good M) (hr : Reinterprets c M M') : Good M' := by
+  rcases hr with rfl | ⟨s, T, v, hc, rfl⟩
+  · exact hM
+  · exact hk s T hc M v hM
+
+namespace Step
+
+/-- The step can follow `assums` among the models that `Good` selects: a fact holds in each of
+them that satisfies `assums`, and a fresh constant is fresh and its reinterpretation keeps them. -/
+def Ok (Good : SmtModel → Prop) (st : Step) (assums : List Term) : Prop :=
+  match st with
+  | fact t => Holds Good assums t
+  | _ => st.Fresh assums ∧ KeepsConst Good st.const
+
+/-- A model of `assums` that `Good` selects extends to one of `assums` and the clauses of a step
+that can follow them. -/
+theorem extends_good (hty : LogosTyping) {Good : SmtModel → Prop} {st : Step}
+    {assums : List Term} (hst : st.Ok Good assums) {M : SmtModel} (hgood : Good M)
+    (hsat : Satisfies M assums) : ∃ M', Good M' ∧ Satisfies M' (assums ++ st.clauses) := by
+  cases st
+  case fact t =>
+    refine ⟨M, hgood, hsat.1, fun u hu => ?_⟩
+    rcases List.mem_append.mp hu with hu | hu
+    · exact hsat.2 u hu
+    · rw [List.mem_singleton.mp hu]
+      exact hst M hgood hsat
+  all_goals
+    obtain ⟨hf, hk⟩ := hst
+    obtain ⟨M', hM', hr⟩ := extends_reinterprets hty hf hsat
+    exact ⟨M', good_of_reinterprets hk hgood hr, hM'⟩
+
+end Step
+
+/-- Each step of `sts` can follow `assums` and the clauses of the steps before it, among the
+models that `Good` selects. -/
+def StepsOk (Good : SmtModel → Prop) : List Term → List Step → Prop
+  | _, [] => True
+  | assums, st :: sts => st.Ok Good assums ∧ StepsOk Good (assums ++ st.clauses) sts
+
+/-- A model of the base assumptions that `Good` selects extends to one of them and of the
+clauses of steps that can follow them. -/
+theorem extend_sat_good (hty : LogosTyping) (Good : SmtModel → Prop) :
+    ∀ (sts : List Step) (assums : List Term), StepsOk Good assums sts →
+      ∀ M, Good M → Satisfies M assums → ∃ M', Good M' ∧ Satisfies M' (extend assums sts)
+  | [], _, _, M, hgood, hsat => ⟨M, hgood, hsat⟩
+  | st :: sts, assums, ⟨hst, hsts⟩, M, hgood, hsat => by
+    obtain ⟨M', hgood', hM'⟩ := st.extends_good hty hst hgood hsat
+    exact extend_sat_good hty Good sts (assums ++ st.clauses) hsts M' hgood' hM'
+
+/-- So if no model that `Good` selects satisfies the assumptions with the clauses of the steps,
+none satisfies the assumptions alone. -/
+theorem no_model_of_extend_good (hty : LogosTyping) {Good : SmtModel → Prop}
+    {assums : List Term} {sts : List Step} (hsts : StepsOk Good assums sts)
+    (hno : ∀ M, Good M → ¬ Satisfies M (extend assums sts)) :
+    ∀ M, Good M → ¬ Satisfies M assums := by
+  intro M hgood hsat
+  obtain ⟨M', hgood', hM'⟩ := extend_sat_good hty Good sts assums hsts M hgood hsat
+  exact hno M' hgood' hM'
+
+/-- Fresh steps are steps that can follow among all models. -/
+theorem stepsOk_true_of_stepsFresh :
+    ∀ {assums : List Term} {sts : List Step}, StepsFresh assums sts →
+      StepsOk (fun _ => True) assums sts
+  | _, [], _ => trivial
+  | _, st :: _, ⟨hst, hsts⟩ => by
+    refine ⟨?_, stepsOk_true_of_stepsFresh hsts⟩
+    cases st
+    case fact => exact absurd hst.1 (by simp [Step.isFact])
+    all_goals exact ⟨hst, fun _ _ _ _ _ _ => trivial⟩
+
 /-- Any model of the base assumptions extends to a model of them and of the clauses of steps that
-can follow them, each introducing a fresh symbol. -/
-theorem extend_sat (hty : LogosTyping) :
-    ∀ (sts : List Step) (assums : List Term), StepsFresh assums sts →
-      ∀ M, Satisfies M assums → ∃ M', Satisfies M' (extend assums sts)
-  | [], _, _, M, hsat => ⟨M, hsat⟩
-  | st :: sts, assums, ⟨hst, hsts⟩, M, hsat => by
-    obtain ⟨M', hM'⟩ := st.extends_ hty hst hsat
-    exact extend_sat hty sts (assums ++ st.clauses) hsts M' hM'
+can follow them, each introducing a fresh symbol: `extend_sat_good` where every model is good. -/
+theorem extend_sat (hty : LogosTyping) (sts : List Step) (assums : List Term)
+    (hsts : StepsFresh assums sts) (M : SmtModel) (hsat : Satisfies M assums) :
+    ∃ M', Satisfies M' (extend assums sts) :=
+  let ⟨M', _, h⟩ := extend_sat_good hty (fun _ => True) sts assums
+    (stepsOk_true_of_stepsFresh hsts) M trivial hsat
+  ⟨M', h⟩
 
 /-- So if the assumptions with the clauses of fresh-symbol steps have no model, the assumptions
 alone have none. -/

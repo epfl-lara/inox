@@ -26,9 +26,10 @@ It accepts a certificate when:
   them up to a normal form of their connectives;
 - Logos finds its proof `correct` ([`Inox/Accept.lean`](Inox/Accept.lean)).
 
-With `--rules`, it checks the rules only. `check.sh DIR` runs it on the files of
-`DIR`, which is what CI does on the corpus of the Scala checker (the
-`certificates` job).
+With `--rules`, it checks the rules only. With `--terms`, it also checks the
+rules on the terms that Logos reads (see below). `check.sh DIR [JOBS] [FLAGS]`
+runs it on the files of `DIR`, which is what CI does on the corpus of the Scala
+checker (the `certificates` job).
 
 ## What is proved
 
@@ -87,6 +88,48 @@ definition evaluates to a canonical value of its sort is type preservation, a
 theorem of Logos's proofs; it is a hypothesis here, `LogosTyping`, which
 `Inox/Closed.lean` discharges (`logos_typing`).
 
+The steps may also be facts, which hold in the models that a predicate `Good`
+selects (`Step.fact`, `Holds`), when reinterpreting a fresh symbol keeps those
+models (`KeepsConst`): then no model that `Good` selects satisfies the base
+assumptions, if none satisfies them with the clauses of the steps
+(`extend_sat_good`, `no_model_of_extend_good`). `extend_sat` is the case
+`Good := True` without facts.
+
+[`Inox/RuleSteps.lean`](Inox/RuleSteps.lean) ties this to the certificate. It
+writes the proof's declarations followed by one `assume` per clause (those of
+the query's assumptions, of each rule in order, then of the completeness
+assumptions), parses that text with Logos, and makes a step of each rule: a
+`Define`, `Hypothesis` or `Root` introduces its literal, the `Enables` rules of
+a target together introduce it, and the other rules and the completeness
+assumptions are facts. An `Enables` clause `(=> b m)` whose blocker `b` has a
+`Define` `(= b rhs)` of which `m` is a conjunct (an operand of `rhs`'s `and`)
+is not a blocker of `m`'s step but a derived clause: it holds in every model of
+that definition (`holds_derived`), and it comes after the steps. This breaks the
+cycles where a conjunction of targets enables one of them (`bs := (and m0 m2)`
+with `(=> bs m0)`): `m0` is introduced by its other blockers, then `bs`, then the
+clause. `TermSteps.check` ([`Inox/Terms.lean`](Inox/Terms.lean), which
+`inox-check --terms` runs) decides that each fresh-symbol step can follow those
+before it, that the definition of each derived clause is among them, and that
+every assumption of the proof is a clause. It takes time linear in the size of
+the clauses, up to hashing: freshness is decided against the set of the names of
+the constants that the clauses before mention (`NamesCover`), and the
+definitions and the clauses are looked up in hash sets, whose lemmas make the
+lookups equalities:
+
+```lean
+theorem no_good_model_of_accept (sound : LogosSound) (hty : LogosTyping)
+    (Good : SmtModel → Prop) {certificate : Sexp} {checked : Checked} {r : TermSteps}
+    (hAccept : accept certificate = .ok checked) (hr : termSteps checked = .ok r)
+    (hcheck : r.check = true)
+    (hkeep : ∀ st ∈ r.fresh, KeepsConst Good st.const)
+    (hfacts : FactsHold Good (extend r.base r.fresh) r.facts) :
+    ∀ M, Good M → ¬ Satisfies M r.base
+```
+
+What remains is `hfacts`, that each rule that is a fact holds in the models
+that the solutions of the query give, and `hkeep`, that those models don't
+depend on the fresh symbols: these are about the semantics of Inox.
+
 The soundness of Logos is a hypothesis of the theorems, `LogosSound`, which is
 the statement of Logos's own theorem. They then only need the definitions of
 Logos, and Mathlib for its reals: the [`verification`](verification) project
@@ -108,11 +151,18 @@ cd proofs/lean/verification && lake build InoxClosed
 
 ## What is not proved yet
 
-- **The rules.** The check of the rules is run, and nothing is proved of it
-  yet. The theorem to come is the one of an UNSAT answer in
-  [`semantics.md`](../semantics.md): the query has no solution. It needs the
-  semantics of Inox in Lean, and for each kind of rule, that its clauses hold
-  under the interpretation that a solution of the query gives.
+- **The rules that are facts.** `no_good_model_of_accept` covers the rules
+  that introduce fresh symbols. The theorem to come is the one of an UNSAT
+  answer in [`semantics.md`](../semantics.md): the query has no solution. It
+  needs the semantics of Inox in Lean, a `Good` of the models that its
+  solutions give, and for each other kind of rule, that its clauses hold in
+  them (`hfacts`).
+- **Longer cycles of `Enables` rules.** A cycle where a target reaches a
+  definition that enables it only through other definitions or targets
+  (`bs := (and d s)`, `(=> m s)`, `(=> bs2 m)`, `bs2 := (and d2 x)`,
+  `d2 := (or bs y)`) has no order in which each step is fresh. Its targets
+  would need to be introduced together, as the least model of the `Enables`
+  clauses of the cycle given the definitions, which are monotone in them.
 - **The sources of the templates.** The checker lowers the source of every
   template to the syntax of the session, as the Scala checker does
   ([`Lowering.lean`](Inox/Lowering.lean), a port of

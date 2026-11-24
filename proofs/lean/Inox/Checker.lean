@@ -185,6 +185,14 @@ structure Checked where
   lowered : Array Lowering.Source
   /-- cvc5's proof, in the CPC of Logos -/
   cpc : List Sexp
+  /-- the script of the clauses -/
+  script : List Sexp
+  /-- each rule's kind and clauses, in the order of the rules, as cvc5 prints testers -/
+  applied : List (String × List Sexp)
+  /-- the asserts that are assumptions of the query, as cvc5 prints testers -/
+  query : List Sexp
+  /-- the asserts that are assumptions of completeness, as cvc5 prints testers -/
+  complete : List Sexp
 
 /-- The text of the proof of a certificate, for a CPC checker. -/
 def Checked.proof (c : Checked) : String := "\n".intercalate (c.cpc.map text) ++ "\n"
@@ -216,6 +224,7 @@ structure Rules where
   named : Array Bool
   introduced : Std.HashMap String String := {}
   instances : Nat := 0
+  applied : Array (String × List Sexp) := #[]
 
 def Rules.introduce (state : Rules) (symbol : Sexp) (kind : String) : Check Rules :=
   match symbol with
@@ -261,15 +270,18 @@ def checkRule (clauses : Array Sexp) (templates : Array Template) (state : Rules
         | .atom symbol => some (symbol, pair.2)
         | _ => none)
       let terms := pairs.filterMap fun pair => if isAtom pair.1 then none else some (text pair.1, pair.2)
-      let instantiated : Std.HashSet String :=
-        Std.HashSet.ofList (body.map fun clause => text (testers (simplified (substitute values terms clause))))
+      let instClauses := body.map fun clause => testers (simplified (substitute values terms clause))
+      let instantiated : Std.HashSet String := Std.HashSet.ofList (instClauses.map text)
       for i in is do
         if !instantiated.contains (text (testers clauses[i]!)) then
           fail s!"assert {i}, {text clauses[i]!}, is not a clause of the instance that a {kind} rule names"
-      pure { state with instances := state.instances + 1 }
+      let applied := state.applied.push (kind, instClauses)
+      pure { state with instances := state.instances + 1, applied := applied }
     | none =>
       if isInstance then fail s!"a {kind} rule has no instance"
-      let expected := (← ruleClauses kind arguments).map fun clause => text (testers clause)
+      let built := (← ruleClauses kind arguments).map testers
+      let expected := built.map text
+      let state := { state with applied := state.applied.push (kind, built) }
       for i in is do
         if !expected.contains (text (testers clauses[i]!)) then
           fail s!"assert {i}, {text clauses[i]!}, is not a clause of the {kind} rule that names it"
@@ -352,7 +364,11 @@ def check (certificate : Sexp) : Check Checked := do
 
     pure {
       asserts := clauses.size, rules := ruleLines.length, instances := state.instances,
-      assumptions := queryIndices.length + completeIndices.length, templates := templates.size, lowered, cpc := cpc }
+      assumptions := queryIndices.length + completeIndices.length, templates := templates.size,
+      lowered, cpc := cpc,
+      script := script, applied := state.applied.toList,
+      query := queryIndices.map fun i => testers clauses[i]!,
+      complete := completeIndices.map fun i => testers clauses[i]! }
   | .expr (.atom "inox-certificate" :: .atom v :: _) =>
     if v != version then fail s!"the certificate has version {v}, and the checker checks version {version}"
     else fail "this is not a certificate"

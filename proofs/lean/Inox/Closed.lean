@@ -1,13 +1,13 @@
 /- Copyright 2009-2026 EPFL, Lausanne -/
 import Inox.Correct
-import Inox.Extend
+import Inox.RuleSteps
 import Cpc.ApiCorrect
 import Cpc.Proofs.TypePreservation.Full
 import Cpc.Proofs.Canonical.Eval
 
 /-!
-The theorems of `Inox/Correct.lean` and `Inox/Extend.lean` without their hypotheses: Logos is
-sound, and its evaluation preserves types, by its own theorems.
+The theorems of `Inox/Correct.lean`, `Inox/Extend.lean` and `Inox/RuleSteps.lean` without their
+hypotheses: Logos is sound, and its evaluation preserves types, by its own theorems.
 This module needs the proofs of Logos, which take hours to build.
 -/
 
@@ -38,5 +38,17 @@ theorem extend_sat_closed (sts : List Extend.Step) (assums : List Term)
     (hsts : Extend.StepsFresh assums sts) (M : Smtm.SmtModel) (hsat : Satisfies M assums) :
     ∃ M', Satisfies M' (Extend.extend assums sts) :=
   Extend.extend_sat logos_typing sts assums hsts M hsat
+
+/-- If the checker accepts a certificate and the check on terms holds, then no model that `Good`
+selects satisfies the assumptions of the query, given that reinterpreting a fresh symbol keeps the
+models that `Good` selects and that the facts hold in them. -/
+theorem no_good_model_of_accept_closed (Good : Smtm.SmtModel → Prop) {certificate : Sexp}
+    {checked : Checked} {r : TermSteps}
+    (hAccept : accept certificate = .ok checked) (hr : termSteps checked = .ok r)
+    (hcheck : r.check = true)
+    (hkeep : ∀ st ∈ r.fresh, Extend.KeepsConst Good st.const)
+    (hfacts : FactsHold Good (Extend.extend r.base r.fresh) r.facts) :
+    ∀ M, Good M → ¬ Satisfies M r.base :=
+  no_good_model_of_accept logos_sound logos_typing Good hAccept hr hcheck hkeep hfacts
 
 end Inox
