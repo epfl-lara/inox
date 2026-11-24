@@ -16,7 +16,7 @@ class CheckerSuite extends AnyFunSuite {
   // A template with the parameters `s` and `p` and its own symbol `c`, instantiated once under
   // the root blocker, a definition, an implication between blockers and an assumption.
   val certificate: String =
-    """(inox-certificate 2
+    """(inox-certificate 4
       |(script
       |(declare-const start Bool)
       |(declare-const b Bool)
@@ -50,8 +50,10 @@ class CheckerSuite extends AnyFunSuite {
       |(solver-symbols
       |(x variable "x$1" "BigInt")
       |)
+      |(source-definitions
+      |)
       |(source-symbols
-      |(p variable "p$2" "BigInt")
+      |(p variable "p$2" "BigInt" Int)
       |)
       |(cpc
       |(assume @p1 start)
@@ -74,11 +76,18 @@ class CheckerSuite extends AnyFunSuite {
     assert(checked(certificate) == Checked(6, 4, 1, 1, certificates(certificate).head match {
       case SList(items) => items.last match { case SList(_ :: cpc) => cpc; case _ => Nil }
       case _ => Nil
-    }))
+    }, 1))
   }
 
-  test("A template may come without its source") {
-    assert(checked(changed(" (expression (> p 0))", "")) == checked(certificate))
+  test("A template without a source, or whose clauses are not those of its source, is refused") {
+    assert(refused(changed(" (expression (> p 0))", "")).contains("template 0 has no source"))
+    val why = refused(changed("(expression (> p 0))", "(expression (> p 1))"))
+    assert(why.contains("template 0 is not that of its source") && why.contains("the clause c under s is not one of the source"), why)
+  }
+
+  test("A source that can't be lowered to the session is refused") {
+    val why = refused(changed("(expression (> p 0))", "(expression (> q 0))"))
+    assert(why.contains("the source of template 0 can't be lowered") && why.contains("q is no symbol of the sources"), why)
   }
 
   test("Certificates are found among the other lines that Inox prints") {
@@ -88,7 +97,7 @@ class CheckerSuite extends AnyFunSuite {
   }
 
   test("A certificate of another version is refused") {
-    assert(refused(changed("(inox-certificate 2", "(inox-certificate 3")).contains("version 3"))
+    assert(refused(changed("(inox-certificate 4", "(inox-certificate 2")).contains("version 2"))
   }
 
   test("An assert that no rule names is refused") {

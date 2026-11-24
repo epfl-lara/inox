@@ -268,6 +268,9 @@ class Printer private(override val program: InoxProgram,
     }
   }
 
+  /** The body that the definition of `fd` prints. */
+  protected def definitionBody(fd: FunDef): Expr = fd.fullBody
+
   override protected def declareFunction(tfd: TypedFunDef): SSymbol = {
     val fd = tfd.fd
 
@@ -280,7 +283,7 @@ class Printer private(override val program: InoxProgram,
         if (scc.size <= 1) {
           val sym = id2sym(fd.id)
           val (params, returnSort, bindings) = signature(fd)
-          val body = toSMT(fd.fullBody)(using bindings)
+          val body = toSMT(definitionBody(fd))(using bindings)
 
           val tps = fd.tparams.map(tpd => declareSort(tpd.tp).id.symbol)
 
@@ -307,7 +310,7 @@ class Printer private(override val program: InoxProgram,
               Left(FunDecPar(tps, sym, params, returnSort))
             }
 
-            (dec, toSMT(fd.fullBody)(using bindings))
+            (dec, toSMT(definitionBody(fd))(using bindings))
           }).unzip
 
           emit(if (decs.exists(_.isLeft)) {
