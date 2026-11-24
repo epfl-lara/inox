@@ -61,6 +61,19 @@ theorem no_model_of_accept (sound : LogosSound)
 `ts` evaluates to true. No model satisfies a list that contains the assumptions
 either (`no_model_of_unsat_of_subset`), such as the asserts of the script.
 
+[`Inox/Fresh.lean`](Inox/Fresh.lean) is a first step towards the rules: the
+constraints that introduce a fresh symbol keep a set of constraints satisfiable.
+Its key lemma is coincidence (`eval_setConst`): the value of a term does not
+depend on the interpretation of a constant it does not mention, provided that
+the name of the constant does not start like one of the constants Logos reserves
+for partial operators (`@div_by_zero`, `@mod_by_zero`, `@qdiv_by_zero`,
+`@oob_seq_nth`, `@wrong_apply_sel_n_m`). The names Logos gives the constants of
+a proof, `@u.i` and `@c.i`, never do. From a well-formed model of constraints
+that do not mention the symbol, it builds one that also satisfies the
+constraints of `Define` (`define_sat`, `define_guarded_sat`), of the root and
+hypothesis literals (`root_sat`, `hypothesis_sat`) and of `Enables`
+(`enables_sat`).
+
 The soundness of Logos is a hypothesis of the theorems, `LogosSound`, which is
 the statement of Logos's own theorem. They then only need the definitions of
 Logos, and Mathlib for its reals: the [`verification`](verification) project
