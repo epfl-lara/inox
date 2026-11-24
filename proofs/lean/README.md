@@ -74,6 +74,19 @@ constraints of `Define` (`define_sat`, `define_guarded_sat`), of the root and
 hypothesis literals (`root_sat`, `hypothesis_sat`) and of `Enables`
 (`enables_sat`).
 
+[`Inox/Extend.lean`](Inox/Extend.lean) lifts these lemmas to the terms Logos
+reads from a proof and to `Satisfies`: a model of a list of assumptions extends
+to a model of the list with the clauses of a fresh-symbol rule appended
+(`define_extends`, `define_guarded_extends`, `root_extends`,
+`hypothesis_extends`, `enables_extends`), and so to one of the list with the
+clauses of a sequence of such steps (`extend_sat`, `no_model_of_extend`). What
+a step requires is static and decidable: its constant is not mentioned by the
+assumptions before it nor by the other terms of its clauses, and its clauses
+have type `Bool`. That clauses of type `Bool` evaluate to Booleans and that a
+definition evaluates to a canonical value of its sort is type preservation, a
+theorem of Logos's proofs; it is a hypothesis here, `LogosTyping`, which
+`Inox/Closed.lean` discharges (`logos_typing`).
+
 The soundness of Logos is a hypothesis of the theorems, `LogosSound`, which is
 the statement of Logos's own theorem. They then only need the definitions of
 Logos, and Mathlib for its reals: the [`verification`](verification) project
