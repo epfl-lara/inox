@@ -406,12 +406,18 @@ trait Templates
     * clauses of, over its start blocker and arguments, and for the template of a function, the
     * `call` whose value the expression gives. The certificates of the solver's answers hold it
     * (see [[certificates.Certificates]]), so that a checker relates the clauses to it. */
-  case class Source(call: Option[Encoded], expr: Encoded)
+  case class Source(call: Option[Encoded], expr: Encoded, where: Seq[(Encoded, Encoded)] = Seq())
 
-  /** The source of a template of `expr`, and of the function that is called as `call` if there
-    * is one, when the rules are logged. */
-  private[unrolling] def templateSource(bindings: Map[Variable, Encoded], call: Option[Expr], expr: Expr): Option[Source] =
-    if (!loggingRules) None else Some(Source(call.map(mkEncoder(bindings)), mkEncoder(bindings)(expr)))
+  /** The source of a template whose clauses `clauses` are those of `expr`, and of the function
+    * that is called as `call` if there is one, when the rules are logged. The meanings of the
+    * symbols and markers of the template that the source names (see [[TemplateGenerator]])
+    * are those of the clauses and `meanings`. */
+  private[unrolling] def templateSource(clauses: TemplateClauses, bindings: Map[Variable, Encoded], call: Option[Expr], expr: Expr,
+                                        meanings: Seq[(Expr, Expr)] = Seq()): Option[Source] =
+    if (!loggingRules) None else {
+      val enc = mkEncoder(bindings).compose(sourceExpr(_, clauses.lambdas, clauses.bound, clauses.abstracted))
+      Some(Source(call.map(enc), enc(expr), (clauses.meanings ++ meanings).map((l, r) => enc(l) -> enc(r)).distinct))
+    }
 
   case class TemplateContents(
     val pathVar   : (Variable, Encoded),
@@ -450,7 +456,9 @@ trait Templates
         lambdas.map(_.substitute(substituter, msubst)),
         quantifications.map(_.substitute(substituter, msubst)),
         pointers.map(p => substituter(p._1) -> substituter(p._2)),
-        failures.map(_.map(substituter))
+        failures.map(_.map(substituter)),
+        source.map(s => Source(s.call.map(substituter), substituter(s.expr),
+          s.where.map((l, r) => (substituter(l), substituter(r)))))
       )
 
     /** Instantiates the contents under `aVar`, where the arguments take the values `args`. */
@@ -736,6 +744,13 @@ trait Templates
     def failures(exprVars: Map[Variable, Encoded]): Seq[Encoded] =
       exprVars.toSeq.collect { case (v, vT) if failureSymbols(v) => vT }
 
+    /** The encodings of the symbols of a template. */
+    def symbols(pathVar: (Variable, Encoded), arguments: Seq[(Variable, Encoded)], tmplClauses: TemplateClauses,
+                substMap: Map[Variable, Encoded]): Map[Variable, Encoded] =
+      tmplClauses.condVars ++ tmplClauses.exprVars + pathVar ++ arguments ++ substMap ++
+        tmplClauses.lambdas.map(_.ids) ++ tmplClauses.quantifications.flatMap(_.mapping) ++
+        tmplClauses.equalities.flatMap(_._2.map(_.symbols)) ++ typeCaches.tpSubst ++ uninterpretedSubst
+
     def encode(
       pathVar: (Variable, Encoded),
       arguments: Seq[(Variable, Encoded)],
@@ -748,10 +763,7 @@ trait Templates
       import tmplClauses.{condVars, exprVars, guardedExprs, equations => eqs, lambdas, quantifications => quants, definitions}
       val equals = tmplClauses.equalities
 
-      val idToTrId : Map[Variable, Encoded] =
-        condVars ++ exprVars + pathVar ++ arguments ++ substMap ++
-        lambdas.map(_.ids) ++ quants.flatMap(_.mapping) ++ equals.flatMap(_._2.map(_.symbols)) ++
-        typeCaches.tpSubst ++ uninterpretedSubst
+      val idToTrId : Map[Variable, Encoded] = symbols(pathVar, arguments, tmplClauses, substMap)
       val encoder: Expr => Encoded = mkEncoder(idToTrId)
 
       val optIdCall = optCall.map { callee => (callee, arguments.map(p => Left(p._2))) }
@@ -829,7 +841,8 @@ trait Templates
       substMap: Map[Variable, Encoded] = Map.empty,
       optCall: Option[Callee] = None,
       optApp: Option[(Encoded, FunctionType)] = None,
-      partial: Boolean = false
+      partial: Boolean = false,
+      source: Option[(Option[Expr], Expr)] = None
     ): (TemplateContents, () => String) = {
 
       val encoding = Template.encode(
@@ -838,7 +851,16 @@ trait Templates
       val contents = TemplateContents(
         pathVar, arguments, tmplClauses.condVars, tmplClauses.exprVars, tmplClauses.condTree,
         encoding.clauses, encoding.items, tmplClauses.lambdas, tmplClauses.quantifications, encoding.pointers,
-        if (partial) Some(failures(tmplClauses.exprVars)) else None
+        if (partial) Some(failures(tmplClauses.exprVars)) else None,
+        // the sources are only kept when the rules are logged
+        source.filter(_ => loggingRules).flatMap { (call, expr) =>
+          // equal lambdas have symbols of their own, which mean the lambda that the source names
+          // by the symbol of the last of them (see [[sourceExpr]])
+          val sameLambdas = tmplClauses.lambdas.groupBy(_.lambda).values.toSeq.flatMap { ts =>
+            ts.init.filter(_.ids._1 != ts.last.ids._1).map(t => (t.ids._1: Expr) -> (ts.last.ids._1: Expr))
+          }
+          templateSource(tmplClauses, symbols(pathVar, arguments, tmplClauses, substMap), call, expr, sameLambdas)
+        }
       )
 
       (contents, encoding.stringRepr)
@@ -1026,11 +1048,12 @@ trait Templates
     }
   }
 
-  /** The clauses of the expression that `gen` gives, with its source if it has one (see
-    * [[templateSource]]), under a fresh start blocker, which `root` gives the clauses of. */
+  /** The clauses of the expression that `gen` gives, with the expression that they are the
+    * clauses of if it is the source of a template, under a fresh start blocker, which `root` gives
+    * the clauses of. */
   private def instantiate(
     bindings: Map[Variable, Encoded],
-    gen: (Variable, Encoded) => (TemplateClauses, Option[Source]),
+    gen: (Variable, Encoded) => (TemplateClauses, Option[Expr]),
     exempt: App => Boolean = _ => false,
     root: Encoded => Clauses = Rule.Root(_).clauses
   ): Clauses = {
@@ -1039,8 +1062,8 @@ trait Templates
 
     val (tmplClauses, source) = gen(start, encodedStart)
 
-    val (contents0, _) = Template.contents(start -> encodedStart, bindings.toSeq, tmplClauses)
-    val contents = contents0.copy(source = source)
+    val (contents, _) = Template.contents(start -> encodedStart, bindings.toSeq, tmplClauses,
+      source = source.map(None -> _))
     val instance =
       Rule.Instance(contents.instantiation(encodedStart, Map.empty[Encoded, Arg]), InstanceOf.Expression(exempt)).clauses
     val allClauses = root(encodedStart) ++ instance
@@ -1058,7 +1081,8 @@ trait Templates
     } else {
       declared += v -> bindings(v)
       instantiate(bindings, { (start, encodedStart) =>
-        (mkClauses1(start, v.tpe, v, bindings + (start -> encodedStart))(using FreeGenerator), None)
+        (mkClauses1(start, v.tpe, v, bindings + (start -> encodedStart))(using FreeGenerator),
+          Some(freeTyping(v.tpe, v)))
       })
     }
   }
@@ -1111,7 +1135,11 @@ trait Templates
         mkClauses1(start, w.tpe, w, substMap)(using FreeGenerator)
       }
 
-      (tpeClauses.foldLeft(tmplClauses)(_ ++ _), None)
+      val source = ws.foldRight(Equals(differ, Not(Equals(Application(v1, ws), Application(v2, ws)))): Expr) {
+        (w, e) => Assume(freeTyping(w.tpe, w), e)
+      }
+
+      (tpeClauses.foldLeft(tmplClauses)(_ ++ _), Some(source))
     }, isWitnessApp, root)
 
     clauses ++ newFailureDefinitions()
@@ -1122,12 +1150,15 @@ trait Templates
       val instExpr = timers.solvers.simplify.run { simplifyFormula(expr) }
 
       val tmplClauses = mkClauses0(start, instExpr, bindings + (start -> encodedStart), polarity = Some(true))
-      val tpeClauses = bindings.filterNot(declared `contains` _).map { case (v, s) =>
+      val typed = bindings.filterNot(declared `contains` _).toSeq
+      val tpeClauses = typed.map { case (v, s) =>
         declared += v -> s
         mkClauses1(start, v.tpe, v, bindings + (start -> encodedStart))(using FreeGenerator)
       }
+      // the formula holds of values that lie in their types
+      val source = typed.foldRight(instExpr) { case ((v, _), e) => Assume(freeTyping(v.tpe, v), e) }
 
-      (tpeClauses.foldLeft(tmplClauses)(_ ++ _), templateSource(bindings, None, instExpr))
+      (tpeClauses.foldLeft(tmplClauses)(_ ++ _), Some(source))
     })
   }
 }

@@ -113,7 +113,7 @@ trait EqualityTemplates { self: Templates =>
       val pathVar = Variable.fresh("b", BooleanType(), true)
       val pathVarT = encodeSymbol(pathVar)
 
-      val tmplClauses = mkClauses0(pathVar, Equals(Application(f, args), tpe match {
+      val body: Expr = tpe match {
         case adt: ADTType =>
           val sort = adt.getSort
 
@@ -134,11 +134,14 @@ trait EqualityTemplates { self: Templates =>
           throw new Unsupported(s"Equality on ${tpe.asString} relies on a custom equality inside a set, bag or map")
 
         case _ => throw new InternalSolverError(s"Why does $tpe require equality unrolling!?")
-      }), (args zip argsT).toMap + (f -> fT) + (pathVar -> pathVarT))
+      }
+      val bindings = (args zip argsT).toMap + (f -> fT) + (pathVar -> pathVarT)
+      val tmplClauses = mkClauses0(pathVar, Equals(Application(f, args), body), bindings)
 
       val (contents, _) = Template.contents(
         pathVar -> pathVarT, args zip argsT, tmplClauses,
-        substMap = Map(f -> fT), optApp = Some(fT -> FunctionType(Seq(tpe, tpe), BooleanType()))
+        substMap = Map(f -> fT), optApp = Some(fT -> FunctionType(Seq(tpe, tpe), BooleanType())),
+        source = Some((Some(Application(f, args)), body))
       )
 
       val res = new EqualityTemplate(tpe, contents)

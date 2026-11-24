@@ -150,7 +150,9 @@ abstract class AbstractUnrollingSolver private
       val index = new java.util.IdentityHashMap[templates.TemplateContents, Int]
       for (r <- applied; (contents, _) <- r.template if !index.containsKey(contents)) index.put(contents, index.size)
       val templateSeq = scala.collection.mutable.ArrayBuffer.fill(index.size)(TemplateClauses[Encoded](Seq(), Seq(), None))
-      index.forEach { (contents, i) => templateSeq(i) = TemplateClauses(contents.pathVar._2 +: contents.args, contents.clauses, contents.source.map(s => (s.call, s.expr))) }
+      index.forEach { (contents, i) => templateSeq(i) = TemplateClauses(contents.pathVar._2 +: contents.args, contents.clauses,
+        // the certificates don't print the meanings that sources give yet, and leave out the sources that give some
+        contents.source.filter(_.where.isEmpty).map(s => (s.call, s.expr))) }
       val ruleSeq = applied.map { r =>
         // the values of the start blocker and arguments, which are themselves when not given, then
         // of the fresh symbols

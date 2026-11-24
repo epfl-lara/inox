@@ -135,11 +135,13 @@ trait QuantificationTemplates { self: Templates =>
       }
 
       val clauses: TemplateClauses = tmplClauses ++ tpeClauses
+      // the body holds of the quantified values that lie in their types
+      val domain = andJoin(idQuantifiers.map(v => typingMarker(typingMode(summon[TypingGenerator], true, false), v.tpe, v)))
       val (res, polarity, contents, str) = if (pol) {
         val subst = quantifiers.flatMap(v => typeOps.variablesOf(v.tpe)).map(v => v -> Left(clauseSubst(v))).toMap
 
         val (contents, str) = Template.contents(pathVar, idQuantifiers zip trQuantifiers,
-          clauses + (pathVar._1 -> Implies(tpeCond, p)), depSubst)
+          clauses + (pathVar._1 -> Implies(tpeCond, p)), depSubst, source = Some((None, Implies(domain, body))))
 
         (BooleanLiteral(true), Positive(subst), contents, str)
       } else {
@@ -147,7 +149,8 @@ trait QuantificationTemplates { self: Templates =>
         val instT = encodeSymbol(inst)
 
         val (contents, str) = Template.contents(pathVar, idQuantifiers zip trQuantifiers,
-          clauses + (pathVar._1 -> Equals(inst, Implies(tpeCond, p))), depSubst + (inst -> instT))
+          clauses + (pathVar._1 -> Equals(inst, Implies(tpeCond, p))), depSubst + (inst -> instT),
+          source = Some((None, Equals(inst, Implies(domain, body)))))
 
         (inst, Negative(inst -> instT), contents, str)
       }
