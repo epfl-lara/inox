@@ -127,11 +127,9 @@ abstract class AbstractUnrollingSolver private
     underlying.reset()
   }
 
-  /** Prints the solver's terms in the session of the underlying solver, when its session prints
-    * them: certificates print the terms of the rules and templates with the first, and the
-    * sources of the templates with the second. A solver gives them for its
-    * own terms (see [[certificates.Certificates.CertificatePrinter]]). */
-  protected def certificatePrinter: Option[(Seq[Encoded] => certificates.Certificates.Printed, Seq[Encoded] => certificates.Certificates.Printed)] = None
+  /** The printer of the solver's terms and sources in the session of the underlying solver, when
+    * its session prints them (see [[certificates.Certificates.CertificatePrinter]]). */
+  protected def certificatePrinter: Option[certificates.Certificates.Printer[Encoded]] = None
 
   /** The certificate of a check of a query under `queryAssumptions`, which answers unsat from a
     * check of the underlying solver under `assumptions` that it proved unsat with `proof`: the
@@ -149,10 +147,8 @@ abstract class AbstractUnrollingSolver private
       // each template once, in the order of the rules
       val index = new java.util.IdentityHashMap[templates.TemplateContents, Int]
       for (r <- applied; (contents, _) <- r.template if !index.containsKey(contents)) index.put(contents, index.size)
-      val templateSeq = scala.collection.mutable.ArrayBuffer.fill(index.size)(TemplateClauses[Encoded](Seq(), Seq(), None))
-      index.forEach { (contents, i) => templateSeq(i) = TemplateClauses(contents.pathVar._2 +: contents.args, contents.clauses,
-        // the certificates don't print the meanings that sources give yet, and leave out the sources that give some
-        contents.source.filter(_.where.isEmpty).map(s => (s.call, s.expr))) }
+      import scala.jdk.CollectionConverters._
+      val contents = index.asScala.toSeq.sortBy(_._2).map(_._1)
       val ruleSeq = applied.map { r =>
         // the values of the start blocker and arguments, which are themselves when not given, then
         // of the fresh symbols
@@ -166,8 +162,12 @@ abstract class AbstractUnrollingSolver private
       val assumed = assumptions.map(a => Assumed(a, complete = !queryAssumptions(a) && templates.assumedComplete(a)))
       assumptions.find(a => !queryAssumptions(a) && !templates.assumedComplete(a)) match {
         case Some(a) => Left("the check that refuted the query assumes " + templates.asString(a) + ", which refutations don't assume")
+        case None if contents.exists(_.source.isEmpty) => Left("a template of the refutation has no source")
         case None => certificatePrinter match {
-          case Some((printTerms, printSources)) => certificates.Certificates.certificate(proof, Refutation(clauses, assumed, templateSeq.toSeq, ruleSeq), printTerms, printSources)
+          case Some(printer) =>
+            val templateSeq = contents.map(c => TemplateClauses(c.pathVar._2 +: c.args, c.clauses, c.source.get))
+            printer.define(templates.definition)
+            certificates.Certificates.certificate(proof, Refutation(clauses, assumed, templateSeq, ruleSeq), printer)
           case None => Left("the underlying solver's session doesn't print the solver's terms")
         }
       }
@@ -1849,8 +1849,8 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
 
   override lazy val name = "U:" + underlying.name
 
-  override protected def certificatePrinter: Option[(Seq[Encoded] => certificates.Certificates.Printed, Seq[Encoded] => certificates.Certificates.Printed)] = underlying match {
-    case s: (underlying.type & certificates.Certificates.CertificatePrinter) => Some((s.printedTerms, s.printedSources))
+  override protected def certificatePrinter: Option[certificates.Certificates.Printer[Encoded]] = underlying match {
+    case s: (underlying.type & certificates.Certificates.CertificatePrinter) => Some(s.certificatePrinter)
     case _ => None
   }
 

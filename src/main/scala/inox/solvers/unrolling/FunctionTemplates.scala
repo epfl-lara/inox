@@ -25,6 +25,8 @@ trait FunctionTemplates { self: Templates =>
   private object functionCaches {
     /** The template of each function. */
     val templates: MutableMap[TypedFunDef, FunctionTemplate] = MutableMap.empty
+    /** The body of each function that certificates define it with (see [[definitionBody]]). */
+    val bodies: MutableMap[Identifier, Expr] = MutableMap.empty
     /** The template of the interpretation of each uninterpreted function (see [[InterpretedTemplate]]). */
     val interpreted: MutableMap[Interpreted, FunctionTemplate] = MutableMap.empty
     /** The rank function of each function, and its encoding (see [[rankClauses]]). */
@@ -53,9 +55,21 @@ trait FunctionTemplates { self: Templates =>
     vars.toSeq.distinct
   }
 
+  /** The body of the function `id` that certificates define it with, over its parameters and
+    * type parameters: its simplified body, which its templates unfold at their type arguments
+    * when the rules are logged, so that the body of every instance is an instance of it. */
+  private[unrolling] def definitionBody(id: Identifier): Expr = functionCaches.bodies.getOrElseUpdate(id,
+    timers.solvers.simplify.run { simplifyFormula(getFunction(id).fullBody) })
+
+  /** The definition of the function `id` in the solver's terms (see [[definitionBody]]). */
+  def definition(id: Identifier): Encoded = mkEncoder(Map.empty)(definitionBody(id))
+
   object FunctionTemplate {
     def apply(tfd: TypedFunDef): FunctionTemplate = functionCaches.templates.getOrElse(tfd, {
-      val body: Expr = timers.solvers.simplify.run { simplifyFormula(tfd.fullBody) }
+      // without logging, the body is simplified at the type arguments, as it always was
+      val body: Expr =
+        if (loggingRules) tfd.instantiate(definitionBody(tfd.id))
+        else timers.solvers.simplify.run { simplifyFormula(tfd.fullBody) }
 
       val tpVars = tfd.tps.flatMap(variableSeq).distinct
       val fdArgs: Seq[Variable] = tfd.params.map(_.toVariable)
@@ -117,7 +131,8 @@ trait FunctionTemplates { self: Templates =>
       }
 
       val (contents0, str) = Template.contents(
-        pathVar, arguments, tmplClauses, optCall = Some(Defined(tfd)), partial = true, source = Some((Some(call), body)))
+        pathVar, arguments, tmplClauses, optCall = Some(Defined(tfd)), partial = true, source = Some((Some(call), body)),
+        definition = true)
       val contents = contents0.copy(clauses = contents0.clauses ++ rankClauses(tfd, contents0, bodySites))
 
       val funString : () => String = () => {

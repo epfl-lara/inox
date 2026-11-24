@@ -26,7 +26,10 @@ object Checker {
   final case class SList(items: List[SExpr]) extends SExpr { override def toString: String = items.mkString("(", " ", ")") }
 
   final class Failure(msg: String) extends Exception(msg)
-  private def fail(msg: String): Nothing = throw new Failure(msg)
+  private[certificates] def fail(msg: String): Nothing = throw new Failure(msg)
+
+  /** The version of the certificates that the checker checks. */
+  val Version = "4"
 
   /** The s-expressions of `text`, whose atoms keep their text. */
   def parse(text: String): List[SExpr] = {
@@ -250,7 +253,8 @@ object Checker {
   def ruleClauses(kind: String, args: List[SExpr]): List[SExpr] = clauses(kind, new Arguments(kind, args))
 
   /** What a certificate has, once checked. */
-  final case class Checked(asserts: Int, rules: Int, instances: Int, assumptions: Int, cpc: List[SExpr])
+  final case class Checked(asserts: Int, rules: Int, instances: Int, assumptions: Int, cpc: List[SExpr],
+                           templates: Int = 0)
 
   /** Checks `certificate`, and fails with a [[Failure]] that says why when it doesn't hold. */
   def check(certificate: SExpr): Checked = certificate match {
@@ -260,27 +264,53 @@ object Checker {
       SList(Atom("rules") :: ruleLines),
       SList(List(Atom("assumptions"), SList(Atom("query") :: query), SList(Atom("complete") :: complete))),
       SList(Atom("solver-symbols") :: solverSymbols),
-      // what the symbols of the sources stand for, which the checker doesn't relate to the clauses
-      SList(Atom("source-symbols") :: _),
+      SList(Atom("source-definitions") :: sourceDefinitions),
+      SList(Atom("source-symbols") :: sourceSymbols),
       SList(Atom("cpc") :: cpc))) =>
 
-      if (version != "2") fail(s"the certificate has version $version, and the checker checks version 2")
+      if (version != Version) fail(s"the certificate has version $version, and the checker checks version $Version")
 
       val clauses = asserts(script)
       val templateClauses = asserts(templateScript)
 
+      // the sources, in the syntax of the session
+      val tables = new Lowering.Tables(script ++ templateScript, solverSymbols, sourceDefinitions, sourceSymbols)
+      val sources: Vector[Sources.Source] = templateLines.zipWithIndex.map {
+        case (SList(_ :: _ :: Sources.Source(s) :: _), n) =>
+          try tables.lower(s)
+          catch { case r: Lowering.Refused => fail(s"the source of template $n can't be lowered: ${r.why}") }
+        case (_, n) => fail(s"template $n has no source")
+      }.toVector
+
+      // the functions are those that the scripts declare, and those that templates define
+      val declared = Sources.Signature(script ++ templateScript)
+      val signature = declared.copy(functions = declared.functions ++ sources.collect {
+        case Sources.Function(g: Atom, _, _) => g
+      })
+      var ranks = Set.empty[(Atom, Atom)]
+      var calls = Set.empty[(Atom, Set[Atom])]
+      var diverges = Set.empty[Atom]
       val templates: Vector[(List[SExpr], Vector[SExpr])] = templateLines.zipWithIndex.map {
-        case (SList(Atom(i) :: SList(Atom("params") :: params) :: rest), n) if i == n.toString =>
+        case (SList(Atom(i) :: SList(Atom("params") :: params) :: _ :: indices), n) if i == n.toString =>
           if (params.distinct.size != params.size) fail(s"template $n has a parameter twice")
-          // the source of the template, which the checker doesn't relate to its clauses
-          val indices = rest match {
-            case SList(List(Atom("function"), _, _)) :: indices => indices
-            case SList(List(Atom("expression"), _)) :: indices => indices
-            case indices => indices
+          val source = sources(n)
+          val body = indices.map(i => templateClauses(index(i, templateClauses.size, "the templates"))).toVector
+          // whether the clauses are those of the template's source
+          Sources.check(params, body, source, signature) match {
+            case Left(why) => fail(s"template $n is not that of its source: $why")
+            case Right(Sources.Ranks(rs, cs, ds)) => ranks ++= rs; calls ++= cs; diverges ++= ds
           }
-          (params, indices.map(i => templateClauses(index(i, templateClauses.size, "the templates"))).toVector)
+          (params, body)
         case (other, n) => fail(s"$other is not template $n")
       }.toVector
+
+      // each function has one rank, which is the rank of no other function, and one symbol holds
+      // when a call diverges
+      for ((f, rs) <- ranks.groupMap(_._1)(_._2) if rs.size > 1) fail(s"the function $f has the ranks ${rs.mkString(", ")}")
+      for ((r, fs) <- ranks.groupMap(_._2)(_._1) if fs.size > 1) fail(s"$r is the rank of the functions ${fs.mkString(", ")}")
+      for ((r, called) <- calls; f <- ranks.collectFirst { case (f, `r`) => f } if !called(f))
+        fail(s"$r is the rank of $f, and of a call of ${called.mkString(" or ")}")
+      if (diverges.size > 1) fail(s"the calls diverge under ${diverges.mkString(", ")}")
 
       val named = Array.fill(clauses.size)(false)
       // the symbols that the rules introduce, with the rule that does
@@ -356,11 +386,6 @@ object Checker {
       }
       for (i <- named.indices if !named(i)) fail(s"assert $i, ${clauses(i)}, is the clause of no rule and no assumption")
 
-      for (line <- solverSymbols) line match {
-        case SList(Atom(_) :: Atom(_) :: described) if described.forall { case Atom(s) => s.startsWith("\""); case _ => false } =>
-        case other => fail(s"$other doesn't describe a symbol")
-      }
-
       // the proof refutes the script, where its definitions name terms
       val asserted = clauses.toSet
       val normalAsserted = asserted.map(normal)
@@ -374,10 +399,10 @@ object Checker {
         case _ =>
       }
 
-      Checked(clauses.size, ruleLines.size, instances, queryIndices.size + completeIndices.size, cpc)
+      Checked(clauses.size, ruleLines.size, instances, queryIndices.size + completeIndices.size, cpc, templates.size)
 
-    case SList(Atom("inox-certificate") :: Atom(version) :: _) if version != "2" =>
-      fail(s"the certificate has version $version, and the checker checks version 2")
+    case SList(Atom("inox-certificate") :: Atom(version) :: _) if version != Version =>
+      fail(s"the certificate has version $version, and the checker checks version $Version")
     case _ => fail("this is not a certificate")
   }
 
@@ -427,7 +452,8 @@ object Checker {
           total += 1
           try {
             val checked = check(certificate)
-            println(s"ok   $file ${n + 1}: ${checked.asserts} asserts, ${checked.rules} rules, ${checked.instances} instances")
+            println(s"ok   $file ${n + 1}: ${checked.asserts} asserts, ${checked.rules} rules, ${checked.instances} instances, " +
+              s"${checked.templates} templates")
             for (dir <- cpcDir)
               Files.writeString(dir.resolve(s"${path.getFileName}.${n + 1}.cpc"), checked.cpc.map(_.toString + "\n").mkString)
           } catch {
