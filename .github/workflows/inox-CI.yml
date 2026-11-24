@@ -117,8 +117,9 @@ jobs:
     # The certificates of unsat answers (proofs/certificates): the checker of the proofs project
     # checks those of the corpus (proofs/certificates/corpus.txt), and Ethos, at the commit that
     # cvc5 pins, checks their CPC proofs against cvc5's signature. The tests job runs the checker
-    # too; this job adds Ethos.
-    name: Certificates (Ethos)
+    # too; this job adds Ethos, and the checker in Lean (proofs/lean), which checks the proofs
+    # with Logos.
+    name: Certificates (Ethos, Lean)
     runs-on: ubuntu-latest
     env:
       INSTALL_SOLVERS: 1
@@ -165,9 +166,15 @@ jobs:
     - name: Ethos and Cpc.eo
       run: proofs/certificates/get-ethos.sh "$RUNNER_TEMP/ethos" | tee -a "$GITHUB_ENV"
     - name: Check the certificates of the corpus
-      run: INOX_CPC_DIR="$RUNNER_TEMP/cpc" sbt -batch "proofs/testOnly inox.certificates.CheckerSuite"
+      run: INOX_CPC_DIR="$RUNNER_TEMP/cpc" INOX_ANSWERS_DIR="$RUNNER_TEMP/answers" sbt -batch "proofs/testOnly inox.certificates.CheckerSuite"
     - name: Check their proofs with Ethos
       run: proofs/certificates/check.sh "$RUNNER_TEMP/cpc" 4
+    - name: Build the checker in Lean
+      uses: leanprover/lean-action@v1
+      with:
+        lake-package-directory: proofs/lean
+    - name: Check the certificates in Lean, and their proofs with Logos
+      run: proofs/lean/check.sh "$RUNNER_TEMP/answers" 4
 
   semantics-lean:
     name: Semantics (Lean)

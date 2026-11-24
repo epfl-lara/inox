@@ -1,0 +1,44 @@
+name: Lean proofs
+# The theorems of the certificate checker in Lean (proofs/lean/verification), when they change.
+# They take the soundness of Logos as a hypothesis, and so only need its definitions and
+# Mathlib, from its cache. Run by hand with `closed`, the workflow also builds the proofs of
+# Logos, which take hours, to check the theorems without that hypothesis: once for each version
+# of Logos is enough, and Logos checks its proofs itself.
+on:
+  workflow_dispatch:
+    inputs:
+      closed:
+        description: Also build the proofs of Logos (hours)
+        type: boolean
+        default: false
+  pull_request:
+    paths:
+      - 'proofs/lean/**'
+      - '.github/workflows/lean-proofs.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'proofs/lean/**'
+      - '.github/workflows/lean-proofs.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  proofs:
+    name: Lean proofs
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v7
+    - name: Build the theorems
+      uses: leanprover/lean-action@v1
+      with:
+        lake-package-directory: proofs/lean/verification
+    - name: Build them on the proofs of Logos
+      if: ${{ inputs.closed }}
+      working-directory: proofs/lean/verification
+      run: lake build InoxClosed

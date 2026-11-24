@@ -32,6 +32,9 @@ Eunoia backend comes next.
 
 [`certificates`](certificates/README.md) checks the certificates that Inox
 prints for its unsat answers, apart from the solver.
+[`lean`](lean/README.md) has that checker in Lean, where Logos, which is proved
+sound, checks the proofs of the certificates: what it accepts comes with a
+theorem.
 
 This directory is the sbt project `proofs`, which depends on Inox but is not
 part of it: it is not published, and Inox's jars don't contain it. `sbt test`

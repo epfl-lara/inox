@@ -1,0 +1,16 @@
+{"version": "1.2.0",
+ "packagesDir": ".lake/packages",
+ "packages":
+ [{"url": "https://github.com/cvc5/logos",
+   "type": "git",
+   "subDir": null,
+   "scope": "",
+   "rev": "33c7e71cd19f7d462895cf5f6c67d4ffbe059351",
+   "name": "Cpc",
+   "manifestFile": "lake-manifest.json",
+   "inputRev": "33c7e71cd19f7d462895cf5f6c67d4ffbe059351",
+   "inherited": false,
+   "configFile": "lakefile.toml"}],
+ "name": "InoxCertificates",
+ "lakeDir": ".lake",
+ "fixedToolchain": false}

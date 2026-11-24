@@ -29,8 +29,11 @@ This directory checks certificates apart from the solver, in two steps.
 
 `CheckerSuite` checks the certificates of the regression files that
 [`corpus.txt`](corpus.txt) lists, and writes their CPC proofs to
-`$INOX_CPC_DIR` when it is set. CI runs it and then Ethos (the `certificates`
-job).
+`$INOX_CPC_DIR` and what Inox printed to `$INOX_ANSWERS_DIR` when they are set.
+CI runs it, then Ethos, then the checker in Lean (the `certificates` job).
+
+[`proofs/lean`](../lean/README.md) has the same check of the rules in Lean,
+where Logos checks the proofs, which comes with a theorem.
 
 ## What is checked, and what is not
 
