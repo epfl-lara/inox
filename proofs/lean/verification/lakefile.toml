@@ -19,7 +19,7 @@ name = "Inox"
 [[lean_lib]]
 name = "InoxVerification"
 roots = []
-globs = ["Inox.Correct"]
+globs = ["Inox.Correct", "Inox.NoModel"]
 
 # The theorems with the soundness of Logos discharged by its own theorem: `lake build InoxClosed`
 # builds the proofs of Logos.
