@@ -363,6 +363,245 @@ for each version of Logos (the workflow builds it when run by hand with
 cd proofs/lean/verification && lake build InoxClosed
 ```
 
+## The bridge to the semantics (partly proved)
+
+The theorem of an UNSAT answer is about Inox's semantics: no values of the free
+variables make the query evaluate to `(Ok true)`. The semantics is
+[`semantics.md`](../semantics.md), and its Lean form,
+[`proofs/semantics/Inox/Semantics.lean`](../semantics/Inox/Semantics.lean), is
+generated from it, as its Scala form is (`inox.semantics.Codegen`): the
+inductive types `Value`, `Expr`, `Ty`, `Program` and `Env` of its `inox-sem`
+blocks, and total definitions `eval O P fuel env e` and
+`call O P fuel f tps tenv vs`, by well-founded recursion on `fuel.toNat`. They
+are relative to an oracle `O` for the functions that quantify over values, and
+`O.Sound` states that it gives them as the semantics defines them. The checker
+and Logos, on the other side, work on SMT-LIB terms and on `SmtValue`s. This
+section says what connects them. Only the parts that don't depend on the
+generated evaluator are proved: the intended model over an abstract
+interpretation of the functions, and `Good` relativized to the calls that are
+`Ok` (see [What is proved of it so far](#what-is-proved-of-it-so-far)).
+
+### The fragment
+
+The first-order core: `Variable`, `Let`, the literals of integers, Booleans and
+unit, `IfExpr`, `And`, `Or`, `Implies`, `Not`, `Equals` on values that are not
+closures, `FunctionInvocation` without type arguments, `ADT` without type
+arguments, `IsConstructor`, `ADTSelector`, `Assume` and `Error`, in a program
+whose functions have no type parameters and whose sorts may have invariants.
+Lambdas, applications, quantifiers, sets, bags, maps, strings, reals,
+bit-vectors and floating point come after it. Each needs the same three pieces:
+a translation, a case of the agreement theorem, and the clauses of its
+templates.
+
+### The translation
+
+A translation `tr Γ` from the semantics to Logos, for this fragment:
+
+- types: `IntegerType` to `Int`, `BooleanType` to `Bool`, `UnitType` and
+  `ADTType s []` to the datatype of the script's encoding, by name;
+- values: `IntV i` to `Numeral i`, `BoolV b` to `Boolean b`, `UnitV` and
+  `ADTV c vs` to the constructor `DtCons` of `c` applied to the translations of
+  `vs`;
+- expressions: a variable to the constant of its symbol (`UConst x T`, with `T`
+  from `Γ`), `IfExpr` to `ite`, `And` and `Or` to nested `and` and `or`,
+  `Implies`, `Not` and `Equals` to `=>`, `not` and `=`, an invocation of `f` to
+  the application spine of `f`'s symbol, `ADT` to the constructor's, and
+  `IsConstructor` and `ADTSelector` to the tester and the selector. `Let`
+  becomes a fresh symbol bound in `Γ` with its definition, as the templates
+  name it. `Assume` and `Error` have no term: they show up as clauses (see
+  below).
+
+`Γ` is needed because the semantics' expressions don't carry the types of their
+variables: `FunDef` has `params (List Id)` and no types. The types come from
+the certificate (below). The names come from the same place: the certificate's
+symbols map back to Inox identifiers (`Proofs.scala`), and the translation is
+that map read backwards.
+
+### The intended model
+
+Given a program `P` and a solution `σ` of the query, the intended model
+`M(P, σ)` is the `SmtModel` that:
+
+- gives each free variable of the query `tr σ(x)`;
+- interprets the symbol of each function `f`, on the translations of values
+  `vs` of its parameter types, by `tr v` when `call O P n f [] [] vs = Ok v`
+  for some fuel `n` (unique by the fuel lemma), and by an arbitrary value of
+  the return type otherwise;
+- interprets a function symbol of arity `k > 1` applied to fewer arguments as a
+  `Fun` value whose code names the function and the arguments so far, so that
+  `__smtx_model_eval_apply` reaches the call when the last one comes;
+- interprets sorts, constructors, selectors and testers as Logos does.
+
+[`Inox/Model.lean`](Inox/Model.lean) builds this model over an arbitrary
+interpretation `interp` of the functions, and proves it well formed whatever
+`interp` is. The bridge instantiates `interp` with `call`. It takes one fact as
+a hypothesis: an injection of names, types and argument lists into the nonzero
+codes of `Fun` values (`Codes`; `ModelId` is `ℝ`, so one exists, but it isn't
+proved yet).
+
+### The agreement theorem
+
+For `e` in the fragment, well-typed in `Γ`, and `env` matching `Γ`: if
+`eval O P n env e = Ok v`, then Logos evaluates `tr Γ e` in `M(P, σ)`, with the
+constants of `Γ` set to `tr env`, to `tr v`.
+
+It is proved by induction on `n` and then on `e`. The cases follow `eval`'s
+equations: the connectives because `Ok` means the operands needed were `Ok`,
+which is what Logos's total `and`/`or` need on the values; invocations because
+`call` is `Ok` with the same fuel, so the model's interpretation is that value.
+
+Only `Ok` results say anything. `Stuck` and `OutOfFuel` give no value, and the
+translated term may then have any value in the model. This is where the rest of
+the certificate comes in.
+
+### Where `Stuck` and `OutOfFuel` show up
+
+- **The defining equations.** `Good` asks that each function's equation
+  `(= (f x1 … xn) body)` hold for all arguments. In `M(P, σ)` it holds where
+  `call O P n f [] [] vs` is `Ok` for some `n`. Elsewhere the interpretation is
+  arbitrary, and so the equation may fail. For a program whose functions
+  terminate and never get stuck on values of their parameter types, `M(P, σ)`
+  is `Good`, and the current theorems apply to it as they are, with the facts
+  that remain as their hypothesis. In general, `Good` has to be relativized to
+  the calls that are `Ok`. The rules of the templates only use the equation of
+  a call under the blocker that guards it. A blocker holds iff evaluation
+  reaches its path (`RuleKernel`), and a call reached on the way to `Ok true`
+  is itself `Ok`.
+- **Contracts** (`Assume`, `Error`, invariants, partial operations). These are
+  `Stuck` in the semantics. In the certificate they are clauses that say the
+  condition holds on the path that reaches it. In a solution, every reached
+  `Assume` holds and every reached constructor satisfies its invariant, since
+  otherwise evaluation would be `Stuck`, not `Ok true`. So the contract clauses
+  hold in `M(P, σ)` under the blockers' intended meaning. To prove that, the
+  agreement theorem's induction has to carry the blockers: each blocker is true
+  in the model iff `eval` reaches the guarded subexpression with `Ok` results
+  so far.
+- **Decreases** (`diverges`, ranks). `OutOfFuel` for every fuel is divergence.
+  The decreases clauses give each call a rank from the termination measure, and
+  `diverges` stands for calls that may not terminate. Their intended meaning
+  is: the rank of a call bounds the fuel its evaluation needs, and `diverges`
+  is false exactly when every reached call has a rank. With it, a reached call
+  of a solution is `Ok` at fuel equal to its rank. The checker needs this so
+  that the relativized `Good` covers every call that the rules use.
+
+### What the certificate has to carry
+
+Today the sources are SMT terms, `(function (f x1 … xn) body)` and
+`(expression t)`. To tie them to the semantics, the certificate needs:
+
+- the program `P` as a value of the semantics' `Program`, printed as the
+  `inox-sem` datatypes' s-expressions;
+- the query as an `Expr`, with its free variables and their types;
+- a typing environment for the translation: the parameter and return types of
+  each function, and the field types of each constructor;
+- the map between the script's symbols and the program's identifiers (the
+  `Sym`s already hold it).
+
+The checker would then check that each `(function …)` source is `tr` of the
+function's body in `P`, and that each `(expression …)` is `tr` of the query.
+One gap remains: the body in a source is the one the solver unfolds, after its
+simplifications. Either the certificate gives the unsimplified body, or the
+simplifications have to be shown to preserve `eval`. The first is simpler.
+
+### What the proofs need from the generated Lean
+
+The generated file already gives the form the proofs need. `eval`, `eval_list`,
+`call` and `apply` are ordinary definitions, not `partial` ones, so their
+equation lemmas (`eval.eq_def`) unfold them; since the recursion is
+well-founded, `rfl` and `decide` don't. There is one inductive per `datatype`
+and one constructor per constructor, with the names of `semantics.md`, `Id` is
+`String`, and `Result` is its own inductive. The functions that quantify over
+values or compare closures (`forall_result`, `closures_equal`, `value_eq`, the
+typing of values) are fields of the oracle, so a theorem about `eval` assumes
+`O.Sound` where it reaches them.
+
+What is still missing:
+
+- **Fuel monotonicity.** "More fuel never changes a result other than
+  `OutOfFuel`" is the lemma the intended model needs, since it makes a call's
+  value independent of the fuel that finds it. It has to be proved by induction
+  over `eval`'s cases, against the generated definitions.
+- **The dependency.** This package doesn't depend on `proofs/semantics` yet,
+  and the agreement theorem is stated against its datatypes.
+
+### What is proved of it so far
+
+**The intended model** ([`Inox/Model.lean`](Inox/Model.lean)). A program is a
+signature: each `Def` has the constant it defines (`name`, `ty`), its `params`
+and its `ret` sort. Over `interp : Def → List SmtValue → SmtValue`, a model
+`M0` for the sorts and the other function values, a model `N` for the free
+variables, and `cd : Codes`, `star P interp M0 cd N` interprets:
+
+- a constant that `d` defines by `interp d []` if `d` has no parameters, and
+  otherwise by the function value `funVal cd d []`, of sort
+  `arrow d.params d.ret`, whose code is `cd.code d.name d.ty []`;
+- the function value that codes `d` applied to `vs`, applied to `i`, by
+  `funVal cd d (vs ++ [i])` while parameters remain, and by
+  `interp d (vs ++ [i])` once none do (`applied`);
+- everything else as `N` (the values of constants) and `M0` (function values,
+  sorts) do.
+
+Where `interp` doesn't give a canonical value of the expected sort (the
+evaluation is stuck, out of fuel, or ill-typed), the model falls back to `N` or
+`M0` (`typedOr`). So it is a model for any `interp`:
+
+```lean
+theorem wf_star (hwf : model_wf M0) {N : SmtModel} (hN : model_wf N)
+    (hu : N.usortDom = M0.usortDom) : model_wf (star P interp M0 cd N)
+```
+
+and `star_def`, `fns_code` and `star_undef` state that it interprets the
+constants and the partial applications as above, where `interp` gives a
+canonical value of the expected sort.
+
+**`Good` relativized** ([`Inox/Relative.lean`](Inox/Relative.lean)). For a
+predicate `ok` on equations and argument values (for the bridge: the calls that
+are `Ok`), `GoodOn ok eqs M` asks that each equation evaluate to a Boolean for
+all arguments of its parameter types, and to `true` for those that `ok`
+selects. `Good` is the case `ok = fun _ _ => True` (`good_iff_goodOn`). An
+unfolding `(=> g s)` of an equation holds in the `GoodOn` models when its guard
+only selects calls that `ok` selects:
+
+```lean
+def GuardOk (ok : Equation → List SmtValue → Prop) (eqs : List Equation)
+    (assums : List Term) (c : Term) : Prop :=
+  ∀ M, GoodOn ok eqs M → Satisfies M assums →
+    ∀ g s, __eo_to_smt c = SmtTerm.imp g s →
+      __smtx_model_eval M g = SmtValue.Boolean true →
+      ∀ e ∈ eqs, ∀ us, instB e g s us = true →
+        ok e (us.map (__smtx_model_eval M))
+
+theorem no_good_model_of_unfold_on (sound : LogosSound) (hty : LogosTyping)
+    (ok : Equation → List SmtValue → Prop)
+    {certificate : Sexp} {checked : Checked} {r : TermSteps}
+    (hAccept : accept certificate = .ok checked)
+    (hr : termSteps checked = .ok r)
+    (hcheck : r.check = true) (hkeeps : r.keeps = true)
+    (hfacts : FactsHoldBy (GoodOn ok r.equations)
+      (GuardedUnfold ok r.equations) (extend r.base r.fresh) r.facts) :
+    ∀ M, GoodOn ok r.equations M → ¬ Satisfies M r.base
+```
+
+where `GuardedUnfold ok eqs assums t` is
+`unfoldB eqs t = true ∧ GuardOk ok eqs assums t`, and `FactsHoldBy` asks each
+fact to hold in the `GoodOn` models or to be justified so.
+`no_good_model_of_unfold_on_closed` ([`Inox/Closed.lean`](Inox/Closed.lean))
+discharges `sound` and `hty`.
+
+The guard obligation is the blocker meaning of [Where `Stuck` and `OutOfFuel`
+show up](#where-stuck-and-outoffuel-show-up): a guard that is true in the
+intended model selects a call that evaluation reaches, and so one that is `Ok`.
+Proving it needs the agreement theorem. The instance and verified facts of
+`no_good_model_of_instances` are not relativized yet: their proofs use the
+equations at the instance's arguments without a guard, so restating them needs
+the same obligation at each use of an equation. The gap is large: on the
+regression corpus, `no_good_model_of_unfold_on` covers the 24 unfoldings of the
+1,176 facts that `no_good_model_of_instances` covers, and the other 1,152 stay
+in `hfacts`.
+
+**Left for the generated evaluator.** Fuel monotonicity and determinism, and
+the agreement theorem, against the generated `eval` and its datatypes.
+
 ## What is not proved yet
 
 - **The rules that are facts.** `no_good_model_of_accept` covers the rules that
@@ -371,16 +610,17 @@ cd proofs/lean/verification && lake build InoxClosed
   base, and the facts that hold as they are (congruence, the reflexivity of the
   declared equalities). The theorem to come is the one of an UNSAT answer in
   [`semantics.md`](../semantics.md): the query has no solution. It needs the
-  semantics of Inox in Lean, that its solutions give `Good` models (where the
-  declared equalities are reflexive and the completeness assumptions hold), and
-  for each other kind of rule, that its clauses hold in them (`hfacts`): the
-  decreases clauses; the preconditions, postconditions, ADT invariants and
-  refinements of the templates (`contract`), which are assumptions about the
-  program; the clauses of assertions about the instances of quantifiers, and
-  those whose source expression has a binder or mentions a fresh symbol; the
-  typing predicates; the templates whose source is not a function; the clauses
-  with binders; and the other rules (`Dispatched`, `SameLambda`, the
-  `Congruence` of instances of quantifiers, …).
+  bridge from the generated semantics of Inox (see [The bridge to the
+  semantics](#the-bridge-to-the-semantics-partly-proved)): that its solutions
+  give `Good` models (where the declared equalities are reflexive and the
+  completeness assumptions hold), and for each other kind of rule, that its
+  clauses hold in them (`hfacts`): the decreases clauses; the preconditions,
+  postconditions, ADT invariants and refinements of the templates (`contract`),
+  which are assumptions about the program; the clauses of assertions about the
+  instances of quantifiers, and those whose source expression has a binder or
+  mentions a fresh symbol; the typing predicates; the templates whose source is
+  not a function; the clauses with binders; and the other rules (`Dispatched`,
+  `SameLambda`, the `Congruence` of instances of quantifiers, …).
 - **Longer cycles of `Enables` rules.** A cycle where a target reaches a
   definition that enables it only through other definitions or targets
   (`bs := (and d s)`, `(=> m s)`, `(=> bs2 m)`, `bs2 := (and d2 x)`,
