@@ -167,8 +167,20 @@ class CustomEqualitySuite extends SolverTestSuite {
     Seq((FreshIdentifier("Callback"), Seq(ValDef(FreshIdentifier("f"), FunctionType(Seq(x), IntegerType())))))
   }
 
+  // Dep(p: (k: Key, Int)) and Refined(k: { k: Key | true }): keys under the bound variables of dependent types
+  val depID = FreshIdentifier("Dep")
+  val depCons = FreshIdentifier("Dep")
+  val depSort = mkSort(depID)() { _ =>
+    Seq((depCons, Seq(ValDef(FreshIdentifier("p"), SigmaType(Seq(ValDef.fresh("k", T(keyID)())), IntegerType())))))
+  }
+  val refinedID = FreshIdentifier("Refined")
+  val refinedCons = FreshIdentifier("Refined")
+  val refinedSort = mkSort(refinedID)() { _ =>
+    Seq((refinedCons, Seq(ValDef(FreshIdentifier("k"), RefinementType(ValDef.fresh("k", T(keyID)()), BooleanLiteral(true))))))
+  }
+
   override protected def symbols: Symbols =
-    NoSymbols.withSorts(Seq(boxSort, listSort, keySort, wrapSort, treeSort, t1Sort, t2Sort, callbackSort)).withFunctions(
+    NoSymbols.withSorts(Seq(boxSort, listSort, keySort, wrapSort, treeSort, t1Sort, t2Sort, callbackSort, depSort, refinedSort)).withFunctions(
       Seq(countFd, pickFd, containsFd, totalFd, deepFd, keepFd, leftFd, rightFd, sameFd, laterFd, keyEqFd))
   given Symbols = symbols
 
@@ -595,6 +607,8 @@ class CustomEqualitySuite extends SolverTestSuite {
     "a list of such a sort" -> (k => list(node(leaf(k)))),
     "mutually recursive sorts, from the one without a key" -> (k => c2(c1(c2(d1(k))))),
     "mutually recursive sorts, from the one with a key" -> (k => c1(c2(d1(k)))),
+    "a dependent pair" -> (k => ADT(depCons, Seq(), Seq(Tuple(Seq(k, one))))),
+    "a refinement" -> (k => ADT(refinedCons, Seq(), Seq(k))),
   )
 
   def evaluatesTo(ctx: Context, e: Expr, expected: Boolean): Unit =
