@@ -96,7 +96,11 @@ trait SimplifierWithCNFPath extends SimplifierWithPC { self =>
       res
     })
 
-    private def simplify(e: Expr): Expr = self.simplify(e, this)._1
+    // the clauses of the path are not the term whose simplification is recorded
+    private def simplify(e: Expr): Expr = {
+      val r = symbols.simplificationRecorder
+      if (r eq null) self.simplify(e, this)._1 else r.suspended(self.simplify(e, this)._1)
+    }
 
     private def simplifyClauses(e: Expr): Expr = andJoin(getClauses(e).toSeq.sortBy(_.hashCode))
 
@@ -261,7 +265,8 @@ trait SimplifierWithCNFPath extends SimplifierWithPC { self =>
     //      there are still corner cases that will make this expensive.
     //      In `assumeChecked` mode, the cost should be lower as most lets with
     //      `insts <= 1` will be inlined immediately.
-    case let @ Let(vd, e, b) => recentCache.cached(let, path)(super.simplify(let, path))
+    // a recorded simplification runs again, for its steps
+    case let @ Let(vd, e, b) if symbols.simplificationRecorder eq null => recentCache.cached(let, path)(super.simplify(let, path))
     case _ => super.simplify(e, path)
   }
 }
