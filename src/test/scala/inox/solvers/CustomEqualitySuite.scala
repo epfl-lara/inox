@@ -161,8 +161,14 @@ class CustomEqualitySuite extends SolverTestSuite {
     (d2ID, Seq()))
   }
 
+  // Callback[X](f: X => Int): functions are compared through their identifiers, whatever they take
+  val callbackID = FreshIdentifier("Callback")
+  val callbackSort = mkSort(callbackID)("X") { case Seq(x) =>
+    Seq((FreshIdentifier("Callback"), Seq(ValDef(FreshIdentifier("f"), FunctionType(Seq(x), IntegerType())))))
+  }
+
   override protected def symbols: Symbols =
-    NoSymbols.withSorts(Seq(boxSort, listSort, keySort, wrapSort, treeSort, t1Sort, t2Sort)).withFunctions(
+    NoSymbols.withSorts(Seq(boxSort, listSort, keySort, wrapSort, treeSort, t1Sort, t2Sort, callbackSort)).withFunctions(
       Seq(countFd, pickFd, containsFd, totalFd, deepFd, keepFd, leftFd, rightFd, sameFd, laterFd, keyEqFd))
   given Symbols = symbols
 
@@ -619,6 +625,16 @@ class CustomEqualitySuite extends SolverTestSuite {
     // the sort that recurses through another one, and that other one, in the same query
     valid(ctx, Implies(equalKeys, And(Equals(node(leaf(k1)), node(leaf(k2))), Equals(list(leaf(k1)), list(leaf(k2))))))
     valid(ctx, Implies(equalKeys, And(Equals(c2(d1(k1)), c2(d1(k2))), Equals(c1(c2(d1(k1))), c1(c2(d1(k2)))))))
+  }
+
+  test("Types whose equality is unrolled") { ctx =>
+    for ((name, hold) <- keyHolders) assert(symbols.unrollEquality(hold(k1).getType), name)
+    assert(symbols.unrollEquality(T(listID)(T(listID)(KT))))
+    assert(!symbols.unrollEquality(T(listID)(IntegerType())))
+    assert(!symbols.unrollEquality(T(listID)(T(listID)(IntegerType()))))
+    // the type argument only appears in the parameter of a function
+    assert(!symbols.unrollEquality(T(callbackID)(KT)))
+    assert(!symbols.unrollEquality(T(listID)(T(callbackID)(KT))))
   }
 
   test("Evaluation of key equality within sets and maps") { ctx =>
