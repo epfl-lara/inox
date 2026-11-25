@@ -160,6 +160,8 @@ trait TypeOps {
     def rec(tpe: Type): Boolean = tpe match {
       case (_: FunctionType) | (_: PiType) => false
       case RefinementType(vd, _) => rec(vd.tpe)
+      // the type deconstructor doesn't return the types of the bound variables
+      case SigmaType(params, to) => params.exists(vd => rec(vd.tpe)) || rec(to)
       case adt @ ADTType(id, tps) => lookupSort(id, tps).exists { sort =>
         sort.hasEquality || (seen.add(adt) && sort.constructors.exists(_.fields.exists(vd => rec(vd.tpe))))
       }
