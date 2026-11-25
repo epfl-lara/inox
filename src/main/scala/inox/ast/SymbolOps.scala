@@ -94,6 +94,53 @@ trait SymbolOps extends TypeOps { self =>
     })
   }
 
+  /** The recorder of the steps of the simplification that runs, for certificates (see
+    * [[simplifyFormulaRecorded]]), or `null` when it is not recorded. */
+  private[inox] def simplificationRecorder: transformers.TransformationRecorder { val trees: self.trees.type } =
+    transformers.TransformationRecorder.current(trees)
+
+  /** Rewrites the subterm that the recorded simplification is at, if one is recorded. */
+  private[inox] inline def recorded(rule: String, inline to: Expr): Unit = {
+    val r = simplificationRecorder
+    if (r ne null) r.rewrite(rule, to)
+  }
+
+  /** Runs `body`, which simplifies `e`, at `e` in the term of the recorded simplification. What
+    * it makes of `e` without a step is one of `rule`, or of the pass around without one. */
+  private[inox] inline def recordedAt(e: Expr, rule: String = null)(inline body: Expr): Expr = {
+    val r = simplificationRecorder
+    if (r eq null) body else r.at(e, rule)(body)
+  }
+
+  /** Whether `a` is `b` up to the names of the variables that they bind. */
+  private[inox] def sameUpToLocals(a: Expr, b: Expr): Boolean = (a == b) || {
+    def binders(e: Expr): Seq[Identifier] = {
+      val ids = scala.collection.mutable.ArrayBuffer[Identifier]()
+      preTraversal {
+        case Let(vd, _, _) => ids += vd.id
+        case Lambda(params, _) => ids ++= params.map(_.id)
+        case Forall(params, _) => ids ++= params.map(_.id)
+        case _ =>
+      } (e)
+      ids.toSeq
+    }
+    val (as, bs) = (binders(a), binders(b))
+    as.size == bs.size && as.distinct.size == as.size && {
+      val renamer = new ConcreteSelfTransformer {
+        type Env = Map[Identifier, Identifier]
+        override def transform(id: Identifier, env: Env): Identifier = env.getOrElse(id, id)
+      }
+      renamer.transform(a, (as zip bs).toMap) == b
+    }
+  }
+
+  /** `postMap`, which records the rewrites when the simplification is recorded (see
+    * `TransformationRecorder.postMap`). */
+  private def recordedPostMap(rule: String)(f: Expr => Option[Expr])(record: (Expr, Expr) => Unit = (_, _) => ())(e: Expr): Expr = {
+    val r = simplificationRecorder
+    if (r eq null) postMap(f)(e) else r.postMap(rule)(f)(record)(e)
+  }
+
   def simplifyExpr(expr: Expr)(using PurityOptions): Expr = simplifyIn(expr, Path.empty)
 
   def simplifyIn(e: Expr, path: Path)(using PurityOptions): Expr = {
@@ -366,13 +413,52 @@ trait SymbolOps extends TypeOps { self =>
       case Operator(es, recons) => recons(es.map(rec))
     }
 
+    // The steps of the evaluation of `e` to `value`, when the simplification is recorded. The
+    // evaluator doesn't tell its steps: they are recorded for the evaluations that unfold
+    // constants of the program, select fields of their values and test their constructors,
+    // and the others are one step, of the rule `evaluate`.
+    def record(e: Expr, value: Expr): Unit = {
+      val r = simplificationRecorder
+      if ((r ne null) && r.active && e != value) {
+        def steps(e: Expr): Expr = e match {
+          case fi @ FunctionInvocation(_, _, Seq()) if !isValue(e) =>
+            val body = unfolded(fi)
+            r.rewrite("unfold", body)
+            if (isValue(body)) body else steps(body)
+          case ADTSelector(adt, selector) =>
+            r.at(adt)(steps(adt)) match {
+              case v @ ADT(id, tps, args) =>
+                val field = args(v.getConstructor.definition.selectorID2Index(selector))
+                r.rewrite("select", field)
+                field
+              case _ => r.node
+            }
+          case IsConstructor(adt, id) =>
+            r.at(adt)(steps(adt)) match {
+              case ADT(cons, _, _) =>
+                val res = BooleanLiteral(cons == id)
+                r.rewrite("logic", res)
+                res
+              case _ => r.node
+            }
+          case _ => e
+        }
+        val res = steps(e)
+        r.rewrite(if (sameUpToLocals(res, value)) "rename" else "evaluate", value)
+      }
+    }
+
     // TODO: Should we run this within a fixpoint with simplifyByConstructor?
-    def rec(e: Expr)(using PurityOptions): Expr = e match {
+    def rec(e: Expr)(using PurityOptions): Expr = recordedAt(e)(e match {
       case e if isValue(e) =>
         e
       case e if isGround(e) && isPure(e) =>
         val evaluated = evaluator.eval(e)
-        evaluated.result.map(exprOps.freshenLocals(_)).getOrElse {
+        evaluated.result.map { v =>
+          val value = exprOps.freshenLocals(v)
+          record(e, value)
+          value
+        }.getOrElse {
           if (reportErrors) ctx.reporter.error(SimplifyGroundError(e, evaluated))
           evalChildren(e)
         }
@@ -380,7 +466,7 @@ trait SymbolOps extends TypeOps { self =>
         evalChildren(l)(using PurityOptions.unchecked)
       case e =>
         evalChildren(e)
-    }
+    })
 
     rec(expr)(using PurityOptions(ctx))
   }
@@ -878,17 +964,24 @@ trait SymbolOps extends TypeOps { self =>
    * }}}
    */
   def inlineLambdas(e: Expr)(using PurityOptions): Expr = {
-    def rec(e: Expr, lambdas: Map[Variable, Lambda], inForall: Boolean): Expr = e match {
+    def rec(e: Expr, lambdas: Map[Variable, Lambda], inForall: Boolean): Expr = recordedAt(e)(e match {
       case Let(vd, l: Lambda, b) =>
         val nl = l.copy(body = rec(l.body, lambdas, false))
         Let(vd, nl, rec(b, lambdas + (vd.toVariable -> nl), inForall))
       case Application(v: Variable, args) if (lambdas contains v) && inForall =>
-        application(lambdas(v), args.map(rec(_, lambdas, inForall)))
+        val nargs = args.map(rec(_, lambdas, inForall))
+        val res = application(lambdas(v), nargs)
+        // the variable is the lambda that it is bound to, whose application binds its parameters,
+        // which `application` then drops where it can
+        recordedAt(v, "expand")(lambdas(v))
+        recorded("beta", applied(lambdas(v), nargs))
+        recorded("logic", res)
+        res
       case Forall(args, body) =>
         Forall(args, rec(body, lambdas, true))
       case Operator(es, recons) =>
         recons(es.map(rec(_, lambdas, inForall)))
-    }
+    })
 
     rec(e, Map.empty, false)
   }
@@ -948,22 +1041,31 @@ trait SymbolOps extends TypeOps { self =>
     def inlineFunctions(e: Expr): Expr = {
       val toInline = forallInlining.toInline(e)
 
-      def inlineExpr(e: Expr): Expr = postMap {
+      def inlineExpr(e: Expr): Expr = recordedPostMap("inline-equality") {
         case fi: FunctionInvocation if toInline(fi.id) =>
           Some(fi.inlined)
         case Equals(IsTyped(e1, adt: ADTType), e2)
         if adt.getSort.hasEquality && toInline(adt.getSort.equality.get.id) =>
           Some(adt.getSort.equality.get.applied(Seq(e1, e2)).inlined)
         case _ => None
+      } {
+        // the call unfolds into the body under the bindings of its parameters, which `inlined`
+        // then drops where they are not used
+        case (fi: FunctionInvocation, inlined) =>
+          recorded("unfold", unfolded(fi))
+          recorded("logic", inlined)
+        // the call of the equality function of a sort is not unfolded in steps
+        case _ =>
       } (e)
 
       fixpoint(inlineExpr)(e)
     }
 
-    def inlineForalls(e: Expr): Expr = postMap {
+    // `simpForall` records its steps
+    def inlineForalls(e: Expr): Expr = recordedPostMap("quantifiers") {
       case Forall(args, body) => Some(simpForall(args, body))
       case _ => None
-    } (e)
+    } () (e)
 
     def inlinePosts(e: Expr): Expr = {
       def qArgs(quantified: Set[Variable], args: Seq[Expr]): Boolean = args.exists {
@@ -1036,13 +1138,13 @@ trait SymbolOps extends TypeOps { self =>
     } (e)
 
     val simp: Expr => Expr =
-      ((e: Expr) => normalizeClauses(e))    compose
-      ((e: Expr) => simplifyMatchers(e))    compose
-      ((e: Expr) => simplifyAssumptions(e)) compose
-      ((e: Expr) => inlineLambdas(e))       compose
-      ((e: Expr) => inlinePosts(e))         compose
-      ((e: Expr) => inlineForalls(e))       compose
-      ((e: Expr) => inlineFunctions(e))
+      recordedPass("normalize", (e: Expr) => { val n = normalizeClauses(e); recorded("logic", n); n }) compose
+      recordedPass("matchers", (e: Expr) => simplifyMatchers(e))             compose
+      recordedPass("lift-assumptions", (e: Expr) => simplifyAssumptions(e))  compose
+      recordedPass("inline-lambdas", (e: Expr) => inlineLambdas(e))          compose
+      recordedPass("inline-postconditions", (e: Expr) => inlinePosts(e))     compose
+      recordedPass("quantifiers", (e: Expr) => inlineForalls(e))             compose
+      recordedPass("inline-functions", (e: Expr) => inlineFunctions(e))
     simp(e)
   }
 
@@ -1261,12 +1363,24 @@ trait SymbolOps extends TypeOps { self =>
     postMap(transform)(expr)
   }
 
-  private[inox] def liftAssumptions(expr: Expr): (Seq[Expr], Expr) = {
+  /** Lifts the assumptions of `expr` that don't depend on its bound variables out of it, under
+    * the conditions of their paths.
+    *
+    * An assumption is only lifted from where `expr` evaluates it whenever its path holds: not out
+    * of the body of a lambda, which `expr` may not apply, nor out of a quantifier over a type
+    * that may have no values, which holds whatever its body is. Under `optAssumeChecked`, the
+    * front-end has checked that the assumptions hold where they are evaluated, and they are
+    * lifted out of lambdas too, unless the type of a parameter may have no values (such as a
+    * refinement that nothing satisfies): the lambda is then never applied, and nothing was
+    * checked of its body. */
+  private[inox] def liftAssumptions(expr: Expr)(using opts: PurityOptions): (Seq[Expr], Expr) = {
     val vars = variablesOf(expr)
     var assumptions: Seq[Expr] = Seq.empty
 
     // Note that we avoid transforming types to make sure var/vals types match
     val newExpr = transformWithPC(expr, false)((e, env, op) => e match {
+      case Lambda(params, _) if !opts.assumeChecked || !params.forall(vd => certifiablyInhabited(vd.tpe)) => e
+      case Forall(params, _) if !params.forall(vd => certifiablyInhabited(vd.tpe)) => e
       case Assume(pred, body) if (
         ((env `unboundOf` pred) subsetOf vars) &&
         (env.conditions ++ env.bindings.map(_._2)).forall(isSimple)
@@ -1279,12 +1393,21 @@ trait SymbolOps extends TypeOps { self =>
     (assumptions, newExpr)
   }
 
-  private def simplifyAssumptions(expr: Expr): Expr = postMap {
+  private def simplifyAssumptions(expr: Expr)(using PurityOptions): Expr = recordedPostMap("lift-assumptions") {
     case Assume(pred, body) =>
       val (predAssumptions, newPred) = liftAssumptions(pred)
       val (bodyAssumptions, newBody) = liftAssumptions(body)
       Some(assume(andJoin(predAssumptions ++ (newPred +: bodyAssumptions)), newBody))
     case _ => None
+  } { (from, to) =>
+    // The `logic` rule of certificates doesn't look into lambdas and quantifiers: an assumption
+    // that is lifted out of one is not a step of that rule.
+    def underBinders(e: Expr): Int = count {
+      case Lambda(_, body) => count { case _: Assume => 1; case _ => 0 } (body)
+      case Forall(_, body) => count { case _: Assume => 1; case _ => 0 } (body)
+      case _ => 0
+    } (e)
+    if (underBinders(from) == underBinders(to)) recorded("logic", to)
   } (expr)
 
   private[inox] def simplifyFormula(e: Expr)(using ctx: Context, sem: symbols.Semantics): Expr = {
@@ -1293,15 +1416,29 @@ trait SymbolOps extends TypeOps { self =>
 
     if (simpOpts.simplify) {
       val simp: Expr => Expr =
-        ((e: Expr) => simplifyGround(e))      compose
-        ((e: Expr) => simplifyExpr(e))        compose
-        ((e: Expr) => simplifyForalls(e))     compose
-        ((e: Expr) => simplifyAssumptions(e))
+        recordedPass("evaluate", (e: Expr) => simplifyGround(e))               compose
+        recordedPass("simplify", (e: Expr) => simplifyExpr(e))                 compose
+        ((e: Expr) => simplifyForalls(e))                                      compose
+        recordedPass("lift-assumptions", (e: Expr) => simplifyAssumptions(e))
       simp(e)
     } else {
       e
     }
   }
+
+  /** A pass of a simplification: when it is recorded, what the pass makes of the term without
+    * recording how is a step of the rule `rule`. */
+  private def recordedPass(rule: String, pass: Expr => Expr): Expr => Expr = (e: Expr) => {
+    val r = simplificationRecorder
+    if (r eq null) pass(e) else r.at(e, rule)(pass(e))
+  }
+
+  /** [[simplifyFormula]], with the steps that rewrite `e` into the result, for certificates: the
+    * rule of each step and the term after it. */
+  private[inox] def simplifyFormulaRecorded(e: Expr)(using ctx: Context, sem: symbols.Semantics):
+      (Expr, Seq[(String, Expr)]) =
+    transformers.TransformationRecorder.record(trees)(e)(simplifyFormula(_))
+
 
   // Use this only to debug isValueOfType
   extension (b: Boolean) {
@@ -1514,30 +1651,98 @@ trait SymbolOps extends TypeOps { self =>
     }
   }
 
+  /** [[forall]], which records the step from the quantifier over `args` when the simplification
+    * is recorded: the variables that the body doesn't mention are dropped, which is the rule
+    * `unused` of certificates for the types that are known to have values. */
+  private def recordedForall(args: Seq[ValDef], body: Expr): Expr = {
+    val res = forall(args, body)
+    val r = simplificationRecorder
+    if ((r ne null) && r.active && r.node != res) {
+      val vars = exprOps.variablesOf(body)
+      val dropped = args.filterNot(vd => vars(vd.toVariable))
+      val known = body == BooleanLiteral(true) || dropped.forall(vd => certifiablyInhabited(vd.tpe))
+      r.rewrite(if (known) "unused" else "drop-variables", res)
+    }
+    res
+  }
+
+  /** Whether `tpe` is known to have values, by a criterion that the checker of certificates shares:
+    * simplifications that are only sound over such types rely on it too (see `inhabited` in
+    * `proofs`): it doesn't decide the types with refinements nor the type parameters. */
+  private def certifiablyInhabited(tpe: Type, seen: Set[Type] = Set()): Boolean = tpe match {
+    case IntegerType() | BooleanType() | RealType() | StringType() | CharType() | UnitType() | BVType(_, _) => true
+    case SetType(_) | BagType(_) => true
+    case MapType(_, to) => certifiablyInhabited(to, seen)
+    case FunctionType(_, to) => certifiablyInhabited(to, seen)
+    case TupleType(tps) => tps.forall(certifiablyInhabited(_, seen))
+    case adt: ADTType => !seen(adt) && !adt.getSort.hasInvariant &&
+      adt.getSort.constructors.exists(_.fields.forall(vd => certifiablyInhabited(vd.getType, seen + adt)))
+    case _ => false
+  }
+
+  /** The call `fi` as the body of its function under the bindings of its parameters, which is
+    * what the `unfold` rule of certificates makes of it. */
+  private def unfolded(fi: FunctionInvocation): Expr = {
+    val tfd = fi.tfd
+    (tfd.params zip fi.args).foldRight(tfd.fullBody) { case ((vd, e), body) => Let(vd, e, body) }
+  }
+
+  /** The application of `l` as its body under the bindings of its parameters, which is what the
+    * `beta` rule of certificates makes of it. */
+  private[inox] def applied(l: Lambda, args: Seq[Expr]): Expr =
+    (l.params zip args).foldRight(l.body) { case ((vd, e), body) => Let(vd, e, body) }
+
   def simpForall(args: Seq[ValDef], body: Expr): Expr = {
-    def liftForalls(es: Seq[Expr], recons: Seq[Expr] => Expr): Expr = {
-      val (allArgs, allBodies) = es.map {
-        case f: Forall =>
+    // when the simplification is recorded, the quantifier is the subterm that it is at
+    val r = simplificationRecorder
+    if (r eq null) simpForallSteps(args, body) else r.at(Forall(args, body), "quantifiers")(simpForallSteps(args, body))
+  }
+
+  private def simpForallSteps(args: Seq[ValDef], body: Expr): Expr = {
+    // The quantifiers of the operands `es` of the body that `lifted` holds of become the outer
+    // one's. This would not preserve the body for all quantifiers:
+    //  - a quantifier in the premise of an implication is an existential one of the implication:
+    //    `forall x. (forall y. p) ==> q` is `forall x. exists y. p ==> q`;
+    //  - a quantifier over a type without values holds, whereas the conjunction that it is an
+    //    operand of may not: `forall x. (forall y. p) && q` is `forall x. q` then, and
+    //    `forall x, y. p && q` holds. Type parameters may be instantiated with such types.
+    def liftForalls(es: Seq[Expr], recons: Seq[Expr] => Expr, lifted: (Forall, Int) => Boolean): Expr = {
+      val (allArgs, allBodies) = es.zipWithIndex.map {
+        case (f: Forall, i) if lifted(f, i) =>
           val Forall(args, body) = exprOps.freshenLocals(f): @unchecked
           (args, body)
-        case e =>
+        case (e, _) =>
           (Seq[ValDef](), e)
       }.unzip
 
       val flatArgs = allArgs.flatten
+      val newBody = recons(allBodies)
       if (flatArgs.isEmpty) {
-        forall(args, recons(allBodies))
+        // the constructor of the connective may simplify it
+        recordedAt(body, "logic")(newBody)
+        recordedForall(args, newBody)
       } else {
-        simpForall(args ++ flatArgs, recons(allBodies))
+        val r = simplificationRecorder
+        if ((r ne null) && r.active) {
+          // the rule `prenex` of certificates is that of the types that are known to have values
+          val Operator(_, same) = body: @unchecked
+          val lifted = same(allBodies)
+          val known = flatArgs.forall(vd => certifiablyInhabited(vd.tpe))
+          r.rewrite(if (known) "prenex" else "lift-quantifiers", Forall(args ++ flatArgs, lifted))
+          r.at(lifted, "logic")(newBody)
+        }
+        simpForall(args ++ flatArgs, newBody)
       }
     }
 
     body match {
-      case Forall(args2, body) => simpForall(args ++ args2, body)
-      case And(es) => liftForalls(es, andJoin)
-      case Or(es) => liftForalls(es, orJoin)
-      case Implies(l, r) => liftForalls(Seq(l, r), es => implies(es(0), es(1)))
-      case _ => forall(args, body)
+      case Forall(args2, body) =>
+        recorded("merge", Forall(args ++ args2, body))
+        simpForall(args ++ args2, body)
+      case And(es) => liftForalls(es, andJoin, (f, _) => f.params.forall(vd => certifiablyInhabited(vd.tpe)))
+      case Or(es) => liftForalls(es, orJoin, (_, _) => true)
+      case Implies(l, r) => liftForalls(Seq(l, r), es => implies(es(0), es(1)), (_, i) => i == 1)
+      case _ => recordedForall(args, body)
     }
   }
 }
