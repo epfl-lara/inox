@@ -5,13 +5,15 @@ package solvers
 
 import Feature._
 
-/** Equalities on types whose encoding has a custom equality (`HasADTEquality`): bags on the
-  * solvers that use the `BagEncoder`, and reals and sets on Princess.
+/** Equalities on sorts with a custom equality (`HasADTEquality`): the sorts of a program, and
+  * those of the encodings of bags on the solvers that use the `BagEncoder`, and of reals and sets
+  * on Princess.
   *
-  * Structurally different encodings of the same value (e.g. `a ∪ b` and `b ∪ a`) must be equal
-  * wherever they appear: nested within tuples and ADTs, as arguments of functions, within
-  * closures, and so on. Models are checked by evaluation, so a spurious counterexample fails
-  * the test instead of returning `Unknown`.
+  * Structurally different values that the equality relates (e.g. the encodings of `a ∪ b` and
+  * `b ∪ a`) must be equal wherever they appear: nested within tuples and ADTs, including sorts that
+  * recurse through other sorts, as arguments of functions, within closures, and so on. Models are
+  * checked by evaluation, so a spurious counterexample fails the test instead of returning
+  * `Unknown`, and the evaluator must agree with the solvers.
   */
 class CustomEqualitySuite extends SolverTestSuite {
   import inox.trees.{given, _}
@@ -115,9 +117,53 @@ class CustomEqualitySuite extends SolverTestSuite {
     })
   }
 
+  // Key(n, tag): keys are equal when their `n` are, whatever their `tag`
+  val keyID = FreshIdentifier("Key")
+  val keyCons = FreshIdentifier("Key")
+  val keyNID = FreshIdentifier("n")
+  val keyTagID = FreshIdentifier("tag")
+  val keyEqID = FreshIdentifier("keyEq")
+  val keySort = mkSort(keyID, HasADTEquality(keyEqID))() { _ =>
+    Seq((keyCons, Seq(ValDef(keyNID, IntegerType()), ValDef(keyTagID, IntegerType()))))
+  }
+  val keyEqFd = mkFunDef(keyEqID)() { _ => (
+    Seq("x" :: T(keyID)(), "y" :: T(keyID)()), BooleanType(), {
+      case Seq(x, y) => Equals(x.getField(keyNID), y.getField(keyNID))
+    })
+  }
+
+  val wrapID = FreshIdentifier("Wrap")
+  val wrapCons = FreshIdentifier("Wrap")
+  val wrapSort = mkSort(wrapID)() { _ => Seq((wrapCons, Seq(ValDef(FreshIdentifier("key"), T(keyID)())))) }
+
+  // Tree = Node(kids: List[Tree]) | Leaf(key: Key), which recurses through `List`
+  val treeID = FreshIdentifier("Tree")
+  val nodeID = FreshIdentifier("Node")
+  val leafID = FreshIdentifier("Leaf")
+  val treeSort = mkSort(treeID)() { _ => Seq(
+    (nodeID, Seq(ValDef(FreshIdentifier("kids"), T(listID)(T(treeID)())))),
+    (leafID, Seq(ValDef(FreshIdentifier("key"), T(keyID)()))))
+  }
+
+  // T1 = C1(T2) | D1(Key) and T2 = C2(T1) | D2: only T1 holds a key directly
+  val t1ID = FreshIdentifier("T1")
+  val c1ID = FreshIdentifier("C1")
+  val d1ID = FreshIdentifier("D1")
+  val t2ID = FreshIdentifier("T2")
+  val c2ID = FreshIdentifier("C2")
+  val d2ID = FreshIdentifier("D2")
+  val t1Sort = mkSort(t1ID)() { _ => Seq(
+    (c1ID, Seq(ValDef(FreshIdentifier("t2"), T(t2ID)()))),
+    (d1ID, Seq(ValDef(FreshIdentifier("key"), T(keyID)()))))
+  }
+  val t2Sort = mkSort(t2ID)() { _ => Seq(
+    (c2ID, Seq(ValDef(FreshIdentifier("t1"), T(t1ID)()))),
+    (d2ID, Seq()))
+  }
+
   override protected def symbols: Symbols =
-    NoSymbols.withSorts(Seq(boxSort, listSort)).withFunctions(
-      Seq(countFd, pickFd, containsFd, totalFd, deepFd, keepFd, leftFd, rightFd, sameFd, laterFd))
+    NoSymbols.withSorts(Seq(boxSort, listSort, keySort, wrapSort, treeSort, t1Sort, t2Sort)).withFunctions(
+      Seq(countFd, pickFd, containsFd, totalFd, deepFd, keepFd, leftFd, rightFd, sameFd, laterFd, keyEqFd))
   given Symbols = symbols
 
   override protected def solverInfos = super.solverInfos.map { info =>
@@ -515,5 +561,74 @@ class CustomEqualitySuite extends SolverTestSuite {
       }
       info(s"$decided of ${formulas.size} formulas decided by both solvers")
     }
+  }
+
+  val KT = T(keyID)()
+  def key(n: Int, tag: Int): Expr = ADT(keyCons, Seq(), Seq(E(BigInt(n)), E(BigInt(tag))))
+  def wrap(k: Expr): Expr = ADT(wrapCons, Seq(), Seq(k))
+  def leaf(k: Expr): Expr = ADT(leafID, Seq(), Seq(k))
+  def node(kids: Expr*): Expr = ADT(nodeID, Seq(), Seq(kids.foldRight(nil(T(treeID)()))(cons)))
+  def c1(e: Expr): Expr = ADT(c1ID, Seq(), Seq(e))
+  def d1(e: Expr): Expr = ADT(d1ID, Seq(), Seq(e))
+  def c2(e: Expr): Expr = ADT(c2ID, Seq(), Seq(e))
+
+  val k1 = Variable.fresh("k1", KT)
+  val k2 = Variable.fresh("k2", KT)
+  /** `k1` and `k2` are equal, but not structurally. */
+  val equalKeys = And(Equals(k1.getField(keyNID), k2.getField(keyNID)), Not(Equals(k1.getField(keyTagID), k2.getField(keyTagID))))
+  val distinctKeys = Not(Equals(k1.getField(keyNID), k2.getField(keyNID)))
+  val (key1, key1b, key2) = (key(1, 0), key(1, 5), key(2, 0))
+
+  /** The ways to hold a key in a value whose sort has no custom equality. */
+  val keyHolders: Seq[(String, Expr => Expr)] = Seq(
+    "a field" -> wrap,
+    "a tuple" -> tup,
+    "a list" -> (k => list(k)),
+    "a list of fields" -> (k => list(wrap(k))),
+    "a sort that recurses through a list" -> (k => node(leaf(k))),
+    "a list of such a sort" -> (k => list(node(leaf(k)))),
+    "mutually recursive sorts, from the one without a key" -> (k => c2(c1(c2(d1(k))))),
+    "mutually recursive sorts, from the one with a key" -> (k => c1(c2(d1(k)))),
+  )
+
+  def evaluatesTo(ctx: Context, e: Expr, expected: Boolean): Unit =
+    program.getEvaluator(ctx).eval(e).result match {
+      case Some(BooleanLiteral(`expected`)) => // OK
+      case res => fail(s"${e.asString} should evaluate to $expected, got $res")
+    }
+
+  for ((name, hold) <- keyHolders) {
+    test(s"Key equality within $name", ADTs, Integers) { ctx =>
+      valid(ctx, Implies(equalKeys, Equals(hold(k1), hold(k2))))
+      valid(ctx, Implies(distinctKeys, Not(Equals(hold(k1), hold(k2)))))
+    }
+
+    // Ground formulas are decided by evaluation
+    test(s"Ground key equality within $name") { ctx =>
+      valid(ctx, Equals(hold(key1), hold(key1b)))
+      valid(ctx, Not(Equals(hold(key1), hold(key2))))
+    }
+
+    test(s"Evaluation of key equality within $name") { ctx =>
+      evaluatesTo(ctx, Equals(hold(key1), hold(key1b)), true)
+      evaluatesTo(ctx, Equals(hold(key1), hold(key2)), false)
+    }
+  }
+
+  test("Key equality within sorts met in either order", ADTs, Integers) { ctx =>
+    // the sort that recurses through another one, and that other one, in the same query
+    valid(ctx, Implies(equalKeys, And(Equals(node(leaf(k1)), node(leaf(k2))), Equals(list(leaf(k1)), list(leaf(k2))))))
+    valid(ctx, Implies(equalKeys, And(Equals(c2(d1(k1)), c2(d1(k2))), Equals(c1(c2(d1(k1))), c1(c2(d1(k2)))))))
+  }
+
+  test("Evaluation of key equality within sets and maps") { ctx =>
+    val WT = T(wrapID)()
+    evaluatesTo(ctx, ElementOfSet(wrap(key1b), FiniteSet(Seq(wrap(key1)), WT)), true)
+    evaluatesTo(ctx, ElementOfSet(wrap(key2), FiniteSet(Seq(wrap(key1)), WT)), false)
+    evaluatesTo(ctx, Equals(FiniteSet(Seq(wrap(key1), wrap(key1b)), WT), FiniteSet(Seq(wrap(key1b)), WT)), true)
+    evaluatesTo(ctx, Equals(MapApply(FiniteMap(Seq(wrap(key1) -> one), two, WT, IntegerType()), wrap(key1b)), one), true)
+    val byValue = FiniteMap(Seq(one -> key1), key2, IntegerType(), KT)
+    evaluatesTo(ctx, Equals(byValue, FiniteMap(Seq(one -> key1b), key2, IntegerType(), KT)), true)
+    evaluatesTo(ctx, Equals(byValue, FiniteMap(Seq(), key2, IntegerType(), KT)), false)
   }
 }

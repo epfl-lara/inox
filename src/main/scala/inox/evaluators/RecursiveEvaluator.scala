@@ -123,9 +123,9 @@ abstract class RecursiveEvaluator(override val program: Program,
       solvers.unrolling.FunctionEquality.containsFunctions(program)(tpe)
 
   /** Whether values of `tpe` are compared with the custom equality of a sort somewhere (see
-    * [[ast.TypeOps.reachesCustomEquality]]), so that structurally distinct values can be equal. */
+    * [[ast.TypeOps.unrollEquality]]), so that structurally distinct values can be equal. */
   private def customEquality(tpe: Type): Boolean =
-    hasCustomEqualities && customEqualities.getOrElseUpdate(tpe, reachesCustomEquality(tpe))
+    hasCustomEqualities && customEqualities.getOrElseUpdate(tpe, unrollEquality(tpe))
 
   private lazy val hasCustomEqualities: Boolean = sorts.values.exists(_.flags.exists {
     case HasADTEquality(_) => true

@@ -39,11 +39,10 @@ trait EqualityTemplates { self: Templates =>
     val negations: MutableMap[Encoded, Encoded] = MutableMap.empty
   }
 
-  /** Whether the equality of `tpe` is unrolled: whether it reaches a custom equality (see
-    * [[ast.TypeOps.reachesCustomEquality]]). The equality clauses between lambdas compare their
-    * closures with `registeredEquality` (see [[LambdaTemplates]]). */
+  /** Whether the equality of `tpe` is unrolled (see [[ast.TypeOps.unrollEquality]]). The equality
+    * clauses between lambdas compare their closures with `registeredEquality` (see [[LambdaTemplates]]). */
   def unrollEquality(tpe: Type): Boolean =
-    equalityCaches.unroll.getOrElseUpdate(tpe, reachesCustomEquality(tpe))
+    equalityCaches.unroll.getOrElseUpdate(tpe, symbols.unrollEquality(tpe))
 
   private lazy val hasCustomEqualities: Boolean = sorts.values.exists(_.flags.exists {
     case HasADTEquality(_) => true
