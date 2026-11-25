@@ -389,18 +389,15 @@ trait SimplifierWithPC extends Transformer { self =>
     case Times(l, r)  => recordedCons("arith", simplifyAndCons(Seq(l, r), path, es => times(es(0), es(1)).copiedFrom(e)))
 
     case Tuple(es)    =>
-      // the elements are returned as they were given: their simplification is not recorded
-      val r = recorder
-      val (res, pes) = (if (r eq null) es.map(simplify(_, path)) else r.suspended(es.map(simplify(_, path)))).unzip
+      val (res, pes) = es.map(simplify(_, path)).unzip
       val tuple = res.zipWithIndex.collect { case (TupleSelect(e, idx), i) if idx == i + 1 => e } match {
         case ls @ (x +: xs) if ls.size == es.size && xs.forall(_ == x) =>
           x.getType match {
-            case TupleType(ts) if ts.size == es.size => x
-            case _ => Tuple(es)
+            case TupleType(ts) if ts.size == es.size => step("tuple", x)
+            case _ => Tuple(res).copiedFrom(e)
           }
-        case _ => Tuple(es)
+        case _ => Tuple(res).copiedFrom(e)
       }
-      if (r ne null) r.rewrite("tuple", tuple)
       (tuple, pes.foldLeft(true)(_ && _))
 
     // `simpForall` records its steps

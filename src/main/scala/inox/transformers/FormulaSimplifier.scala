@@ -8,9 +8,15 @@ import solvers.PurityOptions
 import utils.fixpoint
 
 /** A simplifier of the formulas that the solvers are given: the simplification under path
-  * conditions of [[SimplifierWithPC]], with the passes that go with it for formulas (the lifting
-  * of assumptions, the inlining that helps the instantiation of quantifiers, and the evaluation
-  * of ground terms).
+  * conditions of [[SimplifierWithPC]], which here also rewrites the sets, bags and maps that
+  * quantifiers are instantiated on, with the passes that go before and after it for formulas
+  * (the lifting of assumptions, the inlining that helps the instantiation of quantifiers, and
+  * the evaluation of ground terms).
+  *
+  * The lambdas that are bound around quantifiers are inlined by the simplification under path
+  * conditions itself, as it applies the lambdas that the path binds. It also simplifies the
+  * quantifiers, but they are simplified in a pass before as well, since the inlining of
+  * postconditions depends on which variables a quantifier binds.
   *
   * All that is done to a formula is done by one simplifier, which records the steps of what it
   * does in its `recorder`, when it has one (see [[TransformationRecorder]]). */
@@ -27,6 +33,36 @@ trait FormulaSimplifier extends SimplifierWithPC { self =>
     val r = recorder
     if (r eq null) postMap(f)(e) else r.postMap(rule)(f)(record)(e)
   }
+
+  /** The sets, bags and maps of several elements as updates of smaller ones, which the
+    * instantiation of quantifiers matches on. */
+  private def matcher(e: Expr): Option[Expr] = e match {
+    case f @ FiniteSet(elems, base) if elems.nonEmpty =>
+      Some(elems.foldLeft(FiniteSet(Seq.empty, base).copiedFrom(f): Expr)(SetAdd(_,_).copiedFrom(f)))
+    case f @ FiniteBag(pairs :+ (pair @ (key, _)), base) if pairs.nonEmpty =>
+      Some(pairs.foldRight((FiniteBag(Seq(pair), base).copiedFrom(f): Expr, Seq(key))) {
+        case (pair @ (key, _), (bag, elems)) => (ifExpr(
+          orJoin(elems.map(e => Equals(e, key).copiedFrom(f))).copiedFrom(f),
+          bag,
+          BagUnion(bag, FiniteBag(Seq(pair), base).copiedFrom(f)).copiedFrom(f)
+        ).copiedFrom(f), key +: elems)
+      }._1)
+    case f @ FiniteMap(pairs, dflt, from, to) if pairs.nonEmpty =>
+      Some(pairs.foldLeft(FiniteMap(Seq.empty, dflt, from, to).copiedFrom(f): Expr) {
+        (map, pair) => MapUpdated(map, pair._1, pair._2).copiedFrom(f)
+      })
+    case _ => None
+  }
+
+  /** The simplification under path conditions, which also rewrites the terms that [[matcher]]
+    * does, for the instantiation of quantifiers. */
+  override protected def simplifyCore(e: Expr, path: Env): (Expr, Boolean) =
+    matcher(e) match {
+      case Some(m) =>
+        recorded("matchers", m)
+        simplify(m, path)
+      case None => super.simplifyCore(e, path)
+    }
 
   /** Simplify all the pure and ground sub-expressions of the given expression,
     * by evaluating them using [[inox.evaluators.Evaluator]].
@@ -115,6 +151,9 @@ trait FormulaSimplifier extends SimplifierWithPC { self =>
   /** Pre-processing for solvers that handle universal quantification
     * in order to increase the precision of polarity analysis for
     * quantification instantiations.
+    *
+    * These are the passes that go before the simplification under path conditions, which does
+    * the rest (see [[simplifyFormula]]).
     */
   def simplifyForalls(e: Expr): Expr = {
 
@@ -199,29 +238,9 @@ trait FormulaSimplifier extends SimplifierWithPC { self =>
       case _ => e
     }
 
-    def simplifyMatchers(e: Expr): Expr = postMap {
-      case f @ FiniteSet(elems, base) if elems.nonEmpty =>
-        Some(elems.foldLeft(FiniteSet(Seq.empty, base).copiedFrom(f): Expr)(SetAdd(_,_).copiedFrom(f)))
-      case f @ FiniteBag(pairs :+ (pair @ (key, _)), base) if pairs.nonEmpty =>
-        Some(pairs.foldRight((FiniteBag(Seq(pair), base).copiedFrom(f): Expr, Seq(key))) {
-          case (pair @ (key, _), (bag, elems)) => (ifExpr(
-            orJoin(elems.map(e => Equals(e, key).copiedFrom(f))).copiedFrom(f),
-            bag,
-            BagUnion(bag, FiniteBag(Seq(pair), base).copiedFrom(f)).copiedFrom(f)
-          ).copiedFrom(f), key +: elems)
-        }._1)
-      case f @ FiniteMap(pairs, dflt, from, to) if pairs.nonEmpty =>
-        Some(pairs.foldLeft(FiniteMap(Seq.empty, dflt, from, to).copiedFrom(f): Expr) {
-          (map, pair) => MapUpdated(map, pair._1, pair._2).copiedFrom(f)
-        })
-      case _ => None
-    } (e)
-
     val simp: Expr => Expr =
       recordedPass("normalize", (e: Expr) => { val n = normalizeClauses(e); recorded("logic", n); n }) compose
-      recordedPass("matchers", (e: Expr) => simplifyMatchers(e))             compose
       recordedPass("lift-assumptions", (e: Expr) => simplifyAssumptions(e))  compose
-      recordedPass("inline-lambdas", (e: Expr) => inlineLambdas(e, recorder))          compose
       recordedPass("inline-postconditions", (e: Expr) => inlinePosts(e))     compose
       recordedPass("quantifiers", (e: Expr) => inlineForalls(e))             compose
       recordedPass("inline-functions", (e: Expr) => inlineFunctions(e))
