@@ -202,6 +202,9 @@ structure Checked where
   /-- for each rule, in the order of `applied`, the definitions `(symbol, meaning)` of the local
   symbols of its instance (`Inox/Meanings.lean`), when it is the instance of a template -/
   defined : List (List (Sexp × Sexp)) := []
+  /-- the source `t` of each instance of a template whose source is an expression `(expression t)`,
+  that an `Instance` rule of kind `expression` names, with the instance's values for its symbols -/
+  expressions : List Sexp := []
 
 /-- The text of the proof of a certificate, for a CPC checker. -/
 def Checked.proof (c : Checked) : String := "\n".intercalate (c.cpc.map text) ++ "\n"
@@ -238,6 +241,8 @@ structure Rules where
   defined : Array (List (Sexp × Sexp)) := #[]
   /-- the meanings of the local symbols of the templates, by template -/
   meanings : Std.HashMap Nat (List (String × Sexp)) := {}
+  /-- the source expressions of the instances of `expression` kind, instantiated -/
+  expressions : Array Sexp := #[]
 
 def Rules.introduce (state : Rules) (symbol : Sexp) (kind : String) : Check Rules :=
   match symbol with
@@ -248,7 +253,7 @@ def Rules.introduce (state : Rules) (symbol : Sexp) (kind : String) : Check Rule
   | other => fail s!"{text other}, which a {kind} rule introduces, is not a symbol"
 
 /-- Checks that the asserts that the rule `line` names are its clauses. -/
-def checkRule (clauses : Array Sexp) (templates : Array Template)
+def checkRule (clauses : Array Sexp) (templates : Array Template) (sources : Array (Option Sexp))
     (given : Array (List (String × Sexp) × Option Sexp)) (state : Rules) (line : Sexp) :
     Check Rules := do
   match line with
@@ -303,7 +308,12 @@ def checkRule (clauses : Array Sexp) (templates : Array Template)
             | _ => none) body symbols call
       let defs := ms.map fun (v, m) =>
         (testers (substitute values terms (.atom v)), testers (substitute values terms m))
-      pure { state with instances := state.instances + 1, applied := applied,
+      -- the source expression of the instance, which the query asserts
+      let expressions := match sources[ti]?.join with
+        | some t => if kind == "Instance" && arguments.has "expression" then
+            state.expressions.push (testers (substitute values terms t)) else state.expressions
+        | none => state.expressions
+      pure { state with instances := state.instances + 1, applied := applied, expressions,
                         defined := state.defined.push defs,
                         meanings := state.meanings.insert ti ms }
     | none =>
@@ -344,6 +354,7 @@ def check (certificate : Sexp) : Check Checked := do
     let mut templates : Array Template := #[]
     let mut lowered : Array Lowering.Source := #[]
     let mut sources : Array Sexp := #[]
+    let mut expressions : Array (Option Sexp) := #[]
     let mut given : Array (List (String × Sexp) × Option Sexp) := #[]
     for line in templateLines do
       match line with
@@ -377,13 +388,15 @@ def check (certificate : Sexp) : Check Checked := do
           -- the defining equation of a function is kept for the check of the rules on terms
           -- (`Inox/Unfold.lean`), unless it has markers, which Logos can't read; that of a defined
           -- function whose source names subterms of its body is also kept with the body of its
-          -- definition, when that lowers
+          -- definition, when that lowers. So is an expression, which the instances of `expression`
+          -- kind state of the query (`Inox/Terms.lean`), as `Lowering.Tables.statement` states it
           match source with
           | .function call body _ =>
             for body in [body] ++ (definition.filter (· != body)).toList do
               if !tables.hasMarker call && !tables.hasMarker body then
                 sources := sources.push (testers (.expr [.atom "=", call, body]))
-          | _ => pure ()
+            expressions := expressions.push none
+          | _ => expressions := expressions.push (tables.statement source)
         | .error why => fail s!"the source of template {i} can't be lowered: {why}"
         let body ← indices.mapM fun i => do
           pure templateClauses[← index i templateClauses.size "the templates"]!
@@ -392,7 +405,7 @@ def check (certificate : Sexp) : Check Checked := do
 
     let mut state : Rules := { named := Array.replicate clauses.size false }
     for line in ruleLines do
-      state ← checkRule clauses templates given state line
+      state ← checkRule clauses templates expressions given state line
 
     let queryIndices ← query.mapM (index · clauses.size "the script")
     let completeIndices ← complete.mapM (index · clauses.size "the script")
@@ -447,7 +460,8 @@ def check (certificate : Sexp) : Check Checked := do
       script := script, applied := state.applied.toList,
       query := queryIndices.map fun i => testers clauses[i]!,
       complete := completeIndices.map fun i => testers clauses[i]!,
-      templateScript := templateScript, sources := sources.toList, defined := defined.toList }
+      templateScript := templateScript, sources := sources.toList, defined := defined.toList,
+      expressions := state.expressions.toList }
   | .expr (.atom "inox-certificate" :: .atom v :: _) =>
     if v != version then fail s!"the certificate has version {v}, and the checker checks version {version}"
     else fail "this is not a certificate"

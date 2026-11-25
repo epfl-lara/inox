@@ -99,24 +99,27 @@ assumptions, if none satisfies them with the clauses of the steps
 
 [`Inox/RuleSteps.lean`](Inox/RuleSteps.lean) ties this to the certificate. It
 writes the proof's declarations followed by one `assume` per clause (those of
-the query's assumptions, of each rule in order, then of the completeness
-assumptions), parses that text with Logos, and makes a step of each rule: a
-`Define`, `Hypothesis` or `Root` introduces its literal, the `Enables` rules of
-a target together introduce it, and the other rules and the completeness
-assumptions are facts. An `Enables` clause `(=> b m)` whose blocker `b` has a
+the query's assumptions, of each rule in order, of the completeness
+assumptions, of the definitions of local symbols, then of the source
+expressions of the assertions), parses that text with Logos, and makes a step
+of each rule: a `Define`, `Hypothesis` or `Root` introduces its literal, the
+`Enables` rules of a target together introduce it, and the other rules are
+facts. The base clauses `r.base`, those that the models considered satisfy, are
+the query's assumptions, the source expressions and the completeness
+assumptions (see below). An `Enables` clause `(=> b m)` whose blocker `b` has a
 `Define` `(= b rhs)` of which `m` is a conjunct (an operand of `rhs`'s `and`)
 is not a blocker of `m`'s step but a derived clause: it holds in every model of
-that definition (`holds_derived`), and it comes after the steps. This breaks the
-cycles where a conjunction of targets enables one of them (`bs := (and m0 m2)`
-with `(=> bs m0)`): `m0` is introduced by its other blockers, then `bs`, then the
-clause. `TermSteps.check` ([`Inox/Terms.lean`](Inox/Terms.lean), which
-`inox-check --terms` runs) decides that each fresh-symbol step can follow those
-before it, that the definition of each derived clause is among them, and that
-every assumption of the proof is a clause. It takes time linear in the size of
-the clauses, up to hashing: freshness is decided against the set of the names of
-the constants that the clauses before mention (`NamesCover`), and the
-definitions and the clauses are looked up in hash sets, whose lemmas make the
-lookups equalities:
+that definition (`holds_derived`), and it comes after the steps. This breaks
+the cycles where a conjunction of targets enables one of them
+(`bs := (and m0 m2)` with `(=> bs m0)`): `m0` is introduced by its other
+blockers, then `bs`, then the clause. `TermSteps.check`
+([`Inox/Terms.lean`](Inox/Terms.lean), which `inox-check --terms` runs) decides
+that each fresh-symbol step can follow those before it, that the definition of
+each derived clause is among them, and that every assumption of the proof is a
+clause. It takes time linear in the size of the clauses, up to hashing:
+freshness is decided against the set of the names of the constants that the
+clauses before mention (`NamesCover`), and the definitions and the clauses are
+looked up in hash sets, whose lemmas make the lookups equalities:
 
 ```lean
 theorem no_good_model_of_accept (sound : LogosSound) (hty : LogosTyping)
@@ -244,18 +247,102 @@ theorem no_good_model_of_instances (sound : LogosSound) (hty : LogosTyping)
     ∀ M, Good r.equations M → ¬ Satisfies M r.base
 ```
 
+### The statement: the query, its expressions, the completeness assumptions
+
+The base `r.base`, which the theorems say no `Good` model satisfies, is:
+
+- the query's `check-sat` assumptions;
+- the source expressions of the assertions: for each `Instance` rule with the
+  argument `expression` whose template's source is `(expression t)`, the term
+  `t` with the rule's arguments for the template's parameters
+  (`Checked.expressions`; testers printed as cvc5 does). These are the formulas
+  that the query asserts, which the certificate refutes, as
+  `Lowering.Tables.statement` states them (see below);
+- the completeness assumptions that the certificate declares under
+  `(assumptions (complete …))`, which are assumptions on the models considered,
+  not facts to prove.
+
+The source expressions are in SMT-LIB 3, with markers and assumptions, which
+Logos doesn't read. The base has each one lowered to the syntax of the session
+(`Inox/Lowering.lean`), with the meaning that its `where` gives to each marker
+(a typing `((as typing!0 S) "free" x)`, for one) in place of the marker, each
+`(assume c b)` in a position where the expression holds replaced by `b`, and
+the conjuncts that still have markers left out; an expression with a marker
+left elsewhere is left out of the base. So the base's clause is implied by the
+source expression, given the meanings of its markers: the theorems' hypotheses
+are weaker than the query's assertions with their assumptions, and the theorems
+stronger than about the assertions themselves. That the meanings of the markers
+are those that the source gives them, and that a typing's meaning is what the
+template's clauses state of the marker, is only checked by the Scala checker
+(`Sources.scala`); neither checker checks that the meaning of a typing is that
+of the type.
+
+Of the latter two, those that mention a constant that a rule introduces (a
+fresh symbol, whose value the steps choose) can't be assumptions of a model of
+the query: such a completeness assumption stays a fact, and such a source
+expression is left out of the base. The clauses of an assertion's instance are
+then checked as those of a function's, given the base: the literals that the
+base clauses make known (`TermSteps.baseLits`, by `lits`) are known to `verify`
+in each clause (`instClauseB`, `kSound_baseLits`), so the meanings of the
+instance's symbols, substituted, reduce under the source expression.
+
+So the final theorem (`no_good_model_of_instances`) reads: for each model `M`
+that is well formed and satisfies the defining equations `r.equations`
+(`Good`), `M` does not satisfy at once the query's assumptions, the source
+expressions of its assertions and the completeness assumptions, given that the
+facts that remain hold in the `Good` models (`hfacts`). `r.equations` are the
+defining equations of the program's functions and the reflexivity axioms below.
+
+### The rules that hold in every model
+
+A fact that `verify` accepts as it is, given the literals of the base clauses,
+holds (`TermSteps.verified`, `holds_verified`). Besides reduction, `verify`
+accepts:
+
+- **Congruence** (`congEq`, `congB_sound`): `(= x y)` where `x` and `y` are the
+  same term, or their equality is a known literal (of a sort other than regular
+  languages, whose equality is not that of their values), or they are
+  applications of the same function, or of functions that are equal by
+  congruence and are not selectors or testers, to arguments equal by
+  congruence. This holds in every well-formed model, since evaluation is a
+  function of the values of the subterms. The `Congruence` facts of the
+  certificates that remain are equalities of the instances of quantifiers
+  (`(= inst!1 inst!0)`), whose argument equalities are not clauses; no
+  `Symmetry` or `Transitivity` facts occur.
+- **Modus ponens on the defining equations** (`mpInst`, `mpInst_sound`): `q`
+  when a defining equation, with the last arguments of `q` for its parameters,
+  is `(=> A q)` and `A` reduces to true under the known literals.
+- **Reflexivity**: the `Reflexivity` facts are `(=> (and g (= a b)) (eq a b))`
+  for an `eq` that applies the program's equality on a type
+  (`(dynLambda!2 |eqBag[BigInt]!0| a b)`). It is not valid in every model: `eq`
+  is made of symbols of the query. From the certificate's `Reflexivity` rules,
+  the checker states, once for each such `eq`, the axiom
+  `(=> (= x y) (eq x y))` over two new constants as a defining equation
+  (`reflexivities`), when `eq` is made of constants of the query whose names
+  Logos does not reserve (`constApp`; a built-in relation such as `<` would
+  leave no `Good` model) and it mentions no fresh symbol. So the `Good` models
+  are those where `eq` is reflexive, and the facts are its instances by modus
+  ponens. That this holds of the program's equality is a fact about Inox, as
+  the defining equations are.
+
 `inox-check --terms` prints, for each certificate, how many facts are
-unfoldings, how many are clauses of instances that the check accepts, and how
-many remain, by category: `decreases` (the clauses of the `diverges!` symbols),
-`contract` (the clauses of an `Unfold` rule that are not about its symbols'
-meanings: preconditions, postconditions, ADT invariants, refinements),
-`assertion` (`Instance` rules), `typing` (the `tp!` predicates),
-`definition without source` (a template whose source is not a function),
-`binder`, `completeness`, and the other rules by kind; and how many definitions
-of local symbols are steps. `--remaining` prints the remaining facts and the
-definitions left out. On the 31 regression certificates that Logos reads, 1,124
-of the 1,871 facts are covered (24 unfoldings, 1,100 clauses of instances), and
-776 of the 805 definitions are steps.
+unfoldings, how many are clauses of instances that the check accepts, how many
+hold as they are (by rule kind), and how many remain, by category: `decreases`
+(the clauses of the `diverges!` symbols), `contract` (the clauses of an
+`Unfold` rule that are not about its symbols' meanings: preconditions,
+postconditions, ADT invariants, refinements), `assertion` (`Instance` rules),
+`typing` (the `tp!` predicates), `definition without source` (a template whose
+source is not a function), `binder`, `completeness`, and the other rules by
+kind; how many definitions of local symbols are steps; the base: how many of
+its clauses are the query's, how many of the source expressions and
+completeness assumptions are base clauses; and how many reflexivity axioms.
+`--remaining` also prints the remaining facts and the definitions left out. On
+the 31 regression certificates that Logos reads, 1,825 facts remain once the 46
+completeness assumptions are in the base, and 1,176 are covered (24 unfoldings,
+1,127 clauses of instances, 25 directly: 12 `Reflexivity`, 13 `Congruence`); 30
+of the 32 source expressions are base clauses, and 771 of the 805 definitions
+are steps (5 fewer than without the source expressions and completeness
+assumptions in the base, which mention their symbols).
 
 The soundness of Logos is a hypothesis of the theorems, `LogosSound`, which is
 the statement of Logos's own theorem. They then only need the definitions of
@@ -279,17 +366,21 @@ cd proofs/lean/verification && lake build InoxClosed
 ## What is not proved yet
 
 - **The rules that are facts.** `no_good_model_of_accept` covers the rules that
-  introduce fresh symbols, and `no_good_model_of_instances` the unfoldings and
-  the clauses of instances that hold by the meanings of their symbols. The
-  theorem to come is the one of an UNSAT answer in
+  introduce fresh symbols, and `no_good_model_of_instances` the unfoldings, the
+  clauses of instances that hold by the meanings of their symbols given the
+  base, and the facts that hold as they are (congruence, the reflexivity of the
+  declared equalities). The theorem to come is the one of an UNSAT answer in
   [`semantics.md`](../semantics.md): the query has no solution. It needs the
-  semantics of Inox in Lean, that its solutions give `Good` models, and for
-  each other kind of rule, that its clauses hold in them (`hfacts`): the
+  semantics of Inox in Lean, that its solutions give `Good` models (where the
+  declared equalities are reflexive and the completeness assumptions hold), and
+  for each other kind of rule, that its clauses hold in them (`hfacts`): the
   decreases clauses; the preconditions, postconditions, ADT invariants and
   refinements of the templates (`contract`), which are assumptions about the
-  program; the assertions of `Instance` rules; the typing predicates; the
-  templates whose source is not a function; the clauses with binders; and the
-  other rules (`Dispatched`, `Congruence`, `SameLambda`, …).
+  program; the clauses of assertions about the instances of quantifiers, and
+  those whose source expression has a binder or mentions a fresh symbol; the
+  typing predicates; the templates whose source is not a function; the clauses
+  with binders; and the other rules (`Dispatched`, `SameLambda`, the
+  `Congruence` of instances of quantifiers, …).
 - **Longer cycles of `Enables` rules.** A cycle where a target reaches a
   definition that enables it only through other definitions or targets
   (`bs := (and d s)`, `(=> m s)`, `(=> bs2 m)`, `bs2 := (and d2 x)`,

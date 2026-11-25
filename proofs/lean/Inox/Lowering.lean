@@ -465,6 +465,31 @@ partial def unmark (meanings : List (Sexp × Sexp)) (seen : List Sexp) (e : Sexp
     | .expr items => .expr (items.map (unmark meanings seen))
     | a => a
 
+/-- `e` without its assumptions, `(assume c b)` being `b`, and without the conjuncts that have
+markers, of its conjunctions that hold where `e` does. -/
+partial def strip (e : Sexp) : Sexp :=
+  match e with
+  | .expr [.atom "assume", _, b] => strip b
+  | .expr (.atom "and" :: cs) =>
+    match (cs.map strip).filter (!t.hasMarker ·) with
+    | [] => tt
+    | [c] => c
+    | kept => .expr (.atom "and" :: kept)
+  | other => other
+
+/-- What the checker in Lean states of the expression of a lowered source of kind `expression`,
+which an instance of `expression` kind asserts: the expression, with the meanings that the source
+gives to its markers in place of the markers, without its assumptions, and without the conjuncts
+that have markers left; nothing if a marker is left outside of them. This is the expression, or a
+weaker one: a model of the source's expression is one of it, given the meanings of the markers,
+which only the Scala checker checks against the clauses of the template. -/
+def statement : Source → Option Sexp
+  | .expression e meanings =>
+    let terms := meanings.filter fun (l, _) => match l with | .expr _ => true | _ => false
+    let stated := t.strip (unmark terms [] e)
+    if t.hasMarker stated then none else some stated
+  | _ => none
+
 end Tables
 
 end Inox.Lowering

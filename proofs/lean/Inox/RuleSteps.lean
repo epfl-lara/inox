@@ -7,11 +7,16 @@ import Inox.Extend
 `Inox.check` compares the clauses of the rules with the asserts of the script as text. This module
 reads them as Logos does, as the `Term`s that `Inox/Extend.lean` is about: it writes the proof's
 declarations followed by one `assume` per clause (those of the query's assumptions, then those of
-each rule in the order of the rules, then those of the completeness assumptions), parses that
-text with `parseProof`, and makes a step of `Inox.Extend` of each rule:
+each rule in the order of the rules, of the completeness assumptions, of the definitions of local
+symbols, and of the source expressions of the assertions), parses that text with `parseProof`, and
+makes a step of `Inox.Extend` of each rule:
 - a `Define`, a `Hypothesis` and a `Root` introduce their literal, and the `Enables` rules of a
   target together introduce it, as a step whose clauses are one implication per blocker;
-- the other rules, and the completeness assumptions, are facts about the semantics;
+- the other rules are facts about the semantics;
+- the base clauses, which the models considered satisfy, are the query's assumptions, the source
+  expressions and the completeness assumptions, those of the latter two that mention no fresh
+  symbol of a rule (the other completeness assumptions are facts, the other source expressions
+  are left out);
 - an `Enables` clause `(=> b m)` whose blocker has a definition `(= b rhs)` of which `m` is a
   conjunct is no blocker of `m`'s step: it is derived from that definition, after the steps.
 
@@ -55,9 +60,14 @@ theorem termSteps_parse {checked : Checked} {r : TermSteps} (h : termSteps check
     dsimp only at h
     split at h
     · cases h
-    · split at h
-      · cases h
-      · cases h; rfl
+    · revert h
+      generalize termStepsOf _ _ = x
+      intro h
+      cases x with
+      | error e => simp [Except.map] at h
+      | ok r' =>
+        simp only [Except.map, Except.ok.injEq] at h
+        subst h; rfl
 
 theorem eq_of_asConst {t : SmtTerm} {s : SmtEval.native_String} {T : SmtType}
     (h : asConst t = some (s, T)) : t = SmtTerm.UConst s T := by
