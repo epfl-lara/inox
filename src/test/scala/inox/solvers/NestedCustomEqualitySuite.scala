@@ -118,7 +118,7 @@ class NestedCustomEqualitySuite extends SolverTestSuite {
     }
 
   for ((name, hold) <- holders) {
-    test(s"Custom equality within $name") { ctx =>
+    test(s"Custom equality within $name", ADTs, Integers) { ctx =>
       valid(ctx, Implies(equalNotSame, Equals(hold(a), hold(b))))
       valid(ctx, Implies(Not(Equals(a.getField(nID), b.getField(nID))), Not(Equals(hold(a), hold(b)))))
     }
@@ -134,7 +134,7 @@ class NestedCustomEqualitySuite extends SolverTestSuite {
     }
   }
 
-  test("Custom equality within sorts met in either order") { ctx =>
+  test("Custom equality within sorts met in either order", ADTs, Integers) { ctx =>
     // the sort that recurses through the other one, and the other one, in the same query
     valid(ctx, Implies(equalNotSame, And(Equals(node(leaf(a)), node(leaf(b))), Equals(list(leaf(a))(T(treeID)()), list(leaf(b))(T(treeID)())))))
     valid(ctx, Implies(equalNotSame, And(Equals(c2(d1(a)), c2(d1(b))), Equals(c1(c2(d1(a))), c1(c2(d1(b)))))))
