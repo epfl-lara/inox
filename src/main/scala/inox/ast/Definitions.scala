@@ -231,8 +231,56 @@ trait Definitions { self: Trees =>
     private val _tryWF: Lazy[Try[Unit]] = Lazy(Try(ensureWellFormedSymbols))
 
     protected def ensureWellFormedSymbols: Unit = {
+      // the other checks unfold the field types of sorts, which doesn't terminate on sorts that
+      // recurse non-uniformly
+      ensureUniformRecursion
       for ((_, fd) <- functions) ensureWellFormedFunction(fd)
       for ((_, sort) <- sorts) ensureWellFormedSort(sort)
+    }
+
+    /** Makes sure that no sort recurses through a larger instance of itself, as the nested
+      * datatype `Nest[A] = Leaf(a: A) | Node(n: Nest[List[A]])` does: its values hold values of
+      * `Nest[List[A]]`, `Nest[List[List[A]]]`, and so on. These infinitely many types can't be
+      * declared to an SMT solver, and unfolding their fields doesn't terminate.
+      *
+      * The type parameter `i` of a sort flows into the type argument `j` of a sort type in one of
+      * its fields when that argument mentions it, and grows when the argument isn't the type
+      * parameter itself. A sort recurses through larger instances of itself iff a growing flow
+      * lies on a cycle of flows, possibly through other sorts.
+      */
+    protected def ensureUniformRecursion: Unit = {
+      type Param = (Identifier, Int)
+      // the sort types in `tpe`, including the types of the bound variables of dependent types,
+      // which the type deconstructor doesn't return
+      def sortTypes(tpe: Type): Seq[ADTType] = tpe match {
+        case RefinementType(vd, _) => sortTypes(vd.tpe)
+        case PiType(params, to) => params.flatMap(vd => sortTypes(vd.tpe)) ++ sortTypes(to)
+        case SigmaType(params, to) => params.flatMap(vd => sortTypes(vd.tpe)) ++ sortTypes(to)
+        case adt @ ADTType(_, tps) => adt +: tps.flatMap(sortTypes)
+        case NAryType(tps, _) => tps.flatMap(sortTypes)
+      }
+
+      val flows: Seq[(Param, Param, Boolean, ADTSort, Type)] = for {
+        sort <- sorts.values.toSeq
+        cons <- sort.constructors
+        vd <- cons.fields
+        ADTType(id, args) <- sortTypes(vd.tpe).distinct
+        (arg, j) <- args.zipWithIndex
+        (tp, i) <- sort.typeArgs.zipWithIndex
+        if typeOps.typeParamsOf(arg).contains(tp)
+      } yield ((sort.id, i), (id, j), arg != tp, sort, vd.tpe)
+
+      val successors: Map[Param, Seq[Param]] = flows.groupBy(_._1).view.mapValues(_.map(_._2)).toMap
+      def reaches(from: Param, to: Param): Boolean = {
+        val seen = scala.collection.mutable.Set.empty[Param]
+        def rec(p: Param): Boolean = p == to || (seen.add(p) && successors.getOrElse(p, Seq()).exists(rec))
+        rec(from)
+      }
+
+      for ((from, to, grows, sort, tpe) <- flows if grows && reaches(to, from)) {
+        throw NotWellFormedException(sort, Some(
+          s"it recurses through larger instances of itself, as its field of type ${tpe.asString(using PrinterOptions(symbols = Some(this)))} does"))
+      }
     }
 
     protected def ensureWellFormedFunction(fd: FunDef) = {
