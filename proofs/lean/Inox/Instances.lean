@@ -11,15 +11,18 @@ arguments (`Inox/Meanings.lean`), and the certificate's terms state it as a defi
 one more fresh-symbol step for each, which the check (`stepsFreshB`) accepts as any other, so that
 a model of the clauses before is extended, simultaneously, to the symbols of the instance.
 
-`TermSteps.instanceFacts` substitutes the definitions that are steps in each clause of the
-instance and decides that the result holds in each well-formed model of the defining equations
-(`verify`): an implication holds when its conclusion holds under the literals that its premise
-makes known, as it is and reduced under the known literals, a term holds when it reduces to `true`
-under the known literals (`red`), and an instance of a defining equation holds in their models.
-This module proves that the clauses that it accepts hold in the models of the defining equations
-where the definitions hold (`holds_instanceFact`), which every model of the clauses before them is,
-since the definitions are clauses of the fresh-symbol steps: what the check needs of the facts that
-it doesn't decide (`no_good_model_of_instances`).
+`TermSteps.instanceFacts` substitutes the definitions that are steps in each clause of the instance
+and decides that the result holds in each well-formed model of the defining equations (`verify`),
+under the literals that the base clauses make known: an implication holds when its conclusion holds
+under the literals that its premise makes known, as it is and reduced under the known literals, a
+term holds when it reduces to `true` under the known literals (`red`), an instance of a defining
+equation holds in their models, as does the conclusion of one whose premise reduces to `true`
+(`mpInst`), and an equality holds by congruence (`congB`). The facts that `verify` accepts as they
+are hold too (`holds_verified`). This module proves that the clauses that it accepts hold in the
+models of the defining equations where the definitions hold (`holds_instanceFact`), which every
+model of the clauses before them is, since the definitions are clauses of the fresh-symbol steps:
+what the check needs of the facts that it doesn't decide
+(`no_good_model_of_instances`).
 -/
 
 namespace Inox
@@ -291,6 +294,93 @@ theorem verifyUnder_sound (hty : LogosTyping) {M : SmtModel} (hwf : model_wf M)
     simp only [verifyUnder] at hv
     exact verifyUnder_base hty hwf hK _ hv hp
 
+/-! ## Congruence, and modus ponens on the defining equations -/
+
+theorem typeof_value_reglan (r : SmtRegLan) :
+    __smtx_typeof_value (SmtValue.RegLan r) = SmtType.RegLan := by
+  simp [__smtx_typeof_value]
+
+/-- An equality that the literals `K` make known, of terms of a sort other than that of regular
+languages, gives them the same value. -/
+theorem eval_of_eqKnown (hty : LogosTyping) {M : SmtModel} (hwf : model_wf M)
+    {K : List (SmtTerm × Bool)} (hK : KSound M K) {x y : SmtTerm} (h : eqKnown K x y = true) :
+    __smtx_model_eval M x = __smtx_model_eval M y := by
+  simp only [eqKnown, Bool.and_eq_true, Bool.or_eq_true, beq_iff_eq, decide_eq_true_eq] at h
+  obtain ⟨⟨hk, hnone⟩, hreg⟩ := h
+  have htv := (hty.1 M x hwf hnone).1
+  have hnr : ∀ r, __smtx_model_eval M x ≠ SmtValue.RegLan r := by
+    intro r hr
+    rw [hr, typeof_value_reglan] at htv
+    exact hreg htv.symm
+  rcases hk with hk | hk
+  · have := hK _ (known_mem hk)
+    simp only [__smtx_model_eval] at this
+    unfold __smtx_model_eval_eq at this
+    split at this
+    · next r1 r2 h1 _ => exact absurd h1 (hnr r1)
+    · simp only [native_veq, SmtValue.Boolean.injEq, decide_eq_true_eq] at this
+      exact this
+  · have := hK _ (known_mem hk)
+    simp only [__smtx_model_eval] at this
+    unfold __smtx_model_eval_eq at this
+    split at this
+    · next r1 r2 _ h2 => exact absurd h2 (hnr r2)
+    · simp only [native_veq, SmtValue.Boolean.injEq, decide_eq_true_eq] at this
+      exact this.symm
+
+/-- What `congB` accepts has the same value in each well-formed model where the literals `K` have
+their values: congruence, which holds in every model, given the equalities of `K`. -/
+theorem congB_sound (hty : LogosTyping) {M : SmtModel} (hwf : model_wf M)
+    {K : List (SmtTerm × Bool)} (hK : KSound M K) (x : SmtTerm) :
+    ∀ y, congB K x y = true → __smtx_model_eval M x = __smtx_model_eval M y := by
+  intro y h
+  cases x
+  case Apply f a =>
+    simp only [congB, Bool.or_eq_true, decide_eq_true_eq] at h
+    rcases h with (h | h) | h
+    · rw [h]
+    · exact eval_of_eqKnown hty hwf hK h
+    · split at h
+      · next g b =>
+        simp only [Bool.and_eq_true, Bool.or_eq_true, decide_eq_true_eq] at h
+        obtain ⟨hfg, hab⟩ := h
+        have hab' := congB_sound hty hwf hK a b hab
+        rcases hfg with hfg | ⟨⟨hf, hg⟩, hfg⟩
+        · subst hfg
+          cases f <;> simp only [__smtx_model_eval, hab']
+        · rw [eval_apply_plain M hf, eval_apply_plain M hg, congB_sound hty hwf hK f g hfg, hab']
+      · simp at h
+  all_goals
+    simp only [congB, Bool.or_eq_true, decide_eq_true_eq] at h
+    rcases h with h | h
+    · rw [h]
+    · exact eval_of_eqKnown hty hwf hK h
+termination_by structural x
+
+/-- The conclusion of an instance of a defining equation `(=> A q)` whose premise reduces to true
+under the literals `K` holds in their models where `K` have their values. -/
+theorem mpInst_sound (hty : LogosTyping) {eqs : List Equation} {M : SmtModel} (hM : Good eqs M)
+    (hwf : model_wf M) {K : List (SmtTerm × Bool)} (hK : KSound M K) {φ : SmtTerm}
+    (h : mpInst eqs K φ = true) : __smtx_model_eval M φ = SmtValue.Boolean true := by
+  obtain ⟨e, he, h⟩ := List.any_eq_true.mp h
+  simp only [mpInstB, Bool.and_eq_true] at h
+  obtain ⟨⟨hparams, hb⟩, hm⟩ := h
+  obtain ⟨hσ, htyped⟩ := params_of_paramsB hty hwf hparams
+  split at hm
+  · next a q hs =>
+    simp only [Bool.and_eq_true, decide_eq_true_eq] at hm
+    obtain ⟨hq, ha⟩ := hm
+    have heq : __smtx_model_eval M (SmtTerm.imp a q) = SmtValue.Boolean true := by
+      rw [← hs, eval_subst hσ M _ hb, bindingValues_bindParams]
+      exact hM e he _ htyped
+    have ha' : __smtx_model_eval M a = SmtValue.Boolean true := by
+      rw [← eval_red hty hwf hK, ha]; rfl
+    simp only [__smtx_model_eval, __smtx_model_eval_imp, ha'] at heq
+    rcases or_eq_true heq with h | h
+    · simp [__smtx_model_eval_not, native_not] at h
+    · rw [← hq]; exact h
+  · simp at hm
+
 /-! ## Instances of the defining equations -/
 
 /-- An instance of a defining equation holds in their models. -/
@@ -310,12 +400,21 @@ theorem eqInst_sound (hty : LogosTyping) {eqs : List Equation} {M : SmtModel} (h
 
 theorem verify_base (hty : LogosTyping) {eqs : List Equation} {M : SmtModel} (hM : Good eqs M)
     (hwf : model_wf M) {K : List (SmtTerm × Bool)} (hK : KSound M K) (φ : SmtTerm)
-    (hv : (decide (red K φ = SmtTerm.Boolean true) || eqInst eqs φ) = true) :
+    (hv : (decide (red K φ = SmtTerm.Boolean true) || eqInst eqs φ || mpInst eqs K φ ||
+      congEq K φ) = true) :
     __smtx_model_eval M φ = SmtValue.Boolean true := by
   simp only [Bool.or_eq_true, decide_eq_true_eq] at hv
-  rcases hv with hv | hv
+  rcases hv with ((hv | hv) | hv) | hv
   · rw [← eval_red hty hwf hK, hv]; rfl
   · exact eqInst_sound hty hM hwf hv
+  · exact mpInst_sound hty hM hwf hK hv
+  · unfold congEq at hv
+    split at hv
+    · next x y =>
+      simp only [__smtx_model_eval]
+      rw [congB_sound hty hwf hK x y hv]
+      exact eval_eq_self _
+    · simp at hv
 
 /-- What `verify` accepts holds in the models of the defining equations where the literals `K`
 have their values. -/
@@ -339,10 +438,6 @@ theorem verify_sound (hty : LogosTyping) {eqs : List Equation} {M : SmtModel} (h
     exact verify_base hty hM hwf hK _ hv
 
 /-! ## The definitions of the local symbols -/
-
-theorem typeof_value_reglan (r : SmtRegLan) :
-    __smtx_typeof_value (SmtValue.RegLan r) = SmtType.RegLan := by
-  simp [__smtx_typeof_value]
 
 /-- A definition that holds gives the constant the value of its term. -/
 theorem defBinding_sound (hty : LogosTyping) {M : SmtModel} (hwf : model_wf M) {d : Term}
@@ -408,7 +503,8 @@ theorem instClause_sound (hty : LogosTyping) {eqs : List Equation} {M : SmtModel
     (hM : Good eqs M) (hwf : model_wf M) {σ : List (native_String × SmtType × SmtTerm)}
     (hσ : ∀ e ∈ σ, (Unreserved e.1 ∧ plainHead e.2.2 = true) ∧
       M.values (model_key e.1 e.2.1) = __smtx_model_eval M e.2.2)
-    {c : Term} (h : instClauseB eqs σ c = true) :
+    {K : List (SmtTerm × Bool)} (hK : KSound M K)
+    {c : Term} (h : instClauseB eqs K σ c = true) :
     __smtx_model_eval M (__eo_to_smt c) = SmtValue.Boolean true := by
   simp only [instClauseB, Bool.and_eq_true] at h
   have hself : setConsts M (bindingValues M σ) = M := by
@@ -419,30 +515,62 @@ theorem instClause_sound (hty : LogosTyping) {eqs : List Equation} {M : SmtModel
   have := eval_subst (fun e he => (hσ e he).1) M _ h.1
   rw [hself] at this
   rw [← this]
-  exact verify_sound hty hM hwf _ (fun _ h => by simp at h) h.2
+  exact verify_sound hty hM hwf _ hK h.2
+
+theorem subset_foldl_append : ∀ (sts : List Step) (acc : List Term),
+    acc ⊆ sts.foldl (fun acc st => acc ++ st.clauses) acc
+  | [], _ => List.Subset.refl _
+  | st :: sts, acc => fun _ hx =>
+    subset_foldl_append sts (acc ++ st.clauses) (List.mem_append_left _ hx)
+
+theorem base_subset_extend (base : List Term) (sts : List Step) : base ⊆ extend base sts :=
+  subset_foldl_append sts base
+
+/-- The literals that the base clauses make known have their values in their models. -/
+theorem kSound_baseLits {r : TermSteps} {M : SmtModel}
+    (h : ∀ t ∈ r.base, __smtx_model_eval M (__eo_to_smt t) = SmtValue.Boolean true) :
+    KSound M r.baseLits := by
+  intro p hp
+  simp only [TermSteps.baseLits, List.mem_flatMap] at hp
+  obtain ⟨t, ht, hp⟩ := hp
+  exact lits_sound _ true (h t ht) p hp
 
 /-- The clauses of the instances that the check accepts hold, in the models of the defining
-equations, given the clauses of the fresh-symbol steps. -/
+equations, given the base clauses and the clauses of the fresh-symbol steps. -/
 theorem holds_instanceFact (hty : LogosTyping) {r : TermSteps} {t : Term}
     (ht : t ∈ r.instanceFacts) {assums : List Term} (hsub : extend r.base r.fresh ⊆ assums) :
     Holds (Good r.equations) assums t := by
   intro M hM hsat
   simp only [TermSteps.instanceFacts, List.mem_flatMap, List.mem_filter] at ht
   obtain ⟨⟨defs, cs⟩, _, _, hc⟩ := ht
-  refine instClause_sound hty hM hsat.1 ?_ hc
+  have hK : KSound M r.baseLits :=
+    kSound_baseLits fun t ht => hsat.2 t (hsub (base_subset_extend _ _ ht))
+  refine instClause_sound hty hM hsat.1 ?_ hK hc
   intro e he
   obtain ⟨d, hd, hb⟩ := List.mem_filterMap.mp he
   simp only [List.mem_filter, Std.HashSet.contains_ofList, List.contains_iff_mem] at hd
   exact defBinding_sound hty hsat.1 hb (hsat.2 d (hsub hd.2))
+
+/-- The facts that `verify` accepts as they are hold, in the models of the defining equations,
+given the base clauses. -/
+theorem holds_verified (hty : LogosTyping) {r : TermSteps} {t : Term} (h : r.verified t = true)
+    {assums : List Term} (hsub : extend r.base r.fresh ⊆ assums) :
+    Holds (Good r.equations) assums t := by
+  intro M hM hsat
+  simp only [TermSteps.verified, Bool.and_eq_true] at h
+  have hK : KSound M r.baseLits :=
+    kSound_baseLits fun t ht => hsat.2 t (hsub (base_subset_extend _ _ ht))
+  exact verify_sound hty hM hsat.1 _ hK h.2
 
 theorem holds_covered (hty : LogosTyping) {r : TermSteps} {t : Term} (h : r.covered t = true)
     {assums : List Term} (hsub : extend r.base r.fresh ⊆ assums) :
     Holds (Good r.equations) assums t := by
   simp only [TermSteps.covered, Bool.or_eq_true, Std.HashSet.contains_ofList,
     List.contains_iff_mem] at h
-  rcases h with h | h
+  rcases h with (h | h) | h
   · exact holds_unfold hty h assums
   · exact holds_instanceFact hty h hsub
+  · exact holds_verified hty h hsub
 
 /-! ## What the check gives -/
 
@@ -460,7 +588,17 @@ theorem factsHold_of_except_sub {Good : SmtModel → Prop} {covered : Term → B
 don't mention the fresh symbols (`r.keeps`), then no well-formed model of the defining equations
 satisfies the assumptions of the query, as Logos reads them, given that each fact holds in those
 models (given the clauses before it), except the unfoldings of the equations and the clauses of
-the instances of templates that the check accepts (`r.covered`). -/
+the instances of templates that the check accepts (`r.covered`).
+
+The assumptions of the query, `r.base`, are its `check-sat` assumptions, its completeness
+assumptions and the source expressions of its assertions, those that mention no fresh symbol. A
+source expression is there as `Lowering.Tables.statement` states it: lowered to the syntax of the
+session, with the meanings that its `where` gives to its markers in place of the markers, without
+its assumptions (`(assume c b)` as `b`) and without the conjuncts that have markers left (and left
+out if a marker is left elsewhere). Each is implied by the source expression, given the meanings
+of its markers, so that the hypotheses are weaker than the query's assertions. The meanings of the
+markers are only checked by the Scala checker (`Sources.scala`), against the clauses of the
+templates. -/
 theorem no_good_model_of_instances (sound : LogosSound) (hty : LogosTyping)
     {certificate : Sexp} {checked : Checked} {r : TermSteps}
     (hAccept : accept certificate = .ok checked) (hr : termSteps checked = .ok r)

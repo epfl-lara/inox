@@ -61,7 +61,7 @@ def main (args : List String) : IO UInt32 := do
       | .ok (c, onTerms) =>
         if args.head? == some "--remaining" then
           if let .ok r := termSteps c then
-            for (k, s) in r.remaining c do IO.println s!"  {k}: {text s}"
+            for (k, s) in r.remaining do IO.println s!"  {k}: {text s}"
             let ctx := Std.HashSet.ofList (Extend.extend r.base r.fresh)
             for d in r.instances.flatMap (·.1) do
               if !ctx.contains d then IO.println s!"  dropped definition: {repr d}"

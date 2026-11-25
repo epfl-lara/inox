@@ -69,7 +69,9 @@ theorem no_good_model_of_unfold_closed {certificate : Sexp} {checked : Checked} 
 /-- If the checker accepts a certificate, the check on terms holds, and no fresh symbol is in a
 defining equation, then no well-formed model of the defining equations satisfies the assumptions of
 the query, given that each fact that is neither an unfolding of an equation nor a clause of an
-instance of a template that the check accepts holds in those models. -/
+instance of a template that the check accepts holds in those models. The assumptions of the
+query are those of `no_good_model_of_instances`: its source expressions without their assumptions
+and with the meanings of their markers, which only the Scala checker checks. -/
 theorem no_good_model_of_instances_closed {certificate : Sexp} {checked : Checked} {r : TermSteps}
     (hAccept : accept certificate = .ok checked) (hr : termSteps checked = .ok r)
     (hcheck : r.check = true) (hkeeps : r.keeps = true)
