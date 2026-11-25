@@ -27,9 +27,11 @@ It accepts a certificate when:
 - Logos finds its proof `correct` ([`Inox/Accept.lean`](Inox/Accept.lean)).
 
 With `--rules`, it checks the rules only. With `--terms`, it also checks the
-rules on the terms that Logos reads (see below). `check.sh DIR [JOBS] [FLAGS]`
-runs it on the files of `DIR`, which is what CI does on the corpus of the Scala
-checker, with `--terms` (the `certificates` job).
+rules on the terms that Logos reads, and prints which facts it covers (see
+below); `--remaining` also prints the facts that remain.
+`check.sh DIR [JOBS] [FLAGS]` runs it on the files of `DIR`, which is what CI
+does on the corpus of the Scala checker, with `--terms` (the `certificates`
+job).
 
 ## What is proved
 
@@ -180,12 +182,80 @@ not proved here.
 
 The unfoldings covered are those of a function whose body has no `ite` and no
 call to a function whose value the template names: the clause is then
-`(=> start (= (f x1 … xn) body))`. In the regression certificates, those are
-few (24 of the 1,386 facts of the six certificates with such functions). The
-other clauses of a template define its own symbols (the condition `c`, the
-blockers of the branches `b`, the result `e`, the values of nested calls and
-constructors), which hold only once those symbols are chosen: they are fresh
-symbols, introduced together by an instance, not facts.
+`(=> start (= (f x1 … xn) body))`. The other clauses of a template mention its
+own symbols (the condition `c`, the blockers of the branches `b`, the result
+`e`, the values of nested calls and constructors), which hold only once those
+symbols are chosen.
+
+### The instances of templates
+
+[`Inox/Meanings.lean`](Inox/Meanings.lean) finds the meaning of each local
+symbol of a template, a term over its parameters, from the shapes of its
+clauses and its source, as the source check of the Scala checker
+([`Sources.scala`](../src/main/scala/inox/certificates/Sources.scala)) does:
+the source's `where` gives the meanings of the symbols whose clauses are
+guarded several times (the result of an `ite`, an `and` or an `or`, a merged
+call, the typing of a value); a blocker means the conditions of its path, such
+as `(and n c)` for `(= (and n c) b)`, or `(or b1 b2 ..)` for a merge; failing
+these, a symbol that one clause `(=> n (= v t))` defines means `t`. The checker
+states, for each `Unfold` and `Instance` rule, the definition `(= v D)` of each
+of its symbols that has a meaning, with the rule's arguments for the
+parameters, except the symbols that a `Define`, `Hypothesis` or `Root`
+introduces, the targets of `Enables` rules, and the duplicates. Logos reads
+them with the other clauses; nothing relies on how they were found.
+
+Each definition is one more fresh-symbol step (`addDefinitions`), ordered with
+the others so that each follows the steps that its term mentions; the
+definitions that can't (those in a cycle with an `Enables` step, where the
+start of an instance is enabled by a blocker whose definition mentions a symbol
+of that instance) are left out, and their clauses stay facts. The check decides
+that the steps are fresh, as for the others: together, they extend a `Good`
+model to all the symbols of the instances, by the values of their meanings.
+
+A clause of an instance then holds when, with the definitions of the instance's
+symbols that are steps substituted (`substSmt`), it holds in every `Good` model
+(`instClauseB`, deciding `verify`): an implication `(=> p q)` holds when `q`
+holds under the literals that `p` being true makes known, for each disjunct of
+`p`, or when `p` reduces to false under them; a term holds when it reduces to
+`true` under the known literals (`red`: a known subterm is its value, an `ite`
+whose condition reduces to a literal is its branch, Boolean operators of
+literals are reduced, and `(= x y)` is true when `x` and `y` reduce to the same
+term); and an instance of a defining equation holds. So a result defined under
+the guards of both branches, `(=> b1 (= e t1))` and `(=> b2 (= e t2))`, becomes
+`(=> (and n c) (= (ite c t1 t2) t1))`, which holds since the guard makes `c`
+known; and the value of a nested call, `(=> b (= lt (f' args)))`, is that call.
+[`Inox/Instances.lean`](Inox/Instances.lean) proves it: `eval_red`,
+`verify_sound`, and, since a definition that holds gives its constant the value
+of its term (`defBinding_sound`), interpreting the constants as those values
+leaves the model unchanged (`setConsts_self`), so the substituted clause has
+the value of the clause (`eval_subst`). `r.covered` is `unfoldB` or a clause of
+an instance that the check accepts:
+
+```lean
+theorem holds_instanceFact (hty : LogosTyping) {r : TermSteps} {t : Term}
+    (ht : t ∈ r.instanceFacts) {assums : List Term} (hsub : extend r.base r.fresh ⊆ assums) :
+    Holds (Good r.equations) assums t
+
+theorem no_good_model_of_instances (sound : LogosSound) (hty : LogosTyping)
+    {certificate : Sexp} {checked : Checked} {r : TermSteps}
+    (hAccept : accept certificate = .ok checked) (hr : termSteps checked = .ok r)
+    (hcheck : r.check = true) (hkeeps : r.keeps = true)
+    (hfacts : FactsHoldExcept (Good r.equations) r.covered (extend r.base r.fresh) r.facts) :
+    ∀ M, Good r.equations M → ¬ Satisfies M r.base
+```
+
+`inox-check --terms` prints, for each certificate, how many facts are
+unfoldings, how many are clauses of instances that the check accepts, and how
+many remain, by category: `decreases` (the clauses of the `diverges!` symbols),
+`contract` (the clauses of an `Unfold` rule that are not about its symbols'
+meanings: preconditions, postconditions, ADT invariants, refinements),
+`assertion` (`Instance` rules), `typing` (the `tp!` predicates),
+`definition without source` (a template whose source is not a function),
+`binder`, `completeness`, and the other rules by kind; and how many definitions
+of local symbols are steps. `--remaining` prints the remaining facts and the
+definitions left out. On the 31 regression certificates that Logos reads, 1,124
+of the 1,871 facts are covered (24 unfoldings, 1,100 clauses of instances), and
+776 of the 805 definitions are steps.
 
 The soundness of Logos is a hypothesis of the theorems, `LogosSound`, which is
 the statement of Logos's own theorem. They then only need the definitions of
@@ -208,16 +278,18 @@ cd proofs/lean/verification && lake build InoxClosed
 
 ## What is not proved yet
 
-- **The rules that are facts.** `no_good_model_of_accept` covers the rules
-  that introduce fresh symbols, and `no_good_model_of_unfold` the unfoldings
-  of functions without branches. The theorem to come is the one of an UNSAT
-  answer in [`semantics.md`](../semantics.md): the query has no solution. It
-  needs the semantics of Inox in Lean, that its solutions give `Good` models,
-  and for each other kind of rule, that its clauses hold in them (`hfacts`):
-  the instances of templates with branches, nested calls or `assume`, whose
-  own symbols need a step that introduces them together; the decreases
-  clauses; the instances of expression templates; and equations with
-  binders.
+- **The rules that are facts.** `no_good_model_of_accept` covers the rules that
+  introduce fresh symbols, and `no_good_model_of_instances` the unfoldings and
+  the clauses of instances that hold by the meanings of their symbols. The
+  theorem to come is the one of an UNSAT answer in
+  [`semantics.md`](../semantics.md): the query has no solution. It needs the
+  semantics of Inox in Lean, that its solutions give `Good` models, and for
+  each other kind of rule, that its clauses hold in them (`hfacts`): the
+  decreases clauses; the preconditions, postconditions, ADT invariants and
+  refinements of the templates (`contract`), which are assumptions about the
+  program; the assertions of `Instance` rules; the typing predicates; the
+  templates whose source is not a function; the clauses with binders; and the
+  other rules (`Dispatched`, `Congruence`, `SameLambda`, …).
 - **Longer cycles of `Enables` rules.** A cycle where a target reaches a
   definition that enables it only through other definitions or targets
   (`bs := (and d s)`, `(=> m s)`, `(=> bs2 m)`, `bs2 := (and d2 x)`,
@@ -231,8 +303,9 @@ cd proofs/lean/verification && lake build InoxClosed
   refuses a certificate with a source that doesn't lower. Only the Scala
   checker checks that the clauses of a template are those of its source
   ([`Sources.scala`](../src/main/scala/inox/certificates/Sources.scala)); this
-  checker only checks the unfoldings of functions without branches against
-  their lowered source (`unfoldB`).
+  checker only checks the clauses that it covers against the lowered source
+  (`unfoldB`, and the clauses of instances, given the meanings of their
+  symbols).
 - **The link between the proof and the script.** The checker checks that each
   assumption of the proof is the text of an assert of the script, up to how
   cvc5 prints testers (`(is C e)` for `((_ is C) e)`), once the terms that the
