@@ -250,11 +250,21 @@ trait Definitions { self: Trees =>
       */
     protected def ensureUniformRecursion: Unit = {
       type Param = (Identifier, Int)
+      // the sort types in `tpe`, including the types of the bound variables of dependent types,
+      // which the type deconstructor doesn't return
+      def sortTypes(tpe: Type): Seq[ADTType] = tpe match {
+        case RefinementType(vd, _) => sortTypes(vd.tpe)
+        case PiType(params, to) => params.flatMap(vd => sortTypes(vd.tpe)) ++ sortTypes(to)
+        case SigmaType(params, to) => params.flatMap(vd => sortTypes(vd.tpe)) ++ sortTypes(to)
+        case adt @ ADTType(_, tps) => adt +: tps.flatMap(sortTypes)
+        case NAryType(tps, _) => tps.flatMap(sortTypes)
+      }
+
       val flows: Seq[(Param, Param, Boolean, ADTSort, Type)] = for {
         sort <- sorts.values.toSeq
         cons <- sort.constructors
         vd <- cons.fields
-        ADTType(id, args) <- typeOps.collect[ADTType] { case t: ADTType => Set(t) case _ => Set() } (vd.tpe).toSeq
+        ADTType(id, args) <- sortTypes(vd.tpe).distinct
         (arg, j) <- args.zipWithIndex
         (tp, i) <- sort.typeArgs.zipWithIndex
         if typeOps.typeParamsOf(arg).contains(tp)

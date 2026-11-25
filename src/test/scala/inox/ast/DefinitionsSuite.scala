@@ -197,6 +197,13 @@ class DefinitionsSuite extends AnyFunSuite {
     // the same, under a function, a tuple and another sort
     assert(!wellFormed(list, nested(nestID)(a => FunctionType(Seq(IntegerType()), T(nestID)(TupleType(Seq(a, a)))))))
     assert(!wellFormed(list, nested(nestID)(a => T(listID)(T(nestID)(T(listID)(a))))))
+    // and in the bound variables of dependent types
+    def bound(tpe: Type) = ValDef.fresh("x", tpe)
+    def nestOfList(a: TypeParameter) = T(nestID)(T(listID)(a))
+    assert(!wellFormed(list, nested(nestID)(a => RefinementType(bound(nestOfList(a)), BooleanLiteral(true)))))
+    assert(!wellFormed(list, nested(nestID)(a => SigmaType(Seq(bound(nestOfList(a))), IntegerType()))))
+    assert(!wellFormed(list, nested(nestID)(a => PiType(Seq(bound(IntegerType())), nestOfList(a)))))
+    assert(!wellFormed(list, nested(nestID)(a => T(listID)(RefinementType(bound(nestOfList(a)), BooleanLiteral(true))))))
     // and through another sort that recurses with it
     val otherID = FreshIdentifier("Other")
     val other = mkSort(otherID)("B") { case Seq(b) => Seq((FreshIdentifier("Other"), Seq(ValDef(FreshIdentifier("o"), T(nestID)(T(listID)(b)))))) }
@@ -205,6 +212,7 @@ class DefinitionsSuite extends AnyFunSuite {
     // uniform recursion, also through other sorts, is fine
     assert(wellFormed(list, nested(nestID)(a => T(listID)(T(nestID)(a)))))
     assert(wellFormed(list, nested(nestID)(a => T(nestID)(a))))
+    assert(wellFormed(list, nested(nestID)(a => RefinementType(bound(T(nestID)(a)), BooleanLiteral(true)))))
     // as are larger instances of other sorts, and other instances that don't grow
     assert(wellFormed(list, nested(nestID)(a => T(listID)(T(listID)(a)))))
     assert(wellFormed(list, nested(nestID)(_ => T(nestID)(IntegerType()))))
