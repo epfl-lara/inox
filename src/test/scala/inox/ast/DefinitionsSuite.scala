@@ -176,6 +176,47 @@ class DefinitionsSuite extends AnyFunSuite {
     assert(wellFormed(Seq(withField(tID, tCons, v => forall("n" :: IntegerType())(n => Equals(n, n)))), Seq()))
   }
 
+  test("Sorts can't recurse through larger instances of themselves") {
+    def wellFormed(sorts: ADTSort*): Boolean = scala.util.Try(NoSymbols.withSorts(sorts).ensureWellFormed).isSuccess
+
+    val listID = FreshIdentifier("List")
+    val list = mkSort(listID)("X") { case Seq(x) => Seq(
+      (FreshIdentifier("Nil"), Seq()),
+      (FreshIdentifier("Cons"), Seq(ValDef(FreshIdentifier("h"), x), ValDef(FreshIdentifier("t"), T(listID)(x)))))
+    }
+    def nested(id: Identifier)(field: TypeParameter => Type): ADTSort = mkSort(id)("A") { case Seq(a) => Seq(
+      (FreshIdentifier("Leaf"), Seq(ValDef(FreshIdentifier("a"), a))),
+      (FreshIdentifier("Node"), Seq(ValDef(FreshIdentifier("n"), field(a)))))
+    }
+
+    // Nest[A] = Leaf(a: A) | Node(n: Nest[List[A]])
+    val nestID = FreshIdentifier("Nest")
+    val ex = intercept[NotWellFormedException](
+      NoSymbols.withSorts(Seq(list, nested(nestID)(a => T(nestID)(T(listID)(a))))).ensureWellFormed)
+    assert(ex.getMessage.contains("it recurses through larger instances of itself"))
+    // the same, under a function, a tuple and another sort
+    assert(!wellFormed(list, nested(nestID)(a => FunctionType(Seq(IntegerType()), T(nestID)(TupleType(Seq(a, a)))))))
+    assert(!wellFormed(list, nested(nestID)(a => T(listID)(T(nestID)(T(listID)(a))))))
+    // and through another sort that recurses with it
+    val otherID = FreshIdentifier("Other")
+    val other = mkSort(otherID)("B") { case Seq(b) => Seq((FreshIdentifier("Other"), Seq(ValDef(FreshIdentifier("o"), T(nestID)(T(listID)(b)))))) }
+    assert(!wellFormed(list, other, nested(nestID)(a => T(otherID)(a))))
+
+    // uniform recursion, also through other sorts, is fine
+    assert(wellFormed(list, nested(nestID)(a => T(listID)(T(nestID)(a)))))
+    assert(wellFormed(list, nested(nestID)(a => T(nestID)(a))))
+    // as are larger instances of other sorts, and other instances that don't grow
+    assert(wellFormed(list, nested(nestID)(a => T(listID)(T(listID)(a)))))
+    assert(wellFormed(list, nested(nestID)(_ => T(nestID)(IntegerType()))))
+    // and swapped type parameters
+    val pairID = FreshIdentifier("Pair")
+    val pair = mkSort(pairID)("A", "B") { case Seq(a, b) => Seq(
+      (FreshIdentifier("End"), Seq()),
+      (FreshIdentifier("Swap"), Seq(ValDef(FreshIdentifier("a"), a), ValDef(FreshIdentifier("p"), T(pairID)(b, a)))))
+    }
+    assert(wellFormed(pair))
+  }
+
   test("Type parameter definitions") {
     val tpd = TypeParameterDef.fresh("B", Seq(Annotation("tp", Seq())))
     assert(tpd.flags == Seq(Annotation("tp", Seq())))
