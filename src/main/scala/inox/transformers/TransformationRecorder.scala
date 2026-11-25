@@ -143,30 +143,17 @@ object TransformationRecorder {
   def apply(t: ast.Trees)(e: t.Expr): TransformationRecorder { val trees: t.type } =
     new TransformationRecorder(t)(e).asInstanceOf[TransformationRecorder { val trees: t.type }]
 
-  private val recorders = new ThreadLocal[TransformationRecorder]
-
-  /** The recorder of the transformation of a term of `t` that runs in this thread, or `null`
-    * when it is not recorded. */
-  def current(t: ast.Trees): TransformationRecorder { val trees: t.type } =
-    recorders.get.asInstanceOf[TransformationRecorder { val trees: t.type }]
-
-  /** What `transform` makes of `e`, a term of `t`, and the steps that it records. */
-  def record(t: ast.Trees)(e: t.Expr)(transform: t.Expr => t.Expr): (t.Expr, Seq[(String, t.Expr)]) = {
+  /** `e`, a term of `t`, with a copy of each occurrence of its variables. A recorder finds
+    * subterms by their identity, and a term has the same object of a variable wherever it
+    * occurs: the occurrences are told apart in the copy. */
+  def unshared(t: ast.Trees)(e: t.Expr): t.Expr = {
     import t._
-    // Subterms are found by their identity: the variables, which a term has the same object of
-    // wherever they occur, are copied.
-    def unshared(e: Expr): Expr = e match {
+    def rec(e: Expr): Expr = e match {
       case v: Variable => v.copy().copiedFrom(v)
       case Operator(es, recons) =>
-        val nes = es.map(unshared)
+        val nes = es.map(rec)
         if ((es zip nes).exists((a, b) => a ne b)) recons(nes).copiedFrom(e) else e
     }
-    val original = unshared(e)
-    val previous = recorders.get
-    recorders.set(TransformationRecorder(t)(original))
-    try {
-      val res = transform(original)
-      (res, current(t).result(res))
-    } finally recorders.set(previous)
+    rec(e)
   }
 }

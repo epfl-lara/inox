@@ -96,11 +96,26 @@ trait SimplifierWithPC extends Transformer { self =>
 
   // a purity check simplifies terms that are not the one whose simplification is recorded
   final def isPure(e: Expr, path: Env): Boolean = {
-    val r = symbols.simplificationRecorder
+    val r = recorder
     if (r eq null) simplify(e, path)._2 else r.suspended(simplify(e, path)._2)
   }
 
-  import symbols.{recorded, recordedAt}
+  /** The recorder of the steps of the simplification, or `null` when it is not recorded (see
+    * [[TransformationRecorder]]). */
+  protected def recorder: TransformationRecorder { val trees: self.trees.type } = null
+
+  /** Rewrites the subterm that the recorded simplification is at, if it is recorded. */
+  protected inline def recorded(rule: String, inline to: Expr): Unit = {
+    val r = recorder
+    if (r ne null) r.rewrite(rule, to)
+  }
+
+  /** Runs `body`, which simplifies `e`, at `e` in the term of the recorded simplification. What
+    * it makes of `e` without a step is one of `rule`, or of the pass around without one. */
+  protected inline def recordedAt(e: Expr, rule: String = null)(inline body: Expr): Expr = {
+    val r = recorder
+    if (r eq null) body else r.at(e, rule)(body)
+  }
 
   /** `res`, which the subterm that the recorded simplification is at becomes by the rule `rule`
     * of certificates, when the simplification is recorded (see [[TransformationRecorder]]). */
@@ -115,7 +130,7 @@ trait SimplifierWithPC extends Transformer { self =>
   /** Binds each of `bindings` around `inner`, the subterm that the recorded simplification is at,
     * from the outermost on, where `inner` then becomes `last`. */
   private def recordedBinds(bindings: Seq[(ValDef, Expr)], inner: Expr)(last: => Expr): Unit = {
-    val r = symbols.simplificationRecorder
+    val r = recorder
     if (r ne null) {
       def rec(bs: Seq[(ValDef, Expr)]): Expr =
         if (bs.isEmpty) last
@@ -133,7 +148,7 @@ trait SimplifierWithPC extends Transformer { self =>
     * in order (see [[utils.CaseSplit]]). Simplifiers can override `simplify` itself, or a single family.
     */
   protected def simplify(e: Expr, path: Env): (Expr, Boolean) = {
-    val r = symbols.simplificationRecorder
+    val r = recorder
     if (r eq null) simplifyCases(e, path) else {
       // the recorded steps are from what the simplifier is given to what it returns
       var pure = false
@@ -349,7 +364,7 @@ trait SimplifierWithPC extends Transformer { self =>
         val newLet = Let(vd, re, rb).copiedFrom(let)
         re match {
           case l: Lambda =>
-            val inlined = inlineLambdas(newLet)
+            val inlined = inlineLambdas(newLet, recorder)
             if (inlined != newLet) simplify(inlined, path)
             else (newLet, pe && pb)
           case _ => (newLet, pe && pb)
@@ -375,7 +390,7 @@ trait SimplifierWithPC extends Transformer { self =>
 
     case Tuple(es)    =>
       // the elements are returned as they were given: their simplification is not recorded
-      val r = symbols.simplificationRecorder
+      val r = recorder
       val (res, pes) = (if (r eq null) es.map(simplify(_, path)) else r.suspended(es.map(simplify(_, path)))).unzip
       val tuple = res.zipWithIndex.collect { case (TupleSelect(e, idx), i) if idx == i + 1 => e } match {
         case ls @ (x +: xs) if ls.size == es.size && xs.forall(_ == x) =>
@@ -390,7 +405,7 @@ trait SimplifierWithPC extends Transformer { self =>
 
     // `simpForall` records its steps
     case Forall(params, body) =>
-      simplifyAndCons(Seq(body), path `withBounds` params, es => simpForall(params, es.head).copiedFrom(e))
+      simplifyAndCons(Seq(body), path `withBounds` params, es => simpForall(params, es.head, recorder).copiedFrom(e))
 
     case app @ Application(e, es)  =>
       // an assumption on the caller becomes one on the application, which is then its body
@@ -432,7 +447,7 @@ trait SimplifierWithPC extends Transformer { self =>
     * rule is that of the integers, and of the equalities that it decides: the others are steps
     * of the rule `fold`. */
   private def recordedCons(rule: String, res: (Expr, Boolean)): (Expr, Boolean) = {
-    val r = symbols.simplificationRecorder
+    val r = recorder
     if ((r ne null) && r.active) {
       val arith = r.node match {
         case Equals(a, b) => res._1 == BooleanLiteral(true) ||
