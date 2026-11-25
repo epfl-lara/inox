@@ -818,7 +818,8 @@ abstract class AbstractUnrollingSolver private
      * applied. The simplest value of a function type may not lie in a refined codomain, so functions
      * get the default value of their models instead (see [[defaultValue]]). */
     def unknownValue(tpe: Type): Expr = tpe match {
-      case RefinementType(vd, _) if !hasFunctions(vd.tpe) =>
+      // the base type can bind variables whose types hold functions, which only its erasure shows
+      case RefinementType(vd, _) if !hasFunctions(vd.getType) =>
         encode(program.symbols.simplestValue(decode(tpe.getType)))
       case RefinementType(vd, _) => unknownValue(vd.tpe)
       case _: FunctionType | _: PiType =>
@@ -854,6 +855,11 @@ abstract class AbstractUnrollingSolver private
     def refinementsOf(e: Expr, tpe: Type): Expr = tpe match {
       case RefinementType(vd, pred) => and(refinementsOf(e, vd.tpe), exprOps.replaceFromSymbols(Map(vd -> e), pred))
       case TupleType(tps) => andJoin(tps.zipWithIndex.map((tpe, i) => refinementsOf(TupleSelect(e, i + 1), tpe)))
+      case SigmaType(params, to) =>
+        // the components are the values of the bound variables, which the later types refer to
+        val subst: Map[ValDef, Expr] = params.zipWithIndex.map((vd, i) => vd -> TupleSelect(e, i + 1)).toMap
+        andJoin((params.map(_.tpe) :+ to).zipWithIndex.map((tpe, i) =>
+          refinementsOf(TupleSelect(e, i + 1), typeOps.replaceFromSymbols(subst, tpe))))
       case _ => BooleanLiteral(true)
     }
 
@@ -869,6 +875,14 @@ abstract class AbstractUnrollingSolver private
       case PiType(params, to) => PiType(params, guardedType(cond, to))
       case FunctionType(from, to) => FunctionType(from, guardedType(cond, to))
       case TupleType(tps) => TupleType(tps.map(guardedType(cond, _)))
+      case SigmaType(params, to) =>
+        // the later types refer to the bound variables at their guarded types
+        val (nparams, subst) = params.foldLeft((Seq.empty[ValDef], Map.empty[ValDef, Expr])) {
+          case ((nparams, subst), vd) =>
+            val nvd = vd.copy(tpe = guardedType(cond, typeOps.replaceFromSymbols(subst, vd.tpe)))
+            (nparams :+ nvd, subst + (vd -> nvd.toVariable))
+        }
+        SigmaType(nparams, guardedType(cond, typeOps.replaceFromSymbols(subst, to)))
       case _ => tpe
     }
 

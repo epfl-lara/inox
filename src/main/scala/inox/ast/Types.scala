@@ -369,13 +369,66 @@ trait Types { self: Trees =>
     }
   }
 
+  /** Extracts the component types of any Type, as [[NAryType]] does, and also the types of the
+    * variables that pi, sigma and refinement types bind: the parameter types of a pi or sigma type,
+    * then its result type, and the base type of a refinement. Refinement predicates aren't types,
+    * so they stay as they are.
+    *
+    * When the builder changes the type of a bound variable, it substitutes the variable at its new
+    * type in the types and the predicate that can refer to it.
+    */
+  val BinderType: BinderTypeImpl = new BinderTypeImpl(self, self)
+
+  class BinderTypeImpl(override protected val s: self.type,
+                       override protected val t: self.type) extends TreeExtractor {
+    type Source = Type
+    type Target = Type
+
+    // The parameters `params` at the types `tps`, where each type can refer to the parameters
+    // before it, and the substitution of the parameters whose type changed
+    private def rebind(params: Seq[ValDef], tps: Seq[Type]): (Seq[ValDef], Map[ValDef, Expr]) =
+      (params zip tps).foldLeft((Seq.empty[ValDef], Map.empty[ValDef, Expr])) {
+        case ((nparams, subst), (vd, tp)) =>
+          val ntp = if (subst.isEmpty) tp else typeOps.replaceFromSymbols(subst, tp)
+          if (ntp == vd.tpe) (nparams :+ vd, subst)
+          else {
+            val nvd = vd.copy(tpe = ntp).copiedFrom(vd)
+            (nparams :+ nvd, subst + (vd -> nvd.toVariable))
+          }
+      }
+
+    private def substitute(subst: Map[ValDef, Expr], tpe: Type): Type =
+      if (subst.isEmpty) tpe else typeOps.replaceFromSymbols(subst, tpe)
+
+    def unapply(t: Type): Option[(Seq[Type], Seq[Type] => Type)] = t match {
+      case PiType(params, to) =>
+        Some((params.map(_.tpe) :+ to, tps => {
+          val (nparams, subst) = rebind(params, tps.init)
+          PiType(nparams, substitute(subst, tps.last)).copiedFrom(t)
+        }))
+      case SigmaType(params, to) =>
+        Some((params.map(_.tpe) :+ to, tps => {
+          val (nparams, subst) = rebind(params, tps.init)
+          SigmaType(nparams, substitute(subst, tps.last)).copiedFrom(t)
+        }))
+      case RefinementType(vd, pred) =>
+        Some((Seq(vd.tpe), tps => {
+          val (Seq(nvd), subst) = rebind(Seq(vd), tps): @unchecked
+          RefinementType(nvd, if (subst.isEmpty) pred else exprOps.replaceFromSymbols(subst, pred)).copiedFrom(t)
+        }))
+      case NAryType(tps, recons) => Some((tps, recons))
+    }
+  }
+
   val typeOps: TypeOpsUtils = new TypeOpsUtils(self, self)
 
   final class TypeOpsUtils(override val sourceTrees: self.type, override val targetTrees: self.type) extends GenTreeOps {
     type Source = self.Type
     type Target = self.Type
 
-    val Deconstructor = NAryType
+    // The generic operations (`exists`, `collect`, `preMap`, ...) look into the types of the
+    // variables that types bind, which an operation on the types of values must not miss
+    val Deconstructor = BinderType
 
     // Helper for typeParamsOf
     class TypeCollector extends ConcreteSelfTreeTraverser {
@@ -424,10 +477,8 @@ trait Types { self: Trees =>
       }
     }
 
-    def isParametricType(tpe: Type): Boolean = tpe match {
-      case (tp: TypeParameter) => true
-      case NAryType(tps, builder) => tps.exists(isParametricType)
-    }
+    /** Whether `tpe` mentions a type parameter, also in the types and predicates of bound variables. */
+    def isParametricType(tpe: Type): Boolean = typeParamsOf(tpe).nonEmpty
 
     def replaceFromSymbols[V <: VariableSymbol](subst: Map[V, Expr], tpe: Type)
                                                (using VariableConverter[V]): Type = {
