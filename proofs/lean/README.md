@@ -130,6 +130,63 @@ What remains is `hfacts`, that each rule that is a fact holds in the models
 that the solutions of the query give, and `hkeep`, that those models don't
 depend on the fresh symbols: these are about the semantics of Inox.
 
+[`Inox/Unfold.lean`](Inox/Unfold.lean) discharges `hkeep`, and `hfacts` for
+the unfoldings of functions without branches, with `Good` the models of the
+program's defining equations. The checker keeps the source of each template
+that is a function, `(function (f x1 … xn) body)` or the body of the function's
+definition that `(definition (f x1 … xn) ..)` instantiates (also without the
+names of its subterms, when it lowers without them), and `equations` reads each
+`(= (f x1 … xn) body)` with Logos, after the clauses' declarations and those of
+the templates' script, without the assumptions of the body, which Logos
+doesn't read in a term: `(assume c b)` is `b`. The equation then holds on the
+calls that have values, whose evaluation went through the assumptions they met.
+A model is `Good` when it satisfies each equation for all
+the canonical values of the sorts of its parameters:
+
+```lean
+def Good (eqs : List Equation) (M : SmtModel) : Prop :=
+  ∀ e ∈ eqs, ∀ vs, List.Forall₂ (Typed M) e.params vs →
+    __smtx_model_eval (setConsts M (bindValues e.params vs)) (__eo_to_smt e.term) =
+      SmtValue.Boolean true
+```
+
+`Good` doesn't include `model_wf`, since `Satisfies` does, and `Keeps`
+reinterprets a constant by any value. A fact `(=> g s)` is an unfolding
+(`unfoldB`) when `g` is a Boolean and `s` is, as a Logos term, a defining
+equation without binders with terms `u1 … un` for its parameters, where each
+`ui` has the parameter's sort and is not a selector or a tester; the terms are
+found by matching, and only the equality of the terms is relied on. It holds in
+every `Good` model (`holds_unfold`), since substitution commutes with evaluation
+(`eval_subst`). A fresh symbol keeps the `Good` models when no equation
+mentions it and it is no parameter (`keepsB`, by coincidence), which
+`TermSteps.keeps` decides for all of them:
+
+```lean
+theorem no_good_model_of_unfold (sound : LogosSound) (hty : LogosTyping)
+    {certificate : Sexp} {checked : Checked} {r : TermSteps}
+    (hAccept : accept certificate = .ok checked) (hr : termSteps checked = .ok r)
+    (hcheck : r.check = true) (hkeeps : r.keeps = true)
+    (hfacts : FactsHoldExcept (Good r.equations) (unfoldB r.equations)
+      (extend r.base r.fresh) r.facts) :
+    ∀ M, Good r.equations M → ¬ Satisfies M r.base
+```
+
+`FactsHoldExcept` is `FactsHold` for the facts that are not unfoldings, and
+`no_good_model_of_unfoldings` needs nothing of the facts when they all are. So
+no well-formed model of the program's defining equations satisfies the query.
+That such a model exists, and that it agrees with Inox's evaluation of the
+functions, which follows from their termination, is a separate layer that is
+not proved here.
+
+The unfoldings covered are those of a function whose body has no `ite` and no
+call to a function whose value the template names: the clause is then
+`(=> start (= (f x1 … xn) body))`. In the regression certificates, those are
+few (24 of the 1,386 facts of the six certificates with such functions). The
+other clauses of a template define its own symbols (the condition `c`, the
+blockers of the branches `b`, the result `e`, the values of nested calls and
+constructors), which hold only once those symbols are chosen: they are fresh
+symbols, introduced together by an instance, not facts.
+
 The soundness of Logos is a hypothesis of the theorems, `LogosSound`, which is
 the statement of Logos's own theorem. They then only need the definitions of
 Logos, and Mathlib for its reals: the [`verification`](verification) project
@@ -152,11 +209,15 @@ cd proofs/lean/verification && lake build InoxClosed
 ## What is not proved yet
 
 - **The rules that are facts.** `no_good_model_of_accept` covers the rules
-  that introduce fresh symbols. The theorem to come is the one of an UNSAT
+  that introduce fresh symbols, and `no_good_model_of_unfold` the unfoldings
+  of functions without branches. The theorem to come is the one of an UNSAT
   answer in [`semantics.md`](../semantics.md): the query has no solution. It
-  needs the semantics of Inox in Lean, a `Good` of the models that its
-  solutions give, and for each other kind of rule, that its clauses hold in
-  them (`hfacts`).
+  needs the semantics of Inox in Lean, that its solutions give `Good` models,
+  and for each other kind of rule, that its clauses hold in them (`hfacts`):
+  the instances of templates with branches, nested calls or `assume`, whose
+  own symbols need a step that introduces them together; the decreases
+  clauses; the instances of expression templates; and equations with
+  binders.
 - **Longer cycles of `Enables` rules.** A cycle where a target reaches a
   definition that enables it only through other definitions or targets
   (`bs := (and d s)`, `(=> m s)`, `(=> bs2 m)`, `bs2 := (and d2 x)`,
@@ -169,7 +230,9 @@ cd proofs/lean/verification && lake build InoxClosed
   [`Lowering.scala`](../src/main/scala/inox/certificates/Lowering.scala)), and
   refuses a certificate with a source that doesn't lower. Only the Scala
   checker checks that the clauses of a template are those of its source
-  ([`Sources.scala`](../src/main/scala/inox/certificates/Sources.scala)).
+  ([`Sources.scala`](../src/main/scala/inox/certificates/Sources.scala)); this
+  checker only checks the unfoldings of functions without branches against
+  their lowered source (`unfoldB`).
 - **The link between the proof and the script.** The checker checks that each
   assumption of the proof is the text of an assert of the script, up to how
   cvc5 prints testers (`(is C e)` for `((_ is C) e)`), once the terms that the

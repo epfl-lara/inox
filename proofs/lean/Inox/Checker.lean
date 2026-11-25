@@ -11,7 +11,8 @@ the proof.
 
 It lowers the source of every template to the syntax of the session (`Inox.Lowering`), and
 refuses a certificate with a source that doesn't lower, as the Scala checker does. It doesn't
-check that the clauses of a template are those of its source, which the Scala checker does.
+check that the clauses of a template are those of its source, which the Scala checker does; it
+keeps the defining equations of the functions, for `Inox/Unfold.lean`.
 -/
 
 namespace Inox
@@ -193,6 +194,10 @@ structure Checked where
   query : List Sexp
   /-- the asserts that are assumptions of completeness, as cvc5 prints testers -/
   complete : List Sexp
+  /-- the commands of the script of the templates -/
+  templateScript : List Sexp := []
+  /-- the defining equation `(= call body)` of each template whose source is a function -/
+  sources : List Sexp := []
 
 /-- The text of the proof of a certificate, for a CPC checker. -/
 def Checked.proof (c : Checked) : String := "\n".intercalate (c.cpc.map text) ++ "\n"
@@ -313,6 +318,7 @@ def check (certificate : Sexp) : Check Checked := do
     let tables ← Lowering.Tables.make (script ++ templateScript) solverSymbols sourceDefinitions sourceSymbols
     let mut templates : Array Template := #[]
     let mut lowered : Array Lowering.Source := #[]
+    let mut sources : Array Sexp := #[]
     for line in templateLines do
       match line with
       | .expr (.atom i :: .expr (.atom "params" :: params) :: rest) =>
@@ -323,8 +329,22 @@ def check (certificate : Sexp) : Check Checked := do
             | some source => pure (source, indices)
             | none => fail s!"template {i} has no source"
           | [] => fail s!"template {i} has no source"
+        let definition := match source with
+          | .definition call (_ :: _) _ => (tables.defined call [] >>= tables.lower {}).toOption
+          | _ => none
         match tables.lowerSource source with
-        | .ok source => lowered := lowered.push source
+        | .ok source =>
+          lowered := lowered.push source
+          -- the defining equation of a function is kept for the check of the rules on terms
+          -- (`Inox/Unfold.lean`), unless it has markers, which Logos can't read; that of a defined
+          -- function whose source names subterms of its body is also kept with the body of its
+          -- definition, when that lowers
+          match source with
+          | .function call body _ =>
+            for body in [body] ++ (definition.filter (· != body)).toList do
+              if !tables.hasMarker call && !tables.hasMarker body then
+                sources := sources.push (testers (.expr [.atom "=", call, body]))
+          | _ => pure ()
         | .error why => fail s!"the source of template {i} can't be lowered: {why}"
         let body ← indices.mapM fun i => do
           pure templateClauses[← index i templateClauses.size "the templates"]!
@@ -368,7 +388,8 @@ def check (certificate : Sexp) : Check Checked := do
       lowered, cpc := cpc,
       script := script, applied := state.applied.toList,
       query := queryIndices.map fun i => testers clauses[i]!,
-      complete := completeIndices.map fun i => testers clauses[i]! }
+      complete := completeIndices.map fun i => testers clauses[i]!,
+      templateScript := templateScript, sources := sources.toList }
   | .expr (.atom "inox-certificate" :: .atom v :: _) =>
     if v != version then fail s!"the certificate has version {v}, and the checker checks version {version}"
     else fail "this is not a certificate"
