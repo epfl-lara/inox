@@ -12,14 +12,23 @@ git = "https://github.com/cvc5/logos"
 rev = "33c7e71cd19f7d462895cf5f6c67d4ffbe059351"
 subDir = "verification"
 
+# The semantics of Inox, generated from semantics.md (proofs/semantics).
+[[require]]
+name = "InoxSemantics"
+path = "../../semantics"
+
+# The modules of proofs/lean, listed rather than given by their root `Inox`, which would make
+# `Inox.Semantics`, of the package InoxSemantics, a module of this package.
 [[lean_lib]]
 name = "Inox"
+roots = []
+globs = ["Inox.Sexp", "Inox.Lowering", "Inox.Checker", "Inox.Accept", "Inox.Terms", "Inox.Meanings"]
 
 # The theorems, given the soundness of Logos: they only need the definitions of Logos.
 [[lean_lib]]
 name = "InoxVerification"
 roots = []
-globs = ["Inox.Correct", "Inox.NoModel", "Inox.Fresh", "Inox.Extend", "Inox.RuleSteps", "Inox.Unfold", "Inox.Instances", "Inox.Relative", "Inox.Model"]
+globs = ["Inox.Correct", "Inox.NoModel", "Inox.Fresh", "Inox.Extend", "Inox.RuleSteps", "Inox.Unfold", "Inox.Instances", "Inox.Relative", "Inox.Model", "Inox.Mono", "Inox.Bridge"]
 
 # The theorems with the soundness of Logos discharged by its own theorem: `lake build InoxClosed`
 # builds the proofs of Logos.
