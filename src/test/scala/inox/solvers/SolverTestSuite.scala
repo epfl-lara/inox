@@ -99,8 +99,7 @@ object SolverTestSuite {
       knownIssues = cvcKnownIssues,
       groundOnly = cvcGroundOnly),
     SolverInfo("smt-bitwuzla", () => SolverFactory.hasBitwuzla,
-      Set(Integers, Reals, BitVectorIntConversions, Strings, Sets, Bags, BagAlgebra, ADTs, TypeParameters, Reset),
-      knownIssues = bitVectorFunctionModels.map(_ -> "encodes the values of functions as integers, which it lacks").toMap),
+      Set(Integers, Reals, BitVectorIntConversions, Strings, Sets, Bags, BagAlgebra, ADTs, TypeParameters, Reset)),
     SolverInfo("princess", () => true,
       Set(FloatingPoint, Sets, BagAlgebra, Maps, NestedArrays, Reset),
       // Times out on conjunctions of string checks that it solves quickly one by one

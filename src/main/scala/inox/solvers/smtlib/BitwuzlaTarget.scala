@@ -19,6 +19,11 @@ trait BitwuzlaTarget extends SMTLIBTarget with SMTLIBDebugger {
   def targetName = "bitwuzla"
 
 
+  // Bitwuzla has no integers, so the values of functions are 64-bit vectors instead. A model
+  // numbers its closures from 0, so 2^64 closures are more than any query can tell apart. The
+  // vectors are signed, like the literals of a model whose type isn't known.
+  override protected def closureType: Type = BVType(true, 64)
+
   override protected def computeSort(t: Type): Sort = t match {
     case _ : BooleanType | _ : BVType | _ : CharType | _ : FPType | RoundingMode | _ : FunctionType | _ : MapType => super.computeSort(t)
     case UnitType() =>
