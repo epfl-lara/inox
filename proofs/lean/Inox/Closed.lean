@@ -2,14 +2,15 @@
 import Inox.Correct
 import Inox.RuleSteps
 import Inox.Unfold
+import Inox.Instances
 import Cpc.ApiCorrect
 import Cpc.Proofs.TypePreservation.Full
 import Cpc.Proofs.Canonical.Eval
 
 /-!
-The theorems of `Inox/Correct.lean`, `Inox/Extend.lean`, `Inox/RuleSteps.lean` and
-`Inox/Unfold.lean` without their hypotheses: Logos is sound, and its evaluation preserves types, by
-its own theorems.
+The theorems of `Inox/Correct.lean`, `Inox/Extend.lean`, `Inox/RuleSteps.lean`, `Inox/Unfold.lean`
+and `Inox/Instances.lean` without their hypotheses: Logos is sound, and its evaluation preserves
+types, by its own theorems.
 This module needs the proofs of Logos, which take hours to build.
 -/
 
@@ -64,5 +65,17 @@ theorem no_good_model_of_unfold_closed {certificate : Sexp} {checked : Checked} 
       (Extend.extend r.base r.fresh) r.facts) :
     ∀ M, Good r.equations M → ¬ Satisfies M r.base :=
   no_good_model_of_unfold logos_sound logos_typing hAccept hr hcheck hkeeps hfacts
+
+/-- If the checker accepts a certificate, the check on terms holds, and no fresh symbol is in a
+defining equation, then no well-formed model of the defining equations satisfies the assumptions of
+the query, given that each fact that is neither an unfolding of an equation nor a clause of an
+instance of a template that the check accepts holds in those models. -/
+theorem no_good_model_of_instances_closed {certificate : Sexp} {checked : Checked} {r : TermSteps}
+    (hAccept : accept certificate = .ok checked) (hr : termSteps checked = .ok r)
+    (hcheck : r.check = true) (hkeeps : r.keeps = true)
+    (hfacts : FactsHoldExcept (Good r.equations) r.covered
+      (Extend.extend r.base r.fresh) r.facts) :
+    ∀ M, Good r.equations M → ¬ Satisfies M r.base :=
+  no_good_model_of_instances logos_sound logos_typing hAccept hr hcheck hkeeps hfacts
 
 end Inox

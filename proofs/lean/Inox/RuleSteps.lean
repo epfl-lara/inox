@@ -52,13 +52,10 @@ theorem termSteps_parse {checked : Checked} {r : TermSteps} (h : termSteps check
     obtain ⟨assums, cmds⟩ := p
     rw [hp] at h
     refine ⟨cmds, ?_⟩
-    cases hc : parseProof (clauseText checked) with
-    | error e => rw [hc] at h; cases h
-    | ok q =>
-      obtain ⟨terms, _⟩ := q
-      rw [hc] at h
-      dsimp only at h
-      split at h
+    dsimp only at h
+    split at h
+    · cases h
+    · split at h
       · cases h
       · cases h; rfl
 

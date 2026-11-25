@@ -764,7 +764,8 @@ def declarations (checked : Checked) : List Sexp :=
 /-- The clauses: those of the query's assumptions, of each rule, and of the completeness
 assumptions. -/
 def allClauses (checked : Checked) : List Sexp :=
-  checked.query ++ checked.applied.flatMap (·.2) ++ checked.complete
+  checked.query ++ checked.applied.flatMap (·.2) ++ checked.complete ++
+    checked.defined.flatMap (·.map fun (v, m) => app "=" [v, m])
 
 /-- The declarations and one `assume` per clause. -/
 def clauseText (checked : Checked) : String :=
@@ -803,7 +804,7 @@ def constNumber : Term → Option Nat
 
 /-- The steps in an order where each step whose constant another step's clauses mention comes
 before it, where there is one; the others keep their order. -/
-def orderSteps (sts : List Step) : List Step := Id.run do
+def orderStepsPlaced (sts : List Step) : List Step × Nat := Id.run do
   let arr := sts.toArray
   let mut byConst : Std.HashMap Nat Nat := {}
   for h : j in [0:arr.size] do
@@ -836,9 +837,13 @@ def orderSteps (sts : List Step) : List Step := Id.run do
         indeg := indeg.set! k (indeg[k]! - 1)
         if indeg[k]! == 0 then ready := ready.push k
   -- the steps of a cycle, as they are: the check refuses them
+  let n := order.size
   for j in [0:arr.size] do
     if !placed[j]! then order := order.push arr[j]!
-  return order.toList
+  return (order.toList, n)
+
+/-- `orderStepsPlaced`, without the number of the steps that follow their dependencies. -/
+def orderSteps (sts : List Step) : List Step := (orderStepsPlaced sts).1
 
 /-- Whether `m` is a conjunct of a term: an operand of an `and` along its right spine, or the term
 itself. -/
@@ -987,6 +992,8 @@ structure TermSteps where
   derived : List Derived
   /-- the defining equations of the functions -/
   equations : List Equation := []
+  /-- the instances of templates: the definitions of their local symbols, and their clauses -/
+  instances : List (List Term × List Term) := []
 
 /-- The steps of the clauses `terms` of the rules `applied`, the terms of the completeness
 assumptions following them, and the `Enables` clauses that follow from a definition: those whose
@@ -1035,21 +1042,7 @@ def ruleSteps (applied : List (String × Nat)) (terms : List Term) :
     | _ => facts := facts ++ ts.toArray
   for i in targetOrder do
     if let some (c, bs) := targets.get? i then fresh := fresh.push (.enables c bs.toList)
-  return (orderSteps fresh.toList, facts.toList ++ terms, derived.toList)
-
-/-- Parses the proof and the clauses, and makes the steps of the rules. -/
-def termSteps (checked : Checked) : Except String TermSteps :=
-  match parseProof checked.proof with
-  | .error e => .error s!"Logos can't read the proof: {e}"
-  | .ok (assums, _) =>
-    match parseProof (clauseText checked) with
-    | .error e => .error s!"Logos can't read the clauses: {e}"
-    | .ok (terms, _) =>
-      let nq := checked.query.length
-      match ruleSteps (checked.applied.map fun (k, cs) => (k, cs.length)) (terms.drop nq) with
-      | .error e => .error e
-      | .ok (fresh, facts, derived) =>
-        .ok { assums, base := terms.take nq, fresh, facts, derived, equations := equations checked }
+  return (fresh.toList, facts.toList ++ terms, derived.toList)
 
 /-! ## The check -/
 
@@ -1078,6 +1071,84 @@ assumptions mention. -/
 def stepsFreshB : Std.HashSet SmtEval.native_String → List Step → Bool
   | _, [] => true
   | names, st :: sts => freshB st names && stepsFreshB (addClauseNames names st.clauses) sts
+
+/-- The definitions of the local symbols of the instances that can be fresh-symbol steps: their
+steps are added to `fresh`, and those that can't follow the others, or whose symbol the defining
+equations `eqs` mention, are left out, until the others can. Nothing relies on this: the check
+decides it. -/
+def addDefinitions (eqs : List Equation) (base : List Term) (fresh : List Step) (defs : List Term) :
+    List Step := Id.run do
+  let defSteps := defs.filterMap fun t => match freshStep "Define" t with
+    | .ok st => some st
+    | .error _ => none
+  let isDef : Std.HashSet Nat := Std.HashSet.ofList (defSteps.filterMap (constNumber ·.const))
+  let keeps (st : Step) : Bool := match asConst (__eo_to_smt st.const) with
+    | some (s, T) => keepsB eqs s T
+    | none => true
+  let mut kept := defSteps.filter keeps
+  for _ in [0:16] do
+    let (order, placed) := orderStepsPlaced (fresh ++ kept)
+    -- the definitions in a cycle go first
+    let cyclic : Std.HashSet Nat := Std.HashSet.ofList ((order.drop placed).filterMap fun st =>
+      (constNumber st.const).filter isDef.contains)
+    if !cyclic.isEmpty then
+      kept := kept.filter fun st => !(constNumber st.const).any cyclic.contains
+      continue
+    let mut names := addClauseNames {} base
+    let mut bad : Std.HashSet Nat := {}
+    let mut before : Std.HashSet Nat := {}
+    let mut other := false
+    for st in order do
+      let n := constNumber st.const
+      let mine := n.any isDef.contains
+      if !freshB st names then
+        if mine then bad := bad.insert n.get!
+        else
+          other := true
+          break
+      if mine then before := before.insert n.get!
+      names := addClauseNames names st.clauses
+    if bad.isEmpty && !other then break
+    let drop := if bad.isEmpty then before else bad
+    if drop.isEmpty then break
+    kept := kept.filter fun st => !(constNumber st.const).any drop.contains
+  return orderSteps (fresh ++ kept)
+
+/-- The definitions of the local symbols of the instances, as Logos reads them, if it can read
+them with the other clauses; none, otherwise. -/
+def usableDefinitions (checked : Checked) : Checked :=
+  match parseProof (clauseText checked) with
+  | .ok _ => checked
+  | .error _ => { checked with defined := [] }
+
+/-- Parses the proof and the clauses, and makes the steps of the rules. -/
+def termSteps (checked : Checked) : Except String TermSteps :=
+  match parseProof checked.proof with
+  | .error e => .error s!"Logos can't read the proof: {e}"
+  | .ok (assums, _) =>
+    match parseProof (clauseText (usableDefinitions checked)) with
+    | .error e => .error s!"Logos can't read the clauses: {e}"
+    | .ok (terms, _) =>
+      let checked := usableDefinitions checked
+      let nq := checked.query.length
+      let counts := checked.applied.map fun (k, cs) => (k, cs.length)
+      let ndefs := checked.defined.map List.length
+      let nrules := (counts.map (·.2)).sum + checked.complete.length
+      let rest := terms.drop nq
+      let eqs := equations checked
+      match ruleSteps counts (rest.take nrules) with
+      | .error e => .error e
+      | .ok (fresh, facts, derived) =>
+        let defs := rest.drop nrules
+        -- the definitions and the clauses of each instance
+        let instances := (counts.zip ndefs).foldl
+          (fun (acc : List (List Term × List Term) × List Term × List Term) ((k, n), nd) =>
+            let (out, cs, ds) := acc
+            let out :=
+              if k == "Unfold" || k == "Instance" then out ++ [(ds.take nd, cs.take n)] else out
+            (out, cs.drop n, ds.drop nd)) ([], rest.take nrules, defs)
+        .ok { assums, base := terms.take nq, fresh := addDefinitions eqs (terms.take nq) fresh defs,
+              facts, derived, equations := eqs, instances := instances.1 }
 
 /-- A hash of a term, for the set of the clauses: equal terms have equal hashes, which is all
 `Std.HashSet` needs of it. -/
@@ -1133,7 +1204,17 @@ def TermSteps.why (r : TermSteps) : String := Id.run do
   let mut n := 0
   for st in r.fresh do
     if !freshB st names then
-      return s!"fresh-symbol step {n} of {r.fresh.length}, {repr st.const}, is not fresh"
+      let i := (constNumber st.const).getD 0
+      let earlier := (r.fresh.take n).zipIdx.find? fun (st', _) =>
+        (st'.clauses.foldl uconsts {}).contains i
+      let by_ := match earlier with
+        | some (st', j) =>
+          s!", which step {j}, {repr st'.const} ({st'.isFact}), " ++
+            s!"mentions: {st'.clauses.map repr}"
+        | none =>
+          if (r.base.foldl uconsts {}).contains i then ", which a base clause mentions" else ""
+      return s!"fresh-symbol step {n} of {r.fresh.length}, {repr st.const} ({st.isFact}), " ++
+        s!"is not fresh{by_}"
     names := addClauseNames names st.clauses
     n := n + 1
   let defs := Std.HashSet.ofList (extend r.base r.fresh)
@@ -1143,5 +1224,197 @@ def TermSteps.why (r : TermSteps) : String := Id.run do
   match r.assums.find? (!all.contains ·) with
   | some a => return s!"the proof assumes {repr a}, which is no clause"
   | none => return "the check holds"
+
+/-! ## The instances of templates
+
+The clauses of an instance of a template hold once its local symbols are interpreted as their
+meanings, which the definitions of the instance state (`Inox/Meanings.lean`). `instanceFacts`
+substitutes the meanings for the symbols in each clause and decides that the result holds in each
+model of the defining equations: by evaluating it under the literals that its guards make known
+(`verify`), or as an instance of a defining equation (`eqInst`). `Inox/Instances.lean` proves it.
+-/
+
+/-- The value that `K` gives `t`, if it gives one. -/
+def known : List (SmtTerm × Bool) → SmtTerm → Option Bool
+  | [], _ => none
+  | p :: K, t => if p.1 = t then some p.2 else known K t
+
+/-- The literals that `t` having the value `b` makes known: `t` itself, the operands of a true
+conjunction or of a false disjunction, the operand of a negation, and the opposite comparison of a
+comparison, which Inox states the negated conditions of branches with. -/
+def lits (t : SmtTerm) (b : Bool) : List (SmtTerm × Bool) :=
+  (t, b) :: match t, b with
+    | .and x y, true => lits x true ++ lits y true
+    | .or x y, false => lits x false ++ lits y false
+    | .not x, b => lits x (!b)
+    | .lt x y, b => [(.geq x y, !b)]
+    | .geq x y, b => [(.lt x y, !b)]
+    | .leq x y, b => [(.gt x y, !b)]
+    | .gt x y, b => [(.leq x y, !b)]
+    | _, _ => []
+
+/-- `(or x y)`, where a Boolean operand that is a literal decides it. -/
+def orR (x y : SmtTerm) : SmtTerm :=
+  if x = .Boolean true ∧ __smtx_typeof y = .Bool then .Boolean true
+  else if y = .Boolean true ∧ __smtx_typeof x = .Bool then .Boolean true
+  else if x = .Boolean false ∧ __smtx_typeof y = .Bool then y
+  else if y = .Boolean false ∧ __smtx_typeof x = .Bool then x
+  else .or x y
+
+/-- `(and x y)`, where a Boolean operand that is a literal decides it. -/
+def andR (x y : SmtTerm) : SmtTerm :=
+  if x = .Boolean false ∧ __smtx_typeof y = .Bool then .Boolean false
+  else if y = .Boolean false ∧ __smtx_typeof x = .Bool then .Boolean false
+  else if x = .Boolean true ∧ __smtx_typeof y = .Bool then y
+  else if y = .Boolean true ∧ __smtx_typeof x = .Bool then x
+  else .and x y
+
+/-- `r`, unless `K` gives `t` a value. -/
+def lookupOr (K : List (SmtTerm × Bool)) (t r : SmtTerm) : SmtTerm :=
+  match known K t with
+  | some b => .Boolean b
+  | none => r
+
+/-- `t` reduced under the literals `K`: the subterms that `K` gives a value are that value, an
+`ite` whose condition reduces to a literal is its branch, Boolean operators of literals are
+reduced, and an equality of two terms that reduce to the same term is true. -/
+def red (K : List (SmtTerm × Bool)) : SmtTerm → SmtTerm
+  | .ite c a b => lookupOr K (.ite c a b) (match red K c with
+    | .Boolean true => red K a
+    | .Boolean false => red K b
+    | c' => .ite c' (red K a) (red K b))
+  | .not x => lookupOr K (.not x) (match red K x with
+    | .Boolean b => .Boolean (SmtEval.native_not b)
+    | x' => .not x')
+  | .or x y => lookupOr K (.or x y) (orR (red K x) (red K y))
+  | .and x y => lookupOr K (.and x y) (andR (red K x) (red K y))
+  | .eq x y =>
+    lookupOr K (.eq x y) (if red K x = red K y then .Boolean true else .eq (red K x) (red K y))
+  | t => lookupOr K t t
+
+/-- The arguments of an application. -/
+def smtArgs : SmtTerm → List SmtTerm
+  | .Apply f a => smtArgs f ++ [a]
+  | _ => []
+
+/-- `φ` is the defining equation `e` with the terms `us` for its parameters. -/
+def eqInstB (e : Equation) (φ : SmtTerm) (us : List SmtTerm) : Bool :=
+  paramsB e.params us && noBinder (__eo_to_smt e.term) &&
+    decide (substSmt (bindParams e.params us) (__eo_to_smt e.term) = φ)
+
+/-- `φ` is an instance of one of the defining equations `eqs`, with the arguments of its left
+side for the parameters. -/
+def eqInst (eqs : List Equation) (φ : SmtTerm) : Bool :=
+  match φ with
+  | .eq lhs _ => eqs.any fun e => eqInstB e φ (smtArgs lhs)
+  | _ => false
+
+/-- `k` holds of the literals that `p` being true makes known, as it is and reduced under `K`, with
+`K`, or `p` is false under `K`: for each operand of `p` if it is a disjunction. -/
+def verifyUnder (k : List (SmtTerm × Bool) → Bool) (K : List (SmtTerm × Bool)) :
+    SmtTerm → Bool
+  | .or p1 p2 => verifyUnder k K p1 && verifyUnder k K p2
+  | p => red K p = .Boolean false || k (lits (red K p) true ++ lits p true ++ K)
+
+/-- `φ` holds in the models of the defining equations `eqs` where the literals `K` have their
+values: an implication whose premise makes its conclusion hold, or a term that reduces to true, or
+an instance of a defining equation. -/
+def verify (eqs : List Equation) (K : List (SmtTerm × Bool)) : SmtTerm → Bool
+  | .imp p q => decide (__smtx_typeof p = .Bool) && decide (__smtx_typeof q = .Bool) &&
+      verifyUnder (fun K' => verify eqs K' q) K p
+  | φ => red K φ = .Boolean true || eqInst eqs φ
+
+/-- The binding of the constant that a definition `(= v D)` defines to `D`, if `v` is a constant
+whose name Logos doesn't reserve, of a sort that has values and is not that of regular languages,
+and `D` is not a selector or a tester. -/
+def defBinding : Term → Option (SmtEval.native_String × SmtType × SmtTerm)
+  | .Apply (.Apply (.UOp .eq) v) d =>
+    match __eo_to_smt v with
+    | .UConst s T =>
+      if decide (Unreserved s) && decide (__smtx_typeof (.UConst s T) ≠ .None) &&
+          decide (__smtx_typeof (.UConst s T) ≠ .RegLan) && plainHead (__eo_to_smt d) then
+        some (s, T, __eo_to_smt d)
+      else none
+    | _ => none
+  | _ => none
+
+/-- The clause `c` holds once the definitions `σ` are substituted in it. -/
+def instClauseB (eqs : List Equation) (σ : List (SmtEval.native_String × SmtType × SmtTerm))
+    (c : Term) : Bool :=
+  noBinder (__eo_to_smt c) && verify eqs [] (substSmt σ (__eo_to_smt c))
+
+/-- The clauses of the instances that hold, given the definitions of their local symbols that are
+clauses of the fresh-symbol steps. -/
+def TermSteps.instanceFacts (r : TermSteps) : List Term :=
+  let ctx := Std.HashSet.ofList (extend r.base r.fresh)
+  r.instances.flatMap fun (defs, cs) =>
+    let σ := (defs.filter ctx.contains).filterMap defBinding
+    cs.filter (instClauseB r.equations σ)
+
+/-- The facts that the unfoldings of the equations or the instances of templates account for. -/
+def TermSteps.covered (r : TermSteps) : Term → Bool :=
+  let inst := Std.HashSet.ofList r.instanceFacts
+  fun t => unfoldB r.equations t || inst.contains t
+
+/-- The kind of each fact of `r`, with its clause as the certificate states it: the kinds of the
+rules that state facts, in the order of `applied`, then `complete`. -/
+def factKinds (checked : Checked) : List (String × Sexp) :=
+  (checked.applied.filter fun (k, _) =>
+      !["Define", "Hypothesis", "Root", "Enables"].contains k).flatMap
+    (fun (k, cs) => cs.map (k, ·)) ++ checked.complete.map ("complete", ·)
+
+/-- The atom `a` is a symbol that `unrolling` names `pre!…`. -/
+def namedAs (pre : String) : Sexp → Bool
+  | .atom a => a.startsWith (pre ++ "!")
+  | _ => false
+
+/-- What a fact that remains states, by the kind of its rule and the shape of its clause: the
+completeness of an open conjunction or disjunction, a clause with a binder, a decreases clause, the
+typing of a value (`tp`), the definition of a call whose function has no source (`(= (f …) e)`),
+a clause of an assertion's template (`Instance`), another clause of a function's template (the
+contracts: postconditions of calls, refinements of results, `assume`s, preconditions), or the kind
+of another rule. -/
+def factCategory (kind : String) (c : Sexp) (t : Term) : String :=
+  let concl := match c with
+    | .expr [.atom "=>", _, q] => q
+    | q => q
+  if kind == "complete" then "completeness"
+  else if !noBinder (__eo_to_smt t) then "binder"
+  else if (Meanings.atoms c).any (·.startsWith "diverges!") then "decreases"
+  else if namedAs "tp" concl then "typing"
+  else if kind == "Unfold" && (match concl with
+      | .expr [.atom "=", .expr _, v] => namedAs "e" v
+      | _ => false) then "definition without source"
+  else if kind == "Instance" then "assertion"
+  else if kind == "Unfold" then "contract"
+  else kind
+
+/-- How many facts of `r` each argument discharges and how many remain, by kind. -/
+def TermSteps.coverage (r : TermSteps) (checked : Checked) : String := Id.run do
+  let inst := Std.HashSet.ofList r.instanceFacts
+  let kinds := factKinds checked
+  let mut unf := 0
+  let mut byInst := 0
+  let mut remain : Std.HashMap String Nat := {}
+  for (t, (k, c)) in r.facts.zip kinds do
+    if unfoldB r.equations t then unf := unf + 1
+    else if inst.contains t then byInst := byInst + 1
+    else
+      let cat := factCategory k c t
+      remain := remain.insert cat (remain.getD cat 0 + 1)
+  let rest := remain.toList.mergeSort (fun a b => a.1 ≤ b.1)
+  let ctx := Std.HashSet.ofList (extend r.base r.fresh)
+  let ndefs := ((r.instances.flatMap (·.1)).filter ctx.contains).length
+  let nprop := (checked.defined.map List.length).sum
+  let kinds := ", ".intercalate (rest.map fun (k, n) => s!"{k} {n}")
+  return s!"{r.facts.length} facts: {unf} by unfolding, {byInst} by instances, " ++
+    s!"{r.facts.length - unf - byInst} remain [{kinds}]; " ++
+    s!"{ndefs} of {nprop} definitions of local symbols kept"
+
+/-- The facts of `r` that remain, with their kinds and clauses. -/
+def TermSteps.remaining (r : TermSteps) (checked : Checked) : List (String × Sexp) :=
+  let inst := Std.HashSet.ofList r.instanceFacts
+  ((r.facts.zip (factKinds checked)).filter fun (t, _) =>
+    !unfoldB r.equations t && !inst.contains t).map (·.2)
 
 end Inox

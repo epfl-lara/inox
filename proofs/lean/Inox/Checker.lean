@@ -1,6 +1,7 @@
 /- Copyright 2009-2026 EPFL, Lausanne -/
 import Inox.Sexp
 import Inox.Lowering
+import Inox.Meanings
 
 /-!
 The checker of the certificates that Inox prints for its unsat answers, as the Scala checker
@@ -198,6 +199,9 @@ structure Checked where
   templateScript : List Sexp := []
   /-- the defining equation `(= call body)` of each template whose source is a function -/
   sources : List Sexp := []
+  /-- for each rule, in the order of `applied`, the definitions `(symbol, meaning)` of the local
+  symbols of its instance (`Inox/Meanings.lean`), when it is the instance of a template -/
+  defined : List (List (Sexp × Sexp)) := []
 
 /-- The text of the proof of a certificate, for a CPC checker. -/
 def Checked.proof (c : Checked) : String := "\n".intercalate (c.cpc.map text) ++ "\n"
@@ -230,6 +234,10 @@ structure Rules where
   introduced : Std.HashMap String String := {}
   instances : Nat := 0
   applied : Array (String × List Sexp) := #[]
+  /-- the definitions of the local symbols of each rule's instance, as `applied` -/
+  defined : Array (List (Sexp × Sexp)) := #[]
+  /-- the meanings of the local symbols of the templates, by template -/
+  meanings : Std.HashMap Nat (List (String × Sexp)) := {}
 
 def Rules.introduce (state : Rules) (symbol : Sexp) (kind : String) : Check Rules :=
   match symbol with
@@ -240,7 +248,9 @@ def Rules.introduce (state : Rules) (symbol : Sexp) (kind : String) : Check Rule
   | other => fail s!"{text other}, which a {kind} rule introduces, is not a symbol"
 
 /-- Checks that the asserts that the rule `line` names are its clauses. -/
-def checkRule (clauses : Array Sexp) (templates : Array Template) (state : Rules) (line : Sexp) : Check Rules := do
+def checkRule (clauses : Array Sexp) (templates : Array Template)
+    (given : Array (List (String × Sexp) × Option Sexp)) (state : Rules) (line : Sexp) :
+    Check Rules := do
   match line with
   | .expr (.atom kind :: .expr (.atom "args" :: args) :: rest) =>
     let arguments ← Arguments.make kind args
@@ -259,7 +269,8 @@ def checkRule (clauses : Array Sexp) (templates : Array Template) (state : Rules
         arguments.only ["expression", "axiom", "counterexample"]
         if (["expression", "axiom", "counterexample"].filter arguments.has).length != 1 then
           fail "an Instance rule is of one kind"
-      let (params, body) := templates[← index template templates.size "the templates"]!
+      let ti ← index template templates.size "the templates"
+      let (params, body) := templates[ti]!
       let pairs ← values.mapM fun value => match value with
         | .expr [symbol, value] => pure (symbol, value)
         | other => fail s!"{text other} is not the value of a symbol"
@@ -281,12 +292,26 @@ def checkRule (clauses : Array Sexp) (templates : Array Template) (state : Rules
         if !instantiated.contains (text (testers clauses[i]!)) then
           fail s!"assert {i}, {text clauses[i]!}, is not a clause of the instance that a {kind} rule names"
       let applied := state.applied.push (kind, instClauses)
-      pure { state with instances := state.instances + 1, applied := applied }
+      -- the definitions of the instance's local symbols, which nothing relies on
+      let ms := match state.meanings.get? ti with
+        | some ms => ms
+        | none =>
+          let (symbols, call) := given[ti]?.getD ([], none)
+          Meanings.meanings params ((pairs.drop params.length).filterMap fun pair =>
+            match pair.1 with
+            | .atom a => some a
+            | _ => none) body symbols call
+      let defs := ms.map fun (v, m) =>
+        (testers (substitute values terms (.atom v)), testers (substitute values terms m))
+      pure { state with instances := state.instances + 1, applied := applied,
+                        defined := state.defined.push defs,
+                        meanings := state.meanings.insert ti ms }
     | none =>
       if isInstance then fail s!"a {kind} rule has no instance"
       let built := (← ruleClauses kind arguments).map testers
       let expected := built.map text
-      let state := { state with applied := state.applied.push (kind, built) }
+      let state := { state with applied := state.applied.push (kind, built),
+                                defined := state.defined.push [] }
       for i in is do
         if !expected.contains (text (testers clauses[i]!)) then
           fail s!"assert {i}, {text clauses[i]!}, is not a clause of the {kind} rule that names it"
@@ -319,6 +344,7 @@ def check (certificate : Sexp) : Check Checked := do
     let mut templates : Array Template := #[]
     let mut lowered : Array Lowering.Source := #[]
     let mut sources : Array Sexp := #[]
+    let mut given : Array (List (String × Sexp) × Option Sexp) := #[]
     for line in templateLines do
       match line with
       | .expr (.atom i :: .expr (.atom "params" :: params) :: rest) =>
@@ -335,6 +361,19 @@ def check (certificate : Sexp) : Check Checked := do
         match tables.lowerSource source with
         | .ok source =>
           lowered := lowered.push source
+          -- the meanings that the source gives of the template's symbols (`Inox/Meanings.lean`)
+          let terms := source.meanings.filter fun (l, _) => match l with
+            | .expr _ => true
+            | _ => false
+          -- those with markers left, such as the typing of a value, the clauses can't state
+          let symbols := source.meanings.filterMap fun (l, r) => match l with
+            | .atom v =>
+              let m := Lowering.Tables.unmark terms [] r
+              if tables.hasMarker m then none else some (v, m)
+            | _ => none
+          given := given.push (symbols, match source with
+            | .function call _ _ => some call
+            | _ => none)
           -- the defining equation of a function is kept for the check of the rules on terms
           -- (`Inox/Unfold.lean`), unless it has markers, which Logos can't read; that of a defined
           -- function whose source names subterms of its body is also kept with the body of its
@@ -353,7 +392,7 @@ def check (certificate : Sexp) : Check Checked := do
 
     let mut state : Rules := { named := Array.replicate clauses.size false }
     for line in ruleLines do
-      state ← checkRule clauses templates state line
+      state ← checkRule clauses templates given state line
 
     let queryIndices ← query.mapM (index · clauses.size "the script")
     let completeIndices ← complete.mapM (index · clauses.size "the script")
@@ -382,6 +421,25 @@ def check (certificate : Sexp) : Check Checked := do
           fail s!"the proof assumes {text assumed}, which the script doesn't assert"
       | _ => pure ()
 
+    -- the definitions of local symbols: those of symbols that a rule introduces, or that an
+    -- `Enables` rule enables, are left out, and so is a second one of a symbol
+    let enabled : Std.HashSet String :=
+      Std.HashSet.ofList (state.applied.toList.flatMap fun (kind, cs) =>
+      if kind == "Enables" then cs.filterMap fun c => match c with
+        | .expr [.atom "=>", _, target] => some (text target)
+        | _ => none
+      else [])
+    let mut seen : Std.HashSet String := {}
+    let mut defined : Array (List (Sexp × Sexp)) := #[]
+    for defs in state.defined do
+      let mut kept : Array (Sexp × Sexp) := #[]
+      for (v, m) in defs do
+        let name := text v
+        if !seen.contains name && !state.introduced.contains name && !enabled.contains name then
+          seen := seen.insert name
+          kept := kept.push (v, m)
+      defined := defined.push kept.toList
+
     pure {
       asserts := clauses.size, rules := ruleLines.length, instances := state.instances,
       assumptions := queryIndices.length + completeIndices.length, templates := templates.size,
@@ -389,7 +447,7 @@ def check (certificate : Sexp) : Check Checked := do
       script := script, applied := state.applied.toList,
       query := queryIndices.map fun i => testers clauses[i]!,
       complete := completeIndices.map fun i => testers clauses[i]!,
-      templateScript := templateScript, sources := sources.toList }
+      templateScript := templateScript, sources := sources.toList, defined := defined.toList }
   | .expr (.atom "inox-certificate" :: .atom v :: _) =>
     if v != version then fail s!"the certificate has version {v}, and the checker checks version {version}"
     else fail "this is not a certificate"

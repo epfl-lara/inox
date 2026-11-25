@@ -6,7 +6,9 @@ import Inox
 input with `get-proof` commands, and has Logos check their proofs. With `--rules`, it checks the
 rules only. With `--terms`, it also checks the rules on the terms that Logos reads
 (`Inox/RuleSteps.lean`): each rule that introduces a fresh symbol does, and every assumption of the
-proof is a clause of a rule. It exits with 1 unless it accepts every certificate.
+proof is a clause of a rule. With `--remaining`, it checks them on terms too and prints the facts
+that neither an unfolding nor an instance covers, and the definitions of local symbols left out. It
+exits with 1 unless it accepts every certificate.
 -/
 
 open Inox
@@ -27,9 +29,10 @@ def main (args : List String) : IO UInt32 := do
   let (rulesOnly, terms, files) := match args with
     | "--rules" :: files => (true, false, files)
     | "--terms" :: files => (false, true, files)
+    | "--remaining" :: files => (false, true, files)
     | files => (false, false, files)
   if files.isEmpty then
-    IO.eprintln "usage: inox-check [--rules | --terms] <file>..."
+    IO.eprintln "usage: inox-check [--rules | --terms | --remaining] <file>..."
     return 2
   let mut failed := false
   let mut total := 0
@@ -51,12 +54,17 @@ def main (args : List String) : IO UInt32 := do
             if r.check then
               .ok (c, s!", on terms {r.fresh.length} fresh-symbol steps, {r.facts.length} facts, " ++
                 s!"{r.derived.length} derived clauses, {r.base.length} base clauses, " ++
-                s!"{r.equations.length} defining equations, " ++
-                s!"{r.facts.length - r.otherFacts.length} facts are unfoldings of them" ++
+                s!"{r.equations.length} defining equations, {r.coverage c}" ++
                 (if r.keeps then "" else " (but a fresh symbol is in an equation)"))
             else .error s!"on terms: {r.why}"
       match result with
       | .ok (c, onTerms) =>
+        if args.head? == some "--remaining" then
+          if let .ok r := termSteps c then
+            for (k, s) in r.remaining c do IO.println s!"  {k}: {text s}"
+            let ctx := Std.HashSet.ofList (Extend.extend r.base r.fresh)
+            for d in r.instances.flatMap (·.1) do
+              if !ctx.contains d then IO.println s!"  dropped definition: {repr d}"
         IO.println (s!"ok   {file} {n}: {c.asserts} asserts, {c.rules} rules, " ++
           s!"{c.instances} instances, {c.templates} templates{onTerms}")
       | .error why =>

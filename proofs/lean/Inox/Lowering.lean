@@ -457,6 +457,14 @@ def lowerSource (s : Source) : Lower Source := do
   | .definition call names _ => pure (.function (← t.lower {} call) (← t.lower {} (← t.defined call names)) pairs)
   | .expression e _ => pure (.expression (← t.lower {} e) pairs)
 
+/-- `e` where each marker that `meanings` gives a meaning to is replaced by that meaning. -/
+partial def unmark (meanings : List (Sexp × Sexp)) (seen : List Sexp) (e : Sexp) : Sexp :=
+  match meanings.lookup e with
+  | some r => if seen.contains e then e else unmark meanings (e :: seen) r
+  | none => match e with
+    | .expr items => .expr (items.map (unmark meanings seen))
+    | a => a
+
 end Tables
 
 end Inox.Lowering
