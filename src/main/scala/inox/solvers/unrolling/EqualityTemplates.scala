@@ -7,7 +7,7 @@ package unrolling
 import utils._
 
 import scala.collection.immutable.VectorMap
-import scala.collection.mutable.{Set => MutableSet, Map => MutableMap}
+import scala.collection.mutable.{Map => MutableMap}
 
 /** Incrementally unfolds equality relations between types for which the
   * SMT notion of equality is not relevant.
@@ -29,10 +29,8 @@ trait EqualityTemplates { self: Templates =>
     * The equality symbols are among them: the cached templates, of equalities and of functions,
     * mention the symbols of the types they compare, so a pop can't give a type a new one. */
   private object equalityCaches {
-    /** Whether the equality of each type is unrolled (see [[unrollEquality]]), and the sorts whose
-      * equality is being decided. */
+    /** Whether the equality of each type is unrolled (see [[unrollEquality]]). */
     val unroll: MutableMap[Type, Boolean] = MutableMap.empty
-    val checking: MutableSet[TypedADTSort] = MutableSet.empty
     /** The equality symbol of each type (see [[equalitySymbol]]). */
     val symbols: MutableMap[Type, (Variable, Encoded)] = MutableMap.empty
     /** The template of the equality of each type (see [[EqualityTemplate]]). */
@@ -41,28 +39,10 @@ trait EqualityTemplates { self: Templates =>
     val negations: MutableMap[Encoded, Encoded] = MutableMap.empty
   }
 
-  def unrollEquality(tpe: Type): Boolean = equalityCaches.unroll.getOrElse(tpe, {
-    val res = tpe match {
-      case adt: ADTType =>
-        val sort = adt.getSort
-        sort.hasEquality || (!equalityCaches.checking(sort) && {
-          equalityCaches.checking += sort
-          sort.constructors.exists(c => c.fields.exists(vd => unrollEquality(vd.getType)))
-        })
-
-      case BooleanType() | UnitType() | CharType() | IntegerType() |
-           RealType() | StringType() | (_: BVType) | (_: TypeParameter) => false
-
-      // Functions are compared through their identifiers, and the equality clauses between
-      // lambdas compare their closures with `registeredEquality` (see [[LambdaTemplates]]).
-      case (_: FunctionType) | (_: PiType) => false
-
-      case NAryType(tpes, _) => tpes.exists(unrollEquality)
-    }
-
-    equalityCaches.unroll(tpe) = res
-    res
-  })
+  /** Whether the equality of `tpe` is unrolled (see [[ast.TypeOps.unrollEquality]]). The equality
+    * clauses between lambdas compare their closures with `registeredEquality` (see [[LambdaTemplates]]). */
+  def unrollEquality(tpe: Type): Boolean =
+    equalityCaches.unroll.getOrElseUpdate(tpe, symbols.unrollEquality(tpe))
 
   private lazy val hasCustomEqualities: Boolean = sorts.values.exists(_.flags.exists {
     case HasADTEquality(_) => true
