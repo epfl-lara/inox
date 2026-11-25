@@ -221,6 +221,11 @@ def source (a kind : String) : Option Entry := (t.sources.get? a).filter (·.kin
 /-- A marker: an uninterpreted function of the sources that the declarations don't declare. -/
 def isMarker (a : String) : Bool := (t.source a "uninterpreted").isSome && !t.declared.contains a
 
+/-- Whether `e` names a marker. -/
+partial def hasMarker : Sexp → Bool
+  | .atom a => t.isMarker a
+  | .expr items => items.any hasMarker
+
 def isVariable (bound : Std.HashSet String) (a : String) : Bool :=
   bound.contains a || (t.source a "variable").isSome
 

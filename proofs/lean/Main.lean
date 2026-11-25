@@ -50,7 +50,10 @@ def main (args : List String) : IO UInt32 := do
           | .ok r =>
             if r.check then
               .ok (c, s!", on terms {r.fresh.length} fresh-symbol steps, {r.facts.length} facts, " ++
-                s!"{r.derived.length} derived clauses, {r.base.length} base clauses")
+                s!"{r.derived.length} derived clauses, {r.base.length} base clauses, " ++
+                s!"{r.equations.length} defining equations, " ++
+                s!"{r.facts.length - r.otherFacts.length} facts are unfoldings of them" ++
+                (if r.keeps then "" else " (but a fresh symbol is in an equation)"))
             else .error s!"on terms: {r.why}"
       match result with
       | .ok (c, onTerms) =>
