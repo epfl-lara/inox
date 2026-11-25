@@ -173,8 +173,8 @@ jobs:
       uses: leanprover/lean-action@v1
       with:
         lake-package-directory: proofs/lean
-    - name: Check the certificates in Lean, and their proofs with Logos
-      run: proofs/lean/check.sh "$RUNNER_TEMP/answers" 4
+    - name: Check the certificates in Lean, their rules on terms, and their proofs with Logos
+      run: proofs/lean/check.sh "$RUNNER_TEMP/answers" 4 --terms
 
   semantics-lean:
     name: Semantics (Lean)

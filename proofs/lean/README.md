@@ -29,7 +29,7 @@ It accepts a certificate when:
 With `--rules`, it checks the rules only. With `--terms`, it also checks the
 rules on the terms that Logos reads (see below). `check.sh DIR [JOBS] [FLAGS]`
 runs it on the files of `DIR`, which is what CI does on the corpus of the Scala
-checker (the `certificates` job).
+checker, with `--terms` (the `certificates` job).
 
 ## What is proved
 
