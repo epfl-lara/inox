@@ -672,10 +672,52 @@ theorem no_star_model (sound : LogosSound) (hO : O.Sound) (hty : LogosTyping)
 terminate on values of their parameter types (`guardOk_total`). For others it
 stays a hypothesis, inside `hfacts`.
 
+**The query has no solution** ([`Inox/NoSolution.lean`](Inox/NoSolution.lean)).
+For a program whose calls all give values (`Total O P S`: each function of `S`,
+on values of the types of its parameters, is `Ok` at some fuel), the intended
+model satisfies the defining equations for all arguments (`good_star`), so
+`no_good_model_of_instances` applies to it with all that it covers, not only
+the unfoldings. A solution of the query gives the model `N`: `varsModel M0 Γ
+vs` sets the constants of the free variables `Γ` to their values `vs`, and the
+intended model over it satisfies each base clause that is the translation of an
+expression of the query that the solution makes true (`satisfies_star`, by `ev`
+and `varsOk_star`). So:
+
+```lean
+def Solution (O : Oracle) (P : Program) (Γ : List (Id × Ty)) (qs : List Expr)
+    (vs : List Value) : Prop :=
+  List.Forall₂ HasV vs (Γ.map Prod.snd) ∧
+    ∃ bs, bind_all (Γ.map Prod.fst) vs = .Ok bs ∧
+      ∀ q ∈ qs, ∃ n, eval O P n (Env.Env [] bs) q = .Ok (.BoolV true)
+
+theorem no_solution (sound : LogosSound) (hO : O.Sound) (hty : LogosTyping)
+    (hS : SigOk S) (hPF : ProgFrag P) (hP : ProgTy S P) (htot : Total O P S)
+    (hAccept : accept certificate = .ok checked)
+    (hr : termSteps checked = .ok r)
+    (hcheck : r.check = true) (hkeeps : r.keeps = true)
+    (hE : ∀ e ∈ r.equations, ∃ s ∈ S, EqFor P S s e)
+    (hΓ : VarsFresh S Γ) (hbase : BaseFor S Γ qs r.base)
+    (hfacts : FactsHoldExcept (Good r.equations) r.covered
+      (extend r.base r.fresh) r.facts)
+    (cd : Codes) (hM0 : model_wf M0) :
+    ∀ vs, ¬ Solution O P Γ qs vs
+```
+
+`BaseFor S Γ qs base` says that each base clause is `tr S Γ q` for a Boolean
+expression `q` of the query, and `VarsFresh` that the free variables have types
+of the fragment and are named after no function. This is the theorem of an
+UNSAT answer for this fragment, up to its hypotheses: `Total`, the two that
+relate the certificate to the program and the query (`hE`, `hbase`), and
+`hfacts` for the facts that the check doesn't cover.
+
 **The hypotheses that remain.**
 
-- `GuardOk` for programs with non-terminating functions: that a guard true in
-  the intended model selects a call that is `Ok` at some fuel.
+- `Total`, for `no_solution`. It leaves out the functions that don't terminate
+  on some arguments and those that are stuck on some, as a function with a
+  precondition is where its `Assume` fails. Without it, `no_star_model` has
+  `GuardOk` for the unfoldings, that a guard true in the intended model selects
+  a call that is `Ok` at some fuel, and the clauses of instances and the facts
+  verified directly are not relativized, so they stay in its `hfacts`.
 - `LogosSound`, `LogosTyping` (discharged in `InoxClosed`), and `O.Sound`, that
   the oracle of `Forall` and `UninterpretedCall` agrees with the semantics
   (unused on the fragment but required by `call`).
@@ -687,13 +729,15 @@ stays a hypothesis, inside `hfacts`.
   `P`. This is what the certificate's sources have to give. A reflexivity
   axiom among the equations is not one, so the theorem doesn't apply to a
   certificate that has one; the programs of the fragment have none.
-- `model_wf M0`, `model_wf N` and `N.usortDom = M0.usortDom`, for the models of
-  the sorts and of the free variables; and `cd : Codes`.
-- `hfacts` for the facts other than unfoldings, as in
-  `no_good_model_of_unfold_on`.
-- The link from a solution of the query to `N`: that the query's expression
-  evaluates to `Ok true` under it means that `N` satisfies `r.base`. That is
-  `ev` applied to the query, once the query is `HasTy`-typed.
+- `BaseFor`: each base clause of the certificate is the translation of an
+  expression of the query. As for `EqFor`, the certificate's sources have to
+  give it.
+- `model_wf M0`, a well-formed model for the sorts and the other function
+  values, and `cd : Codes`. That both exist is not proved here. For
+  `no_star_model`, also `model_wf N` and `N.usortDom = M0.usortDom`.
+- `hfacts`: for `no_solution`, the facts that `r.covered` doesn't cover
+  (contracts, `decreases`, assertions and the others, see above); for
+  `no_star_model`, the facts other than guarded unfoldings.
 
 The translation stops at integers and Booleans: ADTs, unit, `Let`, `Error`,
 `Division`, `Remainder`, `Modulo`, type arguments, closures, `Forall` and
@@ -716,18 +760,22 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   clauses of instances that hold by the meanings of their symbols given the
   base, and the facts that hold as they are (congruence, the reflexivity of the
   declared equalities). The theorem to come is the one of an UNSAT answer in
-  [`semantics.md`](../semantics.md): the query has no solution. It needs the
-  bridge beyond its first-order fragment (see [The bridge to the
-  semantics](#the-bridge-to-the-semantics-partly-proved)), that its solutions
-  give `Good` models (where the declared equalities are reflexive and the
-  completeness assumptions hold), and for each other kind of rule, that its
-  clauses hold in them (`hfacts`): the decreases clauses; the preconditions,
-  postconditions, ADT invariants and refinements of the templates (`contract`),
-  which are assumptions about the program; the clauses of assertions about the
-  instances of quantifiers, and those whose source expression has a binder or
-  mentions a fresh symbol; the typing predicates; the templates whose source is
-  not a function; the clauses with binders; and the other rules (`Dispatched`,
-  `SameLambda`, the `Congruence` of instances of quantifiers, …).
+  [`semantics.md`](../semantics.md): the query has no solution. `no_solution`
+  states it for the first-order programs over integers and Booleans whose calls
+  all give values, with hypotheses (see [The bridge to the
+  semantics](#the-bridge-to-the-semantics-partly-proved)). In general it needs
+  the bridge beyond that fragment, that its solutions give `Good` models (where
+  the declared equalities are reflexive and the completeness assumptions hold,
+  and for the programs with calls that give no value, with the clauses of
+  instances relativized as the unfoldings are), and for each other kind of
+  rule, that its clauses hold in them (`hfacts`): the decreases clauses; the
+  preconditions, postconditions, ADT invariants and refinements of the
+  templates (`contract`), which are assumptions about the program; the clauses
+  of assertions about the instances of quantifiers, and those whose source
+  expression has a binder or mentions a fresh symbol; the typing predicates;
+  the templates whose source is not a function; the clauses with binders; and
+  the other rules (`Dispatched`, `SameLambda`, the `Congruence` of instances of
+  quantifiers, …).
 - **Longer cycles of `Enables` rules.** A cycle where a target reaches a
   definition that enables it only through other definitions or targets
   (`bs := (and d s)`, `(=> m s)`, `(=> bs2 m)`, `bs2 := (and d2 x)`,
