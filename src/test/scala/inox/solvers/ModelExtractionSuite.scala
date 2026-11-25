@@ -34,6 +34,11 @@ class ModelExtractionSuite extends SolverTestSuite {
     BagType(IntegerType()) -> Seq(Bags, Integers),
     MapType(IntegerType(), IntegerType()) -> Seq(Maps, Integers),
     FunctionType(Seq(IntegerType()), IntegerType()) -> Seq(Functions, Integers),
+    // also over bit-vectors only, which every solver supports
+    MapType(Int32Type(), BooleanType()) -> Seq(Maps),
+    FunctionType(Seq(Int32Type()), Int32Type()) -> Seq(Functions),
+    FunctionType(Seq(Int32Type()), Int16Type()) -> Seq(Functions),
+    FunctionType(Seq(Int32Type()), BooleanType()) -> Seq(Functions),
     TupleType(Seq(IntegerType(), BooleanType(), Int32Type())) -> Seq(ADTs, Integers),
   )
 
@@ -64,6 +69,15 @@ class ModelExtractionSuite extends SolverTestSuite {
         }
         case res => fail(s"Constraint ${nonTrivial(v).asString} is $res")
       }
+    }
+  }
+
+  // A solver without integers rejects them instead of answering wrongly
+  testWithout("Integers are unsupported", Integers) { ctx =>
+    val x = Variable.fresh("x", IntegerType())
+    solver(ctx).solveSAT(Equals(x, IntegerLiteral(1))) match {
+      case Unknown => ()
+      case res => fail(s"Expected Unknown, got $res")
     }
   }
 }

@@ -41,12 +41,17 @@ trait BitwuzlaTarget extends SMTLIBTarget with SMTLIBDebugger {
     case _ => super.toSMT(e)
   }
 
-//  override protected def fromSMT(t: Term, otpe: Option[Type] = None)(using Context): Expr = {
-//    (t, otpe) match {
-//      case (_, Some(UnitType())) =>
-//        UnitLiteral()
-//      case _ => super.fromSMT(t, otpe)
-//    }
-//  }
+  // Bitwuzla gives the value of a map as stores over a constant array, which are the updates of a
+  // finite map: the model's values must be finite maps themselves
+  override protected def fromSMT(t: Term, otpe: Option[Type] = None)(using Context): Expr = (t, otpe) match {
+    case (ArraysEx.Store(arr, key, value), Some(mt @ MapType(from, to))) =>
+      fromSMT(arr, mt) match {
+        case FiniteMap(elems, default, _, _) =>
+          val k = fromSMT(key, from)
+          FiniteMap(elems.filter(_._1 != k) :+ (k -> fromSMT(value, to)), default, from, to)
+        case _ => super.fromSMT(t, otpe)
+      }
+    case _ => super.fromSMT(t, otpe)
+  }
 
 }

@@ -66,6 +66,9 @@ object SolverTestSuite {
     def supports(features: Seq[Feature]): Boolean = features.forall(f => !unsupported(f))
   }
 
+  /** The models of functions over bit-vectors that [[ModelExtractionSuite]] extracts. */
+  private val bitVectorFunctionModels = Seq("(Int) => Int", "(Int) => Short", "(Int) => Boolean").map("Model extraction of " + _)
+
   private val cvcKnownIssues = Map(
     "Map Merges" -> "returns Unknown on the quantified axiom that encodes merges",
   )
@@ -96,8 +99,8 @@ object SolverTestSuite {
       knownIssues = cvcKnownIssues,
       groundOnly = cvcGroundOnly),
     SolverInfo("smt-bitwuzla", () => SolverFactory.hasBitwuzla,
-      Set(Integers, Reals, BitVectorIntConversions, Strings, Sets, Bags, BagAlgebra, Maps, NestedArrays, ADTs,
-        Quantifiers, TypeParameters, Reset)),
+      Set(Integers, Reals, BitVectorIntConversions, Strings, Sets, Bags, BagAlgebra, ADTs, TypeParameters, Reset),
+      knownIssues = bitVectorFunctionModels.map(_ -> "encodes the values of functions as integers, which it lacks").toMap),
     SolverInfo("princess", () => true,
       Set(FloatingPoint, Sets, BagAlgebra, Maps, NestedArrays, Reset),
       // Times out on conjunctions of string checks that it solves quickly one by one
@@ -107,7 +110,7 @@ object SolverTestSuite {
         "Bag with several multiplicities" -> "returns Unknown after about two minutes",
         "Function returning bags" -> "crashes (None.get) extracting a function whose results are bags",
         "Function call over bit-vectors" -> "hangs on function calls over bit-vectors",
-      )),
+      ) ++ bitVectorFunctionModels.map(_ -> "returns models of functions over bit-vectors that falsify the constraint")),
   )
 
   /** Solvers whose absence fails the tests instead of ignoring them, set with
