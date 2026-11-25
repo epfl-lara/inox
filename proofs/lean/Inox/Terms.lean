@@ -976,7 +976,8 @@ def dropAssumes : Sexp → Sexp
 /-- The defining equations of the functions of a certificate, as Logos reads them, if it can,
 without their assumptions, which Logos doesn't read in a term: each `(assume c b)` is `b`. Where
 the call has a value, its evaluation went through each assumption it met, which held, so the call
-equals the body without them: the equation holds on the calls that have values. -/
+equals the body without them: the equation holds on the calls that have values, which is what the
+intended model gives (`GoodOn`). -/
 def equations (checked : Checked) : List Equation :=
   let checked := { checked with sources := checked.sources.map dropAssumes }
   match parseProof (equationText checked) with
