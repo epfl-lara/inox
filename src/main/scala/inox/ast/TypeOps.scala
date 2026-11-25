@@ -148,6 +148,26 @@ trait TypeOps {
     rec(tpe)
   }
 
+  /** Whether the equality of values of `tpe` reaches the custom equality of a sort (see
+    * [[Definitions.ADTSort.equality]]): `tpe` has such values in a field, a tuple, a set, a bag or
+    * a map, possibly through other sorts, and its equality isn't the structural one. Functions are
+    * compared through their identifiers, so they hide the values that they capture. */
+  def reachesCustomEquality(tpe: Type): Boolean = {
+    // the sorts already looked into: the result for a sort visited on the way isn't final until
+    // the sorts that it reaches are, so only the result for `tpe` is computed
+    val seen = scala.collection.mutable.Set.empty[Identifier]
+    def rec(tpe: Type): Boolean = tpe match {
+      case (_: FunctionType) | (_: PiType) => false
+      case RefinementType(vd, _) => rec(vd.tpe)
+      case ADTType(id, tps) => lookupSort(id).exists { sort =>
+        sort.hasEquality || tps.exists(rec) ||
+          (seen.add(id) && sort.constructors.exists(_.fields.exists(vd => rec(vd.tpe))))
+      }
+      case NAryType(tps, _) => tps.exists(rec)
+    }
+    rec(tpe)
+  }
+
   /** Whether the values of `tpe` can hold a function that returns a proposition, as a field,
     * an argument, a result, and so on. */
   private def holdsPropositionalFunction(tpe: Type): Boolean = {

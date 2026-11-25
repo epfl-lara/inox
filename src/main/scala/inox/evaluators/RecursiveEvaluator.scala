@@ -111,14 +111,28 @@ abstract class RecursiveEvaluator(override val program: Program,
         s"--function-equality=none: ${tpe.asString}")
 
   /** Whether the elements of a set or a bag, or the keys of a map, of type `tpe` are compared with
-    * [[valuesEqual]] rather than structurally: under extensional equality, when they can contain
-    * functions. Otherwise, values are equal iff they are structurally equal.
+    * [[valuesEqual]] rather than structurally: when they reach the custom equality of a sort, and
+    * under extensional equality, when they can contain functions. Otherwise, values are equal iff
+    * they are structurally equal.
     *
     * Structurally equal values are equal under every semantics, so they are looked for first: an
     * element is found without deciding its equality with the others, which may be undecidable. */
   private def keysByValue(tpe: Type): Boolean =
+    customEquality(tpe) ||
     functionEquality == solvers.unrolling.FunctionEquality.Extensional &&
       solvers.unrolling.FunctionEquality.containsFunctions(program)(tpe)
+
+  /** Whether values of `tpe` are compared with the custom equality of a sort somewhere (see
+    * [[ast.TypeOps.reachesCustomEquality]]), so that structurally distinct values can be equal. */
+  private def customEquality(tpe: Type): Boolean =
+    hasCustomEqualities && customEqualities.getOrElseUpdate(tpe, reachesCustomEquality(tpe))
+
+  private lazy val hasCustomEqualities: Boolean = sorts.values.exists(_.flags.exists {
+    case HasADTEquality(_) => true
+    case _ => false
+  })
+
+  private val customEqualities = new scala.collection.concurrent.TrieMap[Type, Boolean]
 
   /** The index in `keys` of a key equal to `key`, of type `tpe` (see [[keysByValue]]). */
   private def indexOfKey(tpe: Type)(keys: Seq[Expr], key: Expr)(using RC, GC): Int = {
@@ -170,7 +184,14 @@ abstract class RecursiveEvaluator(override val program: Program,
   }
 
   private def structurallyEqual(v1: Expr, v2: Expr)(using rctx: RC, gctx: GC): Boolean = (v1, v2) match {
-    case _ if functionEquality == solvers.unrolling.FunctionEquality.Intensional => v1 == v2
+    // a sort's equality decides, also under the other ADTs, tuples and collections that hold its values
+    case (adt1: ADT, _: ADT) if hasCustomEqualities && adt1.getConstructor.sort.hasEquality =>
+      e(adt1.getConstructor.sort.equality.get.applied(Seq(v1, v2))) match {
+        case BooleanLiteral(b) => b
+        case v => throw EvalError(typeErrorMsg(v, BooleanType()))
+      }
+    case _ if functionEquality == solvers.unrolling.FunctionEquality.Intensional &&
+              !customEquality(v1.getType) => v1 == v2
     case (ADT(id1, _, args1), ADT(id2, _, args2)) =>
       id1 == id2 && (args1 zip args2).forall(valuesEqual)
     case (Tuple(es1), Tuple(es2)) =>
@@ -181,7 +202,7 @@ abstract class RecursiveEvaluator(override val program: Program,
     case (FiniteBag(els1, base), FiniteBag(els2, _)) if keysByValue(base) =>
       els1.size == els2.size && els1.forall((k, v) => lookupKey(base)(els2, k).contains(v))
     case (FiniteMap(pairs1, dflt1, from, to), FiniteMap(pairs2, dflt2, _, _))
-        if keysByValue(from) || (functionEquality != solvers.unrolling.FunctionEquality.Intensional &&
+        if keysByValue(from) || customEquality(to) || (functionEquality != solvers.unrolling.FunctionEquality.Intensional &&
                                  solvers.unrolling.FunctionEquality.containsFunctions(program)(to)) =>
       valuesEqual(dflt1, dflt2) && (pairs1.map(_._1) ++ pairs2.map(_._1)).forall { k =>
         valuesEqual(lookupKey(from)(pairs1, k).getOrElse(dflt1), lookupKey(from)(pairs2, k).getOrElse(dflt2))
