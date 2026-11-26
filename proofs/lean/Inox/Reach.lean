@@ -385,4 +385,281 @@ theorem called_of_call (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S) (hP : P
 
 end Reach
 
+/-! ## The assumptions that evaluation goes through hold -/
+
+mutual
+/-- Evaluating `e` goes through an assumption whose term, through `w`, is `φ`, in the models where
+the literals `K` have their values: an `Assume` of `e` in an operand that is evaluated, as for
+`reachesW`. -/
+def assumesW (S : List Sig) (Γ : List (Id × Ty)) (w : SmtTerm → SmtTerm)
+    (K : List (SmtTerm × Bool)) (φ : SmtTerm) : Expr → Bool
+  | .Assume p b =>
+    decide (w (tr S Γ p) = φ) || assumesW S Γ w K φ p || assumesW S Γ w K φ b
+  | .IfExpr c a b =>
+    assumesW S Γ w K φ c ||
+      (decide (red K (w (tr S Γ c)) = .Boolean true) && assumesW S Γ w K φ a) ||
+      (decide (red K (w (tr S Γ c)) = .Boolean false) && assumesW S Γ w K φ b)
+  | .And es => assumesAnd S Γ w K φ es
+  | .Or es => assumesOr S Γ w K φ es
+  | .Not a | .UMinus a => assumesW S Γ w K φ a
+  | .Implies a b =>
+    assumesW S Γ w K φ a ||
+      (decide (red K (w (tr S Γ a)) = .Boolean true) && assumesW S Γ w K φ b)
+  | .Equals a b | .Plus a b | .Minus a b | .Times a b | .LessThan a b | .GreaterThan a b
+  | .LessEquals a b | .GreaterEquals a b => assumesW S Γ w K φ a || assumesW S Γ w K φ b
+  | .FunctionInvocation _ _ args => assumesAny S Γ w K φ args
+  | _ => false
+
+def assumesAnd (S : List Sig) (Γ : List (Id × Ty)) (w : SmtTerm → SmtTerm)
+    (K : List (SmtTerm × Bool)) (φ : SmtTerm) : List Expr → Bool
+  | [] => false
+  | e :: es =>
+    assumesW S Γ w K φ e ||
+      (decide (red K (w (tr S Γ e)) = .Boolean true) && assumesAnd S Γ w K φ es)
+
+def assumesOr (S : List Sig) (Γ : List (Id × Ty)) (w : SmtTerm → SmtTerm)
+    (K : List (SmtTerm × Bool)) (φ : SmtTerm) : List Expr → Bool
+  | [] => false
+  | e :: es =>
+    assumesW S Γ w K φ e ||
+      (decide (red K (w (tr S Γ e)) = .Boolean false) && assumesOr S Γ w K φ es)
+
+def assumesAny (S : List Sig) (Γ : List (Id × Ty)) (w : SmtTerm → SmtTerm)
+    (K : List (SmtTerm × Bool)) (φ : SmtTerm) : List Expr → Bool
+  | [] => false
+  | e :: es => assumesW S Γ w K φ e || assumesAny S Γ w K φ es
+end
+
+section Assumed
+variable (O : Oracle) (P : Program) (S : List Sig)
+
+/-- What `holds_of_assumesW` says of `e`: where it has a value, the assumptions that its
+evaluation goes through hold. -/
+def Assumed (n : Int) (Γ : List (Id × Ty)) (e : Expr) : Prop :=
+  ∀ env v, EnvTy Γ env → eval O P n env e = .Ok v →
+    ∀ M, model_wf M → CallsOk O P S n M → VarsOk Γ env M →
+      ∀ N w, model_wf N → Through S Γ w N M → ∀ K, KSound N K →
+        ∀ φ, assumesW S Γ w K φ e = true → __smtx_model_eval N φ = SmtValue.Boolean true
+
+variable {O P S}
+
+section Lists
+variable {n : Int} {Γ : List (Id × Ty)} {env : Env} (hE : EnvTy Γ env) {M : SmtModel}
+  (hw : model_wf M) (hc : CallsOk O P S n M) (hV : VarsOk Γ env M) {N : SmtModel}
+  {w : SmtTerm → SmtTerm} (hN : model_wf N) (hT : Through S Γ w N M)
+  {K : List (SmtTerm × Bool)} (hK : KSound N K) {φ : SmtTerm}
+include hE hw hc hV hN hT hK
+
+theorem assumed_list :
+    ∀ (args : List Expr) (Ts : List Ty) (vs : List Value),
+      (∀ p ∈ args.zip Ts, Assumed O P S n Γ p.1) → args.length = Ts.length →
+      eval_list O P n env args = .Ok vs → assumesAny S Γ w K φ args = true →
+      __smtx_model_eval N φ = SmtValue.Boolean true
+  | [], _, _, _, _, _, hr => by simp [assumesAny] at hr
+  | _ :: _, [], _, _, hl, _, _ => by simp at hl
+  | a :: args, T :: Ts, vs, ih, hl, h, hr => by
+    rw [eval_list] at h
+    ok_split h
+    rename_i v hv
+    ok_split h
+    rename_i ws hws
+    simp only [assumesAny, Bool.or_eq_true] at hr
+    rcases hr with hr | hr
+    · exact ih (a, T) (.head _) env v hE hv M hw hc hV N w hN hT K hK φ hr
+    · exact assumed_list args Ts ws (fun p hp => ih p (.tail _ hp)) (by simpa using hl) hws hr
+
+theorem assumed_and (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S) (hct : CallTy O P S n) :
+    ∀ (es : List Expr) (v : Value), (∀ e ∈ es, HasTy S Γ e .BooleanType) →
+      (∀ e ∈ es, Assumed O P S n Γ e) → eval_and O P n env es = .Ok v →
+      assumesAnd S Γ w K φ es = true → __smtx_model_eval N φ = SmtValue.Boolean true
+  | [], _, _, _, _, hr => by simp [assumesAnd] at hr
+  | e :: es, v, hes, ih, h, hr => by
+    rw [eval_and] at h
+    ok_split h
+    rename_i b hb
+    simp only [assumesAnd, Bool.or_eq_true, Bool.and_eq_true, decide_eq_true_eq] at hr
+    rcases hr with hr | ⟨hred, hr⟩
+    · exact ih e (.head _) env _ hE (eval_bool_ok hb) M hw hc hV N w hN hT K hK φ hr
+    · have hb' := red_agrees hty hN hK ((hT e _ (hes e (.head _))).trans
+        ((ev hO hty hS hct (hes e (.head _)) env _ hE (eval_bool_ok hb)).2 M hw hc hV)) hred
+      subst hb'
+      rw [dite_eq_left_of_eq_true (eq_true rfl)] at h
+      exact assumed_and hO hty hS hct es v (fun e' he' => hes e' (.tail _ he'))
+        (fun e' he' => ih e' (.tail _ he')) h hr
+
+theorem assumed_or (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S) (hct : CallTy O P S n) :
+    ∀ (es : List Expr) (v : Value), (∀ e ∈ es, HasTy S Γ e .BooleanType) →
+      (∀ e ∈ es, Assumed O P S n Γ e) → eval_or O P n env es = .Ok v →
+      assumesOr S Γ w K φ es = true → __smtx_model_eval N φ = SmtValue.Boolean true
+  | [], _, _, _, _, hr => by simp [assumesOr] at hr
+  | e :: es, v, hes, ih, h, hr => by
+    rw [eval_or] at h
+    ok_split h
+    rename_i b hb
+    simp only [assumesOr, Bool.or_eq_true, Bool.and_eq_true, decide_eq_true_eq] at hr
+    rcases hr with hr | ⟨hred, hr⟩
+    · exact ih e (.head _) env _ hE (eval_bool_ok hb) M hw hc hV N w hN hT K hK φ hr
+    · have hb' := red_agrees hty hN hK ((hT e _ (hes e (.head _))).trans
+        ((ev hO hty hS hct (hes e (.head _)) env _ hE (eval_bool_ok hb)).2 M hw hc hV)) hred
+      subst hb'
+      rw [dite_eq_right_of_eq_false (eq_false Bool.false_ne_true)] at h
+      exact assumed_or hO hty hS hct es v (fun e' he' => hes e' (.tail _ he'))
+        (fun e' he' => ih e' (.tail _ he')) h hr
+
+end Lists
+
+/-- The assumptions that evaluation goes through hold: where an expression of the fragment has a
+value in the models where the calls and the variables agree, the term of each assumption that its
+evaluation goes through, through `w` and under literals that have their values in a model where
+the terms have through `w` the values of the first, is true there. An assumption that fails makes
+the expression stuck. -/
+theorem holds_of_assumesW (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S) {n : Int}
+    (hct : CallTy O P S n) {Γ : List (Id × Ty)} {e : Expr} {T : Ty} (h : HasTy S Γ e T) :
+    Assumed O P S n Γ e := by
+  induction h with
+  | var hx hT =>
+    intro env v hE he M hw hc hV N w hN hT K hK φ hr
+    simp [assumesW] at hr
+  | int i => intro env v hE he M hw hc hV N w hN hT K hK φ hr; simp [assumesW] at hr
+  | bool b => intro env v hE he M hw hc hV N w hN hT K hK φ hr; simp [assumesW] at hr
+  | ite htc _ _ ihc iha ihb =>
+    intro env v hE he M hw hc hV N w hN hT K hK φ hr
+    rw [eval] at he
+    ok_split he
+    rename_i b hb
+    have hcM := (hT _ _ htc).trans
+      ((ev hO hty hS hct htc env _ hE (eval_bool_ok hb)).2 M hw hc hV)
+    simp only [assumesW, Bool.or_eq_true, Bool.and_eq_true, decide_eq_true_eq] at hr
+    rcases hr with (hr | ⟨hred, hr⟩) | ⟨hred, hr⟩
+    · exact ihc env _ hE (eval_bool_ok hb) M hw hc hV N w hN hT K hK φ hr
+    · have hb' := red_agrees hty hN hK hcM hred
+      subst hb'
+      rw [dite_eq_left_of_eq_true (eq_true rfl)] at he
+      exact iha env v hE he M hw hc hV N w hN hT K hK φ hr
+    · have hb' := red_agrees hty hN hK hcM hred
+      subst hb'
+      rw [dite_eq_right_of_eq_false (eq_false Bool.false_ne_true)] at he
+      exact ihb env v hE he M hw hc hV N w hN hT K hK φ hr
+  | @and es hes ih =>
+    intro env v hE he M hw hc hV N w hN hT K hK φ hr
+    rw [eval] at he
+    simp only [assumesW] at hr
+    exact assumed_and hE hw hc hV hN hT hK hO hty hS hct es v hes ih he hr
+  | @or es hes ih =>
+    intro env v hE he M hw hc hV N w hN hT K hK φ hr
+    rw [eval] at he
+    simp only [assumesW] at hr
+    exact assumed_or hE hw hc hV hN hT hK hO hty hS hct es v hes ih he hr
+  | not _ ih =>
+    intro env v hE he M hw hc hV N w hN hT K hK φ hr
+    rw [eval] at he
+    ok_split he
+    rename_i b hb
+    simp only [assumesW] at hr
+    exact ih env _ hE (eval_bool_ok hb) M hw hc hV N w hN hT K hK φ hr
+  | @implies a b hta _ iha ihb =>
+    intro env v hE he M hw hc hV N w hN hT K hK φ hr
+    rw [eval] at he
+    ok_split he
+    rename_i x hx
+    have haM := (hT _ _ hta).trans
+      ((ev hO hty hS hct hta env _ hE (eval_bool_ok hx)).2 M hw hc hV)
+    simp only [assumesW, Bool.or_eq_true, Bool.and_eq_true, decide_eq_true_eq] at hr
+    rcases hr with hr | ⟨hred, hr⟩
+    · exact iha env _ hE (eval_bool_ok hx) M hw hc hV N w hN hT K hK φ hr
+    · have hb' := red_agrees hty hN hK haM hred
+      subst hb'
+      rw [dite_eq_left_of_eq_true (eq_true rfl)] at he
+      ok_split he
+      rename_i y hy
+      exact ihb env _ hE (eval_bool_ok hy) M hw hc hV N w hN hT K hK φ hr
+  | @equals a b T _ _ iha ihb =>
+    intro env v hE he M hw hc hV N w hN hT K hK φ hr
+    rw [eval] at he
+    ok_split he
+    rename_i x hx
+    ok_split he
+    rename_i y hy
+    simp only [assumesW, Bool.or_eq_true] at hr
+    rcases hr with hr | hr
+    · exact iha env _ hE hx M hw hc hV N w hN hT K hK φ hr
+    · exact ihb env _ hE hy M hw hc hV N w hN hT K hK φ hr
+  | plus _ _ iha ihb | minus _ _ iha ihb | times _ _ iha ihb | lt _ _ iha ihb | gt _ _ iha ihb
+    | le _ _ iha ihb | ge _ _ iha ihb =>
+    intro env v hE he M hw hc hV N w hN hT K hK φ hr
+    rw [eval] at he
+    ok_split he
+    rename_i x hx
+    ok_split he
+    rename_i y hy
+    simp only [assumesW, Bool.or_eq_true] at hr
+    rcases hr with hr | hr
+    · exact iha env _ hE hx M hw hc hV N w hN hT K hK φ hr
+    · exact ihb env _ hE hy M hw hc hV N w hN hT K hK φ hr
+  | uminus _ ih =>
+    intro env v hE he M hw hc hV N w hN hT K hK φ hr
+    rw [eval] at he
+    ok_split he
+    rename_i x hx
+    simp only [assumesW] at hr
+    exact ih env _ hE hx M hw hc hV N w hN hT K hK φ hr
+  | @invoke s args hs hl hargs ih =>
+    intro env v hE he M hw hc hV N w hN hT K hK φ hr
+    rw [eval] at he
+    ok_split he
+    rename_i vs hvs
+    have hlen : args.length = (s.params.map Prod.snd).length := by simpa using hl
+    simp only [assumesW] at hr
+    exact assumed_list hE hw hc hV hN hT hK args _ vs ih hlen hvs hr
+  | @assume p b T htp _ ihp ihb =>
+    intro env v hE he M hw hc hV N w hN hT K hK φ hr
+    rw [eval] at he
+    ok_split he
+    rename_i x hx
+    cases x
+    · rw [dite_eq_right_of_eq_false (eq_false Bool.false_ne_true)] at he
+      cases he
+    · rw [dite_eq_left_of_eq_true (eq_true rfl)] at he
+      simp only [assumesW, Bool.or_eq_true, decide_eq_true_eq] at hr
+      rcases hr with (hr | hr) | hr
+      · rw [← hr]
+        exact (hT _ _ htp).trans
+          ((ev hO hty hS hct htp env _ hE (eval_bool_ok hx)).2 M hw hc hV)
+      · exact ihp env _ hE (eval_bool_ok hx) M hw hc hV N w hN hT K hK φ hr
+      · exact ihb env v hE he M hw hc hV N w hN hT K hK φ hr
+
+/-- The assumptions that a call goes through hold: where a call of a function of `S` gives a
+value, the term of each assumption that the evaluation of its body goes through, through `w`, is
+true, with the models of `called_of_call`. -/
+theorem assumed_of_call (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S) (hP : ProgTy S P)
+    {s : Sig} {body : Expr} (hbody : HasBody P s body) (hbty : HasTy S s.params body s.ret)
+    {vs : List Value} (hvs : List.Forall₂ HasV vs (s.params.map Prod.snd)) {n : Int} {v : Value}
+    (hcall : call O P n s.name [] [] vs = .Ok v) {M : SmtModel} (hw : model_wf M)
+    (hc : ∀ m, CallsOk O P S m M)
+    (hV : ∀ bs, bind_all (s.params.map Prod.fst) vs = .Ok bs →
+      VarsOk s.params (Env.Env (bind_types [] [] []) bs) M)
+    {N : SmtModel} {w : SmtTerm → SmtTerm} (hN : model_wf N) (hT : Through S s.params w N M)
+    {K : List (SmtTerm × Bool)} (hK : KSound N K) {φ : SmtTerm}
+    (hr : assumesW S s.params w K φ body = true) :
+    __smtx_model_eval N φ = SmtValue.Boolean true := by
+  by_cases hn : n ≤ 0
+  · rw [call, dite_eq_left_of_eq_true (eq_true hn)] at hcall; cases hcall
+  rw [call, dite_eq_right_of_eq_false (eq_false hn)] at hcall
+  cases P with
+  | Program fs _ _ _ _ =>
+  simp only [HasBody] at hbody
+  dsimp only at hcall
+  rw [hbody] at hcall
+  dsimp only at hcall
+  ok_split hcall
+  rename_i bs hbs
+  have hE : EnvTy s.params (Env.Env (bind_types [] [] []) bs) := by
+    intro x T hx w hw'
+    obtain ⟨u, hu, huT⟩ := bind_lookup s.params vs bs hbs hvs x T hx
+    rw [lookup_var_det hw' hu]; exact huT
+  exact holds_of_assumesW hO hty hS (call_ty' hO hty hS hP (n - 1)) hbty _ _ hE hcall M hw
+    (hc (n - 1)) (hV bs hbs) N w hN hT K hK φ hr
+
+end Assumed
+
 end Inox.Bridge
