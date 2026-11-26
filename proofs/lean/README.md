@@ -859,6 +859,28 @@ function that doesn't terminate on negative integers, with a query that only
 calls it on 0 and 1, which `Total` leaves out. Like `sourceCheck`,
 `reachedCheck` is defined over the semantics, so `inox-check` doesn't run it.
 
+**Running the checks.** `inox-solution`, an executable of the verification
+package ([`SolutionMain.lean`](SolutionMain.lean)), runs the hypotheses of
+`no_solution_of_reached` that are computed (`accept`, `r.check`, `sourceCheck`
+and `reachedCheck`) on each certificate of its files. It prints `no solution`
+for a certificate that they hold of: given the soundness of Logos, the query
+that it reads has no solution in the program that it reads. For another it
+prints which check fails: the part of `sourceCheck` that puts it outside the
+fragment, or how many facts `reachedCheck` doesn't cover, by the kinds of their
+rules. It exits with 1 unless they hold of every certificate.
+
+```sh
+cd proofs/lean/verification && lake build inox-solution
+.lake/build/bin/inox-solution answers.txt
+```
+
+The first build compiles the modules that the executable imports, those of
+Mathlib too, which takes a quarter of an hour. Of the 36 certificates of the
+corpus, the checks hold of 4: the 3 of `error-is-infeasible.smt3` and one of
+`empty-function-codomains.smt3`. 28 are outside the fragment of first-order
+integers and Booleans, 2 have facts that are not covered, and 2 have a proof
+with a constant array, which Logos doesn't read.
+
 **Assumptions.** A body with assumptions is read with them: Logos doesn't read
 `(assume c b)` in a term, so the equation that the clauses instantiate is
 without them (`dropAssumes`), and `equations` also reads each source with every
