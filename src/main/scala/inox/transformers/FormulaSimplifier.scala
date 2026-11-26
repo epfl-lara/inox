@@ -21,7 +21,8 @@ import scala.util.chaining._
   * In the body of a lambda, a ground term is part of how the function is written, and functions
   * are compared as they are written: `x => x + 10 / 2` and `x => x + 5` are not the same
   * function. Such a term is only evaluated if each of its operations is pure whatever its
-  * operands are, which a division is not, and neither is the call of a recursive function.
+  * operands are, which a division is not, and neither is the call of a function whose recursion
+  * is in the body of a lambda, like `zero = Lang(false, x => zero)`, whose value calls it again.
   *
   * All that is done to a formula is done by one simplifier, which records the steps of what it
   * does in the recorder that it is given with the formula (see
@@ -61,6 +62,8 @@ trait FormulaSimplifier extends SimplifierWithPath { self =>
   private val callees = new java.util.concurrent.ConcurrentHashMap[Identifier, Set[Identifier]]
   private val inlined = new java.util.concurrent.ConcurrentHashMap[Identifier, java.lang.Boolean]
   private val recursions = new java.util.concurrent.ConcurrentHashMap[Identifier, java.lang.Boolean]
+  private val suspendedCallees = new java.util.concurrent.ConcurrentHashMap[Identifier, Set[Identifier]]
+  private val suspendedRecursions = new java.util.concurrent.ConcurrentHashMap[Identifier, java.lang.Boolean]
 
   private def calleesOf(id: Identifier): Set[Identifier] =
     callees.computeIfAbsent(id, id => collect[Identifier] {
@@ -80,6 +83,34 @@ trait FormulaSimplifier extends SimplifierWithPath { self =>
         if (seen.add(callee)) todo = calleesOf(callee).toList ++ todo
       }
       seen(id)
+    }).booleanValue
+
+  // the functions that each function calls in the bodies of its lambdas
+  private def suspendedCalleesOf(id: Identifier): Set[Identifier] =
+    suspendedCallees.computeIfAbsent(id, id => collect[Identifier] {
+      case Lambda(_, body) => collect[Identifier] { case fi: FunctionInvocation => Set(fi.id) case _ => Set.empty } (body)
+      case _ => Set.empty
+    } (getFunction(id).fullBody))
+
+  /** Whether the function `id` is called from its own body, directly or not, through a call in
+    * the body of a lambda: its value is then a function that calls it again, like that of
+    * `zero = Lang(false, x => zero)`. */
+  private def suspendedRecursive(id: Identifier): Boolean =
+    suspendedRecursions.computeIfAbsent(id, id => java.lang.Boolean.valueOf {
+      // the functions that are reached, and whether through a call in a lambda
+      val seen = scala.collection.mutable.Set.empty[(Identifier, Boolean)]
+      var todo: List[(Identifier, Boolean)] = List(id -> false)
+      var found = false
+      while (todo.nonEmpty && !found) {
+        val (caller, suspended) = todo.head
+        todo = todo.tail
+        val inLambdas = suspendedCalleesOf(caller)
+        for (callee <- calleesOf(caller); next = callee -> (suspended || inLambdas(callee))) {
+          if (next == (id -> true)) found = true
+          else if (seen.add(next)) todo ::= next
+        }
+      }
+      found
     }).booleanValue
 
   /** Whether the calls of the function `id` are inlined: it has a quantifier outside of
@@ -105,12 +136,13 @@ trait FormulaSimplifier extends SimplifierWithPath { self =>
   }
 
   /** Whether each operation of `e` is pure whatever its operands are: with variables for its
-    * operands, it is pure without assuming that it is checked. A call of a recursive function
-    * is not, as it only has a value for the operands that it terminates on. The bodies of
-    * lambdas, which the term doesn't evaluate, are not looked at. */
+    * operands, it is pure without assuming that it is checked. The purity of a function doesn't
+    * look at the bodies of its lambdas: a function whose recursion is in one is pure, and its
+    * value calls it again, so its call is not such an operation. The bodies of the lambdas of
+    * `e`, which the term doesn't evaluate, are not looked at. */
   private def total(e: Expr): Boolean = e match {
     case _: Lambda => true
-    case fi: FunctionInvocation if recursive(fi.id) => false
+    case fi: FunctionInvocation if suspendedRecursive(fi.id) => false
     case Operator(es, recons) =>
       es.forall(total) && isAlwaysPure(recons(es.map(e => Variable.fresh("x", e.getType))))
   }
