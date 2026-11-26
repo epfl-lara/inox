@@ -13,7 +13,7 @@ import solvers.PurityOptions
   * In one traversal, the simplification applies the lambdas that the path binds, which inlines
   * those that are bound around quantifiers, simplifies the quantifiers, rewrites the sets, bags
   * and maps that quantifiers are instantiated on, inlines the functions that have quantifiers
-  * (see `forallInlining`) and lifts the assumptions of the subterms of an assumption.
+  * (see [[inlines]]) and lifts the assumptions of the subterms of an assumption.
   *
   * The ground terms are evaluated by a pass of its own, after the traversal: the traversal
   * compares terms that an evaluation would make the same, like the lambdas `x => x + 10 / 2`
@@ -49,10 +49,55 @@ trait FormulaSimplifier extends SimplifierWithPC { self =>
     case _ => None
   }
 
+  // The call edges of the functions and which of them are inlined (see [[inlines]]), which only
+  // depend on the symbols
+  private val callees = new java.util.concurrent.ConcurrentHashMap[Identifier, Set[Identifier]]
+  private val inlined = new java.util.concurrent.ConcurrentHashMap[Identifier, java.lang.Boolean]
+
+  private def calleesOf(id: Identifier): Set[Identifier] =
+    callees.computeIfAbsent(id, id => collect[Identifier] {
+      case fi: FunctionInvocation => Set(fi.id)
+      case Equals(IsTyped(_, adt: ADTType), _) if adt.getSort.hasEquality => Set(adt.getSort.equality.get.id)
+      case _ => Set.empty
+    } (getFunction(id).fullBody))
+
+  /** Whether the calls of the function `id` are inlined: it has a quantifier outside of
+    * assumptions, which then has the polarity of the call, and is not (mutually) recursive. Calls
+    * are followed through the equalities of sorts, which count as calls of the equality function
+    * of the sort.
+    *
+    * The equalities of a sort whose equality function is inlined are not inlined themselves:
+    * they are kept as equalities, of which the solvers know more than the function says (see
+    * `EqualityTemplates`). The quantifiers of the function are encoded at the polarity of the
+    * equality where its template is generated (see `TemplateGenerator`). */
+  def inlines(id: Identifier): Boolean = {
+    def hasForall(e: Expr): Boolean = e match {
+      case _: Forall => true
+      case Assume(_, body) => hasForall(body)
+      case Operator(es, _) => es.exists(hasForall)
+    }
+
+    // whether the function `id` is called from its own body, directly or not
+    def recursive: Boolean = {
+      val seen = scala.collection.mutable.Set.empty[Identifier]
+      var todo = calleesOf(id).toList
+      while (todo.nonEmpty) {
+        val callee = todo.head
+        todo = todo.tail
+        if (seen.add(callee)) todo = calleesOf(callee).toList ++ todo
+      }
+      seen(id)
+    }
+
+    inlined.computeIfAbsent(id, id => java.lang.Boolean.valueOf(
+      hasForall(getFunction(id).fullBody) && !recursive
+    )).booleanValue
+  }
+
   /** The simplification under path conditions, which also
     * - rewrites the terms that [[matcher]] does, for the instantiation of quantifiers;
-    * - inlines the calls of the functions that have quantifiers (see `forallInlining`), which
-    *   gives the quantifiers the polarity of the call;
+    * - inlines the calls of the functions that have quantifiers (see [[inlines]]), which gives
+    *   the quantifiers the polarity of the call;
     * - lifts the assumptions of the subterms of an assumption into it. */
   override protected def simplifyCore(e: Expr, path: Env): (Expr, Boolean) = matcher(e) match {
     case Some(m) =>
@@ -62,7 +107,7 @@ trait FormulaSimplifier extends SimplifierWithPC { self =>
     case None => e match {
       // the call unfolds into the body under the bindings of its parameters, which `inlined`
       // then drops where they are not used
-      case fi: FunctionInvocation if forallInlining.isInlinable(fi.id) =>
+      case fi: FunctionInvocation if inlines(fi.id) =>
         val inlined = fi.inlined
         recorded("unfold", unfolded(fi))
         recorded("logic", inlined)
@@ -184,8 +229,7 @@ trait FormulaSimplifier extends SimplifierWithPC { self =>
   }
 
   /** Simplifies the formula `e`, for the solvers: simplifies it under its path conditions,
-    * which inlines the functions that `forallInlining` says to, and evaluates its ground
-    * subterms. */
+    * and evaluates its ground subterms. */
   def simplifyFormula(e: Expr)(using ctx: Context, sem: symbols.Semantics): Expr = {
     val simp: Expr => Expr =
       recordedPass("evaluate", (e: Expr) => simplifyGround(e))               compose

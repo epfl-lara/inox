@@ -35,6 +35,13 @@ trait TemplateGenerator { self: Templates =>
   import program.trees._
   import program.symbols.{given, _}
 
+  /** Whether the equalities of a sort with the equality function `id` are also encoded by the
+    * body of the function where their polarity is known: the simplifier inlines the calls of the
+    * function, for the polarity of its quantifiers, and keeps the equalities of the sort (see
+    * `FormulaSimplifier.inlines`). */
+  private def inlinedEquality(id: Identifier): Boolean =
+    formulaSimplifier(using PurityOptions(context)).inlines(id)
+
   /** The clauses that [[mkExprClauses]] generates for an expression, before [[Template.encode]]
     * encodes them.
     *
@@ -566,10 +573,10 @@ trait TemplateGenerator { self: Templates =>
       quantifications :+= quantification
 
     var equalities: Map[Encoded, Set[Equality]] = VectorMap.empty
-    @inline def storeEquality(guardVar: Variable, e1: Expr, e2: Expr): Unit = {
+    @inline def storeEquality(guardVar: Variable, e1: Expr, e2: Expr, defined: Boolean = false): Unit = {
       val b = encodedCond(guardVar)
       val encoder: Expr => Encoded = mkEncoder(localSubst)
-      equalities = equalities `merge` (b -> Equality(e1.getType, encoder(e1), encoder(e2)))
+      equalities = equalities `merge` (b -> Equality(e1.getType, encoder(e1), encoder(e2), defined))
     }
 
     @inline def localSubst: Map[Variable, Encoded] =
@@ -883,14 +890,15 @@ trait TemplateGenerator { self: Templates =>
         val (v, _) = equalitySymbol(e1.getType)
         val re1 = rec(pathVar, e1, pol)
         val re2 = rec(pathVar, e2, pol)
-        storeEquality(pathVar, re1, re2)
         val app = Application(v, Seq(re1, re2))
         // The equality of a sort is unfolded without a polarity, like the body of a function
-        // (see [[EqualityTemplate]]). Where the polarity of the equality is known, the quantifiers
-        // of its equality function are also encoded here, at that polarity, as what the
-        // equality symbol is of these terms.
+        // (see [[EqualityTemplate]]). Where the polarity of the equality is known, the body of an
+        // equality function that quantifies is encoded here instead, at that polarity, as what
+        // the equality symbol is of these terms: the equality is not unfolded, and still has
+        // the rules of its symbol (see [[instantiateEquality]]).
         (e1.getType, pol) match {
-          case (adt: ADTType, Some(_)) if adt.getSort.hasEquality && forallInlining.isInlinable(adt.getSort.equality.get.id) =>
+          case (adt: ADTType, Some(_)) if adt.getSort.hasEquality && inlinedEquality(adt.getSort.equality.get.id) =>
+            storeEquality(pathVar, re1, re2, defined = true)
             val definition = adt.getSort.equality.get.applied(Seq(re1, re2)).inlined
             rec(pathVar, definition, pol) match {
               // an equality that holds has its axioms, and nothing else to say
@@ -898,6 +906,7 @@ trait TemplateGenerator { self: Templates =>
               case encoded => storeGuarded(pathVar, Equals(app, encoded))
             }
           case _ =>
+            storeEquality(pathVar, re1, re2)
         }
         app
 

@@ -305,8 +305,10 @@ trait Templates
     * the decomposition of each free collection with all the free collections of its type. */
   private[unrolling] val decompositionKeys: MutableSet[Expr] = MutableSet.empty
 
-  /** Represents an equality relation between two instances of a given type */
-  case class Equality(tpe: Type, e1: Encoded, e2: Encoded) extends Item {
+  /** Represents an equality relation between two instances of a given type. The clauses of the
+    * template that has a `defined` equality say what it is of its terms, and it is not unfolded
+    * (see the case of [[Equals]] in [[mkExprClauses]]). */
+  case class Equality(tpe: Type, e1: Encoded, e2: Encoded, defined: Boolean = false) extends Item {
     override def toString: String =
       s"${asString(e1)} == ${asString(e2)} (of type ${tpe.asString})"
 

@@ -914,56 +914,6 @@ trait SymbolOps extends TypeOps { self =>
     rec(e, Map.empty, false)
   }
 
-  /** Decides which functions [[simplifyFormula]] inlines where they are called: those that
-    * contain a quantifier outside assumptions and are not (mutually) recursive, so that the
-    * quantifier has the polarity of the call. Calls are followed through ADT equalities, which
-    * count as calls to the sort's equality function.
-    *
-    * The equalities of a sort whose equality function is one of them are not inlined: they are
-    * kept as equalities, for which the solvers know more than the function says (see
-    * `EqualityTemplates`), and the quantifiers of the function are encoded at the polarity of
-    * the equality where its template is generated.
-    *
-    * The call edges and the per-function decision only depend on the symbols, so they are cached
-    * here instead of being recomputed for every formula. */
-  private[inox] object forallInlining {
-    import java.util.concurrent.ConcurrentHashMap
-
-    private val callees = new ConcurrentHashMap[Identifier, Set[Identifier]]
-    private val inlinable = new ConcurrentHashMap[Identifier, java.lang.Boolean]
-
-    private def calleesOf(id: Identifier): Set[Identifier] =
-      callees.computeIfAbsent(id, id => exprOps.collect[Identifier] {
-        case fi: FunctionInvocation => Set(fi.id)
-        case Equals(IsTyped(_, adt: ADTType), _) if adt.getSort.hasEquality => Set(adt.getSort.equality.get.id)
-        case _ => Set.empty
-      } (getFunction(id).fullBody))
-
-    /** The functions in `roots` and those they transitively call. */
-    private def reachable(roots: Set[Identifier]): Set[Identifier] = {
-      val seen = MutableSet.empty[Identifier]
-      var todo = roots.toList
-      while (todo.nonEmpty) {
-        val id = todo.head
-        todo = todo.tail
-        if (seen.add(id)) todo = calleesOf(id).toList ++ todo
-      }
-      seen.toSet
-    }
-
-    private def hasForall(e: Expr): Boolean = e match {
-      case _: Forall => true
-      case Assume(_, body) => hasForall(body)
-      case Operator(es, _) => es.exists(hasForall)
-    }
-
-    def isInlinable(id: Identifier): Boolean =
-      inlinable.computeIfAbsent(id, id => java.lang.Boolean.valueOf(
-        hasForall(getFunction(id).fullBody) && !reachable(calleesOf(id)).contains(id)
-      )).booleanValue
-
-  }
-
   def simplifyLets(expr: Expr): Expr = preMap {
     case l1 @ Let(v1, Let(v2, e2, b2), b1) => Some(Let(v2, e2, Let(v1, b2, b1).copiedFrom(l1)).copiedFrom(l1))
 
