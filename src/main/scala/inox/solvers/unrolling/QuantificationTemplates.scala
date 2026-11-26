@@ -77,6 +77,7 @@ trait QuantificationTemplates { self: Templates =>
     val contents: TemplateContents,
     val structure: TemplateStructure,
     val body: Expr,
+    private[QuantificationTemplates] val calleeMatchers: Seq[(Encoded, Matcher)],
     stringRepr: () => String,
     private val isConcrete: Boolean,
     private[QuantificationTemplates] val isDeferred: Boolean) {
@@ -94,7 +95,8 @@ trait QuantificationTemplates { self: Templates =>
         polarity.substitute(substituter, msubst),
         contents.substitute(substituter, msubst),
         structure.substitute(substituter, msubst),
-        body, stringRepr, isConcrete, isDeferred
+        body, calleeMatchers.map { case (b, m) => substituter(b) -> m.substitute(substituter, msubst) },
+        stringRepr, isConcrete, isDeferred
       )
 
     def concretize: QuantificationTemplate = {
@@ -102,11 +104,91 @@ trait QuantificationTemplates { self: Templates =>
       val substituter = mkSubstituter(structure.instantiationSubst)
       new QuantificationTemplate(polarity,
         contents.substitute(substituter, Map.empty),
-        structure, body, stringRepr, true, isDeferred)
+        structure, body, calleeMatchers.map { case (b, m) => substituter(b) -> m.substitute(substituter, Map.empty) },
+        stringRepr, true, isDeferred)
     }
 
     private lazy val str : String = stringRepr()
     override def toString : String = str
+  }
+
+  /** The matchers that the calls of the body `body` of a quantifier over `quantifiers` reach, with
+    * the blockers of these calls in `contents`, the contents of the template of the quantifier.
+    *
+    * A call on quantified variables is a matcher of the quantifier, which is thus instantiated for
+    * the values that the function is called on. The body of the function, once the call of an
+    * instance is unfolded, has calls, applications and collection lookups on these values in turn,
+    * which match other quantifiers, and whose own values the quantifier is not instantiated for
+    * unless something else matches it. The calls on quantified variables in the body of the
+    * function, and its applications and collection lookups on them, are therefore matchers of the
+    * quantifier as well, and so are those of the functions of these calls in turn: the quantifier
+    * is instantiated for the values that these are called and looked up on. For example,
+    * {{{
+    *   def contains(l: List, a: BigInt): Boolean = { ... } ensuring (_ == content(l).contains(a))
+    *   forall((a: BigInt) => contains(l, a) ==> a <= x)
+    * }}}
+    * is instantiated for the elements that are looked up in the content of `l`, and not only for
+    * those that `contains` is called on.
+    *
+    * These matchers are not items of the template: an instance of the quantifier doesn't contain
+    * their terms, which its calls only reach once they are unfolded, and under conditions that the
+    * template doesn't know. An instance adds them as ground matchers in the generation after its
+    * own (see [[Axiom.instantiateSubst]]).
+    *
+    * Only the calls whose arguments are all variables of the quantifier (quantified or free) are
+    * taken and unfolded, of which there are finitely many, as are the applications and lookups on
+    * such arguments, of functions and collections over such variables. */
+  private def calleeMatchers(contents: TemplateContents, body: Expr, quantifiers: Set[Variable],
+                             subst: Map[Variable, Encoded]): Seq[(Encoded, Matcher)] = {
+    val encoder = mkEncoder(subst)
+    def quantified(args: Seq[Expr]): Boolean = args.exists { case v: Variable => quantifiers(v) case _ => false }
+    def variables(args: Seq[Expr]): Boolean = args.forall { case v: Variable => subst.contains(v) case _ => false }
+
+    // The calls, applications and collection lookups that the call `root` of the body reaches, in
+    // order of occurrence
+    def reached(root: FunctionInvocation): Seq[Expr] = {
+      val seen = scala.collection.mutable.LinkedHashSet[Expr]()
+      // a function is unfolded once for given arguments, whatever its type arguments are: there
+      // are finitely many functions and tuples of variables, also when the recursion is polymorphic
+      val unfolded = scala.collection.mutable.Set[(Identifier, Seq[Expr])]()
+      def unfold(fi: FunctionInvocation): Unit = {
+        val tfd = fi.tfd
+        exprOps.preTraversal {
+          case call: FunctionInvocation if quantified(call.args) && variables(call.args) =>
+            seen += call
+            if (unfolded.add(call.id -> call.args)) unfold(call)
+          case e @ QuantificationMatcher(c, args) if quantified(args) && variables(args) &&
+            exprOps.variablesOf(c).forall(subst.contains) => seen += e
+          case _ =>
+        } (tfd.withParamSubst(fi.args, tfd.fullBody))
+      }
+      unfold(root)
+      seen.toSeq
+    }
+
+    val roots = exprOps.collectPreorder[FunctionInvocation] {
+      case fi: FunctionInvocation if quantified(fi.args) => Seq(fi)
+      case _ => Seq.empty
+    } (body).distinct
+
+    val known = contents.items.matchers.values.flatten.toSet
+    (for {
+      root <- roots
+      matchers = reached(root).map {
+        case call @ FunctionInvocation(_, _, args) =>
+          Matcher(Right(call.tfd), args.map(arg => Left(encoder(arg))), encoder(call))
+        case e @ QuantificationMatcher(c, args) =>
+          Matcher(Left(encoder(c) -> c.getType), args.map(arg => Left(encoder(arg))), encoder(e))
+      }.filterNot(known)
+      if matchers.nonEmpty
+      // The call is found by its arguments when they are variables, and by its function otherwise.
+      // A call whose matcher is not in these contents (one under a lambda or another quantifier,
+      // which has a template of its own) adds nothing here.
+      rootArgs = if (variables(root.args)) Some(root.args.map(arg => Left(encoder(arg)))) else None
+      (b, ms) <- contents.items.matchers.toSeq
+      if ms.exists(m => m.key == Right(root.tfd) && rootArgs.forall(_ == m.args))
+      matcher <- matchers
+    } yield b -> matcher).distinct
   }
 
   object QuantificationTemplate {
@@ -156,6 +238,7 @@ trait QuantificationTemplates { self: Templates =>
       }
 
       val template = new QuantificationTemplate(polarity, contents, structure, body,
+        calleeMatchers(contents, body, quantifiers, clauseSubst),
         () => "Template for " + forall.asString + " is :\n" + str(), false, defer)
 
       (res, template)
@@ -474,6 +557,7 @@ trait QuantificationTemplates { self: Templates =>
     contents: TemplateContents,
     subst: Map[Variable, Arg],
     val body: Expr,
+    calleeMatchers: Seq[(Encoded, Matcher)],
     defer: Boolean) {
 
     private def axiomState: AxiomState = state.get.axiomStates.getOrElse(this, AxiomState.empty)
@@ -519,13 +603,16 @@ trait QuantificationTemplates { self: Templates =>
 
     private lazy val matchers: Matchers = contents.items.matchers
 
-    private val keys: Seq[MatcherKey] = matchers.flatMap(_._2.map(matcherKey)).toSeq
-    private val constraints: Seq[(Encoded, MatcherKey, Int)] = (for {
-      (_, ms) <- matchers
-      m <- ms
+    // The axiom is instantiated for the values that its matchers match, and for those that the
+    // matchers of its callees do (see [[calleeMatchers]])
+    private val matching: Seq[Matcher] = matchers.flatMap(_._2).toSeq ++ calleeMatchers.map(_._2)
+
+    private val keys: Seq[MatcherKey] = matching.map(matcherKey)
+    private val constraints: Seq[(Encoded, MatcherKey, Int)] = for {
+      m <- matching
       (arg,i) <- m.args.zipWithIndex
       q <- arg.left.toOption if quantified(q)
-    } yield (q, matcherKey(m), i)).toSeq
+    } yield (q, matcherKey(m), i)
 
     // the quantifiers in the order in which their constraints occur (see [[Items]])
     private val groupedConstraints: Map[Encoded, Seq[(MatcherKey, Int)]] =
@@ -703,6 +790,13 @@ trait QuantificationTemplates { self: Templates =>
             }
           }
 
+          // The matchers of the callees are those of terms that the calls of the instance reach
+          // once they are unfolded: they wait for the next generation, also under the guard
+          for ((b, m) <- calleeMatchers) {
+            val sb = if (b == guard) bs else ListSet.from(bs) + substituter(b)
+            updateDeferred(_.deferMatcher(currentGeneration + 1, sb, m.substitute(substituter, msubst)))
+          }
+
           substBlocker
       }
 
@@ -796,7 +890,7 @@ trait QuantificationTemplates { self: Templates =>
       // explicit map type will raise a warning due ot erasure
       val subst: (Encoded, Map[Encoded, Encoded]) = (newTemplate.polarity match {
         case Positive(subst) =>
-          val axiom = new Axiom(newTemplate.contents, subst, newTemplate.body, newTemplate.isDeferred)
+          val axiom = new Axiom(newTemplate.contents, subst, newTemplate.body, newTemplate.calleeMatchers, newTemplate.isDeferred)
           state.update(s => s.copy(axioms = s.axioms :+ axiom))
 
           // the blockers of the matchers now guard instances, so they must hold where enabled

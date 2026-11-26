@@ -14,9 +14,8 @@ import utils.fixpoint
   * the evaluation of ground terms).
   *
   * The lambdas that are bound around quantifiers are inlined by the simplification under path
-  * conditions itself, as it applies the lambdas that the path binds. It also simplifies the
-  * quantifiers, but they are simplified in a pass before as well, since the inlining of
-  * postconditions depends on which variables a quantifier binds.
+  * conditions itself, as it applies the lambdas that the path binds, and so are the quantifiers
+  * simplified.
   *
   * All that is done to a formula is done by one simplifier, which records the steps of what it
   * does in its `recorder`, when it has one (see [[TransformationRecorder]]). */
@@ -180,55 +179,6 @@ trait FormulaSimplifier extends SimplifierWithPC { self =>
       fixpoint(inlineExpr)(e)
     }
 
-    // `simpForall` records its steps
-    def inlineForalls(e: Expr): Expr = recordedPostMap("quantifiers") {
-      case Forall(args, body) => Some(simpForall(args, body, recorder))
-      case _ => None
-    } () (e)
-
-    def inlinePosts(e: Expr): Expr = {
-      def qArgs(quantified: Set[Variable], args: Seq[Expr]): Boolean = args.exists {
-        case v: Variable => quantified(v)
-        case _ => false
-      }
-
-      def inlineExpr(quantified: Set[Variable], e: Expr): Expr = andJoin(collectWithPC (e) {
-        case (fi @ FunctionInvocation(_, _, args), path)
-          if qArgs(quantified, args) &&
-             !path.elements.exists(_.isInstanceOf[Path.OpenBound])
-            =>
-          val tfd = fi.tfd
-          val nextQuantified = args.collect { case v: Variable if quantified(v) => v }.toSet
-          tfd.withParamSubst(args, tfd.fullBody) match {
-            case Let(res, _, Assume(pred, res2)) if res.toVariable == res2 && exists {
-              case FunctionInvocation(_, _, args) => qArgs(quantified, args)
-              case Application(_, args) => qArgs(quantified, args)
-              case ElementOfSet(elem: Variable, set) => quantified(elem)
-              case MultiplicityInBag(elem: Variable, set) => quantified(elem)
-              case MapApply(elem: Variable, set) => quantified(elem)
-              case _ => false
-            } (pred) && !exists {
-              case fi: FunctionInvocation => transitivelyCalls(fi.id, tfd.id)
-              case _ => false
-            } (pred) =>
-              Seq[Expr](
-                path `implies` replaceFromSymbols(Map(res.toVariable -> fi), and(pred, inlineExpr(nextQuantified, pred)))
-              )
-            case _ => Seq.empty[Expr]
-          }
-        case _ => Seq.empty[Expr]
-      }.flatten)
-
-      postMap {
-        case f @ Forall(args, body) =>
-          Some(assume(
-            freshenLocals(forall(args, inlineExpr(args.map(_.toVariable).toSet, body))),
-            f
-          ))
-        case _ => None
-      } (e)
-    }
-
     /* Weaker variant of conjunctive normal form */
     def normalizeClauses(e: Expr): Expr = e match {
       case Not(Not(e)) => normalizeClauses(e)
@@ -241,8 +191,6 @@ trait FormulaSimplifier extends SimplifierWithPC { self =>
     val simp: Expr => Expr =
       recordedPass("normalize", (e: Expr) => { val n = normalizeClauses(e); recorded("logic", n); n }) compose
       recordedPass("lift-assumptions", (e: Expr) => simplifyAssumptions(e))  compose
-      recordedPass("inline-postconditions", (e: Expr) => inlinePosts(e))     compose
-      recordedPass("quantifiers", (e: Expr) => inlineForalls(e))             compose
       recordedPass("inline-functions", (e: Expr) => inlineFunctions(e))
     simp(e)
   }
