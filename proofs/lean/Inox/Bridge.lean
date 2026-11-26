@@ -178,6 +178,12 @@ inductive HasTy (S : List Sig) (Γ : List (Id × Ty)) : Expr → Ty → Prop whe
       HasTy S Γ (.Minus a b) .IntegerType
   | times {a b : Expr} : HasTy S Γ a .IntegerType → HasTy S Γ b .IntegerType →
       HasTy S Γ (.Times a b) .IntegerType
+  | div {a b : Expr} : HasTy S Γ a .IntegerType → HasTy S Γ b .IntegerType →
+      HasTy S Γ (.Division a b) .IntegerType
+  | rem {a b : Expr} : HasTy S Γ a .IntegerType → HasTy S Γ b .IntegerType →
+      HasTy S Γ (.Remainder a b) .IntegerType
+  | mod {a b : Expr} : HasTy S Γ a .IntegerType → HasTy S Γ b .IntegerType →
+      HasTy S Γ (.Modulo a b) .IntegerType
   | uminus {a : Expr} : HasTy S Γ a .IntegerType → HasTy S Γ (.UMinus a) .IntegerType
   | lt {a b : Expr} : HasTy S Γ a .IntegerType → HasTy S Γ b .IntegerType →
       HasTy S Γ (.LessThan a b) .BooleanType
@@ -244,6 +250,8 @@ def tr (S : List Sig) (Γ : List (Id × Ty)) : Expr → SmtTerm
   | .Plus a b => .plus (tr S Γ a) (tr S Γ b)
   | .Minus a b => .neg (tr S Γ a) (tr S Γ b)
   | .Times a b => .mult (tr S Γ a) (tr S Γ b)
+  | .Division a b => .div (tr S Γ a) (tr S Γ b)
+  | .Remainder a b | .Modulo a b => .mod (tr S Γ a) (tr S Γ b)
   | .UMinus a => .uneg (tr S Γ a)
   | .LessThan a b => .lt (tr S Γ a) (tr S Γ b)
   | .GreaterThan a b => .gt (tr S Γ a) (tr S Γ b)
@@ -369,7 +377,8 @@ theorem tr_typeof {S : List Sig} (hS : SigOk S) {Γ : List (Id × Ty)} {e : Expr
       native_Teq, trT_ne (ha.fragTy hS), decide_false, decide_true, Bool.false_eq_true,
       ↓reduceIte]
     rfl
-  | plus _ _ iha ihb | minus _ _ iha ihb | times _ _ iha ihb =>
+  | plus _ _ iha ihb | minus _ _ iha ihb | times _ _ iha ihb | div _ _ iha ihb
+    | rem _ _ iha ihb | mod _ _ iha ihb =>
     simp only [tr, __smtx_typeof, iha, ihb, trT]; rfl
   | uminus _ ih => simp only [tr, __smtx_typeof, ih, trT]; rfl
   | lt _ _ iha ihb | gt _ _ iha ihb | le _ _ iha ihb | ge _ _ iha ihb =>
@@ -696,6 +705,26 @@ theorem ev (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S) {n : Int} (hct : Ca
     simp only [tr, __smtx_model_eval, haM M hw hc hV, hbM M hw hc hV, trV,
       __smtx_model_eval_plus, __smtx_model_eval__, __smtx_model_eval_mult, native_zplus,
       native_zneg, native_zmult, Int.sub_eq_add_neg]
+  | div _ _ iha ihb | rem _ _ iha ihb | mod _ _ iha ihb =>
+    intro env v hE he
+    rw [eval] at he
+    ok_split he
+    rename_i x hx
+    ok_split he
+    rename_i y hy
+    obtain ⟨hxT, haM⟩ := iha env _ hE hx
+    obtain ⟨hyT, hbM⟩ := ihb env _ hE hy
+    obtain ⟨i, rfl⟩ := hasV_int hxT
+    obtain ⟨j, rfl⟩ := hasV_int hyT
+    simp only [arith_div, arith_rem, arith_mod] at he
+    split at he
+    · cases he
+    rename_i hj
+    cases he
+    refine ⟨trivial, fun M hw hc hV => ?_⟩
+    simp [tr, __smtx_model_eval, haM M hw hc hV, hbM M hw hc hV, trV, __smtx_model_eval_eq,
+      native_veq, hj, __smtx_model_eval_ite, __smtx_model_eval_div_total,
+      __smtx_model_eval_mod_total, native_div_total, native_mod_total]
   | uminus _ ih =>
     intro env v hE he
     rw [eval] at he

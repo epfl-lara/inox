@@ -25,9 +25,10 @@ The check, `reachedCheck`:
 - `reachedCovered` accepts a fact that holds without the defining equations (`TermSteps.covered`
   with no equation), or that is an instance of a defining equation guarded by the literal that
   guards its call (`guardedEq`), or that states an assumption that the body of a guarded call
-  goes through, such as its precondition, under literals that make the guard of the call true
-  (`Paths.assumed`, with the bodies read with their assumptions, `bodyOf`), as it is or once the
-  definitions of the local symbols of its instance are in place;
+  goes through, such as its precondition, or that a divisor of it is not zero, under literals
+  that make the guard of the call true (`Paths.assumed`, with the bodies read with their
+  assumptions, `bodyOf`), as it is or once the definitions of the local symbols of its instance
+  are in place;
 - `apart`: no fresh symbol is a function of the program or a variable of the query, so that
   reinterpreting one keeps the models where the calls and the variables agree.
 
@@ -152,9 +153,9 @@ def guardedCalls (r : TermSteps) : List (SmtTerm × SmtTerm) :=
     (r.facts.filterMap (fun t => candOf (__eo_to_smt t)) ++
       (substituted r).filterMap fun q => candOf q.2)
 
-/-- Evaluating the call `c'` goes through an assumption whose term is `ψ`, under the literals
-`K`: the body read from the equation of the function of `c'` assumes it, with the arguments of
-`c'` for its parameters. -/
+/-- Evaluating the call `c'` goes through an assumption whose term is `ψ`, or a division whose
+divisor `d` makes `ψ` be `(not (= d 0))`, under the literals `K`: the body read from the equation
+of the function of `c'` has it, with the arguments of `c'` for its parameters. -/
 def assumesBody (S : List Sig) (eqs : List Equation) (K : List (SmtTerm × Bool))
     (ψ c' : SmtTerm) : Bool :=
   eqs.any fun e => decide (smtHead (lhsOf e) = smtHead c') && paramsB e.params (smtArgs c') &&
@@ -162,7 +163,7 @@ def assumesBody (S : List Sig) (eqs : List Equation) (K : List (SmtTerm × Bool)
 
 /-- `φ` is `(=> g ψ)`, where `ψ` is an assumption that the evaluation of a call of `J` goes
 through, under the literals that `g` makes known, which make the guard of the call true: a
-precondition of the call, or another assumption of its body. -/
+precondition of the call, another assumption of its body, or that a divisor of it is not zero. -/
 def Paths.assumed (p : Paths) (S : List Sig) (J : List (SmtTerm × SmtTerm)) : SmtTerm → Bool
   | .imp g ψ =>
     decide (__smtx_typeof g = .Bool) && decide (__smtx_typeof ψ = .Bool) &&

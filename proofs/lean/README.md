@@ -665,11 +665,11 @@ to their SMT-LIB counterparts. `S : List Sig` gives each function its
 parameters and return type, which the semantics' `FunDef` doesn't carry.
 `HasTy S Γ e T` is the typing of the fragment: variables, the integer and
 Boolean literals, `IfExpr`, `And`, `Or`, `Not`, `Implies`, `Equals`, `Plus`,
-`Minus`, `Times`, `UMinus`, `LessThan`, `GreaterThan`, `LessEquals`,
-`GreaterEquals`, `Assume`, and `FunctionInvocation` without type arguments of a
-function of `S`. For a model whose function constants agree with `call` at fuel
-`n` (`CallsOk`) and whose variable constants agree with the environment
-(`VarsOk`):
+`Minus`, `Times`, `Division`, `Remainder`, `Modulo`, `UMinus`, `LessThan`,
+`GreaterThan`, `LessEquals`, `GreaterEquals`, `Assume`, and
+`FunctionInvocation` without type arguments of a function of `S`. For a model
+whose function constants agree with `call` at fuel `n` (`CallsOk`) and whose
+variable constants agree with the environment (`VarsOk`):
 
 ```lean
 theorem ev (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S) {n : Int}
@@ -857,8 +857,8 @@ function that doesn't terminate on negative integers, with a query that only
 calls it on 0 and 1, which `Total` leaves out. Like `sourceCheck`,
 `reachedCheck` is defined over the semantics, so `inox-check` doesn't run it.
 
-**Assumptions.** A body with assumptions is read with them: Logos doesn't
-read `(assume c b)` in a term, so the equation that the clauses instantiate is
+**Assumptions.** A body with assumptions is read with them: Logos doesn't read
+`(assume c b)` in a term, so the equation that the clauses instantiate is
 without them (`dropAssumes`), and `equations` also reads each source with every
 `(assume c b)` marked as `(ite (xor c false) b b)`, which has the value of `b`
 and which no expression of the fragment translates to (`markAssumes`,
@@ -866,18 +866,27 @@ and which no expression of the fragment translates to (`markAssumes`,
 certificate has the assumptions, and the translation of its bodies, which
 leaves them out, is still the equation. Where an assumption can fail, such a
 program is not `Total`, so `no_solution_of_check` and `no_solution_of_covered`
-say nothing of it, and `no_solution_of_reached` is its theorem. A call whose assumption fails is
-stuck, so where a call gives a value the assumptions that its evaluation goes
-through hold (`assumesW`, `holds_of_assumesW`, `assumed_of_call` in
-[`Inox/Reach.lean`](Inox/Reach.lean)). `reachedCovered` then accepts a clause
-`(=> g ψ)` where `ψ` is, with the arguments of the call for the parameters, the
-term of an assumption that the body of a guarded call goes through, under the
-literals that `g` makes known, which make the guard of the call true
-(`Paths.assumed`): the precondition of a call is one. The checks hold of the
-certificates of a recursive function with a precondition, with a query that
-calls it within the precondition, and with one that calls it outside, which has
-no solution for that reason. A mark doubles the body after it, so a body with
-many nested assumptions is read slowly.
+say nothing of it, and `no_solution_of_reached` is its theorem. A call whose
+assumption fails is stuck, so where a call gives a value the assumptions that
+its evaluation goes through hold (`assumesW`, `holds_of_assumesW`,
+`assumed_of_call` in [`Inox/Reach.lean`](Inox/Reach.lean)). `reachedCovered`
+then accepts a clause `(=> g ψ)` where `ψ` is, with the arguments of the call
+for the parameters, the term of an assumption that the body of a guarded call
+goes through, under the literals that `g` makes known, which make the guard of
+the call true (`Paths.assumed`): the precondition of a call is one. A division
+by zero is stuck in the same way, and SMT-LIB leaves its value open, so Inox
+states that a divisor that is not a literal is not zero, in a clause
+`(=> g (not (= d 0)))` under the blocker of the branch of the division.
+`Division` is translated to `div`, and `Remainder` and `Modulo`, which are the
+same on integers, to `mod`, which `back` reads as `Modulo`. Where the divisor
+is not zero the terms have the values of the expressions (`ev`), `assumesW`
+also finds `(not (= d 0))` for a divisor `d` that evaluation goes through, and
+`reachedCovered` accepts the clause as it does that of an assumption. The
+checks hold of the certificates of a recursive function with a precondition,
+with a query that calls it within the precondition, and with one that calls it
+outside, which has no solution for that reason, and of those of functions that
+divide, one of them by zero on an argument of the query. A mark doubles the
+body after it, so a body with many nested assumptions is read slowly.
 
 **The hypotheses that remain.**
 
