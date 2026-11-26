@@ -710,6 +710,48 @@ UNSAT answer for this fragment, up to its hypotheses: `Total`, the two that
 relate the certificate to the program and the query (`hE`, `hbase`), and
 `hfacts` for the facts that the check doesn't cover.
 
+**The program and the query of a certificate**
+([`Inox/Source.lean`](Inox/Source.lean)). `no_solution` is about a program and
+a query, and asks that the equations and the base clauses of the certificate
+are their translations. `no_solution_of_check` takes them from the certificate:
+`back` reads a term of Logos as an expression, `programOf r.equations` is the
+program of the functions that the defining equations read as, with the
+signatures `sigsOf r.equations`, and `queryOf r.base` the expressions that the
+base clauses read as, over the free variables `varsOf`. Nothing is proved of
+`back`. Instead `sourceCheck r` translates what it gives and compares the
+result with the terms, types the bodies and the query (`infer`, with
+`infer_sound`), and checks the names and the types, which gives `EqFor`,
+`BaseFor`, `SigOk`, `ProgTy`, `ProgFrag` and `VarsFresh`:
+
+```lean
+theorem no_solution_of_check (sound : LogosSound) (hO : O.Sound)
+    (hty : LogosTyping)
+    (hAccept : accept certificate = .ok checked)
+    (hr : termSteps checked = .ok r)
+    (hcheck : r.check = true) (hkeeps : r.keeps = true)
+    (hsrc : sourceCheck r = true)
+    (htot : Total O (programOf r.equations) (sigsOf r.equations))
+    (hfacts : FactsHoldExcept (Good r.equations) r.covered
+      (extend r.base r.fresh) r.facts)
+    (cd : Codes) (hM0 : model_wf M0) :
+    ∀ vs, ¬ Solution O (programOf r.equations)
+      (varsOf (sigsOf r.equations) r.base) (queryOf r.base) vs
+```
+
+The program read is the one that the certificate states, as Logos reads it: its
+names are those that Logos gives the constants, an n-ary operation is nested
+with its unit (`(+ a b)` reads as `a + (b + 0)`), and a body is the one that
+Inox unfolds, after its simplifications. That it is the program that Inox
+answered about is what the certificate's sources state, and is not proved. A
+call of a function without parameters is read as a variable, so the check
+refuses a certificate that has one.
+
+On the certificates that Inox prints for two inputs of the fragment, a
+recursive function over the integers and a recursive predicate with a query
+that has free variables, the checker accepts and `sourceCheck` holds. They are
+not kept here. On the regression certificates, which are mostly about ADTs and
+first-class functions, it only holds of a few that define no function.
+
 **The hypotheses that remain.**
 
 - `Total`, for `no_solution`. It leaves out the functions that don't terminate
@@ -721,17 +763,16 @@ relate the certificate to the program and the query (`hE`, `hbase`), and
 - `LogosSound`, `LogosTyping` (discharged in `InoxClosed`), and `O.Sound`, that
   the oracle of `Forall` and `UninterpretedCall` agrees with the semantics
   (unused on the fragment but required by `call`).
-- The shape of the program: `ProgFrag P`, `ProgTy S P` (each function of `S` is
-  defined in `P` with no type parameters and a body typed by `HasTy`), and
-  `SigOk S` (parameter and return types are `Int` or `Bool`, function names are
-  distinct, parameter names are distinct and are not function names).
-- `EqFor`: each equation of the certificate is the translation of a body of
-  `P`. This is what the certificate's sources have to give. A reflexivity
-  axiom among the equations is not one, so the theorem doesn't apply to a
-  certificate that has one; the programs of the fragment have none.
-- `BaseFor`: each base clause of the certificate is the translation of an
-  expression of the query. As for `EqFor`, the certificate's sources have to
-  give it.
+- For `no_solution` and `no_star_model`, the shape of the program (`ProgFrag
+  P`, `ProgTy S P`, `SigOk S`) and that the equations and the base clauses of
+  the certificate are the translations of its bodies and of the query (`EqFor`,
+  `BaseFor`). `sourceCheck` decides them for the program and the query read
+  from the certificate, so `no_solution_of_check` has `sourceCheck r = true` in
+  their place. A reflexivity axiom among the equations is not the translation
+  of a body, so the check refuses a certificate that has one; the programs of
+  the fragment have none.
+- That the program and the query read from the certificate are those that Inox
+  answered about.
 - `model_wf M0`, a well-formed model for the sorts and the other function
   values, and `cd : Codes`. That both exist is not proved here. For
   `no_star_model`, also `model_wf N` and `N.usortDom = M0.usortDom`.
