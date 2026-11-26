@@ -33,8 +33,8 @@ comparison accounts for both:
   them bounds its noise from below, for tests that vary more than others.
   Tests are only listed when the change is significant after a Bonferroni
   correction for the number of tests compared, and changes the duration by
-  at least 50% and 5 s. Shorter tests often move by a few seconds between
-  runners, which isn't worth reporting.
+  at least 50% and 1 s. The comment needs more for a job that no other job
+  confirms (see scripts/pr_comment.py).
 - A test that becomes slower by at least 5× and 30 s, or a new test of more
   than 2 minutes, is a major slowdown: no runner noise accounts for it, so it
   is reported on its own, ahead of the other changes, without the statistics.
@@ -58,7 +58,10 @@ MIN_DURATION = 0.2
 BUCKETS = [0.2, 1, 5, 30]
 # Listed tests change by at least this factor, and this many seconds.
 MIN_FACTOR = 1.5
-MIN_SECONDS = 5.0
+MIN_SECONDS = 1.0
+# A change that only one job sees needs this many seconds: tests of a few
+# seconds often move by that much between runners, in a single job.
+MIN_SECONDS_SINGLE = 5.0
 # Major slowdowns: tests that become slower by at least this factor and this
 # many seconds (relative to the build's overall speed), and new tests that
 # take at least this long.

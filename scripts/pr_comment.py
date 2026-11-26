@@ -26,7 +26,7 @@ import sys
 import zlib
 
 from test_timings import (MAJOR_FACTOR, MAJOR_NEW_SECONDS, MAJOR_SECONDS, MAX_LISTED, MIN_FACTOR,
-                          MIN_SECONDS, factor, interval, seconds, show)
+                          MIN_SECONDS, MIN_SECONDS_SINGLE, factor, interval, seconds, show)
 
 MARKER = "<!-- inox-coverage -->"
 MARKDOWN = ["stainless-skip", "coverage"]
@@ -107,7 +107,9 @@ def timings_table(sections, with_details=True):
             for t in j.get("tests", []):
                 seen.setdefault((t["key"], 1 if t["rel"] > 0 else -1), []).append((j, t))
         for (key, sign), occ in seen.items():
-            if len(gj) >= 2 and len(occ) >= 2 or len(gj) == 1 and gj[0].get("history", 0) >= MIN_HISTORY:
+            single = (len(gj) == 1 and gj[0].get("history", 0) >= MIN_HISTORY
+                      and abs(occ[0][1]["head"] - occ[0][1]["base"]) >= MIN_SECONDS_SINGLE)
+            if len(gj) >= 2 and len(occ) >= 2 or single:
                 listed[sign].append(occ)
             else:
                 unconfirmed += 1
@@ -179,7 +181,8 @@ def timings_table(sections, with_details=True):
     explain = (f"Changes are relative to each job's median test, which absorbs the runners' speed. "
                f"A test is listed when its change is significant (Bonferroni) and at least "
                f"{MIN_FACTOR:g}× and {MIN_SECONDS:g} s in two jobs, or, for a single job, once "
-               f"{MIN_HISTORY} earlier builds of `main` give each test's own noise.")
+               f"{MIN_HISTORY} earlier builds of `main` give each test's own noise and the change "
+               f"is of {MIN_SECONDS_SINGLE:g} s or more.")
     if unconfirmed:
         explain += f" {unconfirmed} change{'s' if unconfirmed > 1 else ''} seen in a single job only {'were' if unconfirmed > 1 else 'was'} left out."
     if n and with_details:
