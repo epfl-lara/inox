@@ -204,4 +204,18 @@ class SimplificationRecorderSuite extends AnyFunSuite with DatastructureUtils {
     assert(rules(And(p, Equals(a, b))) == Seq())
     assert(rules(Or(FunctionInvocation(wrapEqID, Seq(), Seq(b, a)), Not(Equals(a, b)))).contains("inline-equality"))
   }
+
+  test("The elements of tuples are simplified, and their sets built by a step of matchers") {
+    val t = Variable.fresh("t", TupleType(Seq(SetType(IntegerType()), BooleanType())))
+    val e = Equals(Tuple(Seq(FiniteSet(Seq(x, y), IntegerType()), Implies(p, q))), t)
+    assert(rules(e) == Seq("matchers", "logic"))
+    assert(simplifyFormula(e) == Equals(Tuple(Seq(SetAdd(SetAdd(FiniteSet(Seq(), IntegerType()), x), y), Or(Not(p), q))), t))
+  }
+
+  test("Lambdas that are bound around quantifiers are applied by steps of beta") {
+    val f = ValDef.fresh("f", FunctionType(Seq(IntegerType()), IntegerType()))
+    val e = Let(f, Lambda(Seq(n), Plus(n.toVariable, x)), And(Forall(Seq(i.toVal), GreaterThan(Application(f.toVariable, Seq(i)), y)), GreaterThan(Application(f.toVariable, Seq(y)), x)))
+    assert(rules(e) == Seq("expand", "beta", "logic", "expand", "beta", "logic", "logic"))
+    assert(simplifyFormula(e) == And(Forall(Seq(i.toVal), GreaterThan(Plus(i, x), y)), GreaterThan(Plus(y, x), x)))
+  }
 }

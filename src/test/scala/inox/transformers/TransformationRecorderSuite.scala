@@ -15,12 +15,6 @@ class TransformationRecorderSuite extends AnyFunSuite {
 
   def recorder(e: Expr) = TransformationRecorder(inox.trees)(e)
 
-  /** What `transform` makes of `e`, and the steps that it records. */
-  def record(e: Expr)(transform: Expr => Expr): (Expr, Seq[(String, Expr)]) =
-    TransformationRecorder.record(inox.trees)(e)(transform)
-
-  def current = TransformationRecorder.current(inox.trees)
-
   test("A rewrite is a step to the whole term") {
     val (por, pand) = (Or(p, q), And(p, r))
     val rec = recorder(And(por, pand))
@@ -107,28 +101,26 @@ class TransformationRecorderSuite extends AnyFunSuite {
     assert(rec.result(e) == Seq())
   }
 
-  test("A recorded transformation is given a term whose variables are told apart") {
-    val (res, steps) = record(And(p, Or(p, q))) { e =>
-      assert(e == And(p, Or(p, q)))
-      val And(Seq(first, Or(Seq(second, _)))) = e: @unchecked
-      assert(first ne second)
-      // the second occurrence is found, although the first one comes first
-      current.at(second) { current.rewrite("logic", t); t }
-      current.rewrite("logic", first)
-      first
-    }
-    assert(res == p && steps == Seq("logic" -> And(p, Or(t, q)), "logic" -> p))
-    assert(current eq null)
+  test("The occurrences of a variable are told apart in an unshared term") {
+    val e = TransformationRecorder.unshared(inox.trees)(And(p, Or(p, q)))
+    assert(e == And(p, Or(p, q)))
+    val And(Seq(first, Or(Seq(second, _)))) = e: @unchecked
+    assert(first ne second)
+    // the second occurrence is found, although the first one comes first
+    val rec = recorder(e)
+    rec.at(second) { rec.rewrite("logic", t); t }
+    rec.rewrite("logic", first)
+    assert(rec.result(first) == Seq("logic" -> And(p, Or(t, q)), "logic" -> p))
   }
 
   test("postMap records what it makes of each subterm") {
-    val (res, steps) = record(And(Not(Not(p)), Or(q, Not(Not(r))))) { e =>
-      current.postMap("double-negation") {
-        case Not(Not(e)) => Some(e)
-        case _ => None
-      } () (e)
-    }
+    val e = And(Not(Not(p)), Or(q, Not(Not(r))))
+    val rec = recorder(e)
+    val res = rec.postMap("double-negation") {
+      case Not(Not(e)) => Some(e)
+      case _ => None
+    } () (e)
     assert(res == And(p, Or(q, r)))
-    assert(steps == Seq("double-negation" -> And(p, Or(q, Not(Not(r)))), "double-negation" -> res))
+    assert(rec.result(res) == Seq("double-negation" -> And(p, Or(q, Not(Not(r)))), "double-negation" -> res))
   }
 }
