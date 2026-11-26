@@ -45,7 +45,22 @@ def idOf (s : native_String) : Id := String.ofList (s.map Char.ofNat)
 def tyOf : SmtType → Ty
   | .Int => .IntegerType
   | .Bool => .BooleanType
+  | .Datatype s _ => .ADTType (idOf s) []
   | _ => .UnitType
+
+/-- The name that the constructor of index `i` of the datatype `s` is read with. Logos has no
+names for the constructors and for the fields. -/
+def ctorName (s : native_String) (i : Nat) : Id := idOf s ++ "#" ++ toString i
+
+/-- The name that the field of index `j` of the constructor of index `i` of the datatype `s` is
+read with. -/
+def fieldName (s : native_String) (i j : Nat) : Id := ctorName s i ++ "." ++ toString j
+
+/-- The constructor that the head `f` of an application applies, if it applies one. -/
+def backCtor : SmtTerm → Option Id
+  | .Apply f _ => backCtor f
+  | .DtCons s _ i => some (ctorName s i)
+  | _ => none
 
 mutual
 /-- The expression that the term `t` is read as. A term outside the fragment is read as `Error`,
@@ -72,7 +87,13 @@ def back : SmtTerm → Expr
   | .geq a b => .GreaterEquals (back a) (back b)
   | .and a r => .And (back a :: backAnd r)
   | .or a r => .Or (back a :: backOr r)
-  | .Apply f a => .FunctionInvocation (backHead f) [] (backArgs f ++ [back a])
+  | .DtCons s _ i => .ADT (ctorName s i) [] []
+  | .Apply (.DtTester s _ i) a => .IsConstructor (back a) (ctorName s i)
+  | .Apply (.DtSel s _ i j) a => .ADTSelector (back a) (fieldName s i j)
+  | .Apply f a =>
+    match backCtor f with
+    | some c => .ADT c [] (backArgs f ++ [back a])
+    | none => .FunctionInvocation (backHead f) [] (backArgs f ++ [back a])
   | _ => .Error
 
 /-- The conjuncts of the rest `r` of a conjunction, which ends with `true`. -/
@@ -112,68 +133,115 @@ def consts : SmtTerm → List (native_String × SmtType)
 
 /-! ## Typing -/
 
-/-- Whether a type of the fragment is that of the Booleans. -/
-def kind : Ty → Option Bool
-  | .IntegerType => some false
-  | .BooleanType => some true
+/-- The types of the fragment: the integers, the Booleans and the datatypes. -/
+inductive K where
+  | int
+  | bool
+  | data (s : Id)
+  deriving DecidableEq
+
+/-- The type of a kind. -/
+def K.ty : K → Ty
+  | .int => .IntegerType
+  | .bool => .BooleanType
+  | .data s => .ADTType s []
+
+/-- The kind of a type of the fragment. -/
+def kind (D : List Data) : Ty → Option K
+  | .IntegerType => some .int
+  | .BooleanType => some .bool
+  | .ADTType s [] => if (findData D s).isSome then some (.data s) else none
   | _ => none
 
-/-- The type of the fragment of a kind. -/
-def ofKind : Bool → Ty
-  | true => .BooleanType
-  | false => .IntegerType
+theorem kind_spec {D : List Data} {T : Ty} {k : K} (h : kind D T = some k) : T = k.ty := by
+  cases T <;> try (simp [kind] at h; done)
+  case IntegerType => simp only [kind, Option.some.injEq] at h; subst h; rfl
+  case BooleanType => simp only [kind, Option.some.injEq] at h; subst h; rfl
+  case ADTType s args =>
+    cases args with
+    | cons _ _ => simp [kind] at h
+    | nil =>
+      simp only [kind] at h
+      split at h
+      · simp only [Option.some.injEq] at h; subst h; rfl
+      · cases h
 
-theorem kind_spec {T : Ty} {b : Bool} (h : kind T = some b) : T = ofKind b := by
-  cases T <;> simp [kind] at h <;> subst h <;> rfl
+theorem fragTy_of_kind {D : List Data} {T : Ty} (h : (kind D T).isSome = true) : FragTy D T := by
+  cases T <;> try (simp [kind] at h; done)
+  case IntegerType => trivial
+  case BooleanType => trivial
+  case ADTType s args =>
+    cases args with
+    | cons _ _ => simp [kind] at h
+    | nil =>
+      simp only [kind] at h
+      split at h
+      · rename_i hs; simpa [FragTy] using hs
+      · cases h
 
-theorem fragTy_ofKind (b : Bool) : FragTy (ofKind b) := by cases b <;> trivial
+theorem kind_data {D : List Data} (hD : DataOk D) {d : Data} (hd : d ∈ D) :
+    kind D (.ADTType d.name []) = some (.data d.name) := by
+  simp [kind, findData_of_mem hD.nodup hd]
 
 mutual
 /-- The kind of the type of `e`, if it is an expression of the fragment. -/
-def infer (S : List Sig) (Γ : List (Id × Ty)) : Expr → Option Bool
-  | .Variable x => (Γ.lookup x).bind kind
-  | .IntegerLiteral _ => some false
-  | .BooleanLiteral _ => some true
+def infer (D : List Data) (S : List Sig) (Γ : List (Id × Ty)) : Expr → Option K
+  | .Variable x => (Γ.lookup x).bind (kind D)
+  | .IntegerLiteral _ => some .int
+  | .BooleanLiteral _ => some .bool
   | .IfExpr c a b =>
-    match infer S Γ c, infer S Γ a, infer S Γ b with
-    | some true, some k, some k' => if k = k' then some k else none
+    match infer D S Γ c, infer D S Γ a, infer D S Γ b with
+    | some .bool, some k, some k' => if k = k' then some k else none
     | _, _, _ => none
-  | .And es => if inferAll S Γ es then some true else none
-  | .Or es => if inferAll S Γ es then some true else none
-  | .Not a => if infer S Γ a = some true then some true else none
+  | .And es => if inferAll D S Γ es then some .bool else none
+  | .Or es => if inferAll D S Γ es then some .bool else none
+  | .Not a => if infer D S Γ a = some .bool then some .bool else none
   | .Implies a b =>
-    if infer S Γ a = some true ∧ infer S Γ b = some true then some true else none
+    if infer D S Γ a = some .bool ∧ infer D S Γ b = some .bool then some .bool else none
   | .Equals a b =>
-    match infer S Γ a, infer S Γ b with
-    | some k, some k' => if k = k' then some true else none
+    match infer D S Γ a, infer D S Γ b with
+    | some k, some k' => if k = k' then some .bool else none
     | _, _ => none
   | .Plus a b | .Minus a b | .Times a b | .Division a b | .Remainder a b | .Modulo a b =>
-    if infer S Γ a = some false ∧ infer S Γ b = some false then some false else none
-  | .UMinus a => if infer S Γ a = some false then some false else none
+    if infer D S Γ a = some .int ∧ infer D S Γ b = some .int then some .int else none
+  | .UMinus a => if infer D S Γ a = some .int then some .int else none
   | .LessThan a b | .GreaterThan a b | .LessEquals a b | .GreaterEquals a b =>
-    if infer S Γ a = some false ∧ infer S Γ b = some false then some true else none
+    if infer D S Γ a = some .int ∧ infer D S Γ b = some .int then some .bool else none
   | .FunctionInvocation f [] args =>
     match findSig S f with
-    | some s => if inferArgs S Γ args (s.params.map Prod.snd) then kind s.ret else none
+    | some s => if inferArgs D S Γ args (s.params.map Prod.snd) then kind D s.ret else none
     | none => none
-  | .Assume p b => if infer S Γ p = some true then infer S Γ b else none
+  | .Assume p b => if infer D S Γ p = some .bool then infer D S Γ b else none
+  | .ADT c [] args =>
+    match findCtor D c with
+    | some (d, _, fs) =>
+      if inferArgs D S Γ args (fs.map Prod.snd) then some (.data d.name) else none
+    | none => none
+  | .IsConstructor a c =>
+    match findCtor D c with
+    | some (d, _, _) => if infer D S Γ a = some (.data d.name) then some .bool else none
+    | none => none
+  | .ADTSelector a x =>
+    match findSel D x with
+    | some (d, _, _, T) => if infer D S Γ a = some (.data d.name) then kind D T else none
+    | none => none
   | _ => none
 
 /-- The expressions `es` are Booleans. -/
-def inferAll (S : List Sig) (Γ : List (Id × Ty)) : List Expr → Bool
+def inferAll (D : List Data) (S : List Sig) (Γ : List (Id × Ty)) : List Expr → Bool
   | [] => true
-  | e :: es => infer S Γ e = some true && inferAll S Γ es
+  | e :: es => infer D S Γ e = some .bool && inferAll D S Γ es
 
 /-- The arguments `es` are of the types `Ts`. -/
-def inferArgs (S : List Sig) (Γ : List (Id × Ty)) : List Expr → List Ty → Bool
+def inferArgs (D : List Data) (S : List Sig) (Γ : List (Id × Ty)) : List Expr → List Ty → Bool
   | [], [] => true
-  | e :: es, T :: Ts => (infer S Γ e).isSome && infer S Γ e = kind T && inferArgs S Γ es Ts
+  | e :: es, T :: Ts => (infer D S Γ e).isSome && infer D S Γ e = kind D T && inferArgs D S Γ es Ts
   | _, _ => false
 end
 
 mutual
-theorem infer_sound (S : List Sig) (Γ : List (Id × Ty)) :
-    ∀ (e : Expr) (k : Bool), infer S Γ e = some k → HasTy S Γ e (ofKind k)
+theorem infer_sound (hD : DataOk D) (S : List Sig) (Γ : List (Id × Ty)) :
+    ∀ (e : Expr) (k : K), infer D S Γ e = some k → HasTy D S Γ e (k.ty)
   | .Variable x, k, h => by
     simp only [infer] at h
     cases hx : Γ.lookup x with
@@ -182,7 +250,7 @@ theorem infer_sound (S : List Sig) (Γ : List (Id × Ty)) :
       simp only [hx, Option.bind_some] at h
       have := kind_spec h
       subst this
-      exact .var hx (fragTy_ofKind k)
+      exact .var hx (fragTy_of_kind (by rw [h]; rfl))
   | .IntegerLiteral i, k, h => by
     simp only [infer, Option.some.injEq] at h; subst h; exact .int i
   | .BooleanLiteral b, k, h => by
@@ -195,7 +263,8 @@ theorem infer_sound (S : List Sig) (Γ : List (Id × Ty)) :
       · rename_i hk
         simp only [Option.some.injEq] at h
         subst hk; subst h
-        exact .ite (infer_sound S Γ c true hc) (infer_sound S Γ a _ ha) (infer_sound S Γ b _ hb)
+        exact .ite (infer_sound hD S Γ c .bool hc) (infer_sound hD S Γ a _ ha) (infer_sound hD S Γ
+            b _ hb)
       · cases h
     · cases h
   | .And es, k, h => by
@@ -203,28 +272,28 @@ theorem infer_sound (S : List Sig) (Γ : List (Id × Ty)) :
     split at h
     · rename_i hall
       simp only [Option.some.injEq] at h; subst h
-      exact .and (inferAll_sound S Γ es hall)
+      exact .and (inferAll_sound hD S Γ es hall)
     · cases h
   | .Or es, k, h => by
     simp only [infer] at h
     split at h
     · rename_i hall
       simp only [Option.some.injEq] at h; subst h
-      exact .or (inferAll_sound S Γ es hall)
+      exact .or (inferAll_sound hD S Γ es hall)
     · cases h
   | .Not a, k, h => by
     simp only [infer] at h
     split at h
     · rename_i ha
       simp only [Option.some.injEq] at h; subst h
-      exact .not (infer_sound S Γ a true ha)
+      exact .not (infer_sound hD S Γ a .bool ha)
     · cases h
   | .Implies a b, k, h => by
     simp only [infer] at h
     split at h
     · rename_i hab
       simp only [Option.some.injEq] at h; subst h
-      exact .implies (infer_sound S Γ a true hab.1) (infer_sound S Γ b true hab.2)
+      exact .implies (infer_sound hD S Γ a .bool hab.1) (infer_sound hD S Γ b .bool hab.2)
     · cases h
   | .Equals a b, k, h => by
     simp only [infer] at h
@@ -234,7 +303,7 @@ theorem infer_sound (S : List Sig) (Γ : List (Id × Ty)) :
       · rename_i hk
         simp only [Option.some.injEq] at h
         subst hk; subst h
-        exact .equals (infer_sound S Γ a _ ha) (infer_sound S Γ b _ hb)
+        exact .equals (infer_sound hD S Γ a _ ha) (infer_sound hD S Γ b _ hb)
       · cases h
     · cases h
   | .Plus a b, k, h => by
@@ -242,77 +311,77 @@ theorem infer_sound (S : List Sig) (Γ : List (Id × Ty)) :
     split at h
     · rename_i hab
       simp only [Option.some.injEq] at h; subst h
-      exact .plus (infer_sound S Γ a false hab.1) (infer_sound S Γ b false hab.2)
+      exact .plus (infer_sound hD S Γ a .int hab.1) (infer_sound hD S Γ b .int hab.2)
     · cases h
   | .Minus a b, k, h => by
     simp only [infer] at h
     split at h
     · rename_i hab
       simp only [Option.some.injEq] at h; subst h
-      exact .minus (infer_sound S Γ a false hab.1) (infer_sound S Γ b false hab.2)
+      exact .minus (infer_sound hD S Γ a .int hab.1) (infer_sound hD S Γ b .int hab.2)
     · cases h
   | .Times a b, k, h => by
     simp only [infer] at h
     split at h
     · rename_i hab
       simp only [Option.some.injEq] at h; subst h
-      exact .times (infer_sound S Γ a false hab.1) (infer_sound S Γ b false hab.2)
+      exact .times (infer_sound hD S Γ a .int hab.1) (infer_sound hD S Γ b .int hab.2)
     · cases h
   | .Division a b, k, h => by
     simp only [infer] at h
     split at h
     · rename_i hab
       simp only [Option.some.injEq] at h; subst h
-      exact .div (infer_sound S Γ a false hab.1) (infer_sound S Γ b false hab.2)
+      exact .div (infer_sound hD S Γ a .int hab.1) (infer_sound hD S Γ b .int hab.2)
     · cases h
   | .Remainder a b, k, h => by
     simp only [infer] at h
     split at h
     · rename_i hab
       simp only [Option.some.injEq] at h; subst h
-      exact .rem (infer_sound S Γ a false hab.1) (infer_sound S Γ b false hab.2)
+      exact .rem (infer_sound hD S Γ a .int hab.1) (infer_sound hD S Γ b .int hab.2)
     · cases h
   | .Modulo a b, k, h => by
     simp only [infer] at h
     split at h
     · rename_i hab
       simp only [Option.some.injEq] at h; subst h
-      exact .mod (infer_sound S Γ a false hab.1) (infer_sound S Γ b false hab.2)
+      exact .mod (infer_sound hD S Γ a .int hab.1) (infer_sound hD S Γ b .int hab.2)
     · cases h
   | .UMinus a, k, h => by
     simp only [infer] at h
     split at h
     · rename_i ha
       simp only [Option.some.injEq] at h; subst h
-      exact .uminus (infer_sound S Γ a false ha)
+      exact .uminus (infer_sound hD S Γ a .int ha)
     · cases h
   | .LessThan a b, k, h => by
     simp only [infer] at h
     split at h
     · rename_i hab
       simp only [Option.some.injEq] at h; subst h
-      exact .lt (infer_sound S Γ a false hab.1) (infer_sound S Γ b false hab.2)
+      exact .lt (infer_sound hD S Γ a .int hab.1) (infer_sound hD S Γ b .int hab.2)
     · cases h
   | .GreaterThan a b, k, h => by
     simp only [infer] at h
     split at h
     · rename_i hab
       simp only [Option.some.injEq] at h; subst h
-      exact .gt (infer_sound S Γ a false hab.1) (infer_sound S Γ b false hab.2)
+      exact .gt (infer_sound hD S Γ a .int hab.1) (infer_sound hD S Γ b .int hab.2)
     · cases h
   | .LessEquals a b, k, h => by
     simp only [infer] at h
     split at h
     · rename_i hab
       simp only [Option.some.injEq] at h; subst h
-      exact .le (infer_sound S Γ a false hab.1) (infer_sound S Γ b false hab.2)
+      exact .le (infer_sound hD S Γ a .int hab.1) (infer_sound hD S Γ b .int hab.2)
     · cases h
   | .GreaterEquals a b, k, h => by
     simp only [infer] at h
     split at h
     · rename_i hab
       simp only [Option.some.injEq] at h; subst h
-      exact .ge (infer_sound S Γ a false hab.1) (infer_sound S Γ b false hab.2)
+      exact .ge (infer_sound hD S Γ a .int hab.1) (infer_sound hD S Γ b .int hab.2)
     · cases h
   | .FunctionInvocation f [] args, k, h => by
     simp only [infer] at h
@@ -322,7 +391,7 @@ theorem infer_sound (S : List Sig) (Γ : List (Id × Ty)) :
       · rename_i hargs
         obtain ⟨_, rfl⟩ := findSig_spec hs
         have hr := kind_spec h
-        obtain ⟨hlen, hall⟩ := inferArgs_sound S Γ args _ hargs
+        obtain ⟨hlen, hall⟩ := inferArgs_sound hD S Γ args _ hargs
         rw [← hr]
         exact .invoke hs (by simpa using hlen) hall
       · cases h
@@ -332,14 +401,46 @@ theorem infer_sound (S : List Sig) (Γ : List (Id × Ty)) :
     simp only [infer] at h
     split at h
     · rename_i hp
-      exact .assume (infer_sound S Γ p true hp) (infer_sound S Γ b k h)
+      exact .assume (infer_sound hD S Γ p .bool hp) (infer_sound hD S Γ b k h)
+    · cases h
+  | .ADT c [] args, k, h => by
+    simp only [infer] at h
+    split at h
+    · rename_i d i fs hc
+      split at h
+      · rename_i hargs
+        simp only [Option.some.injEq] at h; subst h
+        obtain ⟨hlen, hall⟩ := inferArgs_sound hD S Γ args _ hargs
+        exact .adt hc (by simpa using hlen) hall
+      · cases h
+    · cases h
+  | .ADT c (_ :: _) args, k, h => by simp [infer] at h
+  | .IsConstructor a c, k, h => by
+    simp only [infer] at h
+    split at h
+    · rename_i d i fs hc
+      split at h
+      · rename_i ha
+        simp only [Option.some.injEq] at h; subst h
+        exact .isCons hc (infer_sound hD S Γ a _ ha)
+      · cases h
+    · cases h
+  | .ADTSelector a x, k, h => by
+    simp only [infer] at h
+    split at h
+    · rename_i d i j T hx
+      split at h
+      · rename_i ha
+        rw [← kind_spec h]
+        exact .sel hx (infer_sound hD S Γ a _ ha)
+      · cases h
     · cases h
   | .Let _ _ _, k, h | .Application _ _, k, h | .Lambda _ _, k, h
   | .Forall _ _, k, h | .UninterpretedCall _ _ _, k, h | .Error, k, h | .CharLiteral _, k, h
   | .BVLiteral _ _ _, k, h | .FractionLiteral _ _, k, h | .FPLiteral _ _ _, k, h
   | .StringLiteral _, k, h | .UnitLiteral, k, h | .RoundNearestTiesToEven, k, h
   | .RoundNearestTiesToAway, k, h | .RoundTowardPositive, k, h | .RoundTowardNegative, k, h
-  | .RoundTowardZero, k, h | .ADT _ _ _, k, h | .IsConstructor _ _, k, h | .ADTSelector _ _, k, h
+  | .RoundTowardZero, k, h
   | .StringConcat _ _, k, h | .SubString _ _ _, k, h | .StringLength _, k, h
   | .BVNot _, k, h
   | .BVAnd _ _, k, h | .BVOr _ _, k, h | .BVXor _ _, k, h | .BVShiftLeft _ _, k, h
@@ -361,18 +462,18 @@ theorem infer_sound (S : List Sig) (Γ : List (Id × Ty)) :
   | .MapMerge _ _ _, k, h => by
     simp [infer] at h
 
-theorem inferAll_sound (S : List Sig) (Γ : List (Id × Ty)) :
-    ∀ es : List Expr, inferAll S Γ es = true → ∀ e ∈ es, HasTy S Γ e .BooleanType
+theorem inferAll_sound (hD : DataOk D) (S : List Sig) (Γ : List (Id × Ty)) :
+    ∀ es : List Expr, inferAll D S Γ es = true → ∀ e ∈ es, HasTy D S Γ e .BooleanType
   | [], _ => fun e he => by cases he
   | a :: es, h => fun e he => by
     simp only [inferAll, Bool.and_eq_true, decide_eq_true_eq] at h
     rcases List.mem_cons.mp he with he | he
-    · rw [he]; exact infer_sound S Γ a true h.1
-    · exact inferAll_sound S Γ es h.2 e he
+    · rw [he]; exact infer_sound hD S Γ a .bool h.1
+    · exact inferAll_sound hD S Γ es h.2 e he
 
-theorem inferArgs_sound (S : List Sig) (Γ : List (Id × Ty)) :
-    ∀ (es : List Expr) (Ts : List Ty), inferArgs S Γ es Ts = true →
-      es.length = Ts.length ∧ ∀ p ∈ es.zip Ts, HasTy S Γ p.1 p.2
+theorem inferArgs_sound (hD : DataOk D) (S : List Sig) (Γ : List (Id × Ty)) :
+    ∀ (es : List Expr) (Ts : List Ty), inferArgs D S Γ es Ts = true →
+      es.length = Ts.length ∧ ∀ p ∈ es.zip Ts, HasTy D S Γ p.1 p.2
   | [], [], _ => ⟨rfl, fun p hp => by cases hp⟩
   | [], _ :: _, h => by simp [inferArgs] at h
   | _ :: _, [], h => by simp [inferArgs] at h
@@ -381,16 +482,16 @@ theorem inferArgs_sound (S : List Sig) (Γ : List (Id × Ty)) :
     obtain ⟨⟨hsome, hk⟩, hrest⟩ := h
     obtain ⟨k, hek⟩ := Option.isSome_iff_exists.mp hsome
     have hT := kind_spec (hek ▸ hk).symm
-    obtain ⟨hlen, hall⟩ := inferArgs_sound S Γ es Ts hrest
+    obtain ⟨hlen, hall⟩ := inferArgs_sound hD S Γ es Ts hrest
     refine ⟨by simp [hlen], fun p hp => ?_⟩
     rw [List.zip_cons_cons] at hp
     rcases List.mem_cons.mp hp with hp | hp
-    · rw [hp, hT]; exact infer_sound S Γ e k hek
+    · rw [hp, hT]; exact infer_sound hD S Γ e k hek
     · exact hall p hp
 end
 
 /-- An expression of the fragment is in the fragment of fuel monotonicity. -/
-theorem HasTy.frag {S : List Sig} {Γ : List (Id × Ty)} {e : Expr} {T : Ty} (h : HasTy S Γ e T) :
+theorem HasTy.frag {S : List Sig} {Γ : List (Id × Ty)} {e : Expr} {T : Ty} (h : HasTy D S Γ e T) :
     Frag e := by
   induction h with
   | var _ _ => exact .var
@@ -420,6 +521,148 @@ theorem HasTy.frag {S : List Sig} {Γ : List (Id × Ty)} {e : Expr} {T : Ty} (h 
     exact ih (_, _) (List.mem_iff_getElem.mpr
       ⟨i, by rw [List.length_zip]; exact Nat.lt_min.mpr ⟨hi, hi'⟩, List.getElem_zip⟩)
   | assume _ _ ihp ihb => exact .assume ihp ihb
+  | @adt c d i fs args _ hlen _ ih =>
+    refine .adt fun a ha => ?_
+    obtain ⟨n, hn, rfl⟩ := List.mem_iff_getElem.mp ha
+    have hn' : n < (fs.map Prod.snd).length := by rw [List.length_map, ← hlen]; exact hn
+    exact ih (_, _) (List.mem_iff_getElem.mpr
+      ⟨n, by rw [List.length_zip]; exact Nat.lt_min.mpr ⟨hn, hn'⟩, List.getElem_zip⟩)
+  | isCons _ _ ih => exact .isCons ih
+  | sel _ _ ih => exact .select ih
+
+/-! ## The datatypes of a certificate -/
+
+/-- The datatypes that the declaration `dd0` declares, from those of `dd` on. -/
+def declNames (dd0 : SmtDatatypeDecl) : SmtDatatypeDecl → List (native_String × SmtDatatypeDecl)
+  | .nil => []
+  | .cons s _ dd => (s, dd0) :: declNames dd0 dd
+
+mutual
+/-- The datatypes that the sort `T` mentions, each with its declaration. -/
+def declsOfType : SmtType → List (native_String × SmtDatatypeDecl)
+  | .Datatype _ dd => declNames dd dd ++ declsOfDecl dd
+  | .FunType A B => declsOfType A ++ declsOfType B
+  | _ => []
+
+def declsOfDecl : SmtDatatypeDecl → List (native_String × SmtDatatypeDecl)
+  | .nil => []
+  | .cons _ d dd => declsOfDt d ++ declsOfDecl dd
+
+def declsOfDt : SmtDatatype → List (native_String × SmtDatatypeDecl)
+  | .null => []
+  | .sum c d => declsOfCons c ++ declsOfDt d
+
+def declsOfCons : SmtDatatypeCons → List (native_String × SmtDatatypeDecl)
+  | .unit => []
+  | .cons T c => declsOfType T ++ declsOfCons c
+end
+
+/-- The sorts that `t` mentions: those of its constants, and the datatypes of its constructors,
+testers and selectors. -/
+def typesOf : SmtTerm → List SmtType
+  | .UConst _ T => [T]
+  | .DtCons s dd _ | .DtSel s dd _ _ | .DtTester s dd _ => [.Datatype s dd]
+  | .ite c a b => typesOf c ++ typesOf a ++ typesOf b
+  | .not a | .uneg a => typesOf a
+  | .xor a b | .imp a b | .eq a b | .plus a b | .neg a b | .mult a b | .div a b | .mod a b
+  | .lt a b | .gt a b | .leq a b | .geq a b | .and a b | .or a b | .Apply a b =>
+    typesOf a ++ typesOf b
+  | _ => []
+
+/-- The fields of a constructor of the datatype `s`, of index `i`, from the field of index `j`
+on. -/
+def fieldsOfCons (s : native_String) (i : Nat) : SmtDatatypeCons → Nat → List (Id × Ty)
+  | .unit, _ => []
+  | .cons U c, j => (fieldName s i j, tyOf U) :: fieldsOfCons s i c (j + 1)
+
+/-- The constructors of the datatype `s`, from the constructor of index `i` on. -/
+def ctorsOfDt (s : native_String) : SmtDatatype → Nat → List (Id × List (Id × Ty))
+  | .null, _ => []
+  | .sum c d, i => (ctorName s i, fieldsOfCons s i c 0) :: ctorsOfDt s d (i + 1)
+
+/-- The datatype `p.1` of the declaration `p.2`, with the names that its constructors and their
+fields are read with. -/
+def dataOfDecl (p : native_String × SmtDatatypeDecl) : Data where
+  name := idOf p.1
+  decl := p.2
+  ctors := ctorsOfDt p.1 (__smtx_dt_resolve (__smtx_dd_lookup p.1 p.2) p.2) 0
+
+/-- The datatypes that the terms `ts` and the sorts `Ts` mention. -/
+def datasOf (ts : List SmtTerm) (Ts : List SmtType) : List Data :=
+  ((ts.flatMap typesOf ++ Ts).flatMap declsOfType).eraseDups.map dataOfDecl
+
+/-- The datatypes are as the bridge asks (`DataOk`). -/
+def dataCheck (D : List Data) : Bool :=
+  decide (D.map (·.name)).Nodup &&
+    decide (D.flatMap fun d => d.ctors.map (·.1)).Nodup &&
+    decide (D.flatMap fun d => d.ctors.flatMap fun c => c.2.map (·.1)).Nodup &&
+    (D.all fun d => d.ctors.all fun c => c.2.all fun f => (kind D f.2).isSome) &&
+    D.all fun d =>
+      decide (__smtx_dt_resolve (__smtx_dd_lookup (nm d.name) d.decl) d.decl =
+        sumT D d.ctors) &&
+      __smtx_type_wf (.Datatype (nm d.name) d.decl)
+
+theorem dataOk_of_check {D : List Data} (h : dataCheck D = true) : DataOk D := by
+  simp only [dataCheck, Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true] at h
+  obtain ⟨⟨⟨⟨hn, hc⟩, hs⟩, hf⟩, hr⟩ := h
+  exact
+    { nodup := hn
+      ctors := hc
+      sels := hs
+      fields := fun d hd c hc f hf' => fragTy_of_kind (hf d hd c hc f hf')
+      resolved := fun d hd => (hr d hd).1
+      wf := fun d hd => (hr d hd).2 }
+
+/-- The constructors of the datatype `d`, as those of a program. -/
+def ctorsOfData (d : Data) : List Constructor :=
+  d.ctors.map fun c => .Constructor c.1 d.name (c.2.map fun f => .Param f.1 f.2)
+
+theorem lookup_ctor_data (name : Id) (rest : List Constructor) (c : Id) :
+    ∀ cs : List (Id × List (Id × Ty)),
+      lookup_ctor ((cs.map fun k => Constructor.Constructor k.1 name
+        (k.2.map fun f => .Param f.1 f.2)) ++ rest) c =
+      match lookupIdx c cs with
+      | some r => .Ok (.Constructor c name (r.2.map fun f => .Param f.1 f.2))
+      | none => lookup_ctor rest c
+  | [] => by simp [lookupIdx]
+  | k :: cs => by
+    rw [List.map_cons, List.cons_append, lookup_ctor]
+    by_cases hk : c = k.1
+    · subst hk
+      simp [lookupIdx]
+    · rw [dite_eq_right_of_eq_false (eq_false hk), lookup_ctor_data name rest c cs]
+      have hk' : ¬k.1 = c := fun e => hk e.symm
+      simp only [lookupIdx, hk', ↓reduceIte]
+      cases lookupIdx c cs <;> rfl
+
+theorem lookup_ctor_of : ∀ {D : List Data} {c : Id} {d : Data} {i : Nat} {fs : List (Id × Ty)},
+    findCtor D c = some (d, i, fs) →
+    lookup_ctor (D.flatMap ctorsOfData) c =
+      .Ok (.Constructor c d.name (fs.map fun f => .Param f.1 f.2))
+  | [], _, _, _, _, h => by cases h
+  | a :: D, c, d, i, fs, h => by
+    rw [List.flatMap_cons, ctorsOfData, lookup_ctor_data]
+    simp only [findCtor, List.findSome?_cons, ctorIn] at h
+    cases hl : lookupIdx c a.ctors with
+    | some r =>
+      simp only [hl, Option.map_some, Option.some.injEq, Prod.mk.injEq] at h
+      obtain ⟨rfl, rfl⟩ := h
+      rfl
+    | none =>
+      simp only [hl, Option.map_none] at h
+      exact lookup_ctor_of h
+
+theorem lookup_sort_of : ∀ {D : List Data} {d : Data}, d ∈ D →
+    lookup_sort (D.map fun d => ADTSort.Sort d.name [] none) d.name = .Ok (.Sort d.name [] none)
+  | [], _, h => by cases h
+  | a :: D, d, h => by
+    rw [List.map_cons, lookup_sort]
+    by_cases hn : d.name = a.name
+    · rw [dite_eq_left_of_eq_true (eq_true hn), hn]
+    · rw [dite_eq_right_of_eq_false (eq_false hn)]
+      rcases List.mem_cons.mp h with rfl | h'
+      · exact absurd rfl hn
+      · exact lookup_sort_of h'
 
 /-! ## The program and the query of a certificate -/
 
@@ -457,9 +700,25 @@ def funOf (e : Equation) : FunDef :=
 /-- The signatures of the functions that the equations define. -/
 def sigsOf (eqs : List Equation) : List Sig := eqs.map sigOf
 
-/-- The program of the functions that the equations define. -/
-def programOf (eqs : List Equation) : Program :=
-  .Program (eqs.map funOf) [] [] [] .NoFunctionEquality
+/-- The datatypes of the certificate: those that its equations, with the sorts of their
+parameters, its base clauses and its query mention. -/
+def dataOf (r : TermSteps) : List Data :=
+  datasOf
+    ((r.equations.flatMap fun e =>
+        __eo_to_smt e.term :: (e.source.map __eo_to_smt).toList) ++
+      (r.base ++ r.query).map __eo_to_smt)
+    (r.equations.flatMap fun e => e.params.map (·.2))
+
+/-- The program of the functions that the equations define, with the datatypes `D`, which have no
+type parameters and no invariants. -/
+def programOf (D : List Data) (eqs : List Equation) : Program :=
+  .Program (eqs.map funOf) (D.flatMap ctorsOfData) (D.map fun d => .Sort d.name [] none) []
+    .NoFunctionEquality
+
+theorem progData_programOf (D : List Data) (eqs : List Equation) :
+    ProgData D (programOf D eqs) := by
+  intro c d i fs h
+  exact ⟨lookup_ctor_of h, lookup_sort_of (findCtor_spec h).1⟩
 
 /-- The free variables of the clauses `base`: their constants, other than the functions of `S`. -/
 def varsOf (S : List Sig) (base : List Term) : List (Id × Ty) :=
@@ -471,45 +730,49 @@ the assumptions of the source expressions marked (`TermSteps.query`). -/
 def queryOf (query : List Term) : List Expr := query.map fun t => back (__eo_to_smt t)
 
 /-- The signatures `S` are of the fragment, with distinct names. -/
-def sigCheck (S : List Sig) : Bool :=
+def sigCheck (D : List Data) (S : List Sig) : Bool :=
   decide (S.map Sig.name).Nodup && S.all fun s =>
-    (kind s.ret).isSome && decide (s.params.map Prod.fst).Nodup &&
-      s.params.all fun p => (kind p.2).isSome && S.all fun s' => p.1 != s'.name
+    (kind D s.ret).isSome && decide (s.params.map Prod.fst).Nodup &&
+      s.params.all fun p => (kind D p.2).isSome && S.all fun s' => p.1 != s'.name
 
 /-- The equation `e` is the translation of the function read from it, whose body is typed. -/
-def eqCheck (S : List Sig) (e : Equation) : Bool :=
+def eqCheck (D : List Data) (S : List Sig) (e : Equation) : Bool :=
   let s := sigOf e
-  decide (e.params = ptys s.params) &&
+  decide (e.params = ptys D s.params) &&
     decide (__eo_to_smt e.term = .eq
-      (spine (.UConst (nm s.name) s.toDef.ty) ((ptys s.params).map fun q => .UConst q.1 q.2))
-      (tr S s.params (bodyOf e))) &&
-    (kind s.ret).isSome && decide (infer S s.params (bodyOf e) = kind s.ret)
+      (spine (.UConst (nm s.name) (s.toDef D).ty)
+        ((ptys D s.params).map fun q => .UConst q.1 q.2))
+      (tr D S s.params (bodyOf e))) &&
+    (kind D s.ret).isSome && decide (infer D S s.params (bodyOf e) = kind D s.ret)
 
 /-- The variables `Γ` are of the fragment, and named after no function of `S`. -/
-def varsCheck (S : List Sig) (Γ : List (Id × Ty)) : Bool :=
-  Γ.all fun p => (kind p.2).isSome && S.all fun s => p.1 != s.name
+def varsCheck (D : List Data) (S : List Sig) (Γ : List (Id × Ty)) : Bool :=
+  Γ.all fun p => (kind D p.2).isSome && S.all fun s => p.1 != s.name
 
 /-- Each expression of the query is a Boolean, and each base clause is the translation of one,
 which leaves its assumptions out. -/
-def baseCheck (S : List Sig) (Γ : List (Id × Ty)) (base query : List Term) : Bool :=
-  (query.all fun s => decide (infer S Γ (back (__eo_to_smt s)) = some true)) &&
-    base.all fun t => query.any fun s => decide (__eo_to_smt t = tr S Γ (back (__eo_to_smt s)))
+def baseCheck (D : List Data) (S : List Sig) (Γ : List (Id × Ty)) (base query : List Term) :
+    Bool :=
+  (query.all fun s => decide (infer D S Γ (back (__eo_to_smt s)) = some .bool)) &&
+    base.all fun t => query.any fun s =>
+      decide (__eo_to_smt t = tr D S Γ (back (__eo_to_smt s)))
 
 /-- The equations and the base clauses of `r` are the translations of the program and of the
-query read from them, which are of the fragment. -/
+query read from them, which are of the fragment, with the datatypes that they mention. -/
 def sourceCheck (r : TermSteps) : Bool :=
+  let D := dataOf r
   let S := sigsOf r.equations
   let Γ := varsOf S r.query
-  sigCheck S && r.equations.all (eqCheck S) && varsCheck S Γ && baseCheck S Γ r.base r.query
+  dataCheck D && sigCheck D S && r.equations.all (eqCheck D S) && varsCheck D S Γ &&
+    baseCheck D S Γ r.base r.query
 
-theorem fragTy_of_kind {T : Ty} (h : (kind T).isSome = true) : FragTy T := by
-  cases T <;> simp [kind] at h <;> trivial
-
-theorem sigOk_of_check {S : List Sig} (h : sigCheck S = true) : SigOk S := by
+theorem sigOk_of_check {D : List Data} (hD : DataOk D) {S : List Sig}
+    (h : sigCheck D S = true) : SigOk D S := by
   simp only [sigCheck, Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true, bne_iff_ne] at h
   obtain ⟨hnd, hall⟩ := h
   exact
-    { params := fun s hs p hp => fragTy_of_kind ((hall s hs).2 p hp).1
+    { data := hD
+      params := fun s hs p hp => fragTy_of_kind ((hall s hs).2 p hp).1
       ret := fun s hs => fragTy_of_kind (hall s hs).1.1
       nodup := hnd
       pnodup := fun s hs => (hall s hs).1.2
@@ -531,57 +794,62 @@ theorem lookup_funOf : ∀ {eqs : List Equation}, ((sigsOf eqs).map Sig.name).No
       · rename_i heq; exact absurd heq hne
       · exact lookup_funOf hnd.2 e he
 
-variable {O : Oracle}
+variable {O : Oracle} {D : List Data}
 
 /-- What the check gives for a function of the equations. -/
-theorem eqCheck_spec {eqs : List Equation} (hS : sigCheck (sigsOf eqs) = true)
-    {e : Equation} (he : e ∈ eqs) (h : eqCheck (sigsOf eqs) e = true) :
-    EqFor (programOf eqs) (sigsOf eqs) (sigOf e) e := by
+theorem eqCheck_spec (hD : DataOk D) {eqs : List Equation}
+    (hS : sigCheck D (sigsOf eqs) = true) {e : Equation} (he : e ∈ eqs)
+    (h : eqCheck D (sigsOf eqs) e = true) :
+    EqFor (programOf D eqs) D (sigsOf eqs) (sigOf e) e := by
   simp only [eqCheck, Bool.and_eq_true, decide_eq_true_eq] at h
   obtain ⟨⟨⟨hp, ht⟩, hk⟩, hi⟩ := h
   obtain ⟨k, hk⟩ := Option.isSome_iff_exists.mp hk
-  refine ⟨bodyOf e, lookup_funOf (sigOk_of_check hS).nodup e he, ?_, hp, ht⟩
+  refine ⟨bodyOf e, lookup_funOf (sigOk_of_check hD hS).nodup e he, ?_, hp, ht⟩
   rw [kind_spec hk]
-  exact infer_sound _ _ _ k (hi.trans hk)
+  exact infer_sound hD _ _ _ k (hi.trans hk)
 
-theorem progTy_of_check {eqs : List Equation} (hS : sigCheck (sigsOf eqs) = true)
-    (h : eqs.all (eqCheck (sigsOf eqs)) = true) : ProgTy (sigsOf eqs) (programOf eqs) := by
-  intro s hs
+theorem progTy_of_check (hD : DataOk D) {eqs : List Equation}
+    (hS : sigCheck D (sigsOf eqs) = true) (h : eqs.all (eqCheck D (sigsOf eqs)) = true) :
+    ProgTy D (sigsOf eqs) (programOf D eqs) := by
+  refine ⟨fun s hs => ?_, progData_programOf D eqs⟩
   obtain ⟨e, he, rfl⟩ := List.mem_map.mp hs
-  obtain ⟨body, hb, hty, _⟩ := eqCheck_spec hS he (List.all_eq_true.mp h e he)
+  obtain ⟨body, hb, hty, _⟩ := eqCheck_spec hD hS he (List.all_eq_true.mp h e he)
   exact ⟨body, hb, hty⟩
 
-theorem progFrag_of_check {eqs : List Equation} (hS : sigCheck (sigsOf eqs) = true)
-    (h : eqs.all (eqCheck (sigsOf eqs)) = true) : ProgFrag (programOf eqs) := by
+theorem progFrag_of_check (hD : DataOk D) {eqs : List Equation}
+    (hS : sigCheck D (sigsOf eqs) = true) (h : eqs.all (eqCheck D (sigsOf eqs)) = true) :
+    ProgFrag (programOf D eqs) := by
   intro g tps ps body hmem
   obtain ⟨e, he, heq⟩ := List.mem_map.mp hmem
-  obtain ⟨body', hb, hty, _⟩ := eqCheck_spec hS he (List.all_eq_true.mp h e he)
-  have hl := lookup_funOf (sigOk_of_check hS).nodup e he
+  obtain ⟨body', hb, hty, _⟩ := eqCheck_spec hD hS he (List.all_eq_true.mp h e he)
+  have hl := lookup_funOf (sigOk_of_check hD hS).nodup e he
   simp only [HasBody, programOf] at hb
   rw [hl, heq] at hb
   cases hb
   exact hty.frag
 
-theorem varsFresh_of_check {S : List Sig} {Γ : List (Id × Ty)} (h : varsCheck S Γ = true) :
-    VarsFresh S Γ := by
+theorem varsFresh_of_check {S : List Sig} {Γ : List (Id × Ty)} (h : varsCheck D S Γ = true) :
+    VarsFresh D S Γ := by
   simp only [varsCheck, Bool.and_eq_true, List.all_eq_true, bne_iff_ne] at h
   exact ⟨fun p hp => fragTy_of_kind (h p hp).1, fun p hp s hs => (h p hp).2 s hs⟩
 
-theorem baseFor_of_check {S : List Sig} {Γ : List (Id × Ty)} {base query : List Term}
-    (h : baseCheck S Γ base query = true) : BaseFor S Γ (queryOf query) base := by
+theorem baseFor_of_check (hD : DataOk D) {S : List Sig} {Γ : List (Id × Ty)}
+    {base query : List Term} (h : baseCheck D S Γ base query = true) :
+    BaseFor D S Γ (queryOf query) base := by
   simp only [baseCheck, Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true,
     List.any_eq_true] at h
   intro t ht
   obtain ⟨s, hs, hts⟩ := h.2 t ht
-  exact ⟨_, List.mem_map_of_mem hs, infer_sound S Γ _ true (h.1 s hs), hts⟩
+  exact ⟨_, List.mem_map_of_mem hs, infer_sound hD S Γ _ .bool (h.1 s hs), hts⟩
 
 /-- The expressions of the query are Booleans. -/
-theorem query_ty_of_check {S : List Sig} {Γ : List (Id × Ty)} {base query : List Term}
-    (h : baseCheck S Γ base query = true) : ∀ q ∈ queryOf query, HasTy S Γ q .BooleanType := by
+theorem query_ty_of_check (hD : DataOk D) {S : List Sig} {Γ : List (Id × Ty)}
+    {base query : List Term} (h : baseCheck D S Γ base query = true) :
+    ∀ q ∈ queryOf query, HasTy D S Γ q .BooleanType := by
   simp only [baseCheck, Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true] at h
   intro q hq
   obtain ⟨s, hs, rfl⟩ := List.mem_map.mp hq
-  exact infer_sound S Γ _ true (h.1 s hs)
+  exact infer_sound hD S Γ _ .bool (h.1 s hs)
 
 /-- The query of an accepted certificate has no solution in the program of the certificate, when
 the check of this file holds (`hsrc`) and every call of the program gives a value (`htot`), given
@@ -591,17 +859,18 @@ theorem no_solution_of_check (sound : LogosSound) (hO : O.Sound) (hty : LogosTyp
     {certificate : Logos.Sexp} {checked : Checked} {r : TermSteps}
     (hAccept : accept certificate = .ok checked) (hr : termSteps checked = .ok r)
     (hcheck : r.check = true) (hkeeps : r.keeps = true) (hsrc : sourceCheck r = true)
-    (htot : Total O (programOf r.equations) (sigsOf r.equations))
+    (htot : Total O (programOf (dataOf r) r.equations) (dataOf r) (sigsOf r.equations))
     (hfacts : FactsHoldExcept (Good r.equations) r.covered (extend r.base r.fresh) r.facts) :
-    ∀ vs, ¬ Solution O (programOf r.equations) (varsOf (sigsOf r.equations) r.query)
-      (queryOf r.query) vs := by
+    ∀ vs, ¬ Solution O (programOf (dataOf r) r.equations) (dataOf r)
+      (varsOf (sigsOf r.equations) r.query) (queryOf r.query) vs := by
   simp only [sourceCheck, Bool.and_eq_true] at hsrc
-  obtain ⟨⟨⟨hS, hE⟩, hΓ⟩, hB⟩ := hsrc
-  exact no_solution sound hO hty (sigOk_of_check hS) (progFrag_of_check hS hE)
-    (progTy_of_check hS hE) htot hAccept hr hcheck hkeeps
+  obtain ⟨⟨⟨⟨hD, hS⟩, hE⟩, hΓ⟩, hB⟩ := hsrc
+  have hD := dataOk_of_check hD
+  exact no_solution sound hO hty (sigOk_of_check hD hS) (progFrag_of_check hD hS hE)
+    (progTy_of_check hD hS hE) htot hAccept hr hcheck hkeeps
     (fun e he => ⟨sigOf e, List.mem_map_of_mem he,
-      eqCheck_spec hS he (List.all_eq_true.mp hE e he)⟩)
-    (varsFresh_of_check hΓ) (baseFor_of_check hB) hfacts
+      eqCheck_spec hD hS he (List.all_eq_true.mp hE e he)⟩)
+    (varsFresh_of_check hΓ) (baseFor_of_check hD hB) hfacts
 
 /-- As `no_solution_of_check`, for a certificate of which the check covers every fact
 (`hcovered`): nothing is assumed of its clauses. -/
@@ -610,9 +879,9 @@ theorem no_solution_of_covered (sound : LogosSound) (hO : O.Sound) (hty : LogosT
     (hAccept : accept certificate = .ok checked) (hr : termSteps checked = .ok r)
     (hcheck : r.check = true) (hkeeps : r.keeps = true) (hsrc : sourceCheck r = true)
     (hcovered : r.facts.all r.covered = true)
-    (htot : Total O (programOf r.equations) (sigsOf r.equations)) :
-    ∀ vs, ¬ Solution O (programOf r.equations) (varsOf (sigsOf r.equations) r.query)
-      (queryOf r.query) vs :=
+    (htot : Total O (programOf (dataOf r) r.equations) (dataOf r) (sigsOf r.equations)) :
+    ∀ vs, ¬ Solution O (programOf (dataOf r) r.equations) (dataOf r)
+      (varsOf (sigsOf r.equations) r.query) (queryOf r.query) vs :=
   no_solution_of_check sound hO hty hAccept hr hcheck hkeeps hsrc htot
     (factsHoldExcept_of_all hcovered)
 

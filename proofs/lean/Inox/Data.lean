@@ -1,0 +1,989 @@
+/- Copyright 2009-2026 EPFL, Lausanne -/
+import Inox.Mono
+import Inox.Model
+import Cpc.Proofs.TypePreservation.Helpers
+
+/-!
+# The types and the values of the bridge: integers, Booleans and datatypes
+
+`Inox/Bridge.lean` ties the semantics of Inox to the models of Logos on the expressions of some
+types. This module gives the types (`FragTy`), their sorts (`trT`), their values (`HasV`) and
+the values of the models that those are (`trV`, and `ofSmt` back), and proves what the bridge
+uses of them:
+
+- a value of a type is a canonical value of its sort (`typed_trV`), and a value of the sort of a
+  type is that of a value of the type (`typed_inv1`);
+- `ofSmt` reads back what `trV` gives (`ofSmt_trV`), so `trV` is injective on the values of the
+  types;
+- two values of a type are equal for the semantics when they are the same (`value_eq_hasV`).
+
+A datatype of Inox is a datatype of SMT-LIB. `Data` gives the names of its constructors and of
+their fields, which a datatype of Logos doesn't have: a constructor of Logos is the datatype
+and an index. `DataOk` is what the datatypes `D` are asked: distinct names, fields of the types
+of the bridge, and a declaration whose constructors have the sorts of these fields.
+-/
+
+namespace Inox.Bridge
+
+open Eo
+open SmtEval
+open Smtm
+open Inox.Fresh
+open Inox.Extend
+open Inox.Model
+open Inox.Semantics
+
+/-- The name of a constant: the codes of the characters of an identifier. -/
+def nm (s : Id) : native_String := s.toList.map Char.toNat
+
+theorem nm_inj {a b : Id} (h : nm a = nm b) : a = b :=
+  String.toList_inj.mp (List.map_injective_iff.mpr (fun _ _ h => Char.toNat_inj.mp h) h)
+
+/-! ## Datatypes -/
+
+/-- A datatype: its name, the declaration of Logos that it is a datatype of, and its
+constructors in the order of the declaration, each with the names and the types of its fields. -/
+structure Data where
+  name : Id
+  decl : SmtDatatypeDecl
+  ctors : List (Id × List (Id × Ty))
+
+/-- The datatype named `s`. -/
+def findData (D : List Data) (s : Id) : Option Data := D.find? (·.name == s)
+
+theorem findData_spec {D : List Data} {s : Id} {d : Data} (h : findData D s = some d) :
+    d ∈ D ∧ d.name = s := by
+  have hp := List.find?_some h
+  simp only [beq_iff_eq] at hp
+  exact ⟨List.mem_of_find?_eq_some h, hp⟩
+
+/-- The sorts of the types of the bridge. -/
+def trT (D : List Data) : Ty → SmtType
+  | .IntegerType => .Int
+  | .BooleanType => .Bool
+  | .ADTType s [] =>
+    match findData D s with
+    | some d => .Datatype (nm s) d.decl
+    | none => .None
+  | _ => .None
+
+/-- The types of the bridge. -/
+def FragTy (D : List Data) : Ty → Prop
+  | .IntegerType => True
+  | .BooleanType => True
+  | .ADTType s [] => (findData D s).isSome
+  | _ => False
+
+/-- The fields `fs` of a constructor, as Logos has them once the references to the datatypes of
+its declaration are resolved. -/
+def consT (D : List Data) : List (Id × Ty) → SmtDatatypeCons
+  | [] => .unit
+  | f :: fs => .cons (trT D f.2) (consT D fs)
+
+/-- The constructors `cs` of a datatype, as Logos has them once resolved. -/
+def sumT (D : List Data) : List (Id × List (Id × Ty)) → SmtDatatype
+  | [] => .null
+  | c :: cs => .sum (consT D c.2) (sumT D cs)
+
+/-- What is asked of the datatypes `D`. -/
+structure DataOk (D : List Data) : Prop where
+  /-- The datatypes have distinct names. -/
+  nodup : (D.map (·.name)).Nodup
+  /-- The constructors have distinct names, over all the datatypes. -/
+  ctors : (D.flatMap fun d => d.ctors.map (·.1)).Nodup
+  /-- The fields have distinct names, over all the constructors. -/
+  sels : (D.flatMap fun d => d.ctors.flatMap fun c => c.2.map (·.1)).Nodup
+  /-- The fields are of types of the bridge. -/
+  fields : ∀ d ∈ D, ∀ c ∈ d.ctors, ∀ f ∈ c.2, FragTy D f.2
+  /-- The declaration of a datatype gives it the constructors of `ctors`. -/
+  resolved : ∀ d ∈ D,
+    __smtx_dt_resolve (__smtx_dd_lookup (nm d.name) d.decl) d.decl = sumT D d.ctors
+  /-- The sort of a datatype is well formed. -/
+  wf : ∀ d ∈ D, __smtx_type_wf (.Datatype (nm d.name) d.decl) = true
+
+theorem findData_of_mem {D : List Data} (hD : (D.map (·.name)).Nodup) {d : Data} (hd : d ∈ D) :
+    findData D d.name = some d := by
+  induction D with
+  | nil => cases hd
+  | cons a D ih =>
+    rw [List.map_cons, List.nodup_cons] at hD
+    rcases List.mem_cons.mp hd with rfl | hd'
+    · simp [findData]
+    · have hne : a.name ≠ d.name := fun h => hD.1 (List.mem_map.mpr ⟨d, hd', h.symm⟩)
+      have := ih hD.2 hd'
+      simp only [findData] at this ⊢
+      rw [List.find?_cons_of_neg (by simpa using hne)]
+      exact this
+
+theorem trT_data {D : List Data} (hD : DataOk D) {d : Data} (hd : d ∈ D) :
+    trT D (.ADTType d.name []) = .Datatype (nm d.name) d.decl := by
+  simp only [trT, findData_of_mem hD.nodup hd]
+
+theorem fragTy_data {D : List Data} (hD : DataOk D) {d : Data} (hd : d ∈ D) :
+    FragTy D (.ADTType d.name []) := by
+  simp only [FragTy, findData_of_mem hD.nodup hd, Option.isSome_some]
+
+/-- A type of the bridge is of integers, of Booleans, or a datatype of `D`. -/
+theorem fragTy_cases {D : List Data} {T : Ty} (h : FragTy D T) :
+    T = .IntegerType ∨ T = .BooleanType ∨ ∃ d ∈ D, T = .ADTType d.name [] := by
+  cases T
+  case IntegerType => exact .inl rfl
+  case BooleanType => exact .inr (.inl rfl)
+  case ADTType s args =>
+    cases args with
+    | nil =>
+      simp only [FragTy] at h
+      obtain ⟨d, hd⟩ := Option.isSome_iff_exists.mp h
+      obtain ⟨hm, rfl⟩ := findData_spec hd
+      exact .inr (.inr ⟨d, hm, rfl⟩)
+    | cons _ _ => exact absurd h id
+  all_goals exact absurd h id
+
+theorem trT_component {D : List Data} (hD : DataOk D) {T : Ty} (h : FragTy D T) :
+    __smtx_type_wf_component (trT D T) = true := by
+  rcases fragTy_cases h with rfl | rfl | ⟨d, hd, rfl⟩
+  · simp [trT, __smtx_type_wf_component, __smtx_type_wf_rec, native_and]
+  · simp [trT, __smtx_type_wf_component, __smtx_type_wf_rec, native_and]
+  · rw [trT_data hD hd]
+    have := hD.wf d hd
+    simpa only [__smtx_type_wf] using this
+
+theorem trT_wf {D : List Data} (hD : DataOk D) {T : Ty} (h : FragTy D T) :
+    __smtx_type_wf (trT D T) = true := by
+  rcases fragTy_cases h with rfl | rfl | ⟨d, hd, rfl⟩
+  · simp only [trT, __smtx_type_wf]; exact trT_component (T := .IntegerType) hD h
+  · simp only [trT, __smtx_type_wf]; exact trT_component (T := .BooleanType) hD h
+  · rw [trT_data hD hd]; exact hD.wf d hd
+
+theorem trT_ne {D : List Data} (hD : DataOk D) {T : Ty} (h : FragTy D T) : trT D T ≠ .None := by
+  rcases fragTy_cases h with rfl | rfl | ⟨d, hd, rfl⟩
+  · simp [trT]
+  · simp [trT]
+  · rw [trT_data hD hd]; simp
+
+/-! ## Constructors -/
+
+/-- The index and the value of the first entry of `cs` named `c`. -/
+def lookupIdx {α : Type} (c : Id) : List (Id × α) → Option (Nat × α)
+  | [] => none
+  | k :: cs => if k.1 = c then some (0, k.2) else (lookupIdx c cs).map fun r => (r.1 + 1, r.2)
+
+theorem lookupIdx_spec {α : Type} {c : Id} : ∀ {cs : List (Id × α)} {i : Nat} {a : α},
+    lookupIdx c cs = some (i, a) → cs[i]? = some (c, a)
+  | [], _, _, h => by cases h
+  | k :: cs, i, a, h => by
+    simp only [lookupIdx] at h
+    split at h
+    · rename_i hk
+      cases h
+      obtain ⟨k1, k2⟩ := k
+      cases hk
+      rfl
+    · simp only [Option.map_eq_some_iff, Prod.mk.injEq] at h
+      obtain ⟨r, hr, rfl, rfl⟩ := h
+      simpa using lookupIdx_spec (cs := cs) hr
+
+theorem lookupIdx_of {α : Type} {c : Id} : ∀ {cs : List (Id × α)}, (cs.map (·.1)).Nodup →
+    ∀ {i : Nat} {a : α}, cs[i]? = some (c, a) → lookupIdx c cs = some (i, a)
+  | [], _, _, _, h => by simp at h
+  | k :: cs, hn, i, a, h => by
+    rw [List.map_cons, List.nodup_cons] at hn
+    cases i with
+    | zero =>
+      simp only [List.getElem?_cons_zero, Option.some.injEq] at h
+      subst h
+      simp [lookupIdx]
+    | succ i =>
+      simp only [List.getElem?_cons_succ] at h
+      have hne : k.1 ≠ c := fun e =>
+        hn.1 (List.mem_map.mpr ⟨(c, a), List.mem_of_getElem? h, e.symm⟩)
+      simp only [lookupIdx, hne, ↓reduceIte, lookupIdx_of hn.2 h, Option.map_some]
+
+/-- The index and the fields of the constructor `c` in the datatype `d`. -/
+def ctorIn (d : Data) (c : Id) : Option (Nat × List (Id × Ty)) := lookupIdx c d.ctors
+
+/-- The datatype, the index and the fields of the constructor `c`. -/
+def findCtor (D : List Data) (c : Id) : Option (Data × Nat × List (Id × Ty)) :=
+  D.findSome? fun d => (ctorIn d c).map fun k => (d, k)
+
+theorem findCtor_spec {D : List Data} {c : Id} {d : Data} {i : Nat} {fs : List (Id × Ty)}
+    (h : findCtor D c = some (d, i, fs)) : d ∈ D ∧ d.ctors[i]? = some (c, fs) := by
+  obtain ⟨d', hd', hk⟩ := List.exists_of_findSome?_eq_some h
+  simp only [Option.map_eq_some_iff, Prod.mk.injEq] at hk
+  obtain ⟨k, hk, rfl, rfl⟩ := hk
+  exact ⟨hd', lookupIdx_spec hk⟩
+
+theorem ctorIn_of {d : Data} (hn : (d.ctors.map (·.1)).Nodup) {c : Id} {i : Nat}
+    {fs : List (Id × Ty)} (h : d.ctors[i]? = some (c, fs)) : ctorIn d c = some (i, fs) :=
+  lookupIdx_of hn h
+
+theorem ctors_nodup {D : List Data} (hD : DataOk D) {d : Data} (hd : d ∈ D) :
+    (d.ctors.map (·.1)).Nodup := by
+  have := hD.ctors
+  rw [List.nodup_flatMap] at this
+  exact this.1 d hd
+
+/-- The constructor of index `i` of a datatype of `D` is found by its name. -/
+theorem findCtor_of {D : List Data} (hD : DataOk D) {d : Data} (hd : d ∈ D) {c : Id} {i : Nat}
+    {fs : List (Id × Ty)} (h : d.ctors[i]? = some (c, fs)) : findCtor D c = some (d, i, fs) := by
+  have hcm : c ∈ d.ctors.map (·.1) :=
+    List.mem_map.mpr ⟨(c, fs), List.mem_of_getElem? h, rfl⟩
+  cases hf : findCtor D c with
+  | none =>
+    rw [findCtor, List.findSome?_eq_none_iff] at hf
+    have := hf d hd
+    rw [ctorIn_of (ctors_nodup hD hd) h] at this
+    cases this
+  | some r =>
+    obtain ⟨d', i', fs'⟩ := r
+    obtain ⟨hd', h'⟩ := findCtor_spec hf
+    have hcm' : c ∈ d'.ctors.map (·.1) :=
+      List.mem_map.mpr ⟨(c, fs'), List.mem_of_getElem? h', rfl⟩
+    have hdd : d' = d := by
+      by_contra hne
+      have hdis := (List.nodup_flatMap.mp hD.ctors).2
+      rcases List.mem_iff_getElem.mp hd with ⟨a, ha, rfl⟩
+      rcases List.mem_iff_getElem.mp hd' with ⟨b, hb, hbe⟩
+      have hab : a ≠ b := fun e => hne (by subst e; exact hbe.symm)
+      rcases Nat.lt_or_gt_of_ne hab with hlt | hlt
+      · have := List.pairwise_iff_getElem.mp hdis a b ha hb hlt
+        exact this hcm (hbe ▸ hcm')
+      · have := List.pairwise_iff_getElem.mp hdis b a hb ha hlt
+        exact this (hbe ▸ hcm') hcm
+    subst hdd
+    have := ctorIn_of (ctors_nodup hD hd) h
+    have h2 := ctorIn_of (ctors_nodup hD hd) h'
+    rw [this] at h2
+    cases h2
+    rfl
+
+/-! ## Values -/
+
+mutual
+/-- The values of the bridge, as SMT values: a value of a datatype is its constructor applied to
+the values of its fields, one at a time. -/
+def trV (D : List Data) : Value → SmtValue
+  | .IntV i => .Numeral i
+  | .BoolV b => .Boolean b
+  | .ADTV c vs =>
+    match findCtor D c with
+    | some (d, i, _) => trVs D (.DtCons (nm d.name) d.decl i) vs
+    | none => .NotValue
+  | _ => .NotValue
+
+/-- The value `f` applied to the values `vs`, one at a time. -/
+def trVs (D : List Data) (f : SmtValue) : List Value → SmtValue
+  | [] => f
+  | v :: vs => trVs D (.Apply f (trV D v)) vs
+end
+
+/-- The name of the constructor of index `i` of the datatype `s` of the declaration `dd`. -/
+def ctorAt (D : List Data) (s : native_String) (dd : SmtDatatypeDecl) (i : Nat) : Id :=
+  match D.find? fun d => nm d.name == s && d.decl == dd with
+  | some d => ((d.ctors[i]?).map (·.1)).getD ""
+  | none => ""
+
+/-- The value of the bridge that an SMT value is. -/
+def ofSmt (D : List Data) : SmtValue → Value
+  | .Numeral i => .IntV i
+  | .Boolean b => .BoolV b
+  | .DtCons s dd i => .ADTV (ctorAt D s dd i) []
+  | .Apply f a =>
+    match ofSmt D f with
+    | .ADTV c vs => .ADTV c (vs ++ [ofSmt D a])
+    | _ => .UnitV
+  | _ => .UnitV
+
+mutual
+/-- `v` is a value of type `T`, a type of the bridge. -/
+def HasV (D : List Data) : Value → Ty → Prop
+  | .IntV _, .IntegerType => True
+  | .BoolV _, .BooleanType => True
+  | .ADTV c vs, .ADTType s [] =>
+    ∃ d i fs, findCtor D c = some (d, i, fs) ∧ d.name = s ∧ HasVs D vs (fs.map Prod.snd)
+  | _, _ => False
+
+/-- The values `vs` are of the types `Ts`. -/
+def HasVs (D : List Data) : List Value → List Ty → Prop
+  | [], [] => True
+  | v :: vs, T :: Ts => HasV D v T ∧ HasVs D vs Ts
+  | _, _ => False
+end
+
+theorem hasVs_iff {D : List Data} : ∀ {vs : List Value} {Ts : List Ty},
+    HasVs D vs Ts ↔ List.Forall₂ (HasV D) vs Ts
+  | [], [] => by simp [HasVs]
+  | [], _ :: _ => by simp [HasVs]
+  | _ :: _, [] => by simp [HasVs]
+  | v :: vs, T :: Ts => by simp [HasVs, hasVs_iff (vs := vs) (Ts := Ts)]
+
+theorem hasV_int {D : List Data} {v : Value} (h : HasV D v .IntegerType) : ∃ i, v = .IntV i := by
+  cases v <;> first | exact ⟨_, rfl⟩ | simp [HasV] at h
+
+theorem hasV_bool {D : List Data} {v : Value} (h : HasV D v .BooleanType) :
+    ∃ b, v = .BoolV b := by
+  cases v <;> first | exact ⟨_, rfl⟩ | simp [HasV] at h
+
+/-- A value of a datatype is a constructor of it with values of the types of its fields. -/
+theorem hasV_data {D : List Data} {v : Value} {s : Id} (h : HasV D v (.ADTType s [])) :
+    ∃ c vs d i fs, v = .ADTV c vs ∧ findCtor D c = some (d, i, fs) ∧ d.name = s ∧
+      List.Forall₂ (HasV D) vs (fs.map Prod.snd) := by
+  cases v <;> try (simp [HasV] at h; done)
+  case ADTV c vs =>
+    simp only [HasV] at h
+    obtain ⟨d, i, fs, hc, hs, hvs⟩ := h
+    exact ⟨c, vs, d, i, fs, rfl, hc, hs, hasVs_iff.mp hvs⟩
+
+theorem hasV_adt {D : List Data} {c : Id} {vs : List Value} {d : Data} {i : Nat}
+    {fs : List (Id × Ty)} (hc : findCtor D c = some (d, i, fs))
+    (hvs : List.Forall₂ (HasV D) vs (fs.map Prod.snd)) :
+    HasV D (.ADTV c vs) (.ADTType d.name []) := by
+  simp only [HasV]
+  exact ⟨d, i, fs, hc, rfl, hasVs_iff.mpr hvs⟩
+
+theorem hasV_fragTy {D : List Data} {v : Value} {T : Ty} (h : HasV D v T) : FragTy D T := by
+  cases T <;> try (cases v <;> simp [HasV] at h <;> done)
+  case IntegerType => trivial
+  case BooleanType => trivial
+  case ADTType s args =>
+    cases args with
+    | nil =>
+      obtain ⟨c, vs, d, i, fs, _, hc, rfl, _⟩ := hasV_data h
+      simp only [FragTy, findData]
+      exact List.find?_isSome.mpr ⟨d, (findCtor_spec hc).1, by simp⟩
+    | cons _ _ => cases v <;> simp [HasV] at h
+
+/-! ## The sorts of the constructors -/
+
+/-- The sorts of the fields of a constructor. -/
+def consFields : SmtDatatypeCons → List SmtType
+  | .unit => []
+  | .cons U c => U :: consFields c
+
+/-- The sorts of the fields of the constructor of index `i`. -/
+def ctorFields : SmtDatatype → Nat → Option (List SmtType)
+  | .null, _ => none
+  | .sum c _, 0 => some (consFields c)
+  | .sum _ d, i + 1 => ctorFields d i
+
+/-- The sort of a constructor of the sort `T` that still takes fields of the sorts `Us`. -/
+def chainT (T : SmtType) : List SmtType → SmtType
+  | [] => T
+  | U :: Us => .DtcAppType U (chainT T Us)
+
+theorem chainT_ne {T : SmtType} (h : T ≠ .None) : ∀ Us : List SmtType, chainT T Us ≠ .None
+  | [] => h
+  | _ :: _ => by simp [chainT]
+
+theorem cons_value_rec_zero (T : SmtType) (d : SmtDatatype) : ∀ c : SmtDatatypeCons,
+    __smtx_typeof_dt_cons_value_rec T (.sum c d) 0 = chainT T (consFields c)
+  | .unit => by simp [__smtx_typeof_dt_cons_value_rec, consFields, chainT]
+  | .cons U c => by
+    simp [__smtx_typeof_dt_cons_value_rec, consFields, chainT, cons_value_rec_zero T d c]
+
+theorem cons_value_rec (T : SmtType) : ∀ (d : SmtDatatype) (i : Nat),
+    __smtx_typeof_dt_cons_value_rec T d i = ((ctorFields d i).map (chainT T)).getD .None
+  | .null, i => by cases i <;> simp [__smtx_typeof_dt_cons_value_rec, ctorFields]
+  | .sum c d, 0 => by simp [ctorFields, cons_value_rec_zero]
+  | .sum c d, i + 1 => by
+    simp [__smtx_typeof_dt_cons_value_rec, ctorFields, cons_value_rec T d i]
+
+theorem cons_rec_zero (T : SmtType) (d : SmtDatatype) : ∀ c : SmtDatatypeCons,
+    __smtx_typeof_dt_cons_rec T (.sum c d) 0 = chainT T (consFields c)
+  | .unit => by simp [__smtx_typeof_dt_cons_rec, consFields, chainT]
+  | .cons U c => by
+    simp [__smtx_typeof_dt_cons_rec, consFields, chainT, cons_rec_zero T d c]
+
+theorem cons_rec (T : SmtType) : ∀ (d : SmtDatatype) (i : Nat),
+    __smtx_typeof_dt_cons_rec T d i = ((ctorFields d i).map (chainT T)).getD .None
+  | .null, i => by cases i <;> simp [__smtx_typeof_dt_cons_rec, ctorFields]
+  | .sum c d, 0 => by simp [ctorFields, cons_rec_zero]
+  | .sum c d, i + 1 => by
+    simp [__smtx_typeof_dt_cons_rec, ctorFields, cons_rec T d i]
+
+theorem consFields_consT (D : List Data) : ∀ fs : List (Id × Ty),
+    consFields (consT D fs) = fs.map fun f => trT D f.2
+  | [] => rfl
+  | f :: fs => by simp [consT, consFields, consFields_consT D fs]
+
+theorem ctorFields_sumT (D : List Data) : ∀ (cs : List (Id × List (Id × Ty))) (i : Nat),
+    ctorFields (sumT D cs) i = (cs[i]?).map fun k => k.2.map fun f => trT D f.2
+  | [], i => by simp [sumT, ctorFields]
+  | c :: cs, 0 => by simp [sumT, ctorFields, consFields_consT]
+  | c :: cs, i + 1 => by simp [sumT, ctorFields, ctorFields_sumT D cs i]
+
+/-- The sorts of the fields of the constructor of index `i` of a datatype of `D`. -/
+theorem ctorFields_data {D : List Data} (hD : DataOk D) {d : Data} (hd : d ∈ D) (i : Nat) :
+    ctorFields (__smtx_dt_resolve (__smtx_dd_lookup (nm d.name) d.decl) d.decl) i =
+      (d.ctors[i]?).map fun k => k.2.map fun f => trT D f.2 := by
+  rw [hD.resolved d hd, ctorFields_sumT]
+
+/-! ## Applications of constructors -/
+
+/-- The value `f` applied to the values `as`, one at a time. -/
+def applyVs (f : SmtValue) (as : List SmtValue) : SmtValue := as.foldl .Apply f
+
+theorem trVs_eq (D : List Data) : ∀ (vs : List Value) (f : SmtValue),
+    trVs D f vs = applyVs f (vs.map (trV D))
+  | [], f => by simp [trVs, applyVs]
+  | v :: vs, f => by
+    rw [trVs, trVs_eq D vs]
+    simp [applyVs]
+
+theorem applyVs_snoc (f : SmtValue) (as : List SmtValue) (a : SmtValue) :
+    applyVs f (as ++ [a]) = .Apply (applyVs f as) a := by
+  simp [applyVs]
+
+theorem typeof_applyVs {T0 : SmtType} : ∀ (as : List SmtValue) (Us : List SmtType)
+    (f : SmtValue), __smtx_typeof_value f = chainT T0 Us →
+    List.Forall₂ (fun a U => __smtx_typeof_value a = U ∧ U ≠ .None) as Us →
+    __smtx_typeof_value (applyVs f as) = T0
+  | [], [], f, hf, _ => hf
+  | a :: as, U :: Us, f, hf, .cons ⟨ha, hU⟩ hs => by
+    apply typeof_applyVs as Us (.Apply f a) _ hs
+    simp [__smtx_typeof_value, __smtx_typeof_apply_value, __smtx_typeof_guard, native_ite,
+      native_Teq, hf, ha, hU, chainT]
+
+theorem canonical_applyVs (uc : SmtUSortDom) : ∀ (as : List SmtValue) (f : SmtValue),
+    __smtx_value_canonical uc f = true → (∀ a ∈ as, __smtx_value_canonical uc a = true) →
+    __smtx_value_canonical uc (applyVs f as) = true
+  | [], f, hf, _ => hf
+  | a :: as, f, hf, h => by
+    apply canonical_applyVs uc as (.Apply f a) _ (fun b hb => h b (.tail _ hb))
+    simp [__smtx_value_canonical, native_and, hf, h a (.head _)]
+
+theorem ofSmt_applyVs (D : List Data) : ∀ (as : List SmtValue) (f : SmtValue) (c : Id)
+    (us : List Value), ofSmt D f = .ADTV c us →
+    ofSmt D (applyVs f as) = .ADTV c (us ++ as.map (ofSmt D))
+  | [], f, c, us, hf => by simpa [applyVs] using hf
+  | a :: as, f, c, us, hf => by
+    have := ofSmt_applyVs D as (.Apply f a) c (us ++ [ofSmt D a]) (by simp [ofSmt, hf])
+    simpa [applyVs] using this
+
+theorem head_applyVs : ∀ (as : List SmtValue) (f : SmtValue),
+    __smtx_apply_head_value (applyVs f as) = __smtx_apply_head_value f
+  | [], _ => rfl
+  | a :: as, f => by
+    have := head_applyVs as (.Apply f a)
+    simpa [applyVs, __smtx_apply_head_value] using this
+
+theorem data_eq_of_name {D : List Data} (hD : (D.map (·.name)).Nodup) {d d' : Data}
+    (hd : d ∈ D) (hd' : d' ∈ D) (h : d.name = d'.name) : d = d' := by
+  have h1 := findData_of_mem hD hd
+  have h2 := findData_of_mem hD hd'
+  rw [h, h2] at h1
+  exact (Option.some.inj h1).symm
+
+theorem ctorAt_of {D : List Data} (hD : DataOk D) {d : Data} (hd : d ∈ D) {c : Id} {i : Nat}
+    {fs : List (Id × Ty)} (h : d.ctors[i]? = some (c, fs)) :
+    ctorAt D (nm d.name) d.decl i = c := by
+  unfold ctorAt
+  cases hf : D.find? fun d' => nm d'.name == nm d.name && d'.decl == d.decl with
+  | none =>
+    have := List.find?_eq_none.mp hf d hd
+    simp at this
+  | some d' =>
+    have hp := List.find?_some hf
+    simp only [Bool.and_eq_true, beq_iff_eq] at hp
+    have := data_eq_of_name hD.nodup (List.mem_of_find?_eq_some hf) hd (nm_inj hp.1)
+    subst this
+    simp [h]
+
+/-! ## The values of the types are values of their sorts -/
+
+/-- What the SMT value of a value `v` of type `T` is: a canonical value of the sort of `T`,
+which `ofSmt` reads back as `v`. -/
+def ValueOk (D : List Data) (uc : SmtUSortDom) (v : Value) (T : Ty) : Prop :=
+  __smtx_typeof_value (trV D v) = trT D T ∧ __smtx_value_canonical uc (trV D v) = true ∧
+    ofSmt D (trV D v) = v
+
+theorem agrees_adt {D : List Data} (hD : DataOk D) (uc : SmtUSortDom) {c : Id}
+    {vs : List Value} {d : Data} {i : Nat} {fs : List (Id × Ty)}
+    (hc : findCtor D c = some (d, i, fs))
+    (ih : List.Forall₂ (ValueOk D uc) vs (fs.map Prod.snd)) :
+    ValueOk D uc (.ADTV c vs) (.ADTType d.name []) := by
+  obtain ⟨hd, hi⟩ := findCtor_spec hc
+  have hfs : ∀ f ∈ fs, FragTy D f.2 := hD.fields d hd (c, fs) (List.mem_of_getElem? hi)
+  simp only [ValueOk, trV, hc, trVs_eq, trT_data hD hd]
+  refine ⟨?_, ?_, ?_⟩
+  · apply typeof_applyVs (Us := fs.map fun f => trT D f.2)
+    · simp only [__smtx_typeof_value, cons_value_rec, ctorFields_data hD hd, hi, Option.map_some,
+        Option.getD_some]
+    · clear hi hc
+      induction fs generalizing vs with
+      | nil => cases ih; exact .nil
+      | cons f fs ihf =>
+        cases ih with
+        | cons h hs =>
+          exact .cons ⟨h.1, trT_ne hD (hfs f (.head _))⟩
+            (ihf hs fun g hg => hfs g (.tail _ hg))
+  · apply canonical_applyVs uc _ _ (by simp [__smtx_value_canonical])
+    intro a ha
+    simp only [List.mem_map] at ha
+    obtain ⟨v, hv, rfl⟩ := ha
+    clear hi hc hfs
+    generalize fs.map Prod.snd = Ts at ih
+    induction ih with
+    | nil => cases hv
+    | cons h _ ihf =>
+      rcases List.mem_cons.mp hv with rfl | hv'
+      · exact h.2.1
+      · exact ihf hv'
+  · rw [ofSmt_applyVs D _ _ c [] (by simp [ofSmt, ctorAt_of hD hd hi])]
+    simp only [List.nil_append, List.map_map]
+    congr 1
+    clear hi hc hfs
+    generalize fs.map Prod.snd = Ts at ih
+    induction ih with
+    | nil => rfl
+    | cons h _ ihf => simp only [List.map_cons, Function.comp_apply, h.2.2, ihf]
+
+mutual
+theorem agrees_trV {D : List Data} (hD : DataOk D) (uc : SmtUSortDom) :
+    ∀ (v : Value) (T : Ty), HasV D v T → ValueOk D uc v T
+  | .IntV i, T, h => by
+    cases T <;> first | (simp [HasV] at h; done) | exact ⟨rfl, rfl, rfl⟩
+  | .BoolV b, T, h => by
+    cases T <;> first | (simp [HasV] at h; done) | exact ⟨rfl, rfl, rfl⟩
+  | .ADTV c vs, T, h => by
+    cases T <;> try (simp [HasV] at h; done)
+    case ADTType s args =>
+      cases args with
+      | cons _ _ => simp [HasV] at h
+      | nil =>
+        simp only [HasV] at h
+        obtain ⟨d, i, fs, hc, rfl, hvs⟩ := h
+        exact agrees_adt hD uc hc (agrees_trVs hD uc vs _ hvs)
+  | .UnitV, T, h | .CharV _, T, h | .RealV _ _, T, h | .StringV _, T, h | .BVV _ _ _, T, h
+  | .FPV _ _ _, T, h | .RoundingModeV _, T, h | .TupleV _, T, h | .ClosureV _ _ _, T, h
+  | .SetV _, T, h | .BagV _, T, h | .MapV _ _, T, h => by simp [HasV] at h
+
+theorem agrees_trVs {D : List Data} (hD : DataOk D) (uc : SmtUSortDom) :
+    ∀ (vs : List Value) (Ts : List Ty), HasVs D vs Ts → List.Forall₂ (ValueOk D uc) vs Ts
+  | [], [], _ => .nil
+  | [], _ :: _, h => by simp [HasVs] at h
+  | _ :: _, [], h => by simp [HasVs] at h
+  | v :: vs, T :: Ts, h => by
+    simp only [HasVs] at h
+    exact .cons (agrees_trV hD uc v T h.1) (agrees_trVs hD uc vs Ts h.2)
+end
+
+theorem ofSmt_trV {D : List Data} (hD : DataOk D) {v : Value} {T : Ty} (h : HasV D v T) :
+    ofSmt D (trV D v) = v :=
+  (agrees_trV hD default v T h).2.2
+
+theorem typed_trV {D : List Data} (hD : DataOk D) (M : SmtModel) (s : native_String) {v : Value}
+    {T : Ty} (h : HasV D v T) : Typed M (s, trT D T) (trV D v) :=
+  ⟨(agrees_trV hD M.usortDom v T h).1, (agrees_trV hD M.usortDom v T h).2.1⟩
+
+theorem trV_ne {D : List Data} (hD : DataOk D) {v : Value} {T : Ty} (h : HasV D v T) :
+    trV D v ≠ .NotValue := by
+  intro e
+  have := (agrees_trV hD default v T h).1
+  rw [e] at this
+  exact trT_ne hD (hasV_fragTy h) this.symm
+
+/-- `trV` is injective on the values of the types. -/
+theorem trV_inj {D : List Data} (hD : DataOk D) {a b : Value} {T U : Ty} (ha : HasV D a T)
+    (hb : HasV D b U) (h : trV D a = trV D b) : a = b := by
+  rw [← ofSmt_trV hD ha, ← ofSmt_trV hD hb, h]
+
+/-! ## The values of the sorts are values of the types -/
+
+/-- The sort of a constructor, applied to some of its fields or to all. -/
+def IsChain : SmtType → Prop
+  | .DtcAppType _ _ => True
+  | .Datatype _ _ => True
+  | _ => False
+
+theorem forall₂_snoc {α β : Type} {R : α → β → Prop} : ∀ {as : List α} {bs : List β} {a : α}
+    {b : β}, List.Forall₂ R as bs → R a b → List.Forall₂ R (as ++ [a]) (bs ++ [b])
+  | [], [], _, _, _, h => .cons h .nil
+  | _ :: _, _ :: _, _, _, .cons h hs, h' => .cons h (forall₂_snoc hs h')
+
+/-- A value of the sort of a constructor is a constructor applied to values of the sorts of its
+first fields. -/
+theorem spine_inv : ∀ w : SmtValue, IsChain (__smtx_typeof_value w) →
+    ∃ s dd i as fs, w = applyVs (.DtCons s dd i) as ∧
+      ctorFields (__smtx_dt_resolve (__smtx_dd_lookup s dd) dd) i = some fs ∧
+      __smtx_typeof_value w = chainT (.Datatype s dd) (fs.drop as.length) ∧
+      List.Forall₂ (fun a U => __smtx_typeof_value a = U) as (fs.take as.length)
+  | .DtCons s dd i, h => by
+    simp only [__smtx_typeof_value, cons_value_rec] at h ⊢
+    cases hf : ctorFields (__smtx_dt_resolve (__smtx_dd_lookup s dd) dd) i with
+    | none => simp [hf, IsChain] at h
+    | some fs => exact ⟨s, dd, i, [], fs, rfl, hf, by simp, by simp⟩
+  | .Apply f a, h => by
+    cases hft : __smtx_typeof_value f <;>
+      simp only [__smtx_typeof_value, __smtx_typeof_apply_value, hft, IsChain] at h
+    rename_i A B
+    by_cases hA : A = .None
+    · simp [__smtx_typeof_guard, native_ite, native_Teq, hA] at h
+    by_cases hAa : A = __smtx_typeof_value a
+    · have hty : __smtx_typeof_value (.Apply f a) = B := by
+        simp [__smtx_typeof_value, __smtx_typeof_apply_value, hft, __smtx_typeof_guard,
+          native_ite, native_Teq, hA, ← hAa]
+      obtain ⟨s, dd, i, as, fs, rfl, hfs, hch, hall⟩ := spine_inv f (by rw [hft]; trivial)
+      rw [hft] at hch
+      cases hdrop : fs.drop as.length with
+      | nil => rw [hdrop] at hch; cases hch
+      | cons U rest =>
+        rw [hdrop] at hch
+        simp only [chainT, SmtType.DtcAppType.injEq] at hch
+        obtain ⟨rfl, rfl⟩ := hch
+        have hlt : as.length < fs.length := by
+          by_contra hge
+          rw [List.drop_eq_nil_of_le (by omega)] at hdrop; cases hdrop
+        have hget : fs[as.length]? = some A := by
+          have := congrArg List.head? hdrop
+          simpa [List.head?_drop] using this
+        refine ⟨s, dd, i, as ++ [a], fs, (applyVs_snoc _ _ _).symm, hfs, ?_, ?_⟩
+        · rw [hty]
+          have : fs.drop (as ++ [a]).length = rest := by
+            have := congrArg List.tail hdrop
+            simpa [List.tail_drop] using this
+          rw [this]
+        · have : fs.take (as ++ [a]).length = fs.take as.length ++ [A] := by
+            simp only [List.length_append, List.length_cons, List.length_nil, Nat.zero_add]
+            rw [List.take_add_one, hget]; rfl
+          rw [this]
+          exact forall₂_snoc hall hAa.symm
+    · simp [__smtx_typeof_guard, native_ite, native_Teq, hA, hAa] at h
+  | .Map m, h => by
+    rcases typeof_map_value_shape m with ⟨T, U, hm⟩ | hm <;>
+      simp [__smtx_typeof_value, hm, IsChain] at h
+  | .Set m, h => by
+    rcases typeof_map_value_shape m with ⟨T, U, hm⟩ | hm
+    · simp only [__smtx_typeof_value, hm, __smtx_map_to_set_type] at h
+      split at h <;> simp [IsChain] at h
+    · simp [__smtx_typeof_value, hm, __smtx_map_to_set_type, IsChain] at h
+  | .Seq q, h => by
+    rcases typeof_seq_value_shape q with ⟨T, hm⟩ | hm <;>
+      simp [__smtx_typeof_value, hm, IsChain] at h
+  | .Binary w n, h => by
+    simp only [__smtx_typeof_value, native_ite] at h
+    split at h <;> simp [IsChain] at h
+  | .Char c, h => by
+    simp only [__smtx_typeof_value, native_ite] at h
+    split at h <;> simp [IsChain] at h
+  | .NotValue, h | .Boolean _, h | .Numeral _, h | .Real _, h | .Fun _ _ _, h | .UValue _ _, h
+  | .RegLan _, h => by simp [__smtx_typeof_value, IsChain] at h
+
+theorem sizeOf_applyVs_le : ∀ (as : List SmtValue) (f : SmtValue),
+    sizeOf f ≤ sizeOf (applyVs f as)
+  | [], _ => Nat.le_refl _
+  | a :: as, f => by
+    have := sizeOf_applyVs_le as (.Apply f a)
+    simp only [applyVs, List.foldl_cons, SmtValue.Apply.sizeOf_spec] at this ⊢
+    omega
+
+theorem sizeOf_applyVs_lt : ∀ (as : List SmtValue) (f : SmtValue), ∀ a ∈ as,
+    sizeOf a < sizeOf (applyVs f as)
+  | b :: as, f, a, ha => by
+    rcases List.mem_cons.mp ha with rfl | ha'
+    · have := sizeOf_applyVs_le as (.Apply f a)
+      simp only [applyVs, List.foldl_cons, SmtValue.Apply.sizeOf_spec] at this ⊢
+      omega
+    · exact sizeOf_applyVs_lt as (.Apply f b) a ha'
+
+theorem exists_values {D : List Data} : ∀ {as : List SmtValue} {fs : List (Id × Ty)},
+    List.Forall₂ (fun a f => ∃ v, HasV D v f.2 ∧ a = trV D v) as fs →
+    ∃ vs, List.Forall₂ (HasV D) vs (fs.map Prod.snd) ∧ as = vs.map (trV D)
+  | [], [], _ => ⟨[], .nil, rfl⟩
+  | _ :: _, _ :: _, .cons ⟨v, hv, rfl⟩ hs => by
+    obtain ⟨vs, hvs, rfl⟩ := exists_values hs
+    exact ⟨v :: vs, .cons hv hvs, rfl⟩
+
+theorem typed_inv_k {D : List Data} (hD : DataOk D) : ∀ (k : Nat) (w : SmtValue),
+    sizeOf w < k → ∀ T, FragTy D T → __smtx_typeof_value w = trT D T →
+    ∃ v, HasV D v T ∧ w = trV D v
+  | 0, _, h, _, _, _ => by omega
+  | k + 1, w, hk, T, hT, hw => by
+    rcases fragTy_cases hT with rfl | rfl | ⟨d, hd, rfl⟩
+    · obtain ⟨i, rfl⟩ := int_value_canonical hw
+      exact ⟨.IntV i, by simp [HasV], rfl⟩
+    · obtain ⟨b, rfl⟩ := bool_value_canonical hw
+      exact ⟨.BoolV b, by simp [HasV], rfl⟩
+    · rw [trT_data hD hd] at hw
+      obtain ⟨s, dd, i, as, fs, rfl, hfs, hch, hall⟩ := spine_inv w (by rw [hw]; trivial)
+      rw [hw] at hch
+      cases hdrop : fs.drop as.length with
+      | cons U rest => rw [hdrop] at hch; cases hch
+      | nil =>
+        rw [hdrop] at hch
+        simp only [chainT, SmtType.Datatype.injEq] at hch
+        obtain ⟨rfl, rfl⟩ := hch
+        rw [ctorFields_data hD hd] at hfs
+        simp only [Option.map_eq_some_iff] at hfs
+        obtain ⟨⟨c, flds⟩, hi, rfl⟩ := hfs
+        have htake : (flds.map fun f => trT D f.2).take as.length =
+            flds.map fun f => trT D f.2 := by
+          apply List.take_of_length_le
+          have := List.drop_eq_nil_iff.mp hdrop
+          exact this
+        rw [htake] at hall
+        have hflds : ∀ f ∈ flds, FragTy D f.2 := hD.fields d hd (c, flds) (List.mem_of_getElem? hi)
+        have hex : List.Forall₂ (fun a f => ∃ v, HasV D v f.2 ∧ a = trV D v) as flds := by
+          have hsz : ∀ a ∈ as, sizeOf a < k := fun a ha => by
+            have := sizeOf_applyVs_lt as (.DtCons (nm d.name) d.decl i) a ha
+            omega
+          clear hi hdrop htake hw hk
+          induction flds generalizing as with
+          | nil => cases hall; exact .nil
+          | cons f flds ih =>
+            cases hall with
+            | cons ha has =>
+              exact .cons (typed_inv_k hD k _ (hsz _ (.head _)) f.2 (hflds f (.head _)) ha)
+                (ih _ has (fun g hg => hflds g (.tail _ hg)) fun b hb => hsz b (.tail _ hb))
+        obtain ⟨vs, hvs, rfl⟩ := exists_values hex
+        have hc := findCtor_of hD hd hi
+        exact ⟨.ADTV c vs, hasV_adt hc hvs, by simp only [trV, hc, trVs_eq]⟩
+
+/-- A value of the sort of a type of the bridge is that of a value of the type. -/
+theorem typed_inv1 {D : List Data} (hD : DataOk D) {w : SmtValue} {T : Ty} (hT : FragTy D T)
+    (hw : __smtx_typeof_value w = trT D T) : ∃ v, HasV D v T ∧ w = trV D v :=
+  typed_inv_k hD _ w (Nat.lt_succ_self _) T hT hw
+
+/-! ## Equality -/
+
+section Equality
+variable {O : Oracle}
+
+open Classical in
+mutual
+theorem value_eq_hasV {D : List Data} (hO : O.Sound) (P : Program) :
+    ∀ (a : Value) (T : Ty) (b : Value), HasV D a T → HasV D b T →
+      O.value_eq P a b = .Ok (decide (a = b))
+  | .IntV i, _, b, _, _ => by rw [hO.value_eq]
+  | .BoolV i, _, b, _, _ => by rw [hO.value_eq]
+  | .ADTV c xs, T, b, ha, hb => by
+    cases T <;> try (simp [HasV] at ha; done)
+    case ADTType s args =>
+      cases args with
+      | cons _ _ => simp [HasV] at ha
+      | nil =>
+        obtain ⟨c', ys, d', i', fs', rfl, hc', hs', hys⟩ := hasV_data hb
+        simp only [HasV] at ha
+        obtain ⟨d, i, fs, hc, hs, hxs⟩ := ha
+        rw [hO.value_eq]
+        dsimp only
+        by_cases hcc : c = c'
+        · subst hcc
+          rw [hc] at hc'
+          cases hc'
+          rw [dite_eq_left_of_eq_true (eq_true rfl), values_eq_hasV hO P xs _ ys hxs (hasVs_iff.mpr
+              hys)]
+          simp
+        · rw [dite_eq_right_of_eq_false (eq_false hcc)]
+          simp [hcc]
+  | .UnitV, T, _, h, _ | .CharV _, T, _, h, _ | .RealV _ _, T, _, h, _ | .StringV _, T, _, h, _
+  | .BVV _ _ _, T, _, h, _ | .FPV _ _ _, T, _, h, _ | .RoundingModeV _, T, _, h, _
+  | .TupleV _, T, _, h, _ | .ClosureV _ _ _, T, _, h, _ | .SetV _, T, _, h, _
+  | .BagV _, T, _, h, _ | .MapV _ _, T, _, h, _ => by simp [HasV] at h
+
+theorem values_eq_hasV {D : List Data} (hO : O.Sound) (P : Program) :
+    ∀ (xs : List Value) (Ts : List Ty) (ys : List Value), HasVs D xs Ts → HasVs D ys Ts →
+      O.values_eq P xs ys = .Ok (decide (xs = ys))
+  | [], [], [], _, _ => by rw [hO.values_eq]; simp
+  | [], [], _ :: _, _, h => by simp [HasVs] at h
+  | [], _ :: _, _, h, _ => by simp [HasVs] at h
+  | _ :: _, [], _, h, _ => by simp [HasVs] at h
+  | _ :: _, _ :: _, [], _, h => by simp [HasVs] at h
+  | x :: xs, T :: Ts, y :: ys, hx, hy => by
+    simp only [HasVs] at hx hy
+    rw [hO.values_eq]
+    dsimp only
+    rw [value_eq_hasV hO P x T y hx.1 hy.1]
+    dsimp only
+    by_cases hxy : x = y
+    · subst hxy
+      simp only [decide_true, ↓reduceDIte]
+      rw [values_eq_hasV hO P xs Ts ys hx.2 hy.2]
+      simp
+    · simp [hxy]
+end
+
+end Equality
+
+/-! ## Fields -/
+
+theorem lookupIdx_none {α : Type} {c : Id} {cs : List (Id × α)} (h : c ∉ cs.map (·.1)) :
+    lookupIdx c cs = none := by
+  cases hl : lookupIdx c cs with
+  | none => rfl
+  | some r =>
+    obtain ⟨i, a⟩ := r
+    exact absurd (List.mem_map.mpr ⟨(c, a), List.mem_of_getElem? (lookupIdx_spec hl), rfl⟩) h
+
+/-- The constructor of `cs` that has the field `x`, with the index and the type of the field. -/
+def selIn (x : Id) : List (Id × List (Id × Ty)) → Option (Nat × Nat × Ty)
+  | [] => none
+  | c :: cs =>
+    match lookupIdx x c.2 with
+    | some r => some (0, r)
+    | none => (selIn x cs).map fun r => (r.1 + 1, r.2)
+
+/-- The datatype and the constructor that have the field `x`, with the index and the type of
+the field. -/
+def findSel (D : List Data) (x : Id) : Option (Data × Nat × Nat × Ty) :=
+  D.findSome? fun d => (selIn x d.ctors).map fun r => (d, r)
+
+theorem selIn_spec {x : Id} : ∀ {cs : List (Id × List (Id × Ty))} {i j : Nat} {T : Ty},
+    selIn x cs = some (i, j, T) → ∃ c fs, cs[i]? = some (c, fs) ∧ fs[j]? = some (x, T)
+  | [], _, _, _, h => by cases h
+  | c :: cs, i, j, T, h => by
+    simp only [selIn] at h
+    split at h
+    · rename_i r hr
+      cases h
+      exact ⟨c.1, c.2, rfl, lookupIdx_spec hr⟩
+    · simp only [Option.map_eq_some_iff, Prod.mk.injEq] at h
+      obtain ⟨r, hr, rfl, hjT⟩ := h
+      obtain ⟨r1, r2, r3⟩ := r
+      cases hjT
+      simpa using selIn_spec (cs := cs) hr
+
+theorem findSel_spec {D : List Data} {x : Id} {d : Data} {i j : Nat} {T : Ty}
+    (h : findSel D x = some (d, i, j, T)) :
+    d ∈ D ∧ ∃ c fs, d.ctors[i]? = some (c, fs) ∧ fs[j]? = some (x, T) := by
+  obtain ⟨d', hd', hk⟩ := List.exists_of_findSome?_eq_some h
+  simp only [Option.map_eq_some_iff, Prod.mk.injEq] at hk
+  obtain ⟨k, hk, rfl, rfl⟩ := hk
+  exact ⟨hd', selIn_spec hk⟩
+
+theorem selIn_of {x : Id} : ∀ {cs : List (Id × List (Id × Ty))},
+    (cs.flatMap fun c => c.2.map (·.1)).Nodup → ∀ {i j : Nat} {c : Id} {fs : List (Id × Ty)}
+    {T : Ty}, cs[i]? = some (c, fs) → fs[j]? = some (x, T) → selIn x cs = some (i, j, T)
+  | [], _, _, _, _, _, _, h, _ => by simp at h
+  | k :: cs, hn, i, j, c, fs, T, hi, hj => by
+    rw [List.flatMap_cons, List.nodup_append] at hn
+    obtain ⟨hk, hcs, hdis⟩ := hn
+    cases i with
+    | zero =>
+      simp only [List.getElem?_cons_zero, Option.some.injEq] at hi
+      subst hi
+      simp only [selIn, lookupIdx_of hk hj]
+    | succ i =>
+      simp only [List.getElem?_cons_succ] at hi
+      have hx : x ∈ cs.flatMap fun c => c.2.map (·.1) :=
+        List.mem_flatMap.mpr ⟨(c, fs), List.mem_of_getElem? hi,
+          List.mem_map.mpr ⟨(x, T), List.mem_of_getElem? hj, rfl⟩⟩
+      have hnot : x ∉ k.2.map (·.1) := fun hm => hdis x hm x hx rfl
+      simp only [selIn, lookupIdx_none hnot, selIn_of hcs hi hj, Option.map_some]
+
+theorem sels_nodup {D : List Data} (hD : DataOk D) {d : Data} (hd : d ∈ D) :
+    (d.ctors.flatMap fun c => c.2.map (·.1)).Nodup :=
+  (List.nodup_flatMap.mp hD.sels).1 d hd
+
+/-- The field of index `j` of the constructor of index `i` of a datatype of `D` is found by its
+name. -/
+theorem findSel_of {D : List Data} (hD : DataOk D) {d : Data} (hd : d ∈ D) {c x : Id}
+    {i j : Nat} {fs : List (Id × Ty)} {T : Ty} (hi : d.ctors[i]? = some (c, fs))
+    (hj : fs[j]? = some (x, T)) : findSel D x = some (d, i, j, T) := by
+  have hxm : x ∈ d.ctors.flatMap fun c => c.2.map (·.1) :=
+    List.mem_flatMap.mpr ⟨(c, fs), List.mem_of_getElem? hi,
+      List.mem_map.mpr ⟨(x, T), List.mem_of_getElem? hj, rfl⟩⟩
+  have hin := selIn_of (sels_nodup hD hd) hi hj
+  cases hf : findSel D x with
+  | none =>
+    rw [findSel, List.findSome?_eq_none_iff] at hf
+    have := hf d hd
+    rw [hin] at this
+    cases this
+  | some r =>
+    obtain ⟨d', i', j', T'⟩ := r
+    obtain ⟨hd', c', fs', hi', hj'⟩ := findSel_spec hf
+    have hxm' : x ∈ d'.ctors.flatMap fun c => c.2.map (·.1) :=
+      List.mem_flatMap.mpr ⟨(c', fs'), List.mem_of_getElem? hi',
+        List.mem_map.mpr ⟨(x, T'), List.mem_of_getElem? hj', rfl⟩⟩
+    have hdd : d' = d := by
+      by_contra hne
+      have hdis := (List.nodup_flatMap.mp hD.sels).2
+      rcases List.mem_iff_getElem.mp hd with ⟨a, ha, rfl⟩
+      rcases List.mem_iff_getElem.mp hd' with ⟨b, hb, hbe⟩
+      have hab : a ≠ b := fun e => hne (by subst e; exact hbe.symm)
+      rcases Nat.lt_or_gt_of_ne hab with hlt | hlt
+      · have := List.pairwise_iff_getElem.mp hdis a b ha hb hlt
+        exact this hxm (hbe ▸ hxm')
+      · have := List.pairwise_iff_getElem.mp hdis b a hb ha hlt
+        exact this (hbe ▸ hxm') hxm
+    subst hdd
+    have h2 := selIn_of (sels_nodup hD hd) hi' hj'
+    rw [hin] at h2
+    cases h2
+    rfl
+
+theorem select_field_spec : ∀ (fs : List (Id × Ty)) (vs : List Value) {x : Id} {v : Value},
+    select_field (fs.map fun f => Param.Param f.1 f.2) vs x = .Ok v →
+    ∃ (j : Nat) (T : Ty), fs[j]? = some (x, T) ∧ vs[j]? = some v
+  | [], _, _, _, h => by rw [List.map_nil, select_field] at h; cases h
+  | f :: fs, [], _, _, h => by rw [List.map_cons, select_field] at h; cases h
+  | f :: fs, w :: vs, x, v, h => by
+    rw [List.map_cons, select_field] at h
+    split at h
+    · rename_i hf
+      cases h
+      obtain ⟨f1, f2⟩ := f
+      cases hf
+      exact ⟨0, f2, rfl, rfl⟩
+    · obtain ⟨j, T, hj, hv⟩ := select_field_spec fs vs h
+      exact ⟨j + 1, T, by simpa using hj, by simpa using hv⟩
+
+/-- The argument of index `j` of a constructor applied to the values `as`. -/
+theorem arg_nth_applyVs (f : SmtValue) : ∀ (as : List SmtValue) (j : Nat) (a : SmtValue),
+    as[j]? = some a → __smtx_apply_arg_nth_value (applyVs f as) j as.length = a := by
+  intro as
+  induction as using List.reverseRecOn with
+  | nil => intro j a h; simp at h
+  | append_singleton bs b ih =>
+    intro j a h
+    rw [applyVs_snoc]
+    simp only [List.length_append, List.length_cons, List.length_nil, Nat.zero_add,
+      __smtx_apply_arg_nth_value, native_ite, native_nateq]
+    by_cases hj : j = bs.length
+    · subst hj
+      simp at h
+      simp [h]
+    · have hlt : j < bs.length := by
+        have := (List.getElem?_eq_some_iff.mp h).1
+        simp at this
+        omega
+      rw [List.getElem?_append_left hlt] at h
+      simp [hj, ih j a h]
+
+theorem dtc_num_sels (dd : SmtDatatypeDecl) : ∀ c : SmtDatatypeCons,
+    __smtx_dtc_num_sels c = (consFields (__smtx_dtc_resolve c dd)).length
+  | .unit => by simp [__smtx_dtc_num_sels, __smtx_dtc_resolve, consFields]
+  | .cons U c => by
+    cases U <;>
+      simp [__smtx_dtc_num_sels, __smtx_dtc_resolve, consFields, dtc_num_sels dd c]
+
+theorem dt_num_sels (dd : SmtDatatypeDecl) : ∀ (d : SmtDatatype) (i : Nat),
+    __smtx_dt_num_sels d i = (((ctorFields (__smtx_dt_resolve d dd) i).map List.length).getD 0)
+  | .null, i => by cases i <;> simp [__smtx_dt_num_sels, __smtx_dt_resolve, ctorFields]
+  | .sum c d, 0 => by simp [__smtx_dt_num_sels, __smtx_dt_resolve, ctorFields, dtc_num_sels dd c]
+  | .sum c d, i + 1 => by
+    simp [__smtx_dt_num_sels, __smtx_dt_resolve, ctorFields, dt_num_sels dd d i]
+
+theorem ret_typeof_sel_rec : ∀ (d : SmtDatatype) (i j : Nat),
+    __smtx_ret_typeof_sel_rec d i j = (((ctorFields d i).bind (·[j]?)).getD .None)
+  | .null, i, j => by cases i <;> cases j <;> simp [__smtx_ret_typeof_sel_rec, ctorFields]
+  | .sum .unit d, 0, j => by cases j <;> simp [__smtx_ret_typeof_sel_rec, ctorFields, consFields]
+  | .sum (.cons T c) d, 0, 0 => by simp [__smtx_ret_typeof_sel_rec, ctorFields, consFields]
+  | .sum (.cons T c) d, 0, j + 1 => by
+    have := ret_typeof_sel_rec (.sum c d) 0 j
+    simp [__smtx_ret_typeof_sel_rec, ctorFields, consFields] at this ⊢
+    exact this
+  | .sum c d, i + 1, j => by
+    simp [__smtx_ret_typeof_sel_rec, ctorFields, ret_typeof_sel_rec d i j]
+
+/-! ## The datatypes of a program -/
+
+/-- The program has the constructors of `D`, with their fields, in datatypes without type
+parameters and without invariants. -/
+def ProgData (D : List Data) : Program → Prop
+  | .Program _ cs ss _ _ => ∀ c d i fs, findCtor D c = some (d, i, fs) →
+      lookup_ctor cs c = .Ok (.Constructor c d.name (fs.map fun f => .Param f.1 f.2)) ∧
+      lookup_sort ss d.name = .Ok (.Sort d.name [] none)
+
+end Inox.Bridge

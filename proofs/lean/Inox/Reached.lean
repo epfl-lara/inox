@@ -157,31 +157,33 @@ def guardedCalls (r : TermSteps) : List (SmtTerm × SmtTerm) :=
 /-- Evaluating the call `c'` goes through an assumption whose term is `ψ`, or a division whose
 divisor `d` makes `ψ` be `(not (= d 0))`, under the literals `K`: the body read from the equation
 of the function of `c'` has it, with the arguments of `c'` for its parameters. -/
-def assumesBody (S : List Sig) (eqs : List Equation) (K : List (SmtTerm × Bool))
+def assumesBody (D : List Data) (S : List Sig) (eqs : List Equation) (K : List (SmtTerm × Bool))
     (ψ c' : SmtTerm) : Bool :=
   eqs.any fun e => decide (smtHead (lhsOf e) = smtHead c') && paramsB e.params (smtArgs c') &&
-    assumesW S (sigOf e).params (substSmt (bindParams e.params (smtArgs c'))) K ψ (bodyOf e)
+    assumesW D S (sigOf e).params (substSmt (bindParams e.params (smtArgs c'))) K ψ (bodyOf e)
 
 /-- `φ` is `(=> g ψ)`, where `ψ` is an assumption that the evaluation of a call of `J` goes
 through, under the literals that `g` makes known, which make the guard of the call true: a
 precondition of the call, another assumption of its body, or that a divisor of it is not zero. -/
-def Paths.assumed (p : Paths) (S : List Sig) (J : List (SmtTerm × SmtTerm)) : SmtTerm → Bool
+def Paths.assumed (p : Paths) (D : List Data) (S : List Sig) (J : List (SmtTerm × SmtTerm)) :
+    SmtTerm → Bool
   | .imp g ψ =>
     decide (__smtx_typeof g = .Bool) && decide (__smtx_typeof ψ = .Bool) &&
       J.any fun q =>
         decide (known (closeK p.defs p.defs.length (lits g true) ++ p.K0) q.1 = some true) &&
-          assumesBody S p.eqs (closeK p.defs p.defs.length (lits g true) ++ p.K0) ψ q.2
+          assumesBody D S p.eqs (closeK p.defs p.defs.length (lits g true) ++ p.K0) ψ q.2
   | _ => false
 
 /-- `φ` is `(=> g ψ)`, where `ψ` is an assumption that the evaluation of an expression of the
 query `qs` goes through, or that a divisor of it is not zero, under the literals that `g` makes
 known. -/
-def Paths.assumedQuery (p : Paths) (S : List Sig) (Γ : List (Id × Ty)) (qs : List Expr) :
+def Paths.assumedQuery (p : Paths) (D : List Data) (S : List Sig) (Γ : List (Id × Ty)) (qs : List
+    Expr) :
     SmtTerm → Bool
   | .imp g ψ =>
     decide (__smtx_typeof g = .Bool) && decide (__smtx_typeof ψ = .Bool) &&
       qs.any fun q =>
-        assumesW S Γ (fun t => t) (closeK p.defs p.defs.length (lits g true) ++ p.K0) ψ q
+        assumesW D S Γ (fun t => t) (closeK p.defs p.defs.length (lits g true) ++ p.K0) ψ q
   | _ => false
 
 /-- The fact `t` holds where the calls that evaluation goes through have values: it holds without
@@ -191,27 +193,28 @@ guard holds, or one of the query. -/
 def reachedCovered (r : TermSteps) : Term → Bool :=
   let J := guardedCalls r
   let p := pathsOf r
+  let D := dataOf r
   let S := sigsOf r.equations
   let Γ := varsOf S r.query
   let qs := queryOf r.query
-  let ok := fun φ => guardedEq r.equations J φ || p.assumed S J φ || p.assumedQuery S Γ qs φ
+  let ok := fun φ => guardedEq r.equations J φ || p.assumed D S J φ || p.assumedQuery D S Γ qs φ
   let sub := (substituted r).filter fun q => ok q.2
   let inst := Std.HashSet.ofList (sub.map Prod.fst)
   fun t => ({ r with equations := [] } : TermSteps).covered t || ok (__eo_to_smt t) ||
     inst.contains t
 
 /-- No fresh symbol is a function of `S` or a variable of `Γ`. -/
-def apart (S : List Sig) (Γ : List (Id × Ty)) (r : TermSteps) : Bool :=
+def apart (D : List Data) (S : List Sig) (Γ : List (Id × Ty)) (r : TermSteps) : Bool :=
   r.fresh.all fun st => match asConst (__eo_to_smt st.const) with
     | some (s, T) =>
-      (S.all fun g => !decide (nm g.name = s ∧ g.toDef.ty = T)) &&
-        Γ.all fun p => !decide (nm p.1 = s ∧ trT p.2 = T)
+      (S.all fun g => !decide (nm g.name = s ∧ (g.toDef D).ty = T)) &&
+        Γ.all fun p => !decide (nm p.1 = s ∧ trT D p.2 = T)
     | none => true
 
 /-- The check: the fresh symbols are apart from the program and the query, and every fact is
 covered where the calls that evaluation goes through have values. -/
 def reachedCheck (r : TermSteps) : Bool :=
-  apart (sigsOf r.equations) (varsOf (sigsOf r.equations) r.query) r &&
+  apart (dataOf r) (sigsOf r.equations) (varsOf (sigsOf r.equations) r.query) r &&
     r.facts.all (reachedCovered r)
 
 /-! ## Applications and substitutions -/
@@ -276,7 +279,7 @@ theorem all_of_zip {α β : Type} {Q : α → Prop} : ∀ {l : List α} {m : Lis
 
 /-- The term of an expression of the fragment has no binder. -/
 theorem noBinder_tr {S : List Sig} {Γ : List (Id × Ty)} {e : Expr} {T : Ty}
-    (h : HasTy S Γ e T) : noBinder (tr S Γ e) = true := by
+    (h : HasTy D S Γ e T) : noBinder (tr D S Γ e) = true := by
   induction h with
   | var hx hT => simp [tr, hx, noBinder]
   | int i => rfl
@@ -295,8 +298,15 @@ theorem noBinder_tr {S : List Sig} {Γ : List (Id × Ty)} {e : Expr} {T : Ty}
     simp only [tr, hs, trs_eq]
     refine noBinder_spine _ _ rfl fun t ht => ?_
     obtain ⟨e, he, rfl⟩ := List.mem_map.mp ht
-    exact all_of_zip (Q := fun a => noBinder (tr S Γ a) = true) (by simpa using hl) ih e he
+    exact all_of_zip (Q := fun a => noBinder (tr D S Γ a) = true) (by simpa using hl) ih e he
   | assume _ _ _ ihb => simpa [tr] using ihb
+  | @adt c d i fs args hc hl _ ih =>
+    simp only [tr, hc, trs_eq]
+    refine noBinder_spine _ _ rfl fun t ht => ?_
+    obtain ⟨e, he, rfl⟩ := List.mem_map.mp ht
+    exact all_of_zip (Q := fun a => noBinder (tr D S Γ a) = true) (by simpa using hl) ih e he
+  | isCons hc _ ih => simpa [tr, hc, noBinder] using ih
+  | sel hx _ ih => simpa [tr, hx, noBinder] using ih
   | _ => simp_all [tr, noBinder]
 
 /-! ## The literals of definitions -/
@@ -323,39 +333,40 @@ theorem kSound_closeK {M : SmtModel} {defs : List (SmtTerm × SmtTerm)}
 /-! ## The models of a solution -/
 
 section Sound
-variable {O : Oracle} {P : Program} {S : List Sig}
+variable {O : Oracle} {P : Program} {D : List Data} {S : List Sig}
 
 /-- What the check is about: a well-formed model where the calls and the variables of the query
 agree, the base clauses are expressions of the query that have values, the definitions and the
 known literals hold, and an activation literal holds only if one of its blockers does. -/
-structure Ctx (O : Oracle) (P : Program) (S : List Sig) (Γ : List (Id × Ty)) (env : Env)
+structure Ctx (O : Oracle) (P : Program) (D : List Data) (S : List Sig) (Γ : List (Id × Ty)) (env :
+    Env)
     (p : Paths) (M : SmtModel) : Prop where
   wf : model_wf M
-  calls : ∀ m, CallsOk O P S m M
-  vars : VarsOk Γ env M
-  base : ∀ t ∈ p.base, ∃ q, HasTy S Γ q .BooleanType ∧ __eo_to_smt t = tr S Γ q ∧
+  calls : ∀ m, CallsOk O P D S m M
+  vars : VarsOk D Γ env M
+  base : ∀ t ∈ p.base, ∃ q, HasTy D S Γ q .BooleanType ∧ __eo_to_smt t = tr D S Γ q ∧
     ∃ n v, eval O P n env q = .Ok v
   defs : ∀ d ∈ p.defs, __smtx_model_eval M (.eq d.1 d.2) = SmtValue.Boolean true
   enab : ∀ q ∈ p.enab, q.2 ≠ [] → __smtx_model_eval M q.1 = SmtValue.Boolean true →
     ∃ b ∈ q.2, __smtx_model_eval M b = SmtValue.Boolean true
   known : KSound M p.K0
-  eqs : ∀ e ∈ p.eqs, ∃ s ∈ S, EqFor P S s e
+  eqs : ∀ e ∈ p.eqs, ∃ s ∈ S, EqFor P D S s e
 
 /-- The guards of `J` imply that their calls give values. -/
-def Inv (O : Oracle) (P : Program) (S : List Sig) (M : SmtModel)
+def Inv (O : Oracle) (P : Program) (D : List Data) (S : List Sig) (M : SmtModel)
     (J : List (SmtTerm × SmtTerm)) : Prop :=
-  ∀ q ∈ J, __smtx_model_eval M q.1 = SmtValue.Boolean true → Called O P S M q.2
+  ∀ q ∈ J, __smtx_model_eval M q.1 = SmtValue.Boolean true → Called O P D S M q.2
 
 theorem uconst_inj {a b : native_String} {A B : SmtType}
     (h : SmtTerm.UConst a A = SmtTerm.UConst b B) : a = b := by
   cases h; rfl
 
 /-- A call that the body of a call that gives a value reaches gives a value. -/
-theorem called_of_reachesBody (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S)
-    (hP : ProgTy S P) {eqs : List Equation} (hE : ∀ e ∈ eqs, ∃ s ∈ S, EqFor P S s e)
-    {M : SmtModel} (hw : model_wf M) (hcalls : ∀ m, CallsOk O P S m M)
+theorem called_of_reachesBody (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S)
+    (hP : ProgTy D S P) {eqs : List Equation} (hE : ∀ e ∈ eqs, ∃ s ∈ S, EqFor P D S s e)
+    {M : SmtModel} (hw : model_wf M) (hcalls : ∀ m, CallsOk O P D S m M)
     {K : List (SmtTerm × Bool)} (hK : KSound M K) {c c' : SmtTerm}
-    (hpar : Called O P S M c') (h : reachesBody eqs K c c' = true) : Called O P S M c := by
+    (hpar : Called O P D S M c') (h : reachesBody eqs K c c' = true) : Called O P D S M c := by
   obtain ⟨e, he, h⟩ := List.any_eq_true.mp h
   obtain ⟨s, hs, body, hbody, hbty, hpe, hterm⟩ := hE e he
   obtain ⟨s', hs', us, vs, rfl, hus, hvs, n, v, hcall⟩ := hpar
@@ -368,10 +379,10 @@ theorem called_of_reachesBody (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S)
   obtain ⟨hσ, _⟩ := params_of_paramsB hty hw hparams
   obtain ⟨hw', hc', hV'⟩ := bound_model hS hs hw hcalls hvs
   have hM' : setConsts M (bindingValues M (bindParams e.params us)) =
-      setConsts M (bindValues (ptys s.params) (vs.map trV)) := by
+      setConsts M (bindValues (ptys D s.params) (vs.map (trV D))) := by
     rw [bindingValues_bindParams, hpe, hus]
-  have hT : Through S s.params (substSmt (bindParams e.params us)) M
-      (setConsts M (bindValues (ptys s.params) (vs.map trV))) := by
+  have hT : Through D S s.params (substSmt (bindParams e.params us)) M
+      (setConsts M (bindValues (ptys D s.params) (vs.map (trV D)))) := by
     intro e' T' h'
     rw [← hM']
     exact eval_subst hσ M _ (noBinder_tr h')
@@ -395,11 +406,11 @@ theorem called_of_reachesBody (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S)
 
 /-- A call that evaluation goes through, from the query or from a call that gives a value, gives
 a value. -/
-theorem called_of_reachedBy (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S)
-    (hP : ProgTy S P) {Γ : List (Id × Ty)} {env : Env} (hE : EnvTy Γ env) {p : Paths}
-    {M : SmtModel} (hM : Ctx O P S Γ env p M) {J : List (SmtTerm × SmtTerm)}
-    (hJ : Inv O P S M J) {K : List (SmtTerm × Bool)} (hK : KSound M K) {c : SmtTerm}
-    (h : reachedBy p.eqs p.base J K c = true) : Called O P S M c := by
+theorem called_of_reachedBy (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S)
+    (hP : ProgTy D S P) {Γ : List (Id × Ty)} {env : Env} (hE : EnvTy D Γ env) {p : Paths}
+    {M : SmtModel} (hM : Ctx O P D S Γ env p M) {J : List (SmtTerm × SmtTerm)}
+    (hJ : Inv O P D S M J) {K : List (SmtTerm × Bool)} (hK : KSound M K) {c : SmtTerm}
+    (h : reachedBy p.eqs p.base J K c = true) : Called O P D S M c := by
   simp only [reachedBy, Bool.or_eq_true, List.any_eq_true, Bool.and_eq_true,
     decide_eq_true_eq] at h
   rcases h with ⟨t, ht, h⟩ | ⟨q, hq, hk, h⟩
@@ -411,10 +422,10 @@ theorem called_of_reachedBy (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S)
       (hJ q hq (hK _ (known_mem hk))) h
 
 /-- An activation literal that guards a call implies that the call gives a value. -/
-theorem inv_guards (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S) (hP : ProgTy S P)
-    {Γ : List (Id × Ty)} {env : Env} (hE : EnvTy Γ env) {p : Paths} {M : SmtModel}
-    (hM : Ctx O P S Γ env p M) {J : List (SmtTerm × SmtTerm)} (hJ : Inv O P S M J)
-    {d c : SmtTerm} (h : p.guards J d c = true) : Inv O P S M ((d, c) :: J) := by
+theorem inv_guards (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hP : ProgTy D S P)
+    {Γ : List (Id × Ty)} {env : Env} (hE : EnvTy D Γ env) {p : Paths} {M : SmtModel}
+    (hM : Ctx O P D S Γ env p M) {J : List (SmtTerm × SmtTerm)} (hJ : Inv O P D S M J)
+    {d c : SmtTerm} (h : p.guards J d c = true) : Inv O P D S M ((d, c) :: J) := by
   intro q hq hd
   rcases List.mem_cons.mp hq with rfl | hq
   · simp only [Paths.guards, List.any_eq_true, Bool.and_eq_true, decide_eq_true_eq,
@@ -426,12 +437,12 @@ theorem inv_guards (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S) (hP : ProgT
       (kSound_append (kSound_closeK hM.defs _ (lits_sound b true hbv)) hM.known) (hall b hb)
   · exact hJ q hq hd
 
-theorem inv_calls (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S) (hP : ProgTy S P)
-    {Γ : List (Id × Ty)} {env : Env} (hE : EnvTy Γ env) {p : Paths} {M : SmtModel}
-    (hM : Ctx O P S Γ env p M) (cands : List (SmtTerm × SmtTerm)) :
-    Inv O P S M (p.calls cands) := by
-  have : ∀ (cands : List (SmtTerm × SmtTerm)) (J : List (SmtTerm × SmtTerm)), Inv O P S M J →
-      Inv O P S M (cands.foldl (fun J q => if p.guards J q.1 q.2 then q :: J else J) J) := by
+theorem inv_calls (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hP : ProgTy D S P)
+    {Γ : List (Id × Ty)} {env : Env} (hE : EnvTy D Γ env) {p : Paths} {M : SmtModel}
+    (hM : Ctx O P D S Γ env p M) (cands : List (SmtTerm × SmtTerm)) :
+    Inv O P D S M (p.calls cands) := by
+  have : ∀ (cands : List (SmtTerm × SmtTerm)) (J : List (SmtTerm × SmtTerm)), Inv O P D S M J →
+      Inv O P D S M (cands.foldl (fun J q => if p.guards J q.1 q.2 then q :: J else J) J) := by
     intro cands
     induction cands with
     | nil => exact fun _ h => h
@@ -444,9 +455,9 @@ theorem inv_calls (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S) (hP : ProgTy
   exact this cands [] (fun _ h => by cases h)
 
 /-- An instance of a defining equation whose guard guards its call holds. -/
-theorem guardedEq_sound (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S) (hP : ProgTy S P)
-    {Γ : List (Id × Ty)} {env : Env} {p : Paths} {M : SmtModel} (hM : Ctx O P S Γ env p M)
-    {J : List (SmtTerm × SmtTerm)} (hJ : Inv O P S M J) {φ : SmtTerm}
+theorem guardedEq_sound (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hP : ProgTy D S P)
+    {Γ : List (Id × Ty)} {env : Env} {p : Paths} {M : SmtModel} (hM : Ctx O P D S Γ env p M)
+    {J : List (SmtTerm × SmtTerm)} (hJ : Inv O P D S M J) {φ : SmtTerm}
     (h : guardedEq p.eqs J φ = true) : __smtx_model_eval M φ = SmtValue.Boolean true := by
   unfold guardedEq at h
   split at h
@@ -479,25 +490,25 @@ theorem guardedEq_sound (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S) (hP : 
         have hss : s = s' := sig_eq_of_name hS.nodup hs hs' (nm_inj (uconst_inj hhead))
         subst hss
         have hvv : vs0 = vs := by
-          rw [← ofSmt_map hvs0, ← ofSmt_map hvs, ← hws, hus]
+          rw [← ofSmt_map hS.data hvs0, ← ofSmt_map hS.data hvs, ← hws, hus]
         subst hvv
         exact ⟨n, v, hcall⟩
   · simp at h
 
 /-- The equation `e` is that of the function read from it, with the body read from it. -/
-def EqBody (P : Program) (S : List Sig) (e : Equation) : Prop :=
+def EqBody (P : Program) (D : List Data) (S : List Sig) (e : Equation) : Prop :=
   sigOf e ∈ S ∧ HasBody P (sigOf e) (bodyOf e) ∧
-    HasTy S (sigOf e).params (bodyOf e) (sigOf e).ret ∧ e.params = ptys (sigOf e).params ∧
+    HasTy D S (sigOf e).params (bodyOf e) (sigOf e).ret ∧ e.params = ptys D (sigOf e).params ∧
     __eo_to_smt e.term = .eq
-      (spine (.UConst (nm (sigOf e).name) (sigOf e).toDef.ty)
-        ((ptys (sigOf e).params).map fun q => .UConst q.1 q.2))
-      (tr S (sigOf e).params (bodyOf e))
+      (spine (.UConst (nm (sigOf e).name) ((sigOf e).toDef D).ty)
+        ((ptys D (sigOf e).params).map fun q => .UConst q.1 q.2))
+      (tr D S (sigOf e).params (bodyOf e))
 
 /-- An assumption that the body of a call that gives a value goes through holds. -/
-theorem assumesBody_sound (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S) (hP : ProgTy S P)
-    {eqs : List Equation} (hE : ∀ e ∈ eqs, EqBody P S e) {M : SmtModel} (hw : model_wf M)
-    (hcalls : ∀ m, CallsOk O P S m M) {K : List (SmtTerm × Bool)} (hK : KSound M K)
-    {ψ c' : SmtTerm} (hpar : Called O P S M c') (h : assumesBody S eqs K ψ c' = true) :
+theorem assumesBody_sound (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hP : ProgTy D S P)
+    {eqs : List Equation} (hE : ∀ e ∈ eqs, EqBody P D S e) {M : SmtModel} (hw : model_wf M)
+    (hcalls : ∀ m, CallsOk O P D S m M) {K : List (SmtTerm × Bool)} (hK : KSound M K)
+    {ψ c' : SmtTerm} (hpar : Called O P D S M c') (h : assumesBody D S eqs K ψ c' = true) :
     __smtx_model_eval M ψ = SmtValue.Boolean true := by
   obtain ⟨e, he, h⟩ := List.any_eq_true.mp h
   obtain ⟨hs, hbody, hbty, hpe, hterm⟩ := hE e he
@@ -510,20 +521,20 @@ theorem assumesBody_sound (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S) (hP 
   obtain ⟨hσ, _⟩ := params_of_paramsB hty hw hparams
   obtain ⟨hw', hc', hV'⟩ := bound_model hS hs hw hcalls hvs
   have hM' : setConsts M (bindingValues M (bindParams e.params us)) =
-      setConsts M (bindValues (ptys (sigOf e).params) (vs.map trV)) := by
+      setConsts M (bindValues (ptys D (sigOf e).params) (vs.map (trV D))) := by
     rw [bindingValues_bindParams, hpe, hus]
-  have hT : Through S (sigOf e).params (substSmt (bindParams e.params us)) M
-      (setConsts M (bindValues (ptys (sigOf e).params) (vs.map trV))) := by
+  have hT : Through D S (sigOf e).params (substSmt (bindParams e.params us)) M
+      (setConsts M (bindValues (ptys D (sigOf e).params) (vs.map (trV D)))) := by
     intro e' T' h'
     rw [← hM']
     exact eval_subst hσ M _ (noBinder_tr h')
   exact assumed_of_call hO hty hS hP hbody hbty hvs hcall hw' hc' hV' hw hT hK hr
 
 /-- A clause that states an assumption of a call whose guard holds is true. -/
-theorem assumed_sound (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S) (hP : ProgTy S P)
-    {Γ : List (Id × Ty)} {env : Env} {p : Paths} {M : SmtModel} (hM : Ctx O P S Γ env p M)
-    (hE : ∀ e ∈ p.eqs, EqBody P S e) {J : List (SmtTerm × SmtTerm)} (hJ : Inv O P S M J)
-    {φ : SmtTerm} (h : p.assumed S J φ = true) :
+theorem assumed_sound (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hP : ProgTy D S P)
+    {Γ : List (Id × Ty)} {env : Env} {p : Paths} {M : SmtModel} (hM : Ctx O P D S Γ env p M)
+    (hE : ∀ e ∈ p.eqs, EqBody P D S e) {J : List (SmtTerm × SmtTerm)} (hJ : Inv O P D S M J)
+    {φ : SmtTerm} (h : p.assumed D S J φ = true) :
     __smtx_model_eval M φ = SmtValue.Boolean true := by
   unfold Paths.assumed at h
   split at h
@@ -544,11 +555,11 @@ theorem assumed_sound (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S) (hP : Pr
   · simp at h
 
 /-- A clause that states an assumption of the query is true, where the query has values. -/
-theorem assumedQuery_sound (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S) (hP : ProgTy S P)
-    {Γ : List (Id × Ty)} {env : Env} (hEnv : EnvTy Γ env) {p : Paths} {M : SmtModel}
-    (hM : Ctx O P S Γ env p M) {qs : List Expr}
-    (hqs : ∀ q ∈ qs, HasTy S Γ q .BooleanType ∧ ∃ n v, eval O P n env q = .Ok v)
-    {φ : SmtTerm} (h : p.assumedQuery S Γ qs φ = true) :
+theorem assumedQuery_sound (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hP : ProgTy D S P)
+    {Γ : List (Id × Ty)} {env : Env} (hEnv : EnvTy D Γ env) {p : Paths} {M : SmtModel}
+    (hM : Ctx O P D S Γ env p M) {qs : List Expr}
+    (hqs : ∀ q ∈ qs, HasTy D S Γ q .BooleanType ∧ ∃ n v, eval O P n env q = .Ok v)
+    {φ : SmtTerm} (h : p.assumedQuery D S Γ qs φ = true) :
     __smtx_model_eval M φ = SmtValue.Boolean true := by
   unfold Paths.assumedQuery at h
   split at h
@@ -564,7 +575,7 @@ theorem assumedQuery_sound (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S) (hP
     · have hK := kSound_append (kSound_closeK hM.defs p.defs.length (lits_sound g true hbg))
         hM.known
       obtain ⟨hqt, n, v, hn⟩ := hqs q hq
-      rw [holds_of_assumesW hO hty hS (call_ty' hO hty hS hP n) hqt env v hEnv hn M hM.wf
+      rw [holds_of_assumesW hO hty hS hP.2 (call_ty' hO hty hS hP n) hqt env v hEnv hn M hM.wf
         (hM.calls n) hM.vars M (fun t => t) hM.wf (fun _ _ _ => rfl) _ hK ψ ha]
       exact eval_imp_true hty hM.wf hg
   · simp at h
@@ -574,13 +585,14 @@ end Sound
 /-! ## The steps of a certificate -/
 
 section Steps
-variable {O : Oracle} {P : Program} {S : List Sig}
+variable {O : Oracle} {P : Program} {D : List Data} {S : List Sig}
 
 /-- The models that the check is about: those where the calls and the variables of the query
 agree. -/
-def Agrees (O : Oracle) (P : Program) (S : List Sig) (Γ : List (Id × Ty)) (env : Env)
+def Agrees (O : Oracle) (P : Program) (D : List Data) (S : List Sig) (Γ : List (Id × Ty)) (env :
+    Env)
     (M : SmtModel) : Prop :=
-  (∀ m, CallsOk O P S m M) ∧ VarsOk Γ env M
+  (∀ m, CallsOk O P D S m M) ∧ VarsOk D Γ env M
 
 theorem applyAll_setConst (s : native_String) (T : SmtType) (M : SmtModel) (v : SmtValue) :
     ∀ fv ws, applyAll (setConst s T M v) fv ws = applyAll M fv ws
@@ -603,7 +615,7 @@ theorem eval_uconst_setConst {s a : native_String} {T A : SmtType} (M : SmtModel
 /-- Reinterpreting a fresh symbol keeps the models where the calls and the variables agree, when
 the fresh symbols are apart from them. -/
 theorem keeps_of_apart {Γ : List (Id × Ty)} {env : Env} {r : TermSteps}
-    (h : apart S Γ r = true) : ∀ st ∈ r.fresh, KeepsConst (Agrees O P S Γ env) st.const := by
+    (h : apart D S Γ r = true) : ∀ st ∈ r.fresh, KeepsConst (Agrees O P D S Γ env) st.const := by
   intro st hst s T hc M v ⟨hcalls, hvars⟩
   have h := List.all_eq_true.mp h st hst
   simp only [hc, asConst, Bool.and_eq_true, List.all_eq_true, Bool.not_eq_true',
@@ -620,11 +632,11 @@ theorem keeps_of_apart {Γ : List (Id × Ty)} {env : Env} {r : TermSteps}
 /-- A model of the clauses of the steps where the calls and the variables agree, and where the
 activation literals hold only as their blockers do, is one that the check is about. -/
 theorem ctx_of {Γ : List (Id × Ty)} {env : Env} (hty : LogosTyping) {r : TermSteps}
-    {M : SmtModel} (hA : Agrees O P S Γ env M) (honly : ∀ st ∈ r.fresh, st.Only M)
+    {M : SmtModel} (hA : Agrees O P D S Γ env M) (honly : ∀ st ∈ r.fresh, st.Only M)
     {assums : List Term} (hsub : extend r.base r.fresh ⊆ assums) (hsat : Satisfies M assums)
-    (hbase : ∀ t ∈ r.base, ∃ q, HasTy S Γ q .BooleanType ∧ __eo_to_smt t = tr S Γ q ∧
+    (hbase : ∀ t ∈ r.base, ∃ q, HasTy D S Γ q .BooleanType ∧ __eo_to_smt t = tr D S Γ q ∧
       ∃ n v, eval O P n env q = .Ok v)
-    (hE : ∀ e ∈ r.equations, ∃ s ∈ S, EqFor P S s e) : Ctx O P S Γ env (pathsOf r) M where
+    (hE : ∀ e ∈ r.equations, ∃ s ∈ S, EqFor P D S s e) : Ctx O P D S Γ env (pathsOf r) M where
   wf := hsat.1
   calls := hA.1
   vars := hA.2
@@ -677,17 +689,18 @@ theorem eval_of_substituted (hty : LogosTyping) {r : TermSteps} {M : SmtModel}
   exact this.symm
 
 /-- A fact that `reachedCovered` accepts holds in the models that the check is about. -/
-theorem holds_reachedCovered (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S)
-    (hP : ProgTy S P) {Γ : List (Id × Ty)} {env : Env} (hEnv : EnvTy Γ env) {r : TermSteps}
-    (hbase : ∀ t ∈ r.base, ∃ q, HasTy S Γ q .BooleanType ∧ __eo_to_smt t = tr S Γ q ∧
+theorem holds_reachedCovered (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S)
+    (hP : ProgTy D S P) {Γ : List (Id × Ty)} {env : Env} (hEnv : EnvTy D Γ env) {r : TermSteps}
+    (hbase : ∀ t ∈ r.base, ∃ q, HasTy D S Γ q .BooleanType ∧ __eo_to_smt t = tr D S Γ q ∧
       ∃ n v, eval O P n env q = .Ok v)
-    (hSr : S = sigsOf r.equations) (hE : ∀ e ∈ r.equations, EqBody P S e)
+    (hDr : D = dataOf r) (hSr : S = sigsOf r.equations) (hE : ∀ e ∈ r.equations, EqBody P D S e)
     (hΓr : Γ = varsOf (sigsOf r.equations) r.query)
-    (hqs : ∀ q ∈ queryOf r.query, HasTy S Γ q .BooleanType ∧ ∃ n v, eval O P n env q = .Ok v)
+    (hqs : ∀ q ∈ queryOf r.query, HasTy D S Γ q .BooleanType ∧ ∃ n v, eval O P n env q = .Ok v)
     {t : Term}
     (h : reachedCovered r t = true) {assums : List Term}
     (hsub : extend r.base r.fresh ⊆ assums) :
-    Holds (fun M => Agrees O P S Γ env M ∧ ∀ st ∈ r.fresh, st.Only M) assums t := by
+    Holds (fun M => Agrees O P D S Γ env M ∧ ∀ st ∈ r.fresh, st.Only M) assums t := by
+  subst hDr
   intro M ⟨hA, honly⟩ hsat
   have hM := ctx_of hty hA honly hsub hsat hbase
     (fun e he => ⟨sigOf e, (hE e he).1, bodyOf e, (hE e he).2⟩)
@@ -695,8 +708,8 @@ theorem holds_reachedCovered (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S)
     (r.facts.filterMap (fun t => candOf (__eo_to_smt t)) ++
       (substituted r).filterMap fun q => candOf q.2)
   have hok : ∀ φ, (guardedEq r.equations (guardedCalls r) φ ||
-      (pathsOf r).assumed (sigsOf r.equations) (guardedCalls r) φ ||
-      (pathsOf r).assumedQuery (sigsOf r.equations) (varsOf (sigsOf r.equations) r.query)
+      (pathsOf r).assumed (dataOf r) (sigsOf r.equations) (guardedCalls r) φ ||
+      (pathsOf r).assumedQuery (dataOf r) (sigsOf r.equations) (varsOf (sigsOf r.equations) r.query)
         (queryOf r.query) φ) = true →
       __smtx_model_eval M φ = SmtValue.Boolean true := by
     intro φ hφ
@@ -722,15 +735,15 @@ end Steps
 /-! ## The theorem -/
 
 /-- What the check of `Inox/Source.lean` gives for a function of the equations, with its body. -/
-theorem eqBody_of_check {eqs : List Equation} (hS : sigCheck (sigsOf eqs) = true)
-    {e : Equation} (he : e ∈ eqs) (h : eqCheck (sigsOf eqs) e = true) :
-    EqBody (programOf eqs) (sigsOf eqs) e := by
+theorem eqBody_of_check {D : List Data} (hD : DataOk D) {eqs : List Equation}
+    (hS : sigCheck D (sigsOf eqs) = true) {e : Equation} (he : e ∈ eqs)
+    (h : eqCheck D (sigsOf eqs) e = true) : EqBody (programOf D eqs) D (sigsOf eqs) e := by
   simp only [eqCheck, Bool.and_eq_true, decide_eq_true_eq] at h
   obtain ⟨⟨⟨hp, ht⟩, hk⟩, hi⟩ := h
   obtain ⟨k, hk⟩ := Option.isSome_iff_exists.mp hk
-  refine ⟨List.mem_map_of_mem he, lookup_funOf (sigOk_of_check hS).nodup e he, ?_, hp, ht⟩
+  refine ⟨List.mem_map_of_mem he, lookup_funOf (sigOk_of_check hD hS).nodup e he, ?_, hp, ht⟩
   rw [kind_spec hk]
-  exact infer_sound _ _ _ k (hi.trans hk)
+  exact infer_sound hD _ _ _ k (hi.trans hk)
 
 /-- The query of an accepted certificate has no solution in the program of the certificate, when
 the checks of `Inox/Source.lean` and of this file hold. Nothing is assumed of the calls of the
@@ -741,40 +754,43 @@ theorem no_solution_of_reached {O : Oracle} (sound : LogosSound) (hO : O.Sound)
     (hAccept : accept certificate = .ok checked) (hr : termSteps checked = .ok r)
     (hcheck : r.check = true) (hsrc : sourceCheck r = true)
     (hreached : reachedCheck r = true) :
-    ∀ vs, ¬ Solution O (programOf r.equations) (varsOf (sigsOf r.equations) r.query)
-      (queryOf r.query) vs := by
+    ∀ vs, ¬ Solution O (programOf (dataOf r) r.equations) (dataOf r)
+      (varsOf (sigsOf r.equations) r.query) (queryOf r.query) vs := by
   simp only [sourceCheck, Bool.and_eq_true] at hsrc
-  obtain ⟨⟨⟨hS', hE'⟩, hΓ'⟩, hB'⟩ := hsrc
+  obtain ⟨⟨⟨⟨hD', hS'⟩, hE'⟩, hΓ'⟩, hB'⟩ := hsrc
+  have hD := dataOk_of_check hD'
   simp only [reachedCheck, Bool.and_eq_true] at hreached
   obtain ⟨hapart, hall⟩ := hreached
-  have hS := sigOk_of_check hS'
-  have hPF := progFrag_of_check hS' hE'
-  have hP := progTy_of_check hS' hE'
-  have hE : ∀ e ∈ r.equations, EqBody (programOf r.equations) (sigsOf r.equations) e :=
-    fun e he => eqBody_of_check hS' he (List.all_eq_true.mp hE' e he)
+  have hS := sigOk_of_check hD hS'
+  have hPF := progFrag_of_check hD hS' hE'
+  have hP := progTy_of_check hD hS' hE'
+  have hE : ∀ e ∈ r.equations, EqBody (programOf (dataOf r) r.equations) (dataOf r)
+      (sigsOf r.equations) e :=
+    fun e he => eqBody_of_check hD hS' he (List.all_eq_true.mp hE' e he)
   have hΓ := varsFresh_of_check hΓ'
-  have hB := baseFor_of_check hB'
+  have hB := baseFor_of_check hD hB'
   intro vs ⟨hvs, bs, hbs, hsol⟩
   obtain ⟨cd⟩ := Codes.nonempty
   obtain ⟨M0, hM0⟩ := Smtm.model_wf_nonvacuous
-  have hEnv : EnvTy (varsOf (sigsOf r.equations) r.query) (Env.Env [] bs) := by
+  have hEnv : EnvTy (dataOf r) (varsOf (sigsOf r.equations) r.query) (Env.Env [] bs) := by
     intro x T hx w hw'
     obtain ⟨u, hu, huT⟩ := bind_lookup _ vs bs hbs hvs x T hx
     rw [lookup_var_det hw' hu]; exact huT
-  have hbase : ∀ t ∈ r.base, ∃ q, HasTy (sigsOf r.equations)
+  have hbase : ∀ t ∈ r.base, ∃ q, HasTy (dataOf r) (sigsOf r.equations)
       (varsOf (sigsOf r.equations) r.query) q .BooleanType ∧
-      __eo_to_smt t = tr (sigsOf r.equations) (varsOf (sigsOf r.equations) r.query) q ∧
-      ∃ n v, eval O (programOf r.equations) n (Env.Env [] bs) q = .Ok v := by
+      __eo_to_smt t = tr (dataOf r) (sigsOf r.equations) (varsOf (sigsOf r.equations) r.query) q ∧
+      ∃ n v, eval O (programOf (dataOf r) r.equations) n (Env.Env [] bs) q = .Ok v := by
     intro t ht
     obtain ⟨q, hq, hqt, htr⟩ := hB t ht
     obtain ⟨n, hn⟩ := hsol q hq
     exact ⟨q, hqt, htr, n, _, hn⟩
   refine no_good_model_of_accept_only sound hty
-    (Agrees O (programOf r.equations) (sigsOf r.equations) (varsOf (sigsOf r.equations) r.query)
+    (Agrees O (programOf (dataOf r) r.equations) (dataOf r) (sigsOf r.equations)
+      (varsOf (sigsOf r.equations) r.query)
       (Env.Env [] bs)) hAccept hr hcheck (keeps_of_apart hapart)
     (factsHold_of_except_sub
-      (fun _ h _ hsub => holds_reachedCovered hO hty hS hP hEnv hbase rfl hE rfl
-        (fun q hq => ⟨query_ty_of_check hB' q hq, (hsol q hq).imp fun _ hn => ⟨_, hn⟩⟩) h hsub)
+      (fun _ h _ hsub => holds_reachedCovered hO hty hS hP hEnv hbase rfl rfl hE rfl
+        (fun q hq => ⟨query_ty_of_check hD hB' q hq, (hsol q hq).imp fun _ hn => ⟨_, hn⟩⟩) h hsub)
       (fun _ h => h)
       (factsHoldExcept_of_all hall)) _
     ⟨fun m => callsOk_star hO hty hS hPF hP M0 _ cd m, varsOk_star hΓ M0 cd hbs []⟩

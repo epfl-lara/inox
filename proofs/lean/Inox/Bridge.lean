@@ -1,6 +1,5 @@
 /- Copyright 2009-2026 EPFL, Lausanne -/
-import Inox.Mono
-import Inox.Model
+import Inox.Data
 import Inox.Relative
 import Cpc.Proofs.TypePreservation.Helpers
 
@@ -11,7 +10,7 @@ The semantics of Inox is `eval` and `call` of `proofs/semantics/Inox/Semantics.l
 from `semantics.md`. This module ties it to the models that the certificate checker is about, for
 the first-order expressions over integers and Booleans (`HasTy`):
 
-- `tr S Γ e` is the term of Logos of an expression, and `trV` the value of a value;
+- `tr D S Γ e` is the term of Logos of an expression, and `trV` the value of a value;
 - `ev`, the agreement theorem: where `eval` gives a value, the term evaluates to it in each model
   whose function constants agree with `call` (`CallsOk`) and whose variable constants agree with
   the environment (`VarsOk`);
@@ -39,72 +38,6 @@ open Inox.Extend
 open Inox.Model
 open Inox.Semantics
 
-/-! ## Names, types and values -/
-
-/-- The name of a constant: the codes of the characters of an identifier. -/
-def nm (s : Id) : native_String := s.toList.map Char.toNat
-
-theorem nm_inj {a b : Id} (h : nm a = nm b) : a = b :=
-  String.toList_inj.mp (List.map_injective_iff.mpr (fun _ _ h => Char.toNat_inj.mp h) h)
-
-/-- The sorts of the types of the fragment. -/
-def trT : Ty → SmtType
-  | .IntegerType => .Int
-  | .BooleanType => .Bool
-  | _ => .None
-
-/-- The values of the fragment, as SMT values. -/
-def trV : Value → SmtValue
-  | .IntV i => .Numeral i
-  | .BoolV b => .Boolean b
-  | _ => .NotValue
-
-/-- The value of the fragment that an SMT value is. -/
-def ofSmt : SmtValue → Value
-  | .Numeral i => .IntV i
-  | .Boolean b => .BoolV b
-  | _ => .UnitV
-
-/-- `v` is a value of type `T`, a type of the fragment. -/
-def HasV : Value → Ty → Prop
-  | .IntV _, .IntegerType => True
-  | .BoolV _, .BooleanType => True
-  | _, _ => False
-
-theorem ofSmt_trV {v : Value} {T : Ty} (h : HasV v T) : ofSmt (trV v) = v := by
-  cases v <;> cases T <;> first | rfl | exact absurd h id
-
-theorem typed_trV (M : SmtModel) (s : native_String) {v : Value} {T : Ty} (h : HasV v T) :
-    Typed M (s, trT T) (trV v) := by
-  cases v <;> cases T <;> first | exact ⟨rfl, rfl⟩ | exact absurd h id
-
-theorem hasV_of_typeof {v : Value} {T : Ty} (hT : trT T ≠ .None)
-    (h : __smtx_typeof_value (trV v) = trT T) : HasV v T := by
-  cases v <;> cases T <;> simp_all [trV, trT, HasV, __smtx_typeof_value]
-
-/-- The types of the fragment. -/
-def FragTy : Ty → Prop
-  | .IntegerType => True
-  | .BooleanType => True
-  | _ => False
-
-theorem trT_ne {T : Ty} (h : FragTy T) : trT T ≠ .None := by
-  cases T <;> first | (simp [trT]; done) | exact absurd h id
-
-theorem trT_component {T : Ty} (h : FragTy T) : __smtx_type_wf_component (trT T) = true := by
-  cases T
-  case IntegerType =>
-    simp [trT, __smtx_type_wf_component, __smtx_type_wf_rec, native_and]
-  case BooleanType =>
-    simp [trT, __smtx_type_wf_component, __smtx_type_wf_rec, native_and]
-  all_goals exact absurd h id
-
-theorem trT_wf {T : Ty} (h : FragTy T) : __smtx_type_wf (trT T) = true := by
-  cases T
-  case IntegerType => simp only [trT, __smtx_type_wf]; exact trT_component (T := .IntegerType) h
-  case BooleanType => simp only [trT, __smtx_type_wf]; exact trT_component (T := .BooleanType) h
-  all_goals exact absurd h id
-
 theorem fragTy_wf_arrow : ∀ {ps : List (native_String × SmtType)} {R : SmtType},
     (∀ p ∈ ps, __smtx_type_wf_component p.2 = true) → __smtx_type_wf R = true →
     __smtx_type_wf (arrow ps R) = true
@@ -122,24 +55,26 @@ structure Sig where
   ret : Ty
 
 /-- The parameters `ps`, as the constants that stand for them. -/
-def ptys (ps : List (Id × Ty)) : List (native_String × SmtType) :=
-  ps.map fun p => (nm p.1, trT p.2)
+def ptys (D : List Data) (ps : List (Id × Ty)) : List (native_String × SmtType) :=
+  ps.map fun p => (nm p.1, trT D p.2)
 
 /-- The function of the model that `s` is: the constant named after it, of the function sort from
 the sorts of its parameters to that of its result. -/
-def Sig.toDef (s : Sig) : Def where
+def Sig.toDef (D : List Data) (s : Sig) : Def where
   name := nm s.name
-  ty := arrow (ptys s.params) (trT s.ret)
-  params := ptys s.params
-  ret := trT s.ret
+  ty := arrow (ptys D s.params) (trT D s.ret)
+  params := ptys D s.params
+  ret := trT D s.ret
 
 /-- The signature of the function `f`. -/
 def findSig (S : List Sig) (f : Id) : Option Sig := S.find? (·.name == f)
 
 /-- The signatures `S` are of types of the fragment, and of functions of distinct names. -/
-structure SigOk (S : List Sig) : Prop where
-  params : ∀ s ∈ S, ∀ p ∈ s.params, FragTy p.2
-  ret : ∀ s ∈ S, FragTy s.ret
+structure SigOk (D : List Data) (S : List Sig) : Prop where
+  /-- The datatypes are as the bridge asks. -/
+  data : DataOk D
+  params : ∀ s ∈ S, ∀ p ∈ s.params, FragTy D p.2
+  ret : ∀ s ∈ S, FragTy D s.ret
   nodup : (S.map Sig.name).Nodup
   /-- The parameters of a function have distinct names. -/
   pnodup : ∀ s ∈ S, (s.params.map Prod.fst).Nodup
@@ -156,63 +91,82 @@ theorem findSig_spec {S : List Sig} {f : Id} {s : Sig} (h : findSig S f = some s
 
 /-- `e` is an expression of type `T` of the fragment that the bridge covers, where the functions
 have the signatures `S` and the variables the types `Γ`. -/
-inductive HasTy (S : List Sig) (Γ : List (Id × Ty)) : Expr → Ty → Prop where
-  | var {x : Id} {T : Ty} : Γ.lookup x = some T → FragTy T → HasTy S Γ (.Variable x) T
-  | int (i : Int) : HasTy S Γ (.IntegerLiteral i) .IntegerType
-  | bool (b : Bool) : HasTy S Γ (.BooleanLiteral b) .BooleanType
+inductive HasTy (D : List Data) (S : List Sig) (Γ : List (Id × Ty)) : Expr → Ty → Prop where
+  | var {x : Id} {T : Ty} : Γ.lookup x = some T → FragTy D T → HasTy D S Γ (.Variable x) T
+  | int (i : Int) : HasTy D S Γ (.IntegerLiteral i) .IntegerType
+  | bool (b : Bool) : HasTy D S Γ (.BooleanLiteral b) .BooleanType
   | ite {c a b : Expr} {T : Ty} :
-      HasTy S Γ c .BooleanType → HasTy S Γ a T → HasTy S Γ b T →
-      HasTy S Γ (.IfExpr c a b) T
+      HasTy D S Γ c .BooleanType → HasTy D S Γ a T → HasTy D S Γ b T →
+      HasTy D S Γ (.IfExpr c a b) T
   | and {es : List Expr} :
-      (∀ e ∈ es, HasTy S Γ e .BooleanType) → HasTy S Γ (.And es) .BooleanType
+      (∀ e ∈ es, HasTy D S Γ e .BooleanType) → HasTy D S Γ (.And es) .BooleanType
   | or {es : List Expr} :
-      (∀ e ∈ es, HasTy S Γ e .BooleanType) → HasTy S Γ (.Or es) .BooleanType
-  | not {a : Expr} : HasTy S Γ a .BooleanType → HasTy S Γ (.Not a) .BooleanType
-  | implies {a b : Expr} : HasTy S Γ a .BooleanType → HasTy S Γ b .BooleanType →
-      HasTy S Γ (.Implies a b) .BooleanType
-  | equals {a b : Expr} {T : Ty} : HasTy S Γ a T → HasTy S Γ b T →
-      HasTy S Γ (.Equals a b) .BooleanType
-  | plus {a b : Expr} : HasTy S Γ a .IntegerType → HasTy S Γ b .IntegerType →
-      HasTy S Γ (.Plus a b) .IntegerType
-  | minus {a b : Expr} : HasTy S Γ a .IntegerType → HasTy S Γ b .IntegerType →
-      HasTy S Γ (.Minus a b) .IntegerType
-  | times {a b : Expr} : HasTy S Γ a .IntegerType → HasTy S Γ b .IntegerType →
-      HasTy S Γ (.Times a b) .IntegerType
-  | div {a b : Expr} : HasTy S Γ a .IntegerType → HasTy S Γ b .IntegerType →
-      HasTy S Γ (.Division a b) .IntegerType
-  | rem {a b : Expr} : HasTy S Γ a .IntegerType → HasTy S Γ b .IntegerType →
-      HasTy S Γ (.Remainder a b) .IntegerType
-  | mod {a b : Expr} : HasTy S Γ a .IntegerType → HasTy S Γ b .IntegerType →
-      HasTy S Γ (.Modulo a b) .IntegerType
-  | uminus {a : Expr} : HasTy S Γ a .IntegerType → HasTy S Γ (.UMinus a) .IntegerType
-  | lt {a b : Expr} : HasTy S Γ a .IntegerType → HasTy S Γ b .IntegerType →
-      HasTy S Γ (.LessThan a b) .BooleanType
-  | gt {a b : Expr} : HasTy S Γ a .IntegerType → HasTy S Γ b .IntegerType →
-      HasTy S Γ (.GreaterThan a b) .BooleanType
-  | le {a b : Expr} : HasTy S Γ a .IntegerType → HasTy S Γ b .IntegerType →
-      HasTy S Γ (.LessEquals a b) .BooleanType
-  | ge {a b : Expr} : HasTy S Γ a .IntegerType → HasTy S Γ b .IntegerType →
-      HasTy S Γ (.GreaterEquals a b) .BooleanType
+      (∀ e ∈ es, HasTy D S Γ e .BooleanType) → HasTy D S Γ (.Or es) .BooleanType
+  | not {a : Expr} : HasTy D S Γ a .BooleanType → HasTy D S Γ (.Not a) .BooleanType
+  | implies {a b : Expr} : HasTy D S Γ a .BooleanType → HasTy D S Γ b .BooleanType →
+      HasTy D S Γ (.Implies a b) .BooleanType
+  | equals {a b : Expr} {T : Ty} : HasTy D S Γ a T → HasTy D S Γ b T →
+      HasTy D S Γ (.Equals a b) .BooleanType
+  | plus {a b : Expr} : HasTy D S Γ a .IntegerType → HasTy D S Γ b .IntegerType →
+      HasTy D S Γ (.Plus a b) .IntegerType
+  | minus {a b : Expr} : HasTy D S Γ a .IntegerType → HasTy D S Γ b .IntegerType →
+      HasTy D S Γ (.Minus a b) .IntegerType
+  | times {a b : Expr} : HasTy D S Γ a .IntegerType → HasTy D S Γ b .IntegerType →
+      HasTy D S Γ (.Times a b) .IntegerType
+  | div {a b : Expr} : HasTy D S Γ a .IntegerType → HasTy D S Γ b .IntegerType →
+      HasTy D S Γ (.Division a b) .IntegerType
+  | rem {a b : Expr} : HasTy D S Γ a .IntegerType → HasTy D S Γ b .IntegerType →
+      HasTy D S Γ (.Remainder a b) .IntegerType
+  | mod {a b : Expr} : HasTy D S Γ a .IntegerType → HasTy D S Γ b .IntegerType →
+      HasTy D S Γ (.Modulo a b) .IntegerType
+  | uminus {a : Expr} : HasTy D S Γ a .IntegerType → HasTy D S Γ (.UMinus a) .IntegerType
+  | lt {a b : Expr} : HasTy D S Γ a .IntegerType → HasTy D S Γ b .IntegerType →
+      HasTy D S Γ (.LessThan a b) .BooleanType
+  | gt {a b : Expr} : HasTy D S Γ a .IntegerType → HasTy D S Γ b .IntegerType →
+      HasTy D S Γ (.GreaterThan a b) .BooleanType
+  | le {a b : Expr} : HasTy D S Γ a .IntegerType → HasTy D S Γ b .IntegerType →
+      HasTy D S Γ (.LessEquals a b) .BooleanType
+  | ge {a b : Expr} : HasTy D S Γ a .IntegerType → HasTy D S Γ b .IntegerType →
+      HasTy D S Γ (.GreaterEquals a b) .BooleanType
   | invoke {s : Sig} {args : List Expr} : findSig S s.name = some s →
       args.length = s.params.length →
-      (∀ p ∈ args.zip (s.params.map Prod.snd), HasTy S Γ p.1 p.2) →
-      HasTy S Γ (.FunctionInvocation s.name [] args) s.ret
-  | assume {p b : Expr} {T : Ty} : HasTy S Γ p .BooleanType → HasTy S Γ b T →
-      HasTy S Γ (.Assume p b) T
+      (∀ p ∈ args.zip (s.params.map Prod.snd), HasTy D S Γ p.1 p.2) →
+      HasTy D S Γ (.FunctionInvocation s.name [] args) s.ret
+  | assume {p b : Expr} {T : Ty} : HasTy D S Γ p .BooleanType → HasTy D S Γ b T →
+      HasTy D S Γ (.Assume p b) T
+  | adt {c : Id} {d : Data} {i : Nat} {fs : List (Id × Ty)} {args : List Expr} :
+      findCtor D c = some (d, i, fs) → args.length = fs.length →
+      (∀ p ∈ args.zip (fs.map Prod.snd), HasTy D S Γ p.1 p.2) →
+      HasTy D S Γ (.ADT c [] args) (.ADTType d.name [])
+  | isCons {a : Expr} {c : Id} {d : Data} {i : Nat} {fs : List (Id × Ty)} :
+      findCtor D c = some (d, i, fs) → HasTy D S Γ a (.ADTType d.name []) →
+      HasTy D S Γ (.IsConstructor a c) .BooleanType
+  | sel {a : Expr} {x : Id} {d : Data} {i j : Nat} {T : Ty} :
+      findSel D x = some (d, i, j, T) → HasTy D S Γ a (.ADTType d.name []) →
+      HasTy D S Γ (.ADTSelector a x) T
 
-theorem HasTy.fragTy {S : List Sig} (hS : SigOk S) {Γ : List (Id × Ty)} {e : Expr} {T : Ty}
-    (h : HasTy S Γ e T) : FragTy T := by
+theorem HasTy.fragTy {S : List Sig} (hS : SigOk D S) {Γ : List (Id × Ty)} {e : Expr} {T : Ty}
+    (h : HasTy D S Γ e T) : FragTy D T := by
   induction h with
   | var _ hT => exact hT
   | ite _ _ _ _ iha _ => exact iha
   | invoke hs _ _ _ => exact hS.ret _ (findSig_spec hs).1
   | assume _ _ _ ihb => exact ihb
+  | adt hc _ _ _ => exact fragTy_data hS.data (findCtor_spec hc).1
+  | sel hx _ _ =>
+    obtain ⟨hd, c, fs, hi, hj⟩ := findSel_spec hx
+    exact hS.data.fields _ hd (c, fs) (List.mem_of_getElem? hi) _ (List.mem_of_getElem? hj)
   | _ => trivial
 
 /-- The program `P` has the functions of `S`, of bodies of their types, with no type parameters. -/
-def ProgTy (S : List Sig) : Program → Prop
-  | .Program fs _ _ _ _ => ∀ s ∈ S, ∃ body, lookup_fun fs s.name =
-      .Ok (.FunDef s.name [] (s.params.map Prod.fst) body) ∧ HasTy S s.params body s.ret
+def ProgTy (D : List Data) (S : List Sig) : Program → Prop
+  | .Program fs cs ss is eq => (∀ s ∈ S, ∃ body, lookup_fun fs s.name =
+      .Ok (.FunDef s.name [] (s.params.map Prod.fst) body) ∧ HasTy D S s.params body s.ret) ∧
+    ProgData D (.Program fs cs ss is eq)
+
+theorem ProgTy.data {D : List Data} {S : List Sig} {P : Program} (h : ProgTy D S P) :
+    ProgData D P := by
+  cases P; exact h.2
 
 /-! ## The translation -/
 
@@ -234,43 +188,55 @@ def orT : List SmtTerm → SmtTerm
 mutual
 /-- The term of the expression `e` of the fragment: a variable is the constant named after it, of
 the sort of its type, and a call the application of the constant named after the function. -/
-def tr (S : List Sig) (Γ : List (Id × Ty)) : Expr → SmtTerm
+def tr (D : List Data) (S : List Sig) (Γ : List (Id × Ty)) : Expr → SmtTerm
   | .Variable x =>
     match Γ.lookup x with
-    | some T => .UConst (nm x) (trT T)
+    | some T => .UConst (nm x) (trT D T)
     | none => .Boolean false
   | .IntegerLiteral i => .Numeral i
   | .BooleanLiteral b => .Boolean b
-  | .IfExpr c a b => .ite (tr S Γ c) (tr S Γ a) (tr S Γ b)
-  | .And es => andT (trs S Γ es)
-  | .Or es => orT (trs S Γ es)
-  | .Not a => .not (tr S Γ a)
-  | .Implies a b => .imp (tr S Γ a) (tr S Γ b)
-  | .Equals a b => .eq (tr S Γ a) (tr S Γ b)
-  | .Plus a b => .plus (tr S Γ a) (tr S Γ b)
-  | .Minus a b => .neg (tr S Γ a) (tr S Γ b)
-  | .Times a b => .mult (tr S Γ a) (tr S Γ b)
-  | .Division a b => .div (tr S Γ a) (tr S Γ b)
-  | .Remainder a b | .Modulo a b => .mod (tr S Γ a) (tr S Γ b)
-  | .UMinus a => .uneg (tr S Γ a)
-  | .LessThan a b => .lt (tr S Γ a) (tr S Γ b)
-  | .GreaterThan a b => .gt (tr S Γ a) (tr S Γ b)
-  | .LessEquals a b => .leq (tr S Γ a) (tr S Γ b)
-  | .GreaterEquals a b => .geq (tr S Γ a) (tr S Γ b)
+  | .IfExpr c a b => .ite (tr D S Γ c) (tr D S Γ a) (tr D S Γ b)
+  | .And es => andT (trs D S Γ es)
+  | .Or es => orT (trs D S Γ es)
+  | .Not a => .not (tr D S Γ a)
+  | .Implies a b => .imp (tr D S Γ a) (tr D S Γ b)
+  | .Equals a b => .eq (tr D S Γ a) (tr D S Γ b)
+  | .Plus a b => .plus (tr D S Γ a) (tr D S Γ b)
+  | .Minus a b => .neg (tr D S Γ a) (tr D S Γ b)
+  | .Times a b => .mult (tr D S Γ a) (tr D S Γ b)
+  | .Division a b => .div (tr D S Γ a) (tr D S Γ b)
+  | .Remainder a b | .Modulo a b => .mod (tr D S Γ a) (tr D S Γ b)
+  | .UMinus a => .uneg (tr D S Γ a)
+  | .LessThan a b => .lt (tr D S Γ a) (tr D S Γ b)
+  | .GreaterThan a b => .gt (tr D S Γ a) (tr D S Γ b)
+  | .LessEquals a b => .leq (tr D S Γ a) (tr D S Γ b)
+  | .GreaterEquals a b => .geq (tr D S Γ a) (tr D S Γ b)
   | .FunctionInvocation f _ args =>
     match findSig S f with
-    | some s => spine (.UConst (nm f) s.toDef.ty) (trs S Γ args)
+    | some s => spine (.UConst (nm f) (s.toDef D).ty) (trs D S Γ args)
     | none => .Boolean false
-  | .Assume _ b => tr S Γ b
+  | .Assume _ b => tr D S Γ b
+  | .ADT c _ args =>
+    match findCtor D c with
+    | some (d, i, _) => spine (.DtCons (nm d.name) d.decl i) (trs D S Γ args)
+    | none => .Boolean false
+  | .IsConstructor a c =>
+    match findCtor D c with
+    | some (d, i, _) => .Apply (.DtTester (nm d.name) d.decl i) (tr D S Γ a)
+    | none => .Boolean false
+  | .ADTSelector a x =>
+    match findSel D x with
+    | some (d, i, j, _) => .Apply (.DtSel (nm d.name) d.decl i j) (tr D S Γ a)
+    | none => .Boolean false
   | _ => .Boolean false
 
-def trs (S : List Sig) (Γ : List (Id × Ty)) : List Expr → List SmtTerm
+def trs (D : List Data) (S : List Sig) (Γ : List (Id × Ty)) : List Expr → List SmtTerm
   | [] => []
-  | e :: es => tr S Γ e :: trs S Γ es
+  | e :: es => tr D S Γ e :: trs D S Γ es
 end
 
 theorem trs_eq (S : List Sig) (Γ : List (Id × Ty)) :
-    ∀ es : List Expr, trs S Γ es = es.map (tr S Γ)
+    ∀ es : List Expr, trs D S Γ es = es.map (tr D S Γ)
   | [] => by simp [trs]
   | e :: es => by simp [trs, trs_eq S Γ es]
 
@@ -295,6 +261,15 @@ theorem forall₂_of_zip_map {α β γ : Type} {R : α → γ → Prop} {Q : β 
       (forall₂_of_zip_map (by simpa using hl) (fun p hp => h p (.tail _ hp))
         (fun c hc => hQ c (.tail _ hc)))
 
+theorem forall₂_getElem? {α β : Type} {R : α → β → Prop} : ∀ {l : List α} {m : List β} {j : Nat}
+    {a : α} {b : β}, List.Forall₂ R l m → l[j]? = some a → m[j]? = some b → R a b
+  | _ :: _, _ :: _, 0, _, _, .cons h _, ha, hb => by
+    simp only [List.getElem?_cons_zero, Option.some.injEq] at ha hb
+    subst ha; subst hb; exact h
+  | _ :: _, _ :: _, j + 1, _, _, .cons _ hs, ha, hb => by
+    simp only [List.getElem?_cons_succ] at ha hb
+    exact forall₂_getElem? hs ha hb
+
 theorem forall₂_map_left {α β γ : Type} {R : γ → β → Prop} {f : α → γ} :
     ∀ {l : List α} {m : List β}, List.Forall₂ (fun a b => R (f a) b) l m →
       List.Forall₂ R (l.map f) m
@@ -312,13 +287,14 @@ theorem typeof_uconst_wf {s : native_String} {T : SmtType} (h : __smtx_type_wf T
     __smtx_typeof (.UConst s T) = T := by
   simp only [__smtx_typeof, __smtx_typeof_guard_wf, native_ite, h, ↓reduceIte]
 
-theorem toDef_ty_wf {s : Sig} (hp : ∀ p ∈ s.params, FragTy p.2) (hr : FragTy s.ret) :
-    __smtx_type_wf s.toDef.ty = true := by
-  apply fragTy_wf_arrow _ (trT_wf hr)
+theorem toDef_ty_wf {D : List Data} (hD : DataOk D) {s : Sig}
+    (hp : ∀ p ∈ s.params, FragTy D p.2) (hr : FragTy D s.ret) :
+    __smtx_type_wf (s.toDef D).ty = true := by
+  apply fragTy_wf_arrow _ (trT_wf hD hr)
   intro p hp'
   simp only [ptys, List.mem_map] at hp'
   obtain ⟨q, hq, rfl⟩ := hp'
-  exact trT_component (hp q hq)
+  exact trT_component hD (hp q hq)
 
 set_option linter.internalConstructors false in
 theorem typeof_apply_plain {f : SmtTerm} (h : plainHead f = true) (x : SmtTerm) :
@@ -326,17 +302,17 @@ theorem typeof_apply_plain {f : SmtTerm} (h : plainHead f = true) (x : SmtTerm) 
       __smtx_typeof_apply (__smtx_typeof f) (__smtx_typeof x) := by
   cases f <;> first | (simp [plainHead] at h; done) | simp only [__smtx_typeof]
 
-theorem typeof_spine {R : SmtType} :
+theorem typeof_spine {D : List Data} (hD : DataOk D) {R : SmtType} :
     ∀ (ps : List (Id × Ty)) (f : SmtTerm) (ts : List SmtTerm), plainHead f = true →
-      __smtx_typeof f = arrow (ptys ps) R →
-      List.Forall₂ (fun t p => __smtx_typeof t = trT p.2 ∧ FragTy p.2) ts ps →
+      __smtx_typeof f = arrow (ptys D ps) R →
+      List.Forall₂ (fun t p => __smtx_typeof t = trT D p.2 ∧ FragTy D p.2) ts ps →
       __smtx_typeof (spine f ts) = R
   | [], _, [], _, hf, .nil => hf
   | p :: ps, f, t :: ts, hpl, hf, .cons ⟨ht, hp⟩ hs => by
-    apply typeof_spine ps (.Apply f t) ts rfl _ hs
+    apply typeof_spine hD ps (.Apply f t) ts rfl _ hs
     rw [typeof_apply_plain hpl, hf, ht]
     simp only [ptys, List.map_cons, arrow, __smtx_typeof_apply, __smtx_typeof_guard, native_ite,
-      native_Teq, trT_ne hp, decide_false, decide_true, Bool.false_eq_true, ↓reduceIte]
+      native_Teq, trT_ne hD hp, decide_false, decide_true, Bool.false_eq_true, ↓reduceIte]
 
 theorem typeof_andT : ∀ ts : List SmtTerm, (∀ t ∈ ts, __smtx_typeof t = .Bool) →
     __smtx_typeof (andT ts) = .Bool
@@ -352,11 +328,30 @@ theorem typeof_orT : ∀ ts : List SmtTerm, (∀ t ∈ ts, __smtx_typeof t = .Bo
     simp only [orT, __smtx_typeof, native_ite, native_Teq, h t (.head _),
       typeof_orT ts (fun u hu => h u (.tail _ hu)), decide_true, ↓reduceIte]
 
+theorem typeof_spine_chain {T0 : SmtType} :
+    ∀ (Us : List SmtType) (f : SmtTerm) (ts : List SmtTerm), plainHead f = true →
+      __smtx_typeof f = chainT T0 Us →
+      List.Forall₂ (fun t U => __smtx_typeof t = U ∧ U ≠ .None) ts Us →
+      __smtx_typeof (spine f ts) = T0
+  | [], _, [], _, hf, .nil => hf
+  | U :: Us, f, t :: ts, hpl, hf, .cons ⟨ht, hU⟩ hs => by
+    apply typeof_spine_chain Us (.Apply f t) ts rfl _ hs
+    rw [typeof_apply_plain hpl, hf, ht]
+    simp [chainT, __smtx_typeof_apply, __smtx_typeof_guard, native_ite, native_Teq, hU]
+
+/-- The sort of the constructor of index `i` of a datatype of `D`. -/
+theorem typeof_dtCons {D : List Data} (hD : DataOk D) {d : Data} (hd : d ∈ D) {c : Id}
+    {i : Nat} {fs : List (Id × Ty)} (hi : d.ctors[i]? = some (c, fs)) :
+    __smtx_typeof (.DtCons (nm d.name) d.decl i) =
+      chainT (.Datatype (nm d.name) d.decl) (fs.map fun f => trT D f.2) := by
+  simp only [__smtx_typeof, __smtx_typeof_guard_wf, native_ite, hD.wf d hd, ↓reduceIte, cons_rec,
+    ctorFields_data hD hd, hi, Option.map_some, Option.getD_some]
+
 /-- The translation of an expression of type `T` is a term of the sort of `T`. -/
-theorem tr_typeof {S : List Sig} (hS : SigOk S) {Γ : List (Id × Ty)} {e : Expr} {T : Ty}
-    (h : HasTy S Γ e T) : __smtx_typeof (tr S Γ e) = trT T := by
+theorem tr_typeof {S : List Sig} (hS : SigOk D S) {Γ : List (Id × Ty)} {e : Expr} {T : Ty}
+    (h : HasTy D S Γ e T) : __smtx_typeof (tr D S Γ e) = trT D T := by
   induction h with
-  | var hx hT => simp only [tr, hx]; exact typeof_uconst_wf (trT_wf hT)
+  | var hx hT => simp only [tr, hx]; exact typeof_uconst_wf (trT_wf hS.data hT)
   | int i => rfl
   | bool b => rfl
   | ite hc ha hb ihc iha ihb =>
@@ -374,7 +369,7 @@ theorem tr_typeof {S : List Sig} (hS : SigOk S) {Γ : List (Id × Ty)} {e : Expr
       decide_true, ↓reduceIte]
   | equals ha _ iha ihb =>
     simp only [tr, __smtx_typeof, iha, ihb, __smtx_typeof_eq, __smtx_typeof_guard, native_ite,
-      native_Teq, trT_ne (ha.fragTy hS), decide_false, decide_true, Bool.false_eq_true,
+      native_Teq, trT_ne hS.data (ha.fragTy hS), decide_false, decide_true, Bool.false_eq_true,
       ↓reduceIte]
     rfl
   | plus _ _ iha ihb | minus _ _ iha ihb | times _ _ iha ihb | div _ _ iha ihb
@@ -386,12 +381,39 @@ theorem tr_typeof {S : List Sig} (hS : SigOk S) {Γ : List (Id × Ty)} {e : Expr
   | @invoke s args hs hl _ ih =>
     have hmem := (findSig_spec hs).1
     simp only [tr, hs, trs_eq]
-    apply typeof_spine s.params _ _ rfl
-      (typeof_uconst_wf (toDef_ty_wf (hS.params s hmem) (hS.ret s hmem)))
+    apply typeof_spine hS.data s.params _ _ rfl
+      (typeof_uconst_wf (toDef_ty_wf hS.data (hS.params s hmem) (hS.ret s hmem)))
     apply forall₂_map_left
-    exact forall₂_of_zip_map (g := Prod.snd) (R := fun a T => __smtx_typeof (tr S Γ a) = trT T)
+    exact forall₂_of_zip_map (g := Prod.snd) (R := fun a T => __smtx_typeof (tr D S Γ a) = trT D T)
       (by simpa using hl) ih (hS.params s hmem)
   | assume _ _ _ ihb => simpa only [tr] using ihb
+  | @adt c d i fs args hc hl _ ih =>
+    obtain ⟨hd, hi⟩ := findCtor_spec hc
+    simp only [tr, hc, trs_eq]
+    rw [trT_data hS.data hd]
+    apply typeof_spine_chain _ _ _ rfl (typeof_dtCons hS.data hd hi)
+    rw [List.forall₂_map_left_iff, List.forall₂_map_right_iff]
+    exact (forall₂_of_zip_map (g := Prod.snd)
+      (R := fun a T => __smtx_typeof (tr D S Γ a) = trT D T) hl ih
+      (hS.data.fields d hd (c, fs) (List.mem_of_getElem? hi))).imp
+      fun _ _ h => ⟨h.1, trT_ne hS.data h.2⟩
+  | @isCons a c d i fs hc _ ih =>
+    obtain ⟨hd, hi⟩ := findCtor_spec hc
+    rw [trT_data hS.data hd] at ih
+    have hne : chainT (.Datatype (nm d.name) d.decl) (fs.map fun f => trT D f.2) ≠ .None :=
+      chainT_ne (by simp) _
+    show _ = SmtType.Bool
+    simp [tr, hc, __smtx_typeof, ih, cons_rec, ctorFields_data hS.data hd, hi,
+      __smtx_typeof_guard, __smtx_typeof_apply, native_ite, native_Teq, hne]
+  | @sel a x d i j T hx ha ih =>
+    obtain ⟨hd, c, fs, hi, hj⟩ := findSel_spec hx
+    have hT : FragTy D T :=
+      hS.data.fields _ hd (c, fs) (List.mem_of_getElem? hi) _ (List.mem_of_getElem? hj)
+    rw [trT_data hS.data hd] at ih
+    have hret : __smtx_ret_typeof_sel (nm d.name) d.decl i j = trT D T := by
+      simp [__smtx_ret_typeof_sel, ret_typeof_sel_rec, ctorFields_data hS.data hd, hi, hj]
+    simp [tr, hx, __smtx_typeof, ih, hret, __smtx_typeof_guard_wf, trT_wf hS.data hT,
+      __smtx_typeof_guard, __smtx_typeof_apply, native_ite, native_Teq]
 
 /-! ## Evaluation, inverted -/
 
@@ -399,12 +421,6 @@ theorem tr_typeof {S : List Sig} (hS : SigOk S) {Γ : List (Id × Ty)} {e : Expr
 gives no value. -/
 macro "ok_split " h:ident : tactic =>
   `(tactic| (split at $h:ident <;> try contradiction))
-
-theorem hasV_int {v : Value} (h : HasV v .IntegerType) : ∃ i, v = .IntV i := by
-  cases v <;> first | exact ⟨_, rfl⟩ | exact absurd h id
-
-theorem hasV_bool {v : Value} (h : HasV v .BooleanType) : ∃ b, v = .BoolV b := by
-  cases v <;> first | exact ⟨_, rfl⟩ | exact absurd h id
 
 section Eval
 variable {O : Oracle} {P : Program} {n : Int}
@@ -424,8 +440,8 @@ theorem lookup_var_det {bs : List Binding} {x : Id} {v v' : Value}
 
 /-- What binding the parameters `ps` to typed values gives. -/
 theorem bind_lookup : ∀ (ps : List (Id × Ty)) (vs : List Value) (bs : List Binding),
-    bind_all (ps.map Prod.fst) vs = .Ok bs → List.Forall₂ HasV vs (ps.map Prod.snd) →
-    ∀ x T, ps.lookup x = some T → ∃ v, lookup_var bs x = .Ok v ∧ HasV v T
+    bind_all (ps.map Prod.fst) vs = .Ok bs → List.Forall₂ (HasV D) vs (ps.map Prod.snd) →
+    ∀ x T, ps.lookup x = some T → ∃ v, lookup_var bs x = .Ok v ∧ HasV D v T
   | [], _, _, _, _, x, T, hx => by simp at hx
   | (y, U) :: ps, v :: vs, bs, h, .cons hv hvs, x, T, hx => by
     simp only [List.map_cons] at h
@@ -463,44 +479,44 @@ theorem eval_spine (M : SmtModel) : ∀ (f : SmtTerm) (ts : List SmtTerm), plain
     rw [eval_spine M (.Apply f t) ts rfl, eval_apply_plain M h t]
 
 section Agree
-variable (O : Oracle) (P : Program) (S : List Sig)
+variable (O : Oracle) (P : Program) (D : List Data) (S : List Sig)
 
 /-- The variables of `Γ` have values of their types in `env`. -/
 def EnvTy (Γ : List (Id × Ty)) (env : Env) : Prop :=
-  ∀ x T, Γ.lookup x = some T → ∀ v, lookup_var (env_vars env) x = .Ok v → HasV v T
+  ∀ x T, Γ.lookup x = some T → ∀ v, lookup_var (env_vars env) x = .Ok v → HasV D v T
 
 /-- The constants of the variables of `Γ` have their values in `env`. -/
 def VarsOk (Γ : List (Id × Ty)) (env : Env) (M : SmtModel) : Prop :=
   ∀ x T, Γ.lookup x = some T → ∀ v, lookup_var (env_vars env) x = .Ok v →
-    __smtx_model_eval M (.UConst (nm x) (trT T)) = trV v
+    __smtx_model_eval M (.UConst (nm x) (trT D T)) = trV D v
 
 /-- The calls with `n` fuel of the functions of `S` to arguments of their types give values of
 their types. -/
 def CallTy (n : Int) : Prop :=
-  ∀ s ∈ S, ∀ tenv vs v, List.Forall₂ HasV vs (s.params.map Prod.snd) →
-    call O P n s.name [] tenv vs = .Ok v → HasV v s.ret
+  ∀ s ∈ S, ∀ tenv vs v, List.Forall₂ (HasV D) vs (s.params.map Prod.snd) →
+    call O P n s.name [] tenv vs = .Ok v → HasV D v s.ret
 
 /-- The calls with `n` fuel of the functions of `S` agree with the constants of the functions in
 `M`. -/
 def CallsOk (n : Int) (M : SmtModel) : Prop :=
-  ∀ s ∈ S, ∀ tenv vs v, List.Forall₂ HasV vs (s.params.map Prod.snd) →
+  ∀ s ∈ S, ∀ tenv vs v, List.Forall₂ (HasV D) vs (s.params.map Prod.snd) →
     call O P n s.name [] tenv vs = .Ok v →
-    applyAll M (__smtx_model_eval M (.UConst (nm s.name) s.toDef.ty)) (vs.map trV) = trV v
+    applyAll M (__smtx_model_eval M (.UConst (nm s.name) (s.toDef D).ty)) (vs.map (trV D)) = trV D v
 
 /-- What the agreement says of `e`: its values are of type `T`, and are those of its term in the
 models where the calls and the variables agree. -/
 def Ev (n : Int) (Γ : List (Id × Ty)) (e : Expr) (T : Ty) : Prop :=
-  ∀ env v, EnvTy Γ env → eval O P n env e = .Ok v →
-    HasV v T ∧ ∀ M, model_wf M → CallsOk O P S n M → VarsOk Γ env M →
-      __smtx_model_eval M (tr S Γ e) = trV v
+  ∀ env v, EnvTy D Γ env → eval O P n env e = .Ok v →
+    HasV D v T ∧ ∀ M, model_wf M → CallsOk O P D S n M → VarsOk D Γ env M →
+      __smtx_model_eval M (tr D S Γ e) = trV D v
 
-variable {O P S}
+variable {O P D S}
 
-theorem ev_list {n : Int} {Γ : List (Id × Ty)} {env : Env} (hE : EnvTy Γ env) :
+theorem ev_list {n : Int} {Γ : List (Id × Ty)} {env : Env} (hE : EnvTy D Γ env) :
     ∀ (args : List Expr) (Ts : List Ty) (vs : List Value), args.length = Ts.length →
-      (∀ p ∈ args.zip Ts, Ev O P S n Γ p.1 p.2) → eval_list O P n env args = .Ok vs →
-      List.Forall₂ HasV vs Ts ∧ ∀ M, model_wf M → CallsOk O P S n M → VarsOk Γ env M →
-        (args.map (tr S Γ)).map (__smtx_model_eval M) = vs.map trV
+      (∀ p ∈ args.zip Ts, Ev O P D S n Γ p.1 p.2) → eval_list O P n env args = .Ok vs →
+      List.Forall₂ (HasV D) vs Ts ∧ ∀ M, model_wf M → CallsOk O P D S n M → VarsOk D Γ env M →
+        (args.map (tr D S Γ)).map (__smtx_model_eval M) = vs.map (trV D)
   | [], [], vs, _, _, h => by
     rw [eval_list] at h; cases h; exact ⟨.nil, fun _ _ _ _ => rfl⟩
   | [], _ :: _, _, hl, _, _ => by simp at hl
@@ -519,12 +535,12 @@ theorem ev_list {n : Int} {Γ : List (Id × Ty)} {env : Env} (hE : EnvTy Γ env)
       simp only [List.map_cons, hvM M hw hc hV, hwM M hw hc hV]⟩
 
 theorem ev_and (hty : LogosTyping) {n : Int} {Γ : List (Id × Ty)} {env : Env}
-    (hE : EnvTy Γ env) :
-    ∀ (es : List Expr) (v : Value), (∀ e ∈ es, HasTy S Γ e .BooleanType) →
-      (∀ e ∈ es, Ev O P S n Γ e .BooleanType) → (hS : SigOk S) →
+    (hE : EnvTy D Γ env) :
+    ∀ (es : List Expr) (v : Value), (∀ e ∈ es, HasTy D S Γ e .BooleanType) →
+      (∀ e ∈ es, Ev O P D S n Γ e .BooleanType) → (hS : SigOk D S) →
       eval_and O P n env es = .Ok v →
-      HasV v .BooleanType ∧ ∀ M, model_wf M → CallsOk O P S n M → VarsOk Γ env M →
-        __smtx_model_eval M (andT (es.map (tr S Γ))) = trV v
+      HasV D v .BooleanType ∧ ∀ M, model_wf M → CallsOk O P D S n M → VarsOk D Γ env M →
+        __smtx_model_eval M (andT (es.map (tr D S Γ))) = trV D v
   | [], v, _, _, _, h => by rw [eval_and] at h; cases h; exact ⟨trivial, fun _ _ _ _ => rfl⟩
   | e :: es, v, hty', hev, hS, h => by
     rw [eval_and] at h
@@ -535,7 +551,7 @@ theorem ev_and (hty : LogosTyping) {n : Int} {Γ : List (Id × Ty)} {env : Env}
     · rw [dite_eq_right_of_eq_false (eq_false Bool.false_ne_true)] at h
       cases h
       refine ⟨trivial, fun M hw hc hV => ?_⟩
-      have hrest : __smtx_typeof (andT (es.map (tr S Γ))) = .Bool := by
+      have hrest : __smtx_typeof (andT (es.map (tr D S Γ))) = .Bool := by
         apply typeof_andT
         intro t ht
         simp only [List.mem_map] at ht
@@ -553,12 +569,12 @@ theorem ev_and (hty : LogosTyping) {n : Int} {Γ : List (Id × Ty)} {env : Env}
       rfl
 
 theorem ev_or (hty : LogosTyping) {n : Int} {Γ : List (Id × Ty)} {env : Env}
-    (hE : EnvTy Γ env) :
-    ∀ (es : List Expr) (v : Value), (∀ e ∈ es, HasTy S Γ e .BooleanType) →
-      (∀ e ∈ es, Ev O P S n Γ e .BooleanType) → (hS : SigOk S) →
+    (hE : EnvTy D Γ env) :
+    ∀ (es : List Expr) (v : Value), (∀ e ∈ es, HasTy D S Γ e .BooleanType) →
+      (∀ e ∈ es, Ev O P D S n Γ e .BooleanType) → (hS : SigOk D S) →
       eval_or O P n env es = .Ok v →
-      HasV v .BooleanType ∧ ∀ M, model_wf M → CallsOk O P S n M → VarsOk Γ env M →
-        __smtx_model_eval M (orT (es.map (tr S Γ))) = trV v
+      HasV D v .BooleanType ∧ ∀ M, model_wf M → CallsOk O P D S n M → VarsOk D Γ env M →
+        __smtx_model_eval M (orT (es.map (tr D S Γ))) = trV D v
   | [], v, _, _, _, h => by rw [eval_or] at h; cases h; exact ⟨trivial, fun _ _ _ _ => rfl⟩
   | e :: es, v, hty', hev, hS, h => by
     rw [eval_or] at h
@@ -576,7 +592,7 @@ theorem ev_or (hty : LogosTyping) {n : Int} {Γ : List (Id × Ty)} {env : Env}
     · rw [dite_eq_left_of_eq_true (eq_true rfl)] at h
       cases h
       refine ⟨trivial, fun M hw hc hV => ?_⟩
-      have hrest : __smtx_typeof (orT (es.map (tr S Γ))) = .Bool := by
+      have hrest : __smtx_typeof (orT (es.map (tr D S Γ))) = .Bool := by
         apply typeof_orT
         intro t ht
         simp only [List.mem_map] at ht
@@ -586,20 +602,51 @@ theorem ev_or (hty : LogosTyping) {n : Int} {Γ : List (Id × Ty)} {env : Env}
       simp only [List.map_cons, orT, __smtx_model_eval, heM M hw hc hV, hb', trV]
       rfl
 
-open Classical in
-theorem value_eq_int (hO : O.Sound) (P : Program) (x : Int) (b : Value) :
-    O.value_eq P (.IntV x) b = .Ok (decide (Value.IntV x = b)) := by
-  rw [hO.value_eq]
+/-- A value is not a regular language, so the equality of the models on it is that of the
+values. -/
+theorem eval_eq_veq {a : SmtValue} (h : __smtx_typeof_value a ≠ .RegLan) (b : SmtValue) :
+    __smtx_model_eval_eq a b = .Boolean (native_veq a b) := by
+  cases a <;> first | (simp [__smtx_typeof_value] at h; done) | simp [__smtx_model_eval_eq]
 
 open Classical in
-theorem value_eq_bool (hO : O.Sound) (P : Program) (x : Bool) (b : Value) :
-    O.value_eq P (.BoolV x) b = .Ok (decide (Value.BoolV x = b)) := by
-  rw [hO.value_eq]
+/-- The equality of the models on the values of a type is that of the values. -/
+theorem eval_eq_trV {D : List Data} (hD : DataOk D) {x y : Value} {T : Ty} (hx : HasV D x T)
+    (hy : HasV D y T) :
+    __smtx_model_eval_eq (trV D x) (trV D y) = trV D (.BoolV (decide (x = y))) := by
+  have hne : __smtx_typeof_value (trV D x) ≠ .RegLan := by
+    rw [(agrees_trV hD default x T hx).1]
+    rcases fragTy_cases (hasV_fragTy hx) with rfl | rfl | ⟨d, hd, rfl⟩
+    · simp [trT]
+    · simp [trT]
+    · rw [trT_data hD hd]; simp
+  rw [eval_eq_veq hne]
+  simp only [native_veq, trV]
+  congr 1
+  apply decide_eq_decide.mpr
+  exact ⟨fun h => trV_inj hD hx hy h, fun h => by rw [h]⟩
+
+/-- A constructor, or one applied to values. -/
+def ctorLike : SmtValue → Prop
+  | .DtCons _ _ _ => True
+  | .Apply _ _ => True
+  | _ => False
+
+theorem applyAll_ctor (M : SmtModel) : ∀ (as : List SmtValue) (f : SmtValue), ctorLike f →
+    (∀ a ∈ as, a ≠ .NotValue) → applyAll M f as = applyVs f as
+  | [], _, _, _ => rfl
+  | a :: as, f, hf, h => by
+    have ha := h a (.head _)
+    have : __smtx_model_eval_apply M f a = .Apply f a := by
+      cases f <;> first | exact absurd hf id | (cases a <;> first | rfl | exact absurd rfl ha)
+    simp only [applyAll, this]
+    rw [applyAll_ctor M as (.Apply f a) trivial (fun b hb => h b (.tail _ hb))]
+    simp [applyVs]
 
 /-- The agreement: on the fragment, a value of an expression is of its type, and is the value of
 its term in every well-formed model where the calls and the variables agree. -/
-theorem ev (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S) {n : Int} (hct : CallTy O P S n)
-    {Γ : List (Id × Ty)} {e : Expr} {T : Ty} (h : HasTy S Γ e T) : Ev O P S n Γ e T := by
+theorem ev (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hPD : ProgData D P) {n : Int}
+    (hct : CallTy O P D S n)
+    {Γ : List (Id × Ty)} {e : Expr} {T : Ty} (h : HasTy D S Γ e T) : Ev O P D S n Γ e T := by
   induction h with
   | var hx hT =>
     intro env v hE he
@@ -674,20 +721,9 @@ theorem ev (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S) {n : Int} (hct : Ca
     obtain ⟨hyT, hbM⟩ := ihb env _ hE hy
     refine ⟨trivial, fun M hw hc hV => ?_⟩
     simp only [tr, __smtx_model_eval, haM M hw hc hV, hbM M hw hc hV]
-    cases T
-    case IntegerType =>
-      obtain ⟨i, rfl⟩ := hasV_int hxT
-      obtain ⟨j, rfl⟩ := hasV_int hyT
-      rw [value_eq_int hO] at hsame
-      cases hsame
-      simp [trV, __smtx_model_eval_eq, native_veq]
-    case BooleanType =>
-      obtain ⟨i, rfl⟩ := hasV_bool hxT
-      obtain ⟨j, rfl⟩ := hasV_bool hyT
-      rw [value_eq_bool hO] at hsame
-      cases hsame
-      simp [trV, __smtx_model_eval_eq, native_veq]
-    all_goals exact absurd hxT (by cases x <;> exact id)
+    rw [value_eq_hasV hO P x T y hxT hyT] at hsame
+    cases hsame
+    exact eval_eq_trV hS.data hxT hyT
   | plus _ _ iha ihb | minus _ _ iha ihb | times _ _ iha ihb =>
     intro env v hE he
     rw [eval] at he
@@ -777,11 +813,99 @@ theorem ev (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S) {n : Int} (hct : Ca
     · rw [dite_eq_left_of_eq_true (eq_true rfl)] at he
       obtain ⟨hv, hM⟩ := ihb env v hE he
       exact ⟨hv, fun M hw hc hV => by simp only [tr]; exact hM M hw hc hV⟩
+  | @adt c d i fs args hc hl hargs ih =>
+    intro env v hE he
+    rw [eval] at he
+    ok_split he
+    rename_i vs hvs
+    obtain ⟨hvsT, hvsM⟩ := ev_list hE args (fs.map Prod.snd) vs (by simpa using hl) ih hvs
+    have hv : v = .ADTV c vs := by
+      cases P with
+      | Program fns cs ss is eq =>
+      obtain ⟨hlc, hls⟩ := hPD c d i fs hc
+      rw [construct] at he
+      simp only [hlc, hls] at he
+      cases he; rfl
+    subst hv
+    refine ⟨hasV_adt hc hvsT, fun M hw hcl hV => ?_⟩
+    simp only [tr, hc, trs_eq, trV, trVs_eq]
+    rw [eval_spine M _ _ rfl, hvsM M hw hcl hV]
+    apply applyAll_ctor M _ _ (by simp [__smtx_model_eval, ctorLike])
+    intro a ha
+    simp only [List.mem_map] at ha
+    obtain ⟨u, hu, rfl⟩ := ha
+    clear hvsM hvs he
+    generalize fs.map Prod.snd = Ts at hvsT
+    induction hvsT with
+    | nil => cases hu
+    | cons h _ ihh =>
+      rcases List.mem_cons.mp hu with rfl | hu'
+      · exact trV_ne hS.data h
+      · exact ihh hu'
+  | @isCons a c d i fs hc _ ih =>
+    intro env v hE he
+    rw [eval] at he
+    ok_split he
+    rename_i w hw
+    obtain ⟨hwT, hM⟩ := ih env _ hE hw
+    obtain ⟨c', vs, d', i', fs', rfl, hc', hname, hvs⟩ := hasV_data hwT
+    dsimp only at he
+    cases he
+    refine ⟨by simp [HasV], fun M hwf hcl hV => ?_⟩
+    obtain ⟨hd, hi⟩ := findCtor_spec hc
+    obtain ⟨hd', hi'⟩ := findCtor_spec hc'
+    have hdd : d' = d := data_eq_of_name hS.data.nodup hd' hd hname
+    subst hdd
+    simp only [tr, hc, __smtx_model_eval, hM M hwf hcl hV, __smtx_model_eval_dt_tester, trV, hc',
+      trVs_eq, head_applyVs, __smtx_apply_head_value, native_veq]
+    congr 1
+    apply decide_eq_decide.mpr
+    constructor
+    · intro h
+      injection h with _ _ hii
+      subst hii
+      rw [hi] at hi'
+      cases hi'; rfl
+    · rintro rfl
+      rw [hc] at hc'
+      cases hc'; rfl
+  | @sel a x d i j T hx _ ih =>
+    intro env v hE he
+    rw [eval] at he
+    ok_split he
+    rename_i w hw
+    obtain ⟨hwT, hM⟩ := ih env _ hE hw
+    obtain ⟨c', vs, d', i', fs', rfl, hc', hname, hvs⟩ := hasV_data hwT
+    obtain ⟨hd', hi'⟩ := findCtor_spec hc'
+    obtain ⟨hd, c, fs, hi, hj⟩ := findSel_spec hx
+    have hdd : d' = d := data_eq_of_name hS.data.nodup hd' hd hname
+    subst hdd
+    have hsel : select_field (fs'.map fun f => Param.Param f.1 f.2) vs x = .Ok v := by
+      cases P with
+      | Program fns cs ss is eq =>
+      obtain ⟨hlc, _⟩ := hPD c' d' i' fs' hc'
+      simp only [hlc] at he
+      exact he
+    obtain ⟨j', T', hj', hvj⟩ := select_field_spec fs' vs hsel
+    have hfs := findSel_of hS.data hd' hi' hj'
+    rw [hx] at hfs
+    cases hfs
+    have hv : HasV D v T := forall₂_getElem? hvs hvj (by simp [hj'])
+    refine ⟨hv, fun M hwf hcl hV => ?_⟩
+    have hlen : vs.length = fs'.length := by simpa using hvs.length_eq
+    simp only [tr, hx, __smtx_model_eval, hM M hwf hcl hV, __smtx_model_eval_dt_sel, trV, hc',
+      trVs_eq, head_applyVs, __smtx_apply_head_value, native_veq, native_ite, decide_true,
+      ↓reduceIte]
+    rw [dt_num_sels d'.decl, ctorFields_data hS.data hd', hi']
+    simp only [Option.map_some, List.length_map, Option.getD_some, ← hlen]
+    have := arg_nth_applyVs (.DtCons (nm d'.name) d'.decl i) (vs.map (trV D)) j (trV D v)
+      (by simp [hvj])
+    simpa using this
 
 /-- The bodies of the functions of `S` are typed, so their calls give values of their types, with
 any fuel. -/
-theorem call_ty (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S) (hP : ProgTy S P) :
-    ∀ (k : Nat) (n : Int), n.toNat = k → CallTy O P S n
+theorem call_ty (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hP : ProgTy D S P) :
+    ∀ (k : Nat) (n : Int), n.toNat = k → CallTy O P D S n
   | 0, n, hn => by
     intro s _ tenv vs v _ hc
     rw [call, dite_eq_left_of_eq_true (eq_true (by omega))] at hc
@@ -792,27 +916,27 @@ theorem call_ty (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S) (hP : ProgTy S
     rw [call, dite_eq_right_of_eq_false (eq_false (by omega))] at hc
     cases P with
     | Program fs _ _ _ _ =>
-    obtain ⟨body, hlook, hbody⟩ := hP s hs
+    obtain ⟨body, hlook, hbody⟩ := hP.1 s hs
     dsimp only at hc
     rw [hlook] at hc
     dsimp only at hc
     ok_split hc
     rename_i bs hbs
-    have hE : EnvTy s.params (Env.Env (bind_types [] [] tenv) bs) := by
+    have hE : EnvTy D s.params (Env.Env (bind_types [] [] tenv) bs) := by
       intro x T hx w hw
       obtain ⟨u, hu, huT⟩ := bind_lookup s.params vs bs hbs hvs x T hx
       rw [lookup_var_det hw hu]; exact huT
-    exact (ev hO hty hS ih hbody _ _ hE hc).1
+    exact (ev hO hty hS hP.2 ih hbody _ _ hE hc).1
 
-theorem call_ty' (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S) (hP : ProgTy S P) (n : Int) :
-    CallTy O P S n :=
+theorem call_ty' (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hP : ProgTy D S P) (n : Int) :
+    CallTy O P D S n :=
   call_ty hO hty hS hP _ n rfl
 
 end Agree
 
 /-! ## The intended model, with the calls as the functions
 
-The model `star (defs S) (interpOf O P S) M0 cd N` of `Inox/Model.lean`, where a function of `S`
+The model `star (defs D S) (interpOf O P D S) M0 cd N` of `Inox/Model.lean`, where a function of `S`
 applied to values is the value of its call, when a call with some fuel gives one. -/
 
 section Star
@@ -856,62 +980,66 @@ theorem sig_eq_of_name :
     · exact sig_eq_of_name hnd.2 h1' h2' hn
 
 /-- The functions of `S`, as functions of the model. -/
-def defs (S : List Sig) : List Def := S.map Sig.toDef
+def defs (D : List Data) (S : List Sig) : List Def := S.map (Sig.toDef D)
 
 theorem lookup_toDef : ∀ {S : List Sig}, (S.map Sig.name).Nodup → ∀ {s : Sig}, s ∈ S →
-    lookup (defs S) s.toDef.name s.toDef.ty = some s.toDef
+    lookup (defs D S) (s.toDef D).name (s.toDef D).ty = some (s.toDef D)
   | [], _, _, h => by simp at h
   | a :: S, hnd, s, hs => by
     rw [List.map_cons, List.nodup_cons] at hnd
     rcases List.mem_cons.mp hs with rfl | hs
     · simp [lookup, defs]
-    · have hne : a.toDef.name ≠ s.toDef.name := fun h =>
+    · have hne : (a.toDef D).name ≠ (s.toDef D).name := fun h =>
         hnd.1 (List.mem_map.mpr ⟨s, hs, (nm_inj h).symm⟩)
-      have ih := lookup_toDef hnd.2 hs
+      have ih := lookup_toDef (D := D) hnd.2 hs
       simp only [lookup, defs] at ih
       simp [lookup, defs, hne, ih]
 
-theorem toDef_params_ne {S : List Sig} (hS : SigOk S) {s : Sig} (hs : s ∈ S) :
-    ∀ q ∈ s.toDef.params, q.2 ≠ .None := by
+theorem toDef_params_ne {S : List Sig} (hS : SigOk D S) {s : Sig} (hs : s ∈ S) :
+    ∀ q ∈ (s.toDef D).params, q.2 ≠ .None := by
   intro q hq
   simp only [Sig.toDef, ptys, List.mem_map] at hq
   obtain ⟨p, hp, rfl⟩ := hq
-  exact trT_ne (hS.params s hs p hp)
+  exact trT_ne hS.data (hS.params s hs p hp)
 
 open Classical in
 /-- The interpretation of the functions of `S` by their calls: the value of a call with some fuel
 to the values `ws`, if one gives a value, and otherwise no value. -/
-noncomputable def interpOf (O : Oracle) (P : Program) (S : List Sig) (d : Def)
+noncomputable def interpOf (O : Oracle) (P : Program) (D : List Data) (S : List Sig) (d : Def)
     (ws : List SmtValue) : SmtValue :=
   if h : ∃ v, ∃ s ∈ S, ∃ n,
-      s.toDef = d ∧ call O P n s.name [] [] (ws.map ofSmt) = .Ok v then
-    trV h.choose else .NotValue
+      (s.toDef D) = d ∧ call O P n s.name [] [] (ws.map (ofSmt D)) = .Ok v then
+    trV D h.choose else .NotValue
 
-theorem interpOf_eq {O : Oracle} {P : Program} {S : List Sig} (hP : ProgFrag P) (hS : SigOk S)
+theorem interpOf_eq {O : Oracle} {P : Program} {S : List Sig} (hP : ProgFrag P) (hS : SigOk D S)
     {s : Sig} (hs : s ∈ S) {n : Int} {ws : List SmtValue} {v : Value}
-    (hc : call O P n s.name [] [] (ws.map ofSmt) = .Ok v) : interpOf O P S s.toDef ws = trV v := by
-  have h : ∃ v, ∃ s' ∈ S, ∃ n, s'.toDef = s.toDef ∧
-      call O P n s'.name [] [] (ws.map ofSmt) = .Ok v := ⟨v, s, hs, n, rfl, hc⟩
+    (hc : call O P n s.name [] [] (ws.map (ofSmt D)) = .Ok v) : interpOf O P D S (s.toDef D) ws =
+        trV D v := by
+  have h : ∃ v, ∃ s' ∈ S, ∃ n, (s'.toDef D) = (s.toDef D) ∧
+      call O P n s'.name [] [] (ws.map (ofSmt D)) = .Ok v := ⟨v, s, hs, n, rfl, hc⟩
   simp only [interpOf, h, ↓reduceDIte]
   obtain ⟨s', hs', n', hd, hc'⟩ := h.choose_spec
   have := sig_eq_of_name hS.nodup hs' hs (nm_inj (congrArg Def.name hd))
   subst this
   rw [call_ok_unique hP hc' hc]
 
-theorem typed_map (M : SmtModel) : ∀ {ps : List (Id × Ty)} {vs : List Value},
-    List.Forall₂ HasV vs (ps.map Prod.snd) → List.Forall₂ (Typed M) (ptys ps) (vs.map trV)
+theorem typed_map {D : List Data} (hD : DataOk D) (M : SmtModel) :
+    ∀ {ps : List (Id × Ty)} {vs : List Value}, List.Forall₂ (HasV D) vs (ps.map Prod.snd) →
+      List.Forall₂ (Typed M) (ptys D ps) (vs.map (trV D))
   | [], [], _ => .nil
-  | _ :: _, _ :: _, .cons h hs => .cons (typed_trV M _ h) (typed_map M hs)
+  | _ :: _, _ :: _, .cons h hs => .cons (typed_trV hD M _ h) (typed_map hD M hs)
 
-theorem ofSmt_map : ∀ {vs : List Value} {Ts : List Ty}, List.Forall₂ HasV vs Ts →
-    (vs.map trV).map ofSmt = vs
+theorem ofSmt_map {D : List Data} (hD : DataOk D) : ∀ {vs : List Value} {Ts : List Ty},
+    List.Forall₂ (HasV D) vs Ts → (vs.map (trV D)).map (ofSmt D) = vs
   | [], [], .nil => rfl
-  | _ :: _, _ :: _, .cons h hs => by simp only [List.map_cons, ofSmt_trV h, ofSmt_map hs]
+  | _ :: _, _ :: _, .cons h hs => by
+    simp only [List.map_cons, ofSmt_trV hD h, ofSmt_map hD hs]
 
-/-- The values of a type of the fragment are those of the fragment. -/
-theorem typed_inv {M : SmtModel} {ps : List (Id × Ty)} (hf : ∀ p ∈ ps, FragTy p.2) :
-    ∀ {ws : List SmtValue}, List.Forall₂ (Typed M) (ptys ps) ws →
-      ∃ vs, List.Forall₂ HasV vs (ps.map Prod.snd) ∧ ws = vs.map trV := by
+/-- The values of the sorts of the types of the bridge are those of the values of the types. -/
+theorem typed_inv {D : List Data} (hD : DataOk D) {M : SmtModel} {ps : List (Id × Ty)}
+    (hf : ∀ p ∈ ps, FragTy D p.2) :
+    ∀ {ws : List SmtValue}, List.Forall₂ (Typed M) (ptys D ps) ws →
+      ∃ vs, List.Forall₂ (HasV D) vs (ps.map Prod.snd) ∧ ws = vs.map (trV D) := by
   induction ps with
   | nil => intro ws h; simp only [ptys, List.map_nil] at h; cases h; exact ⟨[], .nil, rfl⟩
   | cons p ps ih =>
@@ -920,16 +1048,8 @@ theorem typed_inv {M : SmtModel} {ps : List (Id × Ty)} (hf : ∀ p ∈ ps, Frag
     cases h with
     | cons hw hws =>
       obtain ⟨vs, hvs, rfl⟩ := ih (fun q hq => hf q (.tail _ hq)) hws
-      have hT := hf p (.head _)
-      obtain ⟨x, T⟩ := p
-      cases T
-      case IntegerType =>
-        obtain ⟨i, rfl⟩ := int_value_canonical hw.1
-        exact ⟨.IntV i :: vs, .cons trivial hvs, rfl⟩
-      case BooleanType =>
-        obtain ⟨b, rfl⟩ := bool_value_canonical hw.1
-        exact ⟨.BoolV b :: vs, .cons trivial hvs, rfl⟩
-      all_goals exact absurd hT id
+      obtain ⟨v, hv, rfl⟩ := typed_inv1 hD (hf p (.head _)) hw.1
+      exact ⟨v :: vs, .cons hv hvs, rfl⟩
 
 theorem applyAll_setConsts (M : SmtModel) (σ : List (native_String × SmtType × SmtValue)) :
     ∀ fv ws, applyAll (setConsts M σ) fv ws = applyAll M fv ws
@@ -989,62 +1109,64 @@ theorem applyAll_funVal {Q : List Def} {I : Def → List SmtValue → SmtValue} 
       rw [hap, typedOr_of M0 (by rw [hr]; exact hI)]
       rfl
 
-variable {O : Oracle} {P : Program} {S : List Sig}
+variable {O : Oracle} {P : Program} {D : List Data} {S : List Sig}
 
-theorem call_tenv (hP : ProgTy S P) {s : Sig} (hs : s ∈ S) (n : Int)
+theorem call_tenv (hP : ProgTy D S P) {s : Sig} (hs : s ∈ S) (n : Int)
     (tenv : List TypeBinding) (vs : List Value) :
     call O P n s.name [] tenv vs = call O P n s.name [] [] vs := by
   cases P with
   | Program fs _ _ _ _ =>
-  obtain ⟨body, hlook, _⟩ := hP s hs
+  obtain ⟨body, hlook, _⟩ := hP.1 s hs
   rw [call, call]
   simp only [hlook, bind_types]
 
 /-- The calls agree with the functions of the intended model. -/
-theorem callsOk_star (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S) (hPF : ProgFrag P)
-    (hP : ProgTy S P) (M0 N : SmtModel) (cd : Codes) (n : Int) :
-    CallsOk O P S n (Model.star (defs S) (interpOf O P S) M0 cd N) := by
+theorem callsOk_star (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hPF : ProgFrag P)
+    (hP : ProgTy D S P) (M0 N : SmtModel) (cd : Codes) (n : Int) :
+    CallsOk O P D S n (Model.star (defs D S) (interpOf O P D S) M0 cd N) := by
   intro s hs tenv vs v hvs hc
   rw [call_tenv hP hs] at hc
-  have hv : HasV v s.ret := call_ty' hO hty hS hP n s hs [] vs v hvs hc
-  have hI : interpOf O P S s.toDef (vs.map trV) = trV v :=
-    interpOf_eq hPF hS hs (by rw [ofSmt_map hvs]; exact hc)
-  have hlook := lookup_toDef hS.nodup hs
+  have hv : HasV D v s.ret := call_ty' hO hty hS hP n s hs [] vs v hvs hc
+  have hI : interpOf O P D S (s.toDef D) (vs.map (trV D)) = trV D v :=
+    interpOf_eq hPF hS hs (by rw [ofSmt_map hS.data hvs]; exact hc)
+  have hlook := lookup_toDef (D := D) hS.nodup hs
   have hlen : vs.length = s.params.length := by simpa using hvs.length_eq
   simp only [__smtx_model_eval, native_model_lookup]
   by_cases hnil : s.params = []
-  · have hdp : s.toDef.params = [] := by simp [Sig.toDef, ptys, hnil]
+  · have hdp : (s.toDef D).params = [] := by simp [Sig.toDef, ptys, hnil]
     have hvs0 : vs = [] := List.eq_nil_of_length_eq_zero (by rw [hlen, hnil]; rfl)
     subst hvs0
-    have hdv : defVal (interpOf O P S) cd s.toDef = trV v := by
+    have hdv : defVal (interpOf O P D S) cd (s.toDef D) = trV D v := by
       simp only [defVal, hdp, ↓reduceIte]; exact hI
-    rw [star_def (defs S) (interpOf O P S) M0 cd N (k := model_key (nm s.name) s.toDef.ty) rfl
+    rw [star_def (defs D S) (interpOf O P D S) M0 cd N (k := model_key (nm s.name) (s.toDef D).ty)
+        rfl
       hlook (by
         rw [hdv]
         simp only [model_key, Sig.toDef, ptys, hnil, List.map_nil, arrow]
-        exact typed_trV M0 (nm s.name) hv)]
+        exact typed_trV hS.data M0 (nm s.name) hv)]
     rw [hdv]; rfl
-  · have hpos : 0 < s.toDef.params.length := by
+  · have hpos : 0 < (s.toDef D).params.length := by
       simp only [Sig.toDef, ptys, List.length_map]
       exact List.length_pos_iff.mpr hnil
-    have hdp : s.toDef.params ≠ [] := List.ne_nil_of_length_pos hpos
+    have hdp : (s.toDef D).params ≠ [] := List.ne_nil_of_length_pos hpos
     obtain ⟨p, rest, hdrop0⟩ := drop_cons_of_lt (k := 0) hpos
     have hfv := funVal_eq cd (vs := []) hdrop0
-    have hpar : s.toDef.params = p :: rest := by simpa using hdrop0
-    have hdv : defVal (interpOf O P S) cd s.toDef = funVal cd s.toDef [] := by
+    have hpar : (s.toDef D).params = p :: rest := by simpa using hdrop0
+    have hdv : defVal (interpOf O P D S) cd (s.toDef D) = funVal cd (s.toDef D) [] := by
       simp only [defVal, hdp, ↓reduceIte]
-    rw [star_def (defs S) (interpOf O P S) M0 cd N (k := model_key (nm s.name) s.toDef.ty) rfl
+    rw [star_def (defs D S) (interpOf O P D S) M0 cd N (k := model_key (nm s.name) (s.toDef D).ty)
+        rfl
       hlook (by
         rw [hdv, hfv]
-        show __smtx_typeof_value _ = arrow s.toDef.params s.toDef.ret ∧ _
+        show __smtx_typeof_value _ = arrow (s.toDef D).params (s.toDef D).ret ∧ _
         rw [hpar]; exact ⟨rfl, rfl⟩)]
     rw [hdv]
-    have := applyAll_funVal (Q := defs S) (I := interpOf O P S) (M0 := M0) (N := N) (cd := cd)
-      hlook (toDef_params_ne hS hs) (vs.map trV) [] (by simpa using hpos)
+    have := applyAll_funVal (Q := defs D S) (I := interpOf O P D S) (M0 := M0) (N := N) (cd := cd)
+      hlook (toDef_params_ne hS hs) (vs.map (trV D)) [] (by simpa using hpos)
       (by simp only [List.length_nil, List.length_map, Nat.zero_add, hlen]
           simp [Sig.toDef, ptys])
-      (by rw [List.length_nil, List.drop_zero]; exact typed_map M0 hvs)
-      (by rw [List.nil_append, hI]; exact typed_trV M0 _ hv)
+      (by rw [List.length_nil, List.drop_zero]; exact typed_map hS.data M0 hvs)
+      (by rw [List.nil_append, hI]; exact typed_trV hS.data M0 _ hv)
     rw [this, List.nil_append]; exact hI
 
 end Star
@@ -1061,9 +1183,9 @@ theorem eval_eq_term (M : SmtModel) (x y : SmtTerm) :
 theorem eval_eq_bool (a b : SmtValue) : ∃ c, __smtx_model_eval_eq a b = .Boolean c := by
   unfold __smtx_model_eval_eq; split <;> exact ⟨_, rfl⟩
 
-theorem eval_eq_self {v : Value} {T : Ty} (h : HasV v T) :
-    __smtx_model_eval_eq (trV v) (trV v) = .Boolean true := by
-  cases v <;> cases T <;> simp [trV, __smtx_model_eval_eq, native_veq]
+theorem eval_eq_self {D : List Data} (hD : DataOk D) {v : Value} {T : Ty} (h : HasV D v T) :
+    __smtx_model_eval_eq (trV D v) (trV D v) = .Boolean true := by
+  rw [eval_eq_trV hD h h]; simp [trV]
 
 theorem typed_bindValues {M : SmtModel} : ∀ {qs : List (native_String × SmtType)}
     {ws : List SmtValue}, List.Forall₂ (Typed M) qs ws → ∀ e ∈ bindValues qs ws,
@@ -1149,7 +1271,8 @@ theorem eval_consts (M : SmtModel) : ∀ (qs : List (native_String × SmtType)) 
 theorem bindingOf_var : ∀ (ps : List (Id × Ty)) (vs : List Value) (bs : List Binding),
     bind_all (ps.map Prod.fst) vs = .Ok bs → ∀ x T, ps.lookup x = some T → ∀ w,
       lookup_var bs x = .Ok w →
-      bindingOf (bindValues (ptys ps) (vs.map trV)) (nm x) (trT T) = some (nm x, trT T, trV w)
+      bindingOf (bindValues (ptys D ps) (vs.map (trV D))) (nm x) (trT D T) = some (nm x, trT D T,
+          trV D w)
   | [], _, _, _, x, T, hx, _, _ => by simp at hx
   | _ :: _, [], _, h, _, _, _, _, _ => by simp [bind_all] at h
   | (y, U) :: ps, v :: vs, bs, h, x, T, hx, w, hw => by
@@ -1170,7 +1293,7 @@ theorem bindingOf_var : ∀ (ps : List (Id × Ty)) (vs : List Value) (bs : List 
         simp only [List.lookup, hb] at hx
         exact hx
       rw [lookup_var, dite_eq_right_of_eq_false (eq_false hxy)] at hw
-      have ih := bindingOf_var ps vs bs' hbs' x T hx' w hw
+      have ih := bindingOf_var (D := D) ps vs bs' hbs' x T hx' w hw
       have hne : nm y ≠ nm x := fun h => hxy (nm_inj h).symm
       simp only [bindingOf, bindValues, ptys] at ih ⊢
       simp only [List.zipWith_map] at ih
@@ -1185,34 +1308,35 @@ def HasBody (P : Program) (s : Sig) (body : Expr) : Prop :=
 /-- `e` is the defining equation of the function `s` of `P`: its parameters are the constants of
 those of `s`, and its term equates the constant of `s` applied to them with the translation of
 the body of `s`. -/
-def EqFor (P : Program) (S : List Sig) (s : Sig) (e : Equation) : Prop :=
-  ∃ body, HasBody P s body ∧ HasTy S s.params body s.ret ∧ e.params = ptys s.params ∧
+def EqFor (P : Program) (D : List Data) (S : List Sig) (s : Sig) (e : Equation) : Prop :=
+  ∃ body, HasBody P s body ∧ HasTy D S s.params body s.ret ∧ e.params = ptys D s.params ∧
     __eo_to_smt e.term = .eq
-      (spine (.UConst (nm s.name) s.toDef.ty) ((ptys s.params).map fun q => .UConst q.1 q.2))
-      (tr S s.params body)
+      (spine (.UConst (nm s.name) (s.toDef D).ty) ((ptys D s.params).map fun q => .UConst q.1 q.2))
+      (tr D S s.params body)
 
 /-- The arguments `ws` of a defining equation are accepted when the calls of its function to them
 give a value with some fuel. -/
-def okCall (O : Oracle) (P : Program) (S : List Sig) (e : Equation) (ws : List SmtValue) :
+def okCall (O : Oracle) (P : Program) (D : List Data) (S : List Sig) (e : Equation) (ws : List
+    SmtValue) :
     Prop :=
-  ∀ s ∈ S, EqFor P S s e → ∀ vs, List.Forall₂ HasV vs (s.params.map Prod.snd) →
-    ws = vs.map trV → ∃ n v, call O P n s.name [] [] vs = .Ok v
+  ∀ s ∈ S, EqFor P D S s e → ∀ vs, List.Forall₂ (HasV D) vs (s.params.map Prod.snd) →
+    ws = vs.map (trV D) → ∃ n v, call O P n s.name [] [] vs = .Ok v
 
-variable {O : Oracle} {P : Program} {S : List Sig}
+variable {O : Oracle} {P : Program} {D : List Data} {S : List Sig}
 
 /-- A model where the calls agree, with the constants of the parameters of a function set to
 values of their types: it is well-formed, the calls agree in it, and the variables of the function
 have the values. -/
-theorem bound_model (hS : SigOk S) {s : Sig} (hs : s ∈ S) {M : SmtModel} (hw : model_wf M)
-    (hcalls : ∀ m, CallsOk O P S m M) {vs : List Value}
-    (hvs : List.Forall₂ HasV vs (s.params.map Prod.snd)) :
-    model_wf (setConsts M (bindValues (ptys s.params) (vs.map trV))) ∧
-      (∀ m, CallsOk O P S m (setConsts M (bindValues (ptys s.params) (vs.map trV)))) ∧
+theorem bound_model (hS : SigOk D S) {s : Sig} (hs : s ∈ S) {M : SmtModel} (hw : model_wf M)
+    (hcalls : ∀ m, CallsOk O P D S m M) {vs : List Value}
+    (hvs : List.Forall₂ (HasV D) vs (s.params.map Prod.snd)) :
+    model_wf (setConsts M (bindValues (ptys D s.params) (vs.map (trV D)))) ∧
+      (∀ m, CallsOk O P D S m (setConsts M (bindValues (ptys D s.params) (vs.map (trV D))))) ∧
       ∀ bs, bind_all (s.params.map Prod.fst) vs = .Ok bs →
-        VarsOk s.params (Env.Env (bind_types [] [] []) bs)
-          (setConsts M (bindValues (ptys s.params) (vs.map trV))) := by
-  have hσ : ∀ s' ∈ S, bindingOf (bindValues (ptys s.params) (vs.map trV)) (nm s'.name)
-      s'.toDef.ty = none := by
+        VarsOk D s.params (Env.Env (bind_types [] [] []) bs)
+          (setConsts M (bindValues (ptys D s.params) (vs.map (trV D)))) := by
+  have hσ : ∀ s' ∈ S, bindingOf (bindValues (ptys D s.params) (vs.map (trV D))) (nm s'.name)
+      (s'.toDef D).ty = none := by
     intro s' hs'
     unfold bindingOf
     apply List.find?_eq_none.mpr
@@ -1223,41 +1347,41 @@ theorem bound_model (hS : SigOk S) {s : Sig} (hs : s ∈ S) {M : SmtModel} (hw :
     obtain ⟨p, hp, hpe⟩ := hm
     have h1 : nm p.1 = e.1 := congrArg Prod.fst hpe
     exact hS.fresh s hs p hp s' hs' (nm_inj (h1.trans h.1))
-  refine ⟨wf_setConsts hw (typed_bindValues (typed_map _ hvs)), ?_, ?_⟩
+  refine ⟨wf_setConsts hw (typed_bindValues (typed_map hS.data _ hvs)), ?_, ?_⟩
   · intro m s' hs' tenv us u hus hu
     have := hcalls m s' hs' tenv us u hus hu
     simp only [__smtx_model_eval] at this ⊢
     rw [applyAll_setConsts, lookup_setConsts, hσ s' hs']
     exact this
   · intro bs hbs x T hx w hw
-    show native_model_lookup _ (nm x) (trT T) = trV w
+    show native_model_lookup _ (nm x) (trT D T) = trV D w
     rw [lookup_setConsts, bindingOf_var s.params vs bs hbs x T hx w hw]
 
 /-- A well-formed model where the calls agree satisfies the defining equations of the program on
 the arguments where the calls give values. -/
-theorem goodOn_calls (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S) (hP : ProgTy S P)
-    {eqs : List Equation} (hE : ∀ e ∈ eqs, ∃ s ∈ S, EqFor P S s e) {M : SmtModel}
-    (hw : model_wf M) (hcalls0 : ∀ m, CallsOk O P S m M) : GoodOn (okCall O P S) eqs M := by
+theorem goodOn_calls (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hP : ProgTy D S P)
+    {eqs : List Equation} (hE : ∀ e ∈ eqs, ∃ s ∈ S, EqFor P D S s e) {M : SmtModel}
+    (hw : model_wf M) (hcalls0 : ∀ m, CallsOk O P D S m M) : GoodOn (okCall O P D S) eqs M := by
   intro e he ws hws
   obtain ⟨s, hs, hfor⟩ := hE e he
   obtain ⟨body, hbody, hbty, hpe, hterm⟩ := hfor
   rw [hterm, eval_eq_term]
   refine ⟨eval_eq_bool _ _, fun hok => ?_⟩
   rw [hpe] at hws ⊢
-  obtain ⟨vs, hvs, rfl⟩ := typed_inv (hS.params s hs) hws
+  obtain ⟨vs, hvs, rfl⟩ := typed_inv hS.data (hS.params s hs) hws
   obtain ⟨n, v, hc⟩ := hok s hs ⟨body, hbody, hbty, hpe, hterm⟩ vs hvs rfl
   obtain ⟨hwf', hcalls, hVgen⟩ := bound_model hS hs hw hcalls0 hvs
-  have hnd : ((ptys s.params).map Prod.fst).Nodup := by
-    have : (ptys s.params).map Prod.fst = (s.params.map Prod.fst).map nm := by
+  have hnd : ((ptys D s.params).map Prod.fst).Nodup := by
+    have : (ptys D s.params).map Prod.fst = (s.params.map Prod.fst).map nm := by
       simp [ptys, List.map_map, Function.comp_def]
     rw [this]
     exact (hS.pnodup s hs).map (fun _ _ h => nm_inj h)
-  have hlen : (vs.map trV).length = (ptys s.params).length := by
+  have hlen : (vs.map (trV D)).length = (ptys D s.params).length := by
     simpa [ptys] using hvs.length_eq
-  have hl := eval_consts M (ptys s.params) (vs.map trV) [] hnd hlen (by simp)
+  have hl := eval_consts M (ptys D s.params) (vs.map (trV D)) [] hnd hlen (by simp)
   rw [List.nil_append] at hl
   rw [eval_spine _ _ _ rfl, hl, hcalls n s hs [] vs v hvs hc]
-  generalize setConsts M (bindValues (ptys s.params) (vs.map trV)) = M' at hwf' hcalls hVgen
+  generalize setConsts M (bindValues (ptys D s.params) (vs.map (trV D))) = M' at hwf' hcalls hVgen
   -- the body
   by_cases hn : n ≤ 0
   · rw [call, dite_eq_left_of_eq_true (eq_true hn)] at hc; cases hc
@@ -1270,31 +1394,31 @@ theorem goodOn_calls (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S) (hP : Pro
   dsimp only at hc
   ok_split hc
   rename_i bs hbs
-  have hE : EnvTy s.params (Env.Env (bind_types [] [] []) bs) := by
+  have hE : EnvTy D s.params (Env.Env (bind_types [] [] []) bs) := by
     intro x T hx w hw
     obtain ⟨u, hu, huT⟩ := bind_lookup s.params vs bs hbs hvs x T hx
     rw [lookup_var_det hw hu]; exact huT
   have hV := hVgen bs hbs
-  obtain ⟨hvT, hvM⟩ := ev hO hty hS (call_ty' hO hty hS hP (n - 1)) hbty _ _ hE hc
+  obtain ⟨hvT, hvM⟩ := ev hO hty hS hP.2 (call_ty' hO hty hS hP (n - 1)) hbty _ _ hE hc
   rw [hvM _ hwf' (hcalls (n - 1)) hV]
-  exact eval_eq_self hvT
+  exact eval_eq_self hS.data hvT
 
 /-- The intended model satisfies the defining equations of the program on the arguments where
 the calls give values. -/
-theorem goodOn_star (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S) (hPF : ProgFrag P)
-    (hP : ProgTy S P) {eqs : List Equation} (hE : ∀ e ∈ eqs, ∃ s ∈ S, EqFor P S s e)
+theorem goodOn_star (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hPF : ProgFrag P)
+    (hP : ProgTy D S P) {eqs : List Equation} (hE : ∀ e ∈ eqs, ∃ s ∈ S, EqFor P D S s e)
     (M0 N : SmtModel) (cd : Codes)
-    (hw : model_wf (Model.star (defs S) (interpOf O P S) M0 cd N)) :
-    GoodOn (okCall O P S) eqs (Model.star (defs S) (interpOf O P S) M0 cd N) :=
+    (hw : model_wf (Model.star (defs D S) (interpOf O P D S) M0 cd N)) :
+    GoodOn (okCall O P D S) eqs (Model.star (defs D S) (interpOf O P D S) M0 cd N) :=
   goodOn_calls hO hty hS hP hE hw fun m => callsOk_star hO hty hS hPF hP M0 N cd m
 
 /-- When the calls of the functions of `S` to values of their types give values, every guard is
 fine: `GuardOk` holds for every clause. -/
 theorem guardOk_total
-    (htot : ∀ s ∈ S, ∀ vs, List.Forall₂ HasV vs (s.params.map Prod.snd) →
+    (htot : ∀ s ∈ S, ∀ vs, List.Forall₂ (HasV D) vs (s.params.map Prod.snd) →
       ∃ n v, call O P n s.name [] [] vs = .Ok v)
     (eqs : List Equation) (assums : List Term) (c : Term) :
-    GuardOk (okCall O P S) eqs assums c :=
+    GuardOk (okCall O P D S) eqs assums c :=
   fun _ _ _ _ _ _ _ _ _ _ _ s hs _ vs hvs _ => htot s hs vs hvs
 
 /-- What an accepted certificate says of the intended model: if the checker accepts a certificate
@@ -1303,19 +1427,19 @@ functions are the calls of `P`, does not satisfy the base clauses of the query, 
 facts hold in the models where the equations hold on the arguments where the calls give values
 (except the unfoldings whose guards imply that the calls give values). The hypothesis on the
 facts stays: only the guarded unfoldings are discharged. -/
-theorem no_star_model (sound : LogosSound) (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S)
-    (hPF : ProgFrag P) (hP : ProgTy S P)
+theorem no_star_model (sound : LogosSound) (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S)
+    (hPF : ProgFrag P) (hP : ProgTy D S P)
     {certificate : Logos.Sexp} {checked : Checked} {r : TermSteps}
     (hAccept : accept certificate = .ok checked) (hr : termSteps checked = .ok r)
     (hcheck : r.check = true) (hkeeps : r.keeps = true)
-    (hE : ∀ e ∈ r.equations, ∃ s ∈ S, EqFor P S s e)
-    (hfacts : FactsHoldBy (GoodOn (okCall O P S) r.equations)
-      (GuardedUnfold (okCall O P S) r.equations) (extend r.base r.fresh) r.facts)
+    (hE : ∀ e ∈ r.equations, ∃ s ∈ S, EqFor P D S s e)
+    (hfacts : FactsHoldBy (GoodOn (okCall O P D S) r.equations)
+      (GuardedUnfold (okCall O P D S) r.equations) (extend r.base r.fresh) r.facts)
     {M0 N : SmtModel} (cd : Codes) (hM0 : model_wf M0) (hN : model_wf N)
     (hu : N.usortDom = M0.usortDom) :
-    ¬ Satisfies (Model.star (defs S) (interpOf O P S) M0 cd N) r.base := by
-  have hw := wf_star (defs S) (interpOf O P S) M0 cd hM0 hN hu
-  exact no_good_model_of_unfold_on sound hty (okCall O P S) hAccept hr hcheck hkeeps hfacts _
+    ¬ Satisfies (Model.star (defs D S) (interpOf O P D S) M0 cd N) r.base := by
+  have hw := wf_star (defs D S) (interpOf O P D S) M0 cd hM0 hN hu
+  exact no_good_model_of_unfold_on sound hty (okCall O P D S) hAccept hr hcheck hkeeps hfacts _
     (goodOn_star hO hty hS hPF hP hE M0 N cd hw)
 
 end Equations

@@ -20,20 +20,22 @@ open Inox Inox.Bridge
 
 /-- Why `sourceCheck r` fails: its first part that does. -/
 def whySource (r : TermSteps) : String :=
+  let D := dataOf r
   let S := sigsOf r.equations
   let Γ := varsOf S r.query
-  if !sigCheck S then "the signatures of its functions are not of the fragment"
-  else if !r.equations.all (eqCheck S) then
-    s!"{(r.equations.filter fun e => !eqCheck S e).length} of {r.equations.length} defining " ++
+  if !dataCheck D then "the datatypes it declares are not of the fragment"
+  else if !sigCheck D S then "the signatures of its functions are not of the fragment"
+  else if !r.equations.all (eqCheck D S) then
+    s!"{(r.equations.filter fun e => !eqCheck D S e).length} of {r.equations.length} defining " ++
       "equations are not the translations of bodies of the fragment"
-  else if !varsCheck S Γ then "the free variables of its query are not of the fragment"
+  else if !varsCheck D S Γ then "the free variables of its query are not of the fragment"
   else "its base clauses are not the translations of expressions of the fragment"
 
 /-- Why `reachedCheck r` fails: a fresh symbol that is not apart, or the facts that are not
 covered, by the kinds of their rules. -/
 def whyReached (r : TermSteps) : String :=
   let S := sigsOf r.equations
-  if !apart S (varsOf S r.query) r then
+  if !apart (dataOf r) S (varsOf S r.query) r then
     "a fresh symbol is a function of the program or a variable of the query"
   else
     let covered := reachedCovered r
