@@ -169,9 +169,6 @@ trait SimplifierWithPC extends Transformer { self =>
     * `e` is not simplified again, and has new terms where the bound variable was. */
   protected def substituted(e: Expr, path: Env): Expr = e
 
-  /** The path under which the term of a binding is simplified, where the binding is under `path`. */
-  protected def binding(path: Env): Env = path
-
   private def simplifyCases(e: Expr, path: Env): (Expr, Boolean) =
     simplifyCore(e, path) otherwise simplifyData(e, path) otherwise simplifyBindings(e, path) otherwise
       simplifyDefault(e, path)
@@ -350,7 +347,7 @@ trait SimplifierWithPC extends Transformer { self =>
     case Let(vd, v: Variable, b) => simplify(step("logic", replaceFromSymbols(Map(vd -> v), b), path), path)
 
     case let @ Let(vd, e, b) =>
-      val (re, pe) = simplify(e, binding(path))
+      val (re, pe) = simplify(e, path)
       val (rb, pb) = simplify(b, path `withBinding` (vd -> re))
 
       val v = vd.toVariable

@@ -44,10 +44,6 @@ trait SimplifierWithPath extends SimplifierWithPC {
     override def merge(that: Env): Env =
       copy(conditions = conditions ++ that.conditions, exprSubst = exprSubst ++ that.exprSubst)
 
-    /** This path without its evaluator. */
-    def withoutEvaluator: Env =
-      if (evaluator eq null) this else new Env(conditions, exprSubst, recorder, null, underLambda)
-
     /** This path in the body of a lambda. */
     def inLambda: Env = if (underLambda) this else copy(underLambda = true)
 

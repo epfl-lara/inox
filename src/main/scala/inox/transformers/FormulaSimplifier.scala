@@ -18,12 +18,10 @@ import scala.util.chaining._
   * ground terms, whose values it then simplifies with: a conditional whose condition evaluates
   * is one of its branches.
   *
-  * Two kinds of terms are not evaluated where the traversal meets them:
-  *  - a value, down to the bodies of its lambdas. Lambdas are compared as they are written:
-  *    `x => x + 10 / 2` and `x => x + 5` are not the same function;
-  *  - the term of a binding, until the body of the binding is simplified. A term that is bound
-  *    and the same term elsewhere in the formula are then simplified in the same way, where the
-  *    value of the first would be known to the path in the body and the second would not be.
+  * In the body of a lambda, a ground term is part of how the function is written, and functions
+  * are compared as they are written: `x => x + 10 / 2` and `x => x + 5` are not the same
+  * function. Such a term is only evaluated if each of its operations is pure whatever its
+  * operands are, which a division is not, and neither is the call of a recursive function.
   *
   * All that is done to a formula is done by one simplifier, which records the steps of what it
   * does in the recorder that it is given with the formula (see
@@ -62,6 +60,7 @@ trait FormulaSimplifier extends SimplifierWithPath { self =>
   // depend on the symbols
   private val callees = new java.util.concurrent.ConcurrentHashMap[Identifier, Set[Identifier]]
   private val inlined = new java.util.concurrent.ConcurrentHashMap[Identifier, java.lang.Boolean]
+  private val recursions = new java.util.concurrent.ConcurrentHashMap[Identifier, java.lang.Boolean]
 
   private def calleesOf(id: Identifier): Set[Identifier] =
     callees.computeIfAbsent(id, id => collect[Identifier] {
@@ -69,6 +68,19 @@ trait FormulaSimplifier extends SimplifierWithPath { self =>
       case Equals(IsTyped(_, adt: ADTType), _) if adt.getSort.hasEquality => Set(adt.getSort.equality.get.id)
       case _ => Set.empty
     } (getFunction(id).fullBody))
+
+  /** Whether the function `id` is called from its own body, directly or not. */
+  private def recursive(id: Identifier): Boolean =
+    recursions.computeIfAbsent(id, id => java.lang.Boolean.valueOf {
+      val seen = scala.collection.mutable.Set.empty[Identifier]
+      var todo = calleesOf(id).toList
+      while (todo.nonEmpty) {
+        val callee = todo.head
+        todo = todo.tail
+        if (seen.add(callee)) todo = calleesOf(callee).toList ++ todo
+      }
+      seen(id)
+    }).booleanValue
 
   /** Whether the calls of the function `id` are inlined: it has a quantifier outside of
     * assumptions, which then has the polarity of the call, and is not (mutually) recursive. Calls
@@ -86,28 +98,29 @@ trait FormulaSimplifier extends SimplifierWithPath { self =>
       case Operator(es, _) => es.exists(hasForall)
     }
 
-    // whether the function `id` is called from its own body, directly or not
-    def recursive: Boolean = {
-      val seen = scala.collection.mutable.Set.empty[Identifier]
-      var todo = calleesOf(id).toList
-      while (todo.nonEmpty) {
-        val callee = todo.head
-        todo = todo.tail
-        if (seen.add(callee)) todo = calleesOf(callee).toList ++ todo
-      }
-      seen(id)
-    }
 
     inlined.computeIfAbsent(id, id => java.lang.Boolean.valueOf(
-      hasForall(getFunction(id).fullBody) && !recursive
+      hasForall(getFunction(id).fullBody) && !recursive(id)
     )).booleanValue
   }
 
-  /** The value of the ground term `e`, if it is pure and `evaluator` evaluates it. As lambdas are
-    * compared as they are written, a term in the body of a lambda is only evaluated if it is
-    * pure whether or not it is checked. */
+  /** Whether each operation of `e` is pure whatever its operands are: with variables for its
+    * operands, it is pure without assuming that it is checked. A call of a recursive function
+    * is not, as it only has a value for the operands that it terminates on. The bodies of
+    * lambdas, which the term doesn't evaluate, are not looked at. */
+  private def total(e: Expr): Boolean = e match {
+    case _: Lambda => true
+    case fi: FunctionInvocation if recursive(fi.id) => false
+    case Operator(es, recons) =>
+      es.forall(total) && isAlwaysPure(recons(es.map(e => Variable.fresh("x", e.getType))))
+  }
+
+  /** The value of the ground term `e`, if `evaluator` evaluates it and it is pure. In the body
+    * of a lambda, where the term is part of how the function is written and functions are
+    * compared as they are written, it is only evaluated if it is [[total]]: `10 / 2` stays in
+    * `x => x + 10 / 2`. */
   private def evaluated(e: Expr, path: Env, evaluator: Expr => Option[Expr]): Option[Expr] =
-    if (!symbols.isPure(e)(using if (path.underLambda) PurityOptions.unchecked else opts)) None
+    if (!(if (path.underLambda) total(e) else symbols.isPure(e))) None
     else evaluator(e).map { v =>
       val value = freshenLocals(v)
       val r = path.recorder
@@ -115,8 +128,7 @@ trait FormulaSimplifier extends SimplifierWithPath { self =>
       value
     }
 
-  /** Evaluates the ground terms of `e`, from the largest ones, with `evaluator`. A value is as it
-    * is written, down to the bodies of its lambdas. */
+  /** Evaluates the ground terms of `e`, from the largest ones, with `evaluator`. */
   private def evaluatedIn(e: Expr, path: Env, evaluator: Expr => Option[Expr]): Expr = {
     val r = path.recorder
     def rec(e: Expr, path: Env): Expr = {
@@ -127,8 +139,7 @@ trait FormulaSimplifier extends SimplifierWithPath { self =>
         if ((res zip es).forall(p => p._1 eq p._2)) e else recons(res).copiedFrom(e)
       }
       def here: Expr =
-        if (isValue(e)) e
-        else if (isGround(e)) evaluated(e, path, evaluator).getOrElse(children)
+        if (isGround(e) && !isValue(e)) evaluated(e, path, evaluator).getOrElse(children)
         else children
       if (!r.active) here else r.at(e)(here)
     }
@@ -137,30 +148,13 @@ trait FormulaSimplifier extends SimplifierWithPath { self =>
 
   /** Simplifies `e` under `path`, and evaluates what it becomes when that is ground and the path
     * has an evaluator. The term is simplified first, so that what the simplification does of a
-    * ground term is done by its rules, and recorded as their steps.
-    *
-    * A value is not evaluated, down to the bodies of its lambdas, and neither is the term of a
-    * binding before its body is simplified (see [[binding]]): its ground terms are evaluated
-    * once the binding is simplified. */
+    * ground term is done by its rules, and recorded as their steps. */
   override protected def simplify(e: Expr, path: Env): (Expr, Boolean) = {
+    val res = super.simplify(e, path)
     val evaluator = path.evaluator
-    // what a ground term became is evaluated, unless it is a value
-    def value(res: (Expr, Boolean)): (Expr, Boolean) =
-      if (!isGround(res._1) || isValue(res._1)) res
-      else evaluated(res._1, path, evaluator).fold(res)(value => (value, true))
-
-    if (evaluator eq null) super.simplify(e, path)
-    else if (isValue(e)) value(super.simplify(e, path.withoutEvaluator))
-    else super.simplify(e, path) match {
-      case (let @ Let(vd, v, b), pure) if e.isInstanceOf[Let] =>
-        val r = path.recorder
-        val bound = if (r eq null) evaluatedIn(v, path, evaluator) else r.at(v)(evaluatedIn(v, path, evaluator))
-        (if (bound eq v) let else Let(vd, bound, b).copiedFrom(let), pure)
-      case res => value(res)
-    }
+    if ((evaluator eq null) || !isGround(res._1) || isValue(res._1)) res
+    else evaluated(res._1, path, evaluator).fold(res)(value => (value, true))
   }
-
-  override protected def binding(path: Env): Env = path.withoutEvaluator
 
   /** Evaluates the ground terms of `e`, where a binding to a ground term was inlined: these are
     * not simplified again. */

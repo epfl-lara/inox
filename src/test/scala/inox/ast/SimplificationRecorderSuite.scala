@@ -41,6 +41,12 @@ class SimplificationRecorderSuite extends AnyFunSuite with DatastructureUtils {
   val bounded = new FunDef(boundedID, Seq(), Seq(bm), BooleanType(),
     Assume(GreaterThan(bm.toVariable, IntegerLiteral(0)), Forall(Seq(bk), GreaterThan(Plus(bk.toVariable, bm.toVariable), bk.toVariable))), Seq())
 
+  // a recursive function, which terminates
+  val downID = FreshIdentifier("down")
+  val dm = ValDef.fresh("m", IntegerType())
+  val downDef = new FunDef(downID, Seq(), Seq(dm), IntegerType(),
+    IfExpr(LessEquals(dm.toVariable, IntegerLiteral(0)), IntegerLiteral(0),
+      FunctionInvocation(downID, Seq(), Seq(Minus(dm.toVariable, IntegerLiteral(1))))), Seq())
   // a constant that is a function
   val idfID = FreshIdentifier("idf")
   val idf = new FunDef(idfID, Seq(), Seq(), FunctionType(Seq(IntegerType()), IntegerType()), Lambda(Seq(n), n.toVariable), Seq())
@@ -51,7 +57,7 @@ class SimplificationRecorderSuite extends AnyFunSuite with DatastructureUtils {
   val wrapEq = new FunDef(wrapEqID, Seq(), Seq(wa, wb), BooleanType(),
     Forall(Seq(wk), Equals(GreaterThan(ADTSelector(wa.toVariable, unwrap), wk.toVariable), GreaterThan(ADTSelector(wb.toVariable, unwrap), wk.toVariable))), Seq())
 
-  given symbols: Symbols = baseSymbols.withSorts(Seq(wrap)).withFunctions(Seq(inc, ones, increases, ever, calls, bounded, idf, wrapEq))
+  given symbols: Symbols = baseSymbols.withSorts(Seq(wrap)).withFunctions(Seq(inc, ones, increases, ever, calls, bounded, idf, wrapEq, downDef))
   import symbols._
 
   given ctx: Context = TestContext.empty
@@ -98,6 +104,7 @@ class SimplificationRecorderSuite extends AnyFunSuite with DatastructureUtils {
   }
 
   def inc(e: Expr): Expr = FunctionInvocation(incID, Seq(), Seq(e))
+  def down(e: Expr): Expr = FunctionInvocation(downID, Seq(), Seq(e))
   def int(i: Int): Expr = IntegerLiteral(i)
 
   test("No steps are recorded for a term that is not simplified") {
@@ -168,19 +175,23 @@ class SimplificationRecorderSuite extends AnyFunSuite with DatastructureUtils {
     assert(rules(Let(n, int(42), GreaterThan(Times(n.toVariable, n.toVariable), x))) == Seq("logic", "evaluate"))
   }
 
-  test("The term of a binding is evaluated once its body is simplified") {
+  test("The value of the term of a binding is simplified with in its body") {
     val bound = Let(n, inc(int(1)), GreaterThan(Times(n.toVariable, n.toVariable), x))
-    assert(simplifyFormula(bound) == Let(n, int(2), GreaterThan(Times(n.toVariable, n.toVariable), x)))
-    assert(rules(bound) == Seq("evaluate"))
+    assert(simplifyFormula(bound) == GreaterThan(int(4), x))
+    rules(bound)
   }
 
-  test("A ground lambda is a value, and its body is not evaluated") {
+  test("In a lambda, a ground term is evaluated if its operations are pure whatever their operands") {
     val f = Variable.fresh("f", FunctionType(Seq(IntegerType()), IntegerType()))
-    val ground = Lambda(Seq(n), Plus(n.toVariable, inc(int(1))))
-    assert(simplifyFormula(Equals(f, ground)) == Equals(f, ground))
-    // the body of a lambda that is not ground is
-    assert(simplifyFormula(Equals(f, Lambda(Seq(n), Plus(Plus(n.toVariable, x), inc(int(1)))))) ==
-      Equals(f, Lambda(Seq(n), Plus(Plus(n.toVariable, x), int(2)))))
+    def fun(e: Expr): Expr = Lambda(Seq(n), Plus(n.toVariable, e))
+    // whether or not the lambda is ground
+    assert(simplifyFormula(Equals(f, fun(inc(int(1))))) == Equals(f, fun(int(2))))
+    assert(simplifyFormula(Equals(f, fun(Plus(x, inc(int(1)))))) == Equals(f, fun(Plus(x, int(2)))))
+    // a division is not pure for any divisor, and stays as it is written
+    assert(simplifyFormula(Equals(f, fun(Division(int(10), int(2))))) == Equals(f, fun(Division(int(10), int(2)))))
+    assert(simplifyFormula(GreaterThan(Division(int(10), int(2)), x)) == GreaterThan(int(5), x))
+    // the call of a recursive function only has a value where it terminates
+    assert(simplifyFormula(Equals(f, fun(down(int(3))))) == Equals(f, fun(down(int(3)))))
   }
 
   test("Functions with quantifiers are unfolded where they are called") {
