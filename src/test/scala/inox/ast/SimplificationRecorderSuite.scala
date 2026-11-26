@@ -150,9 +150,37 @@ class SimplificationRecorderSuite extends AnyFunSuite with DatastructureUtils {
   }
 
   test("Constants of the program are unfolded, and ground calls are evaluated") {
-    assert(rules(GreaterThan(ADTSelector(FunctionInvocation(onesID, Seq(), Seq()), head), x)) == Seq("unfold"))
+    assert(rules(GreaterThan(ADTSelector(FunctionInvocation(onesID, Seq(), Seq()), head), x)) == Seq("unfold", "select"))
     assert(rules(GreaterThan(inc(int(1)), x)) == Seq("evaluate"))
     assert(rules(GreaterThan(Plus(int(1), int(2)), x)) == Seq("evaluate"))
+  }
+
+  test("The values of ground terms are simplified with, in the same traversal") {
+    // the condition is evaluated, and its conditional is then one of its branches
+    assert(simplifyFormula(IfExpr(GreaterThan(inc(int(1)), int(1)), p, q)) == p)
+    assert(rules(IfExpr(GreaterThan(inc(int(1)), int(1)), p, q)) == Seq("evaluate", "evaluate", "logic"))
+    assert(simplifyFormula(And(Equals(x, int(3)), LessThan(inc(int(1)), int(1)))) == BooleanLiteral(false))
+    assert(simplifyFormula(Or(Equals(x, int(3)), LessThan(inc(int(1)), int(1)))) == Equals(x, int(3)))
+  }
+
+  test("The ground terms that an inlined binding leaves are evaluated") {
+    assert(simplifyFormula(Let(n, int(42), GreaterThan(Times(n.toVariable, n.toVariable), x))) == GreaterThan(int(1764), x))
+    assert(rules(Let(n, int(42), GreaterThan(Times(n.toVariable, n.toVariable), x))) == Seq("logic", "evaluate"))
+  }
+
+  test("The term of a binding is evaluated once its body is simplified") {
+    val bound = Let(n, inc(int(1)), GreaterThan(Times(n.toVariable, n.toVariable), x))
+    assert(simplifyFormula(bound) == Let(n, int(2), GreaterThan(Times(n.toVariable, n.toVariable), x)))
+    assert(rules(bound) == Seq("evaluate"))
+  }
+
+  test("A ground lambda is a value, and its body is not evaluated") {
+    val f = Variable.fresh("f", FunctionType(Seq(IntegerType()), IntegerType()))
+    val ground = Lambda(Seq(n), Plus(n.toVariable, inc(int(1))))
+    assert(simplifyFormula(Equals(f, ground)) == Equals(f, ground))
+    // the body of a lambda that is not ground is
+    assert(simplifyFormula(Equals(f, Lambda(Seq(n), Plus(Plus(n.toVariable, x), inc(int(1)))))) ==
+      Equals(f, Lambda(Seq(n), Plus(Plus(n.toVariable, x), int(2)))))
   }
 
   test("Functions with quantifiers are unfolded where they are called") {
