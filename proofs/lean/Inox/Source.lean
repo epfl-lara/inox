@@ -48,11 +48,13 @@ def tyOf : SmtType → Ty
 
 mutual
 /-- The expression that the term `t` is read as. A term outside the fragment is read as `Error`,
-which no check accepts. -/
+which no check accepts. An assumption is read from its mark (`markAssumes` of
+`Inox/Terms.lean`). -/
 def back : SmtTerm → Expr
   | .UConst s _ => .Variable (idOf s)
   | .Numeral i => .IntegerLiteral i
   | .Boolean b => .BooleanLiteral b
+  | .ite (.xor c (.Boolean false)) a _ => .Assume (back c) (back a)
   | .ite c a b => .IfExpr (back c) (back a) (back b)
   | .not a => .Not (back a)
   | .imp a b => .Implies (back a) (back b)
@@ -150,6 +152,7 @@ def infer (S : List Sig) (Γ : List (Id × Ty)) : Expr → Option Bool
     match findSig S f with
     | some s => if inferArgs S Γ args (s.params.map Prod.snd) then kind s.ret else none
     | none => none
+  | .Assume p b => if infer S Γ p = some true then infer S Γ b else none
   | _ => none
 
 /-- The expressions `es` are Booleans. -/
@@ -300,7 +303,13 @@ theorem infer_sound (S : List Sig) (Γ : List (Id × Ty)) :
       · cases h
     · cases h
   | .FunctionInvocation f (_ :: _) args, k, h => by simp [infer] at h
-  | .Assume _ _, k, h | .Let _ _ _, k, h | .Application _ _, k, h | .Lambda _ _, k, h
+  | .Assume p b, k, h => by
+    simp only [infer] at h
+    split at h
+    · rename_i hp
+      exact .assume (infer_sound S Γ p true hp) (infer_sound S Γ b k h)
+    · cases h
+  | .Let _ _ _, k, h | .Application _ _, k, h | .Lambda _ _, k, h
   | .Forall _ _, k, h | .UninterpretedCall _ _ _, k, h | .Error, k, h | .CharLiteral _, k, h
   | .BVLiteral _ _ _, k, h | .FractionLiteral _ _, k, h | .FPLiteral _ _ _, k, h
   | .StringLiteral _, k, h | .UnitLiteral, k, h | .RoundNearestTiesToEven, k, h
@@ -406,9 +415,10 @@ def sigOf (e : Equation) : Sig :=
       ret := tyOf (resultTy e.params.length (headTy lhs)) }
   | _ => { name := "", params := [], ret := .UnitType }
 
-/-- The body of the function that the equation `e` defines. -/
+/-- The body of the function that the equation `e` defines, with its assumptions when the
+equation has its source. -/
 def bodyOf (e : Equation) : Expr :=
-  match __eo_to_smt e.term with
+  match __eo_to_smt (e.source.getD e.term) with
   | .eq _ rhs => back rhs
   | _ => .Error
 

@@ -871,6 +871,8 @@ structure Equation where
   term : Term
   args : List Term
   params : List (SmtEval.native_String × SmtType)
+  /-- the equation with its assumptions marked (`markAssumes`), if its body has some -/
+  source : Option Term := none
 
 /-- The arguments of a call, if it is one. -/
 def callArgs : Term → Option (List Term)
@@ -973,16 +975,40 @@ def dropAssumes : Sexp → Sexp
   | .expr es => .expr (es.attach.map fun ⟨e, _⟩ => dropAssumes e)
   | a => a
 
+/-- `e` with its assumptions marked in a form that Logos reads: each `(assume c b)` is
+`(ite (xor c false) b b)`, which has the value of `b`, and which no other expression is read
+as. -/
+def markAssumes : Sexp → Sexp
+  | .expr [.atom "assume", c, b] =>
+    .expr [.atom "ite", .expr [.atom "xor", markAssumes c, .atom "false"], markAssumes b,
+      markAssumes b]
+  | .expr es => .expr (es.attach.map fun ⟨e, _⟩ => markAssumes e)
+  | a => a
+
+/-- `e` has an assumption. -/
+def hasAssume : Sexp → Bool
+  | .expr [.atom "assume", _, _] => true
+  | .expr es => es.attach.any fun ⟨e, _⟩ => hasAssume e
+  | _ => false
+
 /-- The defining equations of the functions of a certificate, as Logos reads them, if it can,
 without their assumptions, which Logos doesn't read in a term: each `(assume c b)` is `b`. Where
 the call has a value, its evaluation went through each assumption it met, which held, so the call
 equals the body without them: the equation holds on the calls that have values, which is what the
-intended model gives (`GoodOn`). -/
+intended model gives (`GoodOn`). When a body has assumptions, each equation also has its `source`,
+read with the assumptions marked, which says where the body assumes what. -/
 def equations (checked : Checked) : List Equation :=
-  let checked := { checked with sources := checked.sources.map dropAssumes }
-  match parseProof (equationText checked) with
-  | .ok (terms, _) => terms.filterMap equationOf
-  | .error _ => []
+  let read (f : Sexp → Sexp) : List Equation :=
+    match parseProof (equationText { checked with sources := checked.sources.map f }) with
+    | .ok (terms, _) => terms.filterMap equationOf
+    | .error _ => []
+  let plain := read dropAssumes
+  if checked.sources.any hasAssume then
+    let marked := read markAssumes
+    if marked.length = plain.length then
+      List.zipWith (fun e m => { e with source := some m.term }) plain marked
+    else plain
+  else plain
 
 /-- What the second parse gives: the proof's assumptions as Logos reads them, the base clauses
 (the query's assumptions), the fresh-symbol steps and the facts. -/
