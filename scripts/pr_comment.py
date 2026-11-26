@@ -83,6 +83,9 @@ def timings_table(sections, with_details=True):
     if not parts:
         return ""
     jobs = [j for p in parts for j in p.get("jobs", [])]
+    if not jobs:
+        # No job has timings to compare yet: an empty table would only be a header.
+        return ""
     notes = []
     for p in parts:
         for n in p.get("notes", []):
