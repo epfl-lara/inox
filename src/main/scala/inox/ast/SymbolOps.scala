@@ -914,9 +914,15 @@ trait SymbolOps extends TypeOps { self =>
     rec(e, Map.empty, false)
   }
 
-  /** Decides which functions [[simplifyFormula]] inlines: those reachable from the formula that
-    * contain a quantifier outside assumptions and are not (mutually) recursive. Calls are followed
-    * through ADT equalities, which count as calls to the sort's equality function.
+  /** Decides which functions [[simplifyFormula]] inlines where they are called: those that
+    * contain a quantifier outside assumptions and are not (mutually) recursive, so that the
+    * quantifier has the polarity of the call. Calls are followed through ADT equalities, which
+    * count as calls to the sort's equality function.
+    *
+    * The equalities of a sort whose equality function is one of them are not inlined: they are
+    * kept as equalities, for which the solvers know more than the function says (see
+    * `EqualityTemplates`), and the quantifiers of the function are encoded at the polarity of
+    * the equality where its template is generated.
     *
     * The call edges and the per-function decision only depend on the symbols, so they are cached
     * here instead of being recomputed for every formula. */
@@ -951,13 +957,11 @@ trait SymbolOps extends TypeOps { self =>
       case Operator(es, _) => es.exists(hasForall)
     }
 
-    private def isInlinable(id: Identifier): Boolean =
+    def isInlinable(id: Identifier): Boolean =
       inlinable.computeIfAbsent(id, id => java.lang.Boolean.valueOf(
         hasForall(getFunction(id).fullBody) && !reachable(calleesOf(id)).contains(id)
       )).booleanValue
 
-    /** The functions to inline in `e`. */
-    def toInline(e: Expr): Set[Identifier] = reachable(functionCallsOf(e).map(_.id)).filter(isInlinable)
   }
 
   def simplifyLets(expr: Expr): Expr = preMap {

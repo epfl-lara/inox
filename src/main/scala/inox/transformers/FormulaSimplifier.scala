@@ -49,15 +49,10 @@ trait FormulaSimplifier extends SimplifierWithPC { self =>
     case _ => None
   }
 
-  // The functions that the simplification of a formula inlines (see [[simplifyFormula]]). The
-  // simplifier of a program is shared by the threads that simplify its formulas.
-  private val inlining = new ThreadLocal[Set[Identifier]] { override def initialValue: Set[Identifier] = Set.empty }
-
   /** The simplification under path conditions, which also
     * - rewrites the terms that [[matcher]] does, for the instantiation of quantifiers;
-    * - inlines the calls of the functions that have quantifiers, and the equalities of the sorts
-    *   whose equality function is one of them, which increases the precision of the polarity
-    *   analysis of the instantiation of quantifiers;
+    * - inlines the calls of the functions that have quantifiers (see `forallInlining`), which
+    *   gives the quantifiers the polarity of the call;
     * - lifts the assumptions of the subterms of an assumption into it. */
   override protected def simplifyCore(e: Expr, path: Env): (Expr, Boolean) = matcher(e) match {
     case Some(m) =>
@@ -67,17 +62,10 @@ trait FormulaSimplifier extends SimplifierWithPC { self =>
     case None => e match {
       // the call unfolds into the body under the bindings of its parameters, which `inlined`
       // then drops where they are not used
-      case fi: FunctionInvocation if inlining.get.contains(fi.id) =>
+      case fi: FunctionInvocation if forallInlining.isInlinable(fi.id) =>
         val inlined = fi.inlined
         recorded("unfold", unfolded(fi))
         recorded("logic", inlined)
-        simplify(inlined, path)
-
-      // the call of the equality function of a sort is not unfolded in steps
-      case Equals(IsTyped(e1, adt: ADTType), e2)
-      if adt.getSort.hasEquality && inlining.get.contains(adt.getSort.equality.get.id) =>
-        val inlined = adt.getSort.equality.get.applied(Seq(e1, e2)).inlined
-        recorded("inline-equality", inlined)
         simplify(inlined, path)
 
       case _: Assume => super.simplifyCore(e, path) match {
@@ -201,11 +189,7 @@ trait FormulaSimplifier extends SimplifierWithPC { self =>
   def simplifyFormula(e: Expr)(using ctx: Context, sem: symbols.Semantics): Expr = {
     val simp: Expr => Expr =
       recordedPass("evaluate", (e: Expr) => simplifyGround(e))               compose
-      recordedPass("simplify", (e: Expr) => {
-        val outer = inlining.get
-        inlining.set(forallInlining.toInline(e))
-        try transform(e, initEnv) finally inlining.set(outer)
-      })
+      recordedPass("simplify", (e: Expr) => transform(e, initEnv))
     simp(e)
   }
 

@@ -201,13 +201,15 @@ class SimplificationRecorderSuite extends AnyFunSuite with DatastructureUtils {
     assert(rules(Equals(MapApply(FiniteMap(Seq(x -> y), int(0), IntegerType(), IntegerType()), x), y)) == Seq("matchers"))
   }
 
-  test("The equality function of a sort is inlined by a step of inline-equality") {
+  test("The equality function of a sort is inlined where it is called, and its equalities are kept") {
     val (a, b) = (Variable.fresh("a", T(wrapID)()), Variable.fresh("b", T(wrapID)()))
     // the call is unfolded by steps that the checker knows
     assert(rules(And(p, FunctionInvocation(wrapEqID, Seq(), Seq(a, b)))) == Seq("unfold", "logic", "logic", "logic"))
-    // an equality is only inlined where the function is called too
+    // an equality stays one, also where the function is called
     assert(rules(And(p, Equals(a, b))) == Seq())
-    assert(rules(Or(FunctionInvocation(wrapEqID, Seq(), Seq(b, a)), Not(Equals(a, b)))).contains("inline-equality"))
+    val both = Or(FunctionInvocation(wrapEqID, Seq(), Seq(b, a)), Not(Equals(a, b)))
+    assert(exprOps.exists { case Equals(`a`, `b`) => true case _ => false } (simplifyFormula(both)))
+    assert(!exprOps.exists { case fi: FunctionInvocation => true case _ => false } (simplifyFormula(both)))
   }
 
   test("The elements of tuples are simplified, and their sets built by a step of matchers") {

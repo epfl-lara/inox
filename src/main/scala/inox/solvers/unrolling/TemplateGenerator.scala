@@ -162,6 +162,8 @@ trait TemplateGenerator { self: Templates =>
         Some(Assume(freeTyping(f.tpe, f), Assume(andJoin(freeTyping(baseTpe, app) +: preds), app)))
       // a construction needs the sort's invariant (see the case of [[ADT]] in [[mkExprClauses]])
       case adt: ADT if guard(adt).isDefined => constructionInvariant(adt).map(Assume(_, adt))
+      // an equality that is unrolled is an application of the equality symbol of its type
+      case Equals(e1, e2) if unrollEquality(e1.getType) => Some(Application(equalitySymbol(e1.getType)._1, Seq(e1, e2)))
       case _ => None
     }(named(expr, Set.empty))
   }
@@ -882,7 +884,22 @@ trait TemplateGenerator { self: Templates =>
         val re1 = rec(pathVar, e1, pol)
         val re2 = rec(pathVar, e2, pol)
         storeEquality(pathVar, re1, re2)
-        Application(v, Seq(re1, re2))
+        val app = Application(v, Seq(re1, re2))
+        // The equality of a sort is unfolded without a polarity, like the body of a function
+        // (see [[EqualityTemplate]]). Where the polarity of the equality is known, the quantifiers
+        // of its equality function are also encoded here, at that polarity, as what the
+        // equality symbol is of these terms.
+        (e1.getType, pol) match {
+          case (adt: ADTType, Some(_)) if adt.getSort.hasEquality && forallInlining.isInlinable(adt.getSort.equality.get.id) =>
+            val definition = adt.getSort.equality.get.applied(Seq(re1, re2)).inlined
+            rec(pathVar, definition, pol) match {
+              // an equality that holds has its axioms, and nothing else to say
+              case BooleanLiteral(true) =>
+              case encoded => storeGuarded(pathVar, Equals(app, encoded))
+            }
+          case _ =>
+        }
+        app
 
       case adt: ADT if guard(adt).isDefined =>
         // The construction fails unless the value satisfies the sort's invariant, which may call the
