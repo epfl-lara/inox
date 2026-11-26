@@ -24,6 +24,11 @@ class SimplificationRecorderSuite extends AnyFunSuite with DatastructureUtils {
   val (m, k) = (ValDef.fresh("m", IntegerType()), ValDef.fresh("k", IntegerType()))
   val increases = new FunDef(increasesID, Seq(), Seq(m), BooleanType(),
     Forall(Seq(k), GreaterThan(Plus(k.toVariable, IntegerLiteral(1)), m.toVariable)), Seq())
+  // a function with a quantifier under an assumption, which is inlined
+  val boundedID = FreshIdentifier("bounded")
+  val (bm, bk) = (ValDef.fresh("m", IntegerType()), ValDef.fresh("k", IntegerType()))
+  val bounded = new FunDef(boundedID, Seq(), Seq(bm), BooleanType(),
+    Assume(GreaterThan(bm.toVariable, IntegerLiteral(0)), Forall(Seq(bk), GreaterThan(Plus(bk.toVariable, bm.toVariable), bk.toVariable))), Seq())
 
   // a constant that is a function
   val idfID = FreshIdentifier("idf")
@@ -35,7 +40,7 @@ class SimplificationRecorderSuite extends AnyFunSuite with DatastructureUtils {
   val wrapEq = new FunDef(wrapEqID, Seq(), Seq(wa, wb), BooleanType(),
     Forall(Seq(wk), Equals(GreaterThan(ADTSelector(wa.toVariable, unwrap), wk.toVariable), GreaterThan(ADTSelector(wb.toVariable, unwrap), wk.toVariable))), Seq())
 
-  given symbols: Symbols = baseSymbols.withSorts(Seq(wrap)).withFunctions(Seq(inc, ones, increases, idf, wrapEq))
+  given symbols: Symbols = baseSymbols.withSorts(Seq(wrap)).withFunctions(Seq(inc, ones, increases, bounded, idf, wrapEq))
   import symbols._
 
   given ctx: Context = TestContext.empty
@@ -170,6 +175,15 @@ class SimplificationRecorderSuite extends AnyFunSuite with DatastructureUtils {
   test("Assumptions are lifted by steps of logic, except out of quantifiers") {
     assert(rules(Assume(p, IfExpr(q, Assume(r, x), y))) == Seq("logic", "logic"))
     assert(rules(Assume(p, Forall(Seq(i.toVal), Assume(q, GreaterThan(i, int(0)))))) == Seq("lift-assumptions"))
+  }
+
+  test("The assumptions of an inlined function are lifted into the assumption around its call") {
+    val e = Assume(p, FunctionInvocation(boundedID, Seq(), Seq(x)))
+    assert(rules(e) == Seq("unfold", "logic", "logic", "logic"))
+    simplifyFormula(e) match {
+      case Assume(And(Seq(`p`, GreaterThan(`x`, IntegerLiteral(zero)))), _: Forall) => assert(zero == 0)
+      case res => fail(s"$e simplifies into $res")
+    }
   }
 
   test("A constant that evaluates to itself up to its bound variables is renamed") {

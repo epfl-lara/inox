@@ -112,22 +112,6 @@ final class TransformationRecorder private (val trees: ast.Trees)(original: tree
     try body finally suspensions -= 1
   }
 
-  /** `exprOps.postMap` of `f`, where what `f` makes of a subterm, once its subterms are
-    * transformed, is a step of `rule`, after the steps that `record` records from the subterm
-    * to what it becomes, if it records some. */
-  def postMap(rule: String)(f: Expr => Option[Expr])(record: (Expr, Expr) => Unit = (_, _) => ())(e: Expr): Expr = {
-    def go(e: Expr): Expr = at(e) {
-      val Operator(es, recons) = e: @unchecked
-      val nes = es.map(go)
-      val ne = if ((es zip nes).exists((a, b) => a ne b)) recons(nes).copiedFrom(e) else e
-      f(ne) match {
-        case Some(v) => at(ne, rule) { record(ne, v); v }
-        case None => ne
-      }
-    }
-    go(e)
-  }
-
   /** The steps that rewrite the original term into `result`, which the transformation made. */
   def result(result: Expr): Seq[(String, Expr)] = {
     rewrite(TransformationRecorder.unrecorded, result)

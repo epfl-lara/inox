@@ -914,7 +914,7 @@ trait SymbolOps extends TypeOps { self =>
     rec(e, Map.empty, false)
   }
 
-  /** Decides which functions [[simplifyForalls]] inlines: those reachable from the formula that
+  /** Decides which functions [[simplifyFormula]] inlines: those reachable from the formula that
     * contain a quantifier outside assumptions and are not (mutually) recursive. Calls are followed
     * through ADT equalities, which count as calls to the sort's equality function.
     *
@@ -959,12 +959,6 @@ trait SymbolOps extends TypeOps { self =>
     /** The functions to inline in `e`. */
     def toInline(e: Expr): Set[Identifier] = reachable(functionCallsOf(e).map(_.id)).filter(isInlinable)
   }
-
-  /** Pre-processing for solvers that handle universal quantification
-    * in order to increase the precision of polarity analysis for
-    * quantification instantiations.
-    */
-  def simplifyForalls(e: Expr)(using opts: PurityOptions): Expr = formulaSimplifier.simplifyForalls(e)
 
   def simplifyLets(expr: Expr): Expr = preMap {
     case l1 @ Let(v1, Let(v2, e2, b2), b1) => Some(Let(v2, e2, Let(v1, b2, b1).copiedFrom(l1)).copiedFrom(l1))
