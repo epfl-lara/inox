@@ -1416,6 +1416,18 @@ def red (K : List (SmtTerm × Bool)) : SmtTerm → SmtTerm
     lookupOr K (.eq x y) (if red K x = red K y then .Boolean true else .eq (red K x) (red K y))
   | t => lookupOr K t t
 
+/-- The literals that the true disjunctions of `K` with an operand that reduces to false under `K`
+make known: those of their other operand. -/
+def unitLits (K : List (SmtTerm × Bool)) : List (SmtTerm × Bool) :=
+  K.flatMap fun p => match p with
+    | (.or x y, true) =>
+      (if red K x = .Boolean false then lits (red K y) true ++ lits y true else []) ++
+        (if red K y = .Boolean false then lits (red K x) true ++ lits x true else [])
+    | _ => []
+
+/-- The literals `K`, with those that their true disjunctions make known. -/
+def withUnits (K : List (SmtTerm × Bool)) : List (SmtTerm × Bool) := unitLits K ++ K
+
 /-- The arguments of an application. -/
 def smtArgs : SmtTerm → List SmtTerm
   | .Apply f a => smtArgs f ++ [a]
@@ -1474,7 +1486,7 @@ def congEq (K : List (SmtTerm × Bool)) : SmtTerm → Bool
 def verifyUnder (k : List (SmtTerm × Bool) → Bool) (K : List (SmtTerm × Bool)) :
     SmtTerm → Bool
   | .or p1 p2 => verifyUnder k K p1 && verifyUnder k K p2
-  | p => red K p = .Boolean false || k (lits (red K p) true ++ lits p true ++ K)
+  | p => red K p = .Boolean false || k (withUnits (lits (red K p) true ++ lits p true ++ K))
 
 /-- `φ` holds in the models of the defining equations `eqs` where the literals `K` have their
 values: an implication whose premise makes its conclusion hold, or a term that reduces to true, or
@@ -1514,7 +1526,7 @@ def TermSteps.roots (r : TermSteps) : List Term :=
 
 /-- The literals that the base clauses and the root steps make known. -/
 def TermSteps.baseLits (r : TermSteps) : List (SmtTerm × Bool) :=
-  (r.base ++ r.roots).flatMap fun t => lits (__eo_to_smt t) true
+  withUnits ((r.base ++ r.roots).flatMap fun t => lits (__eo_to_smt t) true)
 
 /-- The clauses of the instances that hold, given the base clauses and the definitions of their
 local symbols that are clauses of the fresh-symbol steps. -/
