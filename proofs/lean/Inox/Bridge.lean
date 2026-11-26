@@ -1,6 +1,6 @@
 /- Copyright 2009-2026 EPFL, Lausanne -/
 import Inox.Data
-import Inox.Signed
+import Inox.Bits
 import Inox.Relative
 import Cpc.Proofs.TypePreservation.Helpers
 
@@ -190,6 +190,28 @@ inductive HasTy (D : List Data) (S : List Sig) (Γ : List (Id × Ty)) : Expr →
       HasTy D S Γ (.BVUnsignedToSigned a) (.BVType true w)
   | s2u {a : Expr} {w : Int} : HasTy D S Γ a (.BVType true w) →
       HasTy D S Γ (.BVSignedToUnsigned a) (.BVType false w)
+  | bvAnd {a b : Expr} {s : Bool} {w : Int} :
+      HasTy D S Γ a (.BVType s w) → HasTy D S Γ b (.BVType s w) →
+      HasTy D S Γ (.BVAnd a b) (.BVType s w)
+  | bvOr {a b : Expr} {s : Bool} {w : Int} :
+      HasTy D S Γ a (.BVType s w) → HasTy D S Γ b (.BVType s w) →
+      HasTy D S Γ (.BVOr a b) (.BVType s w)
+  | bvXor {a b : Expr} {s : Bool} {w : Int} :
+      HasTy D S Γ a (.BVType s w) → HasTy D S Γ b (.BVType s w) →
+      HasTy D S Γ (.BVXor a b) (.BVType s w)
+  | bvShl {a b : Expr} {s : Bool} {w : Int} :
+      HasTy D S Γ a (.BVType s w) → HasTy D S Γ b (.BVType s w) →
+      HasTy D S Γ (.BVShiftLeft a b) (.BVType s w)
+  | bvAShr {a b : Expr} {s : Bool} {w : Int} :
+      HasTy D S Γ a (.BVType s w) → HasTy D S Γ b (.BVType s w) →
+      HasTy D S Γ (.BVAShiftRight a b) (.BVType s w)
+  | bvLShr {a b : Expr} {s : Bool} {w : Int} :
+      HasTy D S Γ a (.BVType s w) → HasTy D S Γ b (.BVType s w) →
+      HasTy D S Γ (.BVLShiftRight a b) (.BVType s w)
+  | narrow {a : Expr} {s : Bool} {w v : Int} : HasTy D S Γ a (.BVType s w) → 0 < v → v < w →
+      HasTy D S Γ (.BVNarrowingCast a v) (.BVType s v)
+  | widen {a : Expr} {s : Bool} {w v : Int} : HasTy D S Γ a (.BVType s w) → w < v →
+      HasTy D S Γ (.BVWideningCast a v) (.BVType s v)
   | frac {n d : Int} : d ≠ 0 → HasTy D S Γ (.FractionLiteral n d) .RealType
   | rPlus {a b : Expr} : HasTy D S Γ a .RealType → HasTy D S Γ b .RealType →
       HasTy D S Γ (.Plus a b) .RealType
@@ -239,7 +261,10 @@ theorem HasTy.fragTy {S : List Sig} (hS : SigOk D S) {Γ : List (Id × Ty)} {e :
   | bvLit hw _ _ => exact hw
   | bvPlus _ _ ih _ | bvMinus _ _ ih _ | bvTimes _ _ ih _ | bvDiv _ _ ih _ | bvRem _ _ ih _
     | bvNeg _ ih | bvNot _ ih | bvMod _ _ ih _ | sDiv _ _ ih _ | sRem _ _ ih _ | sMod _ _ ih _
-    | u2s _ ih | s2u _ ih => exact ih
+    | u2s _ ih | s2u _ ih | bvAnd _ _ ih _ | bvOr _ _ ih _ | bvXor _ _ ih _ | bvShl _ _ ih _
+    | bvAShr _ _ ih _ | bvLShr _ _ ih _ => exact ih
+  | narrow _ hv _ _ => exact hv
+  | widen _ hwv ih => exact Int.lt_trans ih hwv
   | _ => trivial
 
 /-- The program `P` has the functions of `S`, of bodies of their types, with no type parameters. -/
@@ -285,7 +310,9 @@ def isBv (D : List Data) (S : List Sig) (Γ : List (Id × Ty)) : Expr → Bool
   | .IfExpr _ a _ => isBv D S Γ a
   | .Plus a _ | .Minus a _ | .Times a _ | .Division a _ | .Remainder a _ | .Modulo a _
   | .UMinus a | .BVNot a => isBv D S Γ a
-  | .BVUnsignedToSigned _ | .BVSignedToUnsigned _ => true
+  | .BVUnsignedToSigned _ | .BVSignedToUnsigned _ | .BVAnd _ _ | .BVOr _ _ | .BVXor _ _
+  | .BVShiftLeft _ _ | .BVAShiftRight _ _ | .BVLShiftRight _ _ | .BVNarrowingCast _ _
+  | .BVWideningCast _ _ => true
   | .FunctionInvocation f _ _ =>
     match findSig S f with
     | some s => s.ret.isBv
@@ -329,7 +356,9 @@ def isSigned (D : List Data) (S : List Sig) (Γ : List (Id × Ty)) : Expr → Bo
   | .BVLiteral s _ _ => s
   | .IfExpr _ a _ => isSigned D S Γ a
   | .Plus a _ | .Minus a _ | .Times a _ | .Division a _ | .Remainder a _ | .Modulo a _
-  | .UMinus a | .BVNot a => isSigned D S Γ a
+  | .UMinus a | .BVNot a | .BVAnd a _ | .BVOr a _ | .BVXor a _ | .BVShiftLeft a _
+  | .BVAShiftRight a _ | .BVLShiftRight a _ | .BVNarrowingCast a _ | .BVWideningCast a _ =>
+    isSigned D S Γ a
   | .BVUnsignedToSigned _ => true
   | .FunctionInvocation f _ _ =>
     match findSig S f with
@@ -356,8 +385,60 @@ theorem isSigned_eq {S : List Sig} {Γ : List (Id × Ty)} {e : Expr} {T : Ty}
     | uminus _ iha | bvPlus _ _ iha _ | bvMinus _ _ iha _ | bvTimes _ _ iha _
     | bvDiv _ _ iha _ | bvRem _ _ iha _ | bvNeg _ iha | bvNot _ iha | rPlus _ _ iha _
     | rMinus _ _ iha _ | rTimes _ _ iha _ | rDiv _ _ iha _ | rNeg _ iha | bvMod _ _ iha _
-    | sDiv _ _ iha _ | sRem _ _ iha _ | sMod _ _ iha _ =>
+    | sDiv _ _ iha _ | sRem _ _ iha _ | sMod _ _ iha _ | bvAnd _ _ iha _ | bvOr _ _ iha _
+    | bvXor _ _ iha _ | bvShl _ _ iha _ | bvAShr _ _ iha _ | bvLShr _ _ iha _ =>
     simpa only [isSigned] using iha
+  | @narrow _ s _ _ _ _ _ iha | @widen _ s _ _ _ _ iha =>
+    cases s <;> simpa only [isSigned, Ty.isSigned] using iha
+  | _ => rfl
+
+/-- The width of a type of bit-vectors. -/
+def _root_.Inox.Semantics.Ty.width : Ty → Int
+  | .BVType _ w => w
+  | _ => 0
+
+/-- The width of the expression `e` of the fragment, when it is of a type of bit-vectors, which
+gives the number of bits that a widening adds. -/
+def width (D : List Data) (S : List Sig) (Γ : List (Id × Ty)) : Expr → Int
+  | .Variable x =>
+    match Γ.lookup x with
+    | some T => T.width
+    | none => 0
+  | .BVLiteral _ w _ => w
+  | .IfExpr _ a _ => width D S Γ a
+  | .Plus a _ | .Minus a _ | .Times a _ | .Division a _ | .Remainder a _ | .Modulo a _
+  | .UMinus a | .BVNot a | .BVAnd a _ | .BVOr a _ | .BVXor a _ | .BVShiftLeft a _
+  | .BVAShiftRight a _ | .BVLShiftRight a _ | .BVUnsignedToSigned a | .BVSignedToUnsigned a =>
+    width D S Γ a
+  | .BVNarrowingCast _ v | .BVWideningCast _ v => v
+  | .FunctionInvocation f _ _ =>
+    match findSig S f with
+    | some s => s.ret.width
+    | none => 0
+  | .Assume _ b => width D S Γ b
+  | .ADTSelector _ x =>
+    match findSel D x with
+    | some (_, _, _, T) => T.width
+    | none => 0
+  | _ => 0
+
+theorem width_eq {S : List Sig} {Γ : List (Id × Ty)} {e : Expr} {T : Ty}
+    (h : HasTy D S Γ e T) : width D S Γ e = T.width := by
+  induction h with
+  | var hx _ => simp only [width, hx]
+  | ite _ _ _ _ iha _ => simpa only [width] using iha
+  | invoke hs _ _ _ => simp only [width, hs]
+  | assume _ _ _ ihb => simpa only [width] using ihb
+  | sel hx _ _ => simp only [width, hx]
+  | plus _ _ iha _ | minus _ _ iha _ | times _ _ iha _ | div _ _ iha _ | rem _ _ iha _
+    | mod _ _ iha _
+    | uminus _ iha | bvPlus _ _ iha _ | bvMinus _ _ iha _ | bvTimes _ _ iha _
+    | bvDiv _ _ iha _ | bvRem _ _ iha _ | bvNeg _ iha | bvNot _ iha | rPlus _ _ iha _
+    | rMinus _ _ iha _ | rTimes _ _ iha _ | rDiv _ _ iha _ | rNeg _ iha | bvMod _ _ iha _
+    | sDiv _ _ iha _ | sRem _ _ iha _ | sMod _ _ iha _ | bvAnd _ _ iha _ | bvOr _ _ iha _
+    | bvXor _ _ iha _ | bvShl _ _ iha _ | bvAShr _ _ iha _ | bvLShr _ _ iha _ =>
+    simpa only [width] using iha
+  | u2s _ iha | s2u _ iha => simpa only [width, Ty.width] using iha
   | _ => rfl
 
 /-- Whether a type is that of the reals. -/
@@ -456,6 +537,16 @@ def tr (D : List Data) (S : List Sig) (Γ : List (Id × Ty)) : Expr → SmtTerm
   | .BVUnsignedToSigned a | .BVSignedToUnsigned a => tr D S Γ a
   | .UMinus a => if isBv D S Γ a then .bvneg (tr D S Γ a) else .uneg (tr D S Γ a)
   | .BVNot a => .bvnot (tr D S Γ a)
+  | .BVAnd a b => .bvand (tr D S Γ a) (tr D S Γ b)
+  | .BVOr a b => .bvor (tr D S Γ a) (tr D S Γ b)
+  | .BVXor a b => .bvxor (tr D S Γ a) (tr D S Γ b)
+  | .BVShiftLeft a b => .bvshl (tr D S Γ a) (tr D S Γ b)
+  | .BVAShiftRight a b => .bvashr (tr D S Γ a) (tr D S Γ b)
+  | .BVLShiftRight a b => .bvlshr (tr D S Γ a) (tr D S Γ b)
+  | .BVNarrowingCast a v => .extract (.Numeral (v - 1)) (.Numeral 0) (tr D S Γ a)
+  | .BVWideningCast a v =>
+    if isSigned D S Γ a then .sign_extend (.Numeral (v - width D S Γ a)) (tr D S Γ a)
+    else .zero_extend (.Numeral (v - width D S Γ a)) (tr D S Γ a)
   | .LessThan a b =>
     if isBv D S Γ a then
       if isSigned D S Γ a then .bvslt (tr D S Γ a) (tr D S Γ b)
@@ -659,9 +750,22 @@ theorem tr_typeof {S : List Sig} (hS : SigOk D S) {Γ : List (Id × Ty)} {e : Ex
       native_int_to_nat]
   | bvPlus ha _ iha ihb | bvMinus ha _ iha ihb | bvTimes ha _ iha ihb | bvDiv ha _ iha ihb
     | bvRem ha _ iha ihb | bvMod ha _ iha ihb | sDiv ha _ iha ihb | sRem ha _ iha ihb
-    | sMod ha _ iha ihb =>
+    | sMod ha _ iha ihb | bvAnd ha _ iha ihb | bvOr ha _ iha ihb | bvXor ha _ iha ihb
+    | bvShl ha _ iha ihb | bvAShr ha _ iha ihb | bvLShr ha _ iha ihb =>
     simp [tr, isBv_eq ha, isSigned_eq ha, Ty.isBv, Ty.isSigned, __smtx_typeof, iha, ihb, trT,
       __smtx_typeof_bv_op_2, native_ite, native_nateq]
+  | @narrow _ _ w v ha hv hvw ih =>
+    simp [tr, __smtx_typeof, ih, trT, __smtx_typeof_extract, native_ite, native_zleq,
+      native_zlt, native_zplus, native_zneg, native_nat_to_int, native_int_to_nat, hv]
+    have h2 : v - 1 < w := by omega
+    exact fun h => absurd h (Int.not_le.mpr h2)
+  | @widen _ s w v ha hwv ih =>
+    have hw : 0 < w := ha.fragTy hS
+    cases s <;>
+      simp [tr, isSigned_eq ha, width_eq ha, Ty.width, Ty.isSigned, __smtx_typeof, ih, trT,
+        __smtx_typeof_zero_extend, __smtx_typeof_sign_extend, native_ite, native_zleq,
+        native_zplus, native_nat_to_int, native_int_to_nat, Int.le_of_lt hwv] <;>
+      rw [max_eq_left (Int.le_of_lt hw), Int.sub_add_cancel]
   | u2s _ ih | s2u _ ih => simpa only [tr, trT] using ih
   | bvNeg ha ih | bvNot ha ih =>
     simp [tr, isBv_eq ha, Ty.isBv, __smtx_typeof, ih, trT, __smtx_typeof_bv_op_1]
@@ -1397,6 +1501,85 @@ theorem ev (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hPD : ProgData D
     simp only [Result.Ok.injEq] at he
     subst he
     exact ⟨hasV_bv_of hw hi0 hi, fun M hwf hc hV => by simpa only [tr, trV] using haM M hwf hc hV⟩
+  | bvAnd ha _ iha ihb | bvOr ha _ iha ihb | bvXor ha _ iha ihb =>
+    intro env v hE he
+    rw [eval] at he
+    ok_split he
+    rename_i x hx
+    ok_split he
+    rename_i y hy
+    obtain ⟨hxT, haM⟩ := iha env _ hE hx
+    obtain ⟨hyT, hbM⟩ := ihb env _ hE hy
+    obtain ⟨i, rfl, hw, hi0, hi⟩ := hasV_bv hxT
+    obtain ⟨j, rfl, -, hj0, hj⟩ := hasV_bv hyT
+    simp only [bv_binary, same_bv, decide_true, Bool.and_self, ↓reduceDIte, Result.Ok.injEq,
+      bit_op] at he
+    subst he
+    first
+      | (obtain ⟨h0, h1, hm⟩ := bvand_eq hw hi0 hi hj0 hj
+         refine ⟨hasV_bv_of hw h0 h1, fun M hwf hc hV => ?_⟩
+         simp only [tr, __smtx_model_eval, haM M hwf hc hV, hbM M hwf hc hV, trV]
+         exact hm)
+      | (obtain ⟨h0, h1, hm⟩ := bvor_eq hw hi0 hi hj0 hj
+         refine ⟨hasV_bv_of hw h0 h1, fun M hwf hc hV => ?_⟩
+         simp only [tr, __smtx_model_eval, haM M hwf hc hV, hbM M hwf hc hV, trV]
+         exact hm)
+      | (obtain ⟨h0, h1, hm⟩ := bvxor_eq hw hi0 hi hj0 hj
+         refine ⟨hasV_bv_of hw h0 h1, fun M hwf hc hV => ?_⟩
+         simp only [tr, __smtx_model_eval, haM M hwf hc hV, hbM M hwf hc hV, trV]
+         exact hm)
+  | @bvShl _ _ _ w ha _ iha ihb | @bvAShr _ _ _ w ha _ iha ihb
+    | @bvLShr _ _ _ w ha _ iha ihb =>
+    intro env v hE he
+    rw [eval] at he
+    ok_split he
+    rename_i x hx
+    ok_split he
+    rename_i y hy
+    obtain ⟨hxT, haM⟩ := iha env _ hE hx
+    obtain ⟨hyT, hbM⟩ := ihb env _ hE hy
+    obtain ⟨i, rfl, hw, hi0, hi⟩ := hasV_bv hxT
+    obtain ⟨j, rfl, -, hj0, hj⟩ := hasV_bv hyT
+    simp only [bv_binary, same_bv, decide_true, Bool.and_self, ↓reduceDIte, Result.Ok.injEq,
+      bit_op] at he
+    subst he
+    first
+      | (refine ⟨hasV_bvmk hw _, fun M hwf hc hV => ?_⟩
+         simp only [tr, __smtx_model_eval, haM M hwf hc hV, hbM M hwf hc hV, trV]
+         first | exact bvshl_eq hw hj0 | exact bvashr_eq hw hi0 hi hj0)
+      | (have hr := lshr_range hi0 hi (pow2_pos (shift_amount w j))
+         refine ⟨hasV_bv_of hw hr.1 hr.2, fun M hwf hc hV => ?_⟩
+         simp only [tr, __smtx_model_eval, haM M hwf hc hV, hbM M hwf hc hV, trV]
+         exact bvlshr_eq hw hi0 hi hj0)
+  | narrow _ hv hvw ih =>
+    intro env v hE he
+    rw [eval] at he
+    ok_split he
+    rename_i x hx
+    obtain ⟨hxT, haM⟩ := ih env _ hE hx
+    obtain ⟨i, rfl, hw, hi0, hi⟩ := hasV_bv hxT
+    simp only [bv_cast, Result.Ok.injEq] at he
+    subst he
+    refine ⟨hasV_bvmk hv _, fun M hwf hc hV => ?_⟩
+    simp only [tr, __smtx_model_eval, haM M hwf hc hV, trV]
+    exact extract_eq hv (Int.le_of_lt hvw)
+  | @widen _ s _ _ ha hwv ih =>
+    intro env v hE he
+    rw [eval] at he
+    ok_split he
+    rename_i x hx
+    obtain ⟨hxT, haM⟩ := ih env _ hE hx
+    obtain ⟨i, rfl, hw, hi0, hi⟩ := hasV_bv hxT
+    simp only [bv_cast, Result.Ok.injEq] at he
+    subst he
+    refine ⟨hasV_bvmk (by omega) _, fun M hwf hc hV => ?_⟩
+    cases s
+    · simp only [tr, isSigned_eq ha, width_eq ha, Ty.isSigned, Ty.width, Bool.false_eq_true,
+        ↓reduceIte, __smtx_model_eval, haM M hwf hc hV, trV]
+      exact zero_extend_eq hw hi0 hi (Int.le_of_lt hwv)
+    · simp only [tr, isSigned_eq ha, width_eq ha, Ty.isSigned, Ty.width, ↓reduceIte,
+        __smtx_model_eval, haM M hwf hc hV, trV]
+      exact sign_extend_eq hw hi0 hi (Int.le_of_lt hwv)
   | @frac k d hd =>
     intro env v hE he
     rw [eval, real_eq hd] at he

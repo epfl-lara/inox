@@ -685,17 +685,25 @@ and Boolean literals, `IfExpr`, `And`, `Or`, `Not`, `Implies`, `Equals`,
 of the reals, with a denominator that is not zero, with `Plus`, `Minus`,
 `Times`, `Division`, `UMinus` and the four comparisons on them, the literals of
 the bit-vectors with `Plus`, `Minus`, `Times`, `Division`, `Remainder`,
-`Modulo`, `UMinus`, `BVNot` and the four comparisons on them, signed or not,
-`BVUnsignedToSigned` and `BVSignedToUnsigned`, which translate to their
-operand, and `ADT`, `IsConstructor` and `ADTSelector` of a constructor or a
-field of `D`. A bit-vector of the semantics is its unsigned integer with a
-sign, which says how the division, the remainder, the modulo and the
-comparisons read it, and Logos defines the signed operators of SMT-LIB from the
-unsigned ones by the cases of the top bits:
+`Modulo`, `UMinus`, `BVNot`, `BVAnd`, `BVOr`, `BVXor`, the three shifts and the
+four comparisons on them, signed or not, `BVUnsignedToSigned` and
+`BVSignedToUnsigned`, which translate to their operand, `BVNarrowingCast` to a
+smaller width and `BVWideningCast` to a larger one, and `ADT`, `IsConstructor`
+and `ADTSelector` of a constructor or a field of `D`. A bit-vector of the
+semantics is its unsigned integer with a sign, which says how the division, the
+remainder, the modulo and the comparisons read it, and Logos defines the signed
+operators of SMT-LIB from the unsigned ones by the cases of the top bits:
 [`Inox/Signed.lean`](Inox/Signed.lean) proves that they agree (`bvsdiv_eq`,
 `bvsrem_eq`, `bvsmod_eq`, `bvsgt_eq`, `bvsge_eq`). The two signs have one sort,
-so a value of Logos is read back at a type (`resign`). The bitwise operators,
-the shifts and the casts are not there yet. The reals of the semantics are the
+so a value of Logos is read back at a type (`resign`).
+[`Inox/Bits.lean`](Inox/Bits.lean) proves the agreement of the bitwise
+operators, which the semantics defines by recursion on the bits and Logos by
+those of `BitVec` (`bvand_eq`, `bvor_eq`, `bvxor_eq`), of the shifts, where the
+semantics cuts the amount at the width and the arithmetic one of Logos is by
+the cases of the top bit (`bvshl_eq`, `bvlshr_eq`, `bvashr_eq`), and of the
+casts, which Inox prints as `extract`, `sign_extend` and `zero_extend`
+(`extract_eq`, `sign_extend_eq`, `zero_extend_eq`). `BVToInt` and `IntToBV` are
+not there. The reals of the semantics are the
 fractions in lowest terms, and those of Logos the real numbers: the operators
 agree on the fractions (`real_eq`, `ratOf_add` and the like), and a real number
 that is not a fraction is the translation of no value. `DataOk D` asks that the

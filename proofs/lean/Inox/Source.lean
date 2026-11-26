@@ -64,6 +64,12 @@ def backCtor : SmtTerm → Option Id
   | .DtCons s _ i => some (ctorName s i)
   | _ => none
 
+/-- The width of the term `t`, when it is a bit-vector. -/
+def widthOf (t : SmtTerm) : Int :=
+  match __smtx_typeof t with
+  | .BitVec n => n
+  | _ => 0
+
 mutual
 /-- The expression that the term `t` is read as. A term outside the fragment is read as `Error`,
 which no check accepts. An assumption is read from its mark (`markAssumes` of
@@ -115,6 +121,16 @@ def back : SmtTerm → Expr
   | .bvsgt a b => .GreaterThan (.BVUnsignedToSigned (back a)) (.BVUnsignedToSigned (back b))
   | .bvsle a b => .LessEquals (.BVUnsignedToSigned (back a)) (.BVUnsignedToSigned (back b))
   | .bvsge a b => .GreaterEquals (.BVUnsignedToSigned (back a)) (.BVUnsignedToSigned (back b))
+  | .bvand a b => .BVAnd (back a) (back b)
+  | .bvor a b => .BVOr (back a) (back b)
+  | .bvxor a b => .BVXor (back a) (back b)
+  | .bvshl a b => .BVShiftLeft (back a) (back b)
+  | .bvashr a b => .BVAShiftRight (back a) (back b)
+  | .bvlshr a b => .BVLShiftRight (back a) (back b)
+  | .extract (.Numeral i) (.Numeral 0) a => .BVNarrowingCast (back a) (i + 1)
+  | .zero_extend (.Numeral k) a => .BVWideningCast (back a) (k + widthOf a)
+  | .sign_extend (.Numeral k) a =>
+    .BVSignedToUnsigned (.BVWideningCast (.BVUnsignedToSigned (back a)) (k + widthOf a))
   | .and a r => .And (back a :: backAnd r)
   | .or a r => .Or (back a :: backOr r)
   | .DtCons s _ i => .ADT (ctorName s i) [] []
@@ -153,13 +169,15 @@ sorts. -/
 def consts : SmtTerm → List (native_String × SmtType)
   | .UConst s T => [(s, T)]
   | .ite c a b => consts c ++ consts a ++ consts b
-  | .not a | .uneg a | .bvneg a | .bvnot a => consts a
+  | .not a | .uneg a | .bvneg a | .bvnot a | .extract _ _ a | .zero_extend _ a
+  | .sign_extend _ a => consts a
   | .xor a b => consts a ++ consts b
   | .imp a b | .eq a b | .plus a b | .neg a b | .mult a b | .div a b | .mod a b | .lt a b
   | .gt a b | .leq a b | .geq a b | .and a b | .or a b | .bvadd a b | .bvsub a b | .bvmul a b
   | .bvudiv a b | .bvurem a b | .bvult a b | .bvugt a b | .bvule a b | .bvuge a b
   | .qdiv a b | .bvsdiv a b | .bvsrem a b | .bvsmod a b | .bvslt a b | .bvsgt a b | .bvsle a b
-  | .bvsge a b => consts a ++ consts b
+  | .bvsge a b | .bvand a b | .bvor a b | .bvxor a b | .bvshl a b | .bvashr a b
+  | .bvlshr a b => consts a ++ consts b
   | .Apply (.UConst _ _) a => consts a
   | .Apply f a => consts f ++ consts a
   | _ => []
@@ -290,6 +308,19 @@ def infer (D : List Data) (S : List Sig) (Γ : List (Id × Ty)) : Expr → Optio
   | .BVNot a =>
     match infer D S Γ a with
     | some (.bv s w) => some (.bv s w)
+    | _ => none
+  | .BVAnd a b | .BVOr a b | .BVXor a b | .BVShiftLeft a b | .BVAShiftRight a b
+  | .BVLShiftRight a b =>
+    match infer D S Γ a, infer D S Γ b with
+    | some (.bv s w), some (.bv s' w') => if s = s' ∧ w = w' then some (.bv s w) else none
+    | _, _ => none
+  | .BVNarrowingCast a v =>
+    match infer D S Γ a with
+    | some (.bv s w) => if 0 < v ∧ v < w then some (.bv s v) else none
+    | _ => none
+  | .BVWideningCast a v =>
+    match infer D S Γ a with
+    | some (.bv s w) => if w < v then some (.bv s v) else none
     | _ => none
   | .LessThan a b | .GreaterThan a b | .LessEquals a b | .GreaterEquals a b =>
     match infer D S Γ a, infer D S Γ b with
@@ -525,6 +556,92 @@ theorem infer_sound (hD : DataOk D) (S : List Sig) (Γ : List (Id × Ty)) :
       simp only [Option.some.injEq] at h; subst h
       exact .rNeg (infer_sound hD S Γ a .real ha)
     · cases h
+  | .BVAnd a b, k, h => by
+    simp only [infer] at h
+    split at h
+    · rename_i s w s' w' ha hb
+      split at h
+      · rename_i hw
+        obtain ⟨rfl, rfl⟩ := hw
+        simp only [Option.some.injEq] at h; subst h
+        exact .bvAnd (infer_sound hD S Γ a (.bv _ w) ha) (infer_sound hD S Γ b (.bv _ w) hb)
+      · cases h
+    · cases h
+  | .BVOr a b, k, h => by
+    simp only [infer] at h
+    split at h
+    · rename_i s w s' w' ha hb
+      split at h
+      · rename_i hw
+        obtain ⟨rfl, rfl⟩ := hw
+        simp only [Option.some.injEq] at h; subst h
+        exact .bvOr (infer_sound hD S Γ a (.bv _ w) ha) (infer_sound hD S Γ b (.bv _ w) hb)
+      · cases h
+    · cases h
+  | .BVXor a b, k, h => by
+    simp only [infer] at h
+    split at h
+    · rename_i s w s' w' ha hb
+      split at h
+      · rename_i hw
+        obtain ⟨rfl, rfl⟩ := hw
+        simp only [Option.some.injEq] at h; subst h
+        exact .bvXor (infer_sound hD S Γ a (.bv _ w) ha) (infer_sound hD S Γ b (.bv _ w) hb)
+      · cases h
+    · cases h
+  | .BVShiftLeft a b, k, h => by
+    simp only [infer] at h
+    split at h
+    · rename_i s w s' w' ha hb
+      split at h
+      · rename_i hw
+        obtain ⟨rfl, rfl⟩ := hw
+        simp only [Option.some.injEq] at h; subst h
+        exact .bvShl (infer_sound hD S Γ a (.bv _ w) ha) (infer_sound hD S Γ b (.bv _ w) hb)
+      · cases h
+    · cases h
+  | .BVAShiftRight a b, k, h => by
+    simp only [infer] at h
+    split at h
+    · rename_i s w s' w' ha hb
+      split at h
+      · rename_i hw
+        obtain ⟨rfl, rfl⟩ := hw
+        simp only [Option.some.injEq] at h; subst h
+        exact .bvAShr (infer_sound hD S Γ a (.bv _ w) ha) (infer_sound hD S Γ b (.bv _ w) hb)
+      · cases h
+    · cases h
+  | .BVLShiftRight a b, k, h => by
+    simp only [infer] at h
+    split at h
+    · rename_i s w s' w' ha hb
+      split at h
+      · rename_i hw
+        obtain ⟨rfl, rfl⟩ := hw
+        simp only [Option.some.injEq] at h; subst h
+        exact .bvLShr (infer_sound hD S Γ a (.bv _ w) ha) (infer_sound hD S Γ b (.bv _ w) hb)
+      · cases h
+    · cases h
+  | .BVNarrowingCast a v, k, h => by
+    simp only [infer] at h
+    split at h
+    · rename_i s w ha
+      split at h
+      · rename_i hv
+        simp only [Option.some.injEq] at h; subst h
+        exact .narrow (infer_sound hD S Γ a (.bv s w) ha) hv.1 hv.2
+      · cases h
+    · cases h
+  | .BVWideningCast a v, k, h => by
+    simp only [infer] at h
+    split at h
+    · rename_i s w ha
+      split at h
+      · rename_i hv
+        simp only [Option.some.injEq] at h; subst h
+        exact .widen (infer_sound hD S Γ a (.bv s w) ha) hv
+      · cases h
+    · cases h
   | .BVNot a, k, h => by
     simp only [infer] at h
     split at h
@@ -681,9 +798,6 @@ theorem infer_sound (hD : DataOk D) (S : List Sig) (Γ : List (Id × Ty)) :
   | .RoundNearestTiesToAway, k, h | .RoundTowardPositive, k, h | .RoundTowardNegative, k, h
   | .RoundTowardZero, k, h
   | .StringConcat _ _, k, h | .SubString _ _ _, k, h | .StringLength _, k, h
-  | .BVAnd _ _, k, h | .BVOr _ _, k, h | .BVXor _ _, k, h | .BVShiftLeft _ _, k, h
-  | .BVAShiftRight _ _, k, h | .BVLShiftRight _ _, k, h | .BVNarrowingCast _ _, k, h
-  | .BVWideningCast _ _, k, h
   | .BVToInt _, k, h | .IntToBV _ _ _, k, h | .FPEquals _ _, k, h | .FPAdd _ _ _, k, h
   | .FPSub _ _ _, k, h | .FPUMinus _, k, h | .FPFMA _ _ _ _, k, h | .FPMul _ _ _, k, h
   | .FPDiv _ _ _, k, h | .FPAbs _, k, h | .FPMax _ _, k, h | .FPMin _ _, k, h
@@ -776,6 +890,14 @@ theorem HasTy.frag {S : List Sig} {Γ : List (Id × Ty)} {e : Expr} {T : Ty} (h 
   | bvRem _ _ iha ihb => exact .rem iha ihb
   | bvNeg _ ih => exact .uminus ih
   | bvNot _ ih => exact .bvnot ih
+  | bvAnd _ _ iha ihb => exact .bvand iha ihb
+  | bvOr _ _ iha ihb => exact .bvor iha ihb
+  | bvXor _ _ iha ihb => exact .bvxor iha ihb
+  | bvShl _ _ iha ihb => exact .shl iha ihb
+  | bvAShr _ _ iha ihb => exact .ashr iha ihb
+  | bvLShr _ _ iha ihb => exact .lshr iha ihb
+  | narrow _ _ _ ih => exact .narrow ih
+  | widen _ _ ih => exact .widen ih
   | bvLt _ _ iha ihb => exact .lt iha ihb
   | bvGt _ _ iha ihb => exact .gt iha ihb
   | bvLe _ _ iha ihb => exact .le iha ihb
@@ -833,12 +955,14 @@ def typesOf : SmtTerm → List SmtType
   | .UConst _ T => [T]
   | .DtCons s dd _ | .DtSel s dd _ _ | .DtTester s dd _ => [.Datatype s dd]
   | .ite c a b => typesOf c ++ typesOf a ++ typesOf b
-  | .not a | .uneg a | .bvneg a | .bvnot a => typesOf a
+  | .not a | .uneg a | .bvneg a | .bvnot a | .extract _ _ a | .zero_extend _ a
+  | .sign_extend _ a => typesOf a
   | .xor a b | .imp a b | .eq a b | .plus a b | .neg a b | .mult a b | .div a b | .mod a b
   | .lt a b | .gt a b | .leq a b | .geq a b | .and a b | .or a b | .Apply a b | .bvadd a b
   | .bvsub a b | .bvmul a b | .bvudiv a b | .bvurem a b | .bvult a b | .bvugt a b | .bvule a b
   | .bvuge a b | .qdiv a b | .bvsdiv a b | .bvsrem a b | .bvsmod a b | .bvslt a b | .bvsgt a b
-  | .bvsle a b | .bvsge a b => typesOf a ++ typesOf b
+  | .bvsle a b | .bvsge a b | .bvand a b | .bvor a b | .bvxor a b | .bvshl a b | .bvashr a b
+  | .bvlshr a b => typesOf a ++ typesOf b
   | _ => []
 
 /-- The fields of a constructor of the datatype `s`, of index `i`, from the field of index `j`

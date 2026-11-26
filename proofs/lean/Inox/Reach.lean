@@ -95,6 +95,15 @@ def reachesW (w : SmtTerm → SmtTerm) (K : List (SmtTerm × Bool)) (c : SmtTerm
   | _, .bvsgt x y => reachesW w K c true x || reachesW w K c true y
   | _, .bvsle x y => reachesW w K c true x || reachesW w K c true y
   | _, .bvsge x y => reachesW w K c true x || reachesW w K c true y
+  | _, .bvand x y => reachesW w K c true x || reachesW w K c true y
+  | _, .bvor x y => reachesW w K c true x || reachesW w K c true y
+  | _, .bvxor x y => reachesW w K c true x || reachesW w K c true y
+  | _, .bvshl x y => reachesW w K c true x || reachesW w K c true y
+  | _, .bvashr x y => reachesW w K c true x || reachesW w K c true y
+  | _, .bvlshr x y => reachesW w K c true x || reachesW w K c true y
+  | _, .extract _ _ x => reachesW w K c true x
+  | _, .zero_extend _ x => reachesW w K c true x
+  | _, .sign_extend _ x => reachesW w K c true x
   | _, _ => false
 
 /-- `reachesW` with the terms as they are. -/
@@ -332,7 +341,9 @@ theorem called_of_reachesW (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (
     | rMinus ha _ iha ihb | rTimes ha _ iha ihb | rDiv ha _ iha ihb | rLt ha _ iha ihb
     | rGt ha _ iha ihb | rLe ha _ iha ihb | rGe ha _ iha ihb | bvMod ha _ iha ihb
     | sDiv ha _ iha ihb | sRem ha _ iha ihb | sMod ha _ iha ihb | sLt ha _ iha ihb
-    | sGt ha _ iha ihb | sLe ha _ iha ihb | sGe ha _ iha ihb =>
+    | sGt ha _ iha ihb | sLe ha _ iha ihb | sGe ha _ iha ihb | bvAnd ha _ iha ihb
+    | bvOr ha _ iha ihb | bvXor ha _ iha ihb | bvShl ha _ iha ihb | bvAShr ha _ iha ihb
+    | bvLShr ha _ iha ihb =>
     intro env v hE he M hw hc hV N w hN hT K hK c hr
     rw [eval] at he
     ok_split he
@@ -356,6 +367,18 @@ theorem called_of_reachesW (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (
     rename_i x hx
     simp only [tr] at hr
     exact ih env _ hE hx M hw hc hV N w hN hT K hK c hr
+  | narrow _ _ _ ih | widen _ _ ih =>
+    intro env v hE he M hw hc hV N w hN hT K hK c hr
+    rw [eval] at he
+    ok_split he
+    rename_i x hx
+    simp only [tr] at hr
+    first
+      | (simp only [reachesW] at hr
+         exact ih env _ hE hx M hw hc hV N w hN hT K hK c hr)
+      | (split at hr <;>
+          (simp only [reachesW] at hr
+           exact ih env _ hE hx M hw hc hV N w hN hT K hK c hr))
   | uminus ha ih | bvNeg ha ih | bvNot ha ih | rNeg ha ih =>
     intro env v hE he M hw hc hV N w hN hT K hK c hr
     rw [eval] at he
@@ -481,13 +504,15 @@ def assumesW (D : List Data) (S : List Sig) (Γ : List (Id × Ty)) (w : SmtTerm 
       (decide (red K (w (tr D S Γ c)) = .Boolean false) && assumesW D S Γ w K φ b)
   | .And es => assumesAnd D S Γ w K φ es
   | .Or es => assumesOr D S Γ w K φ es
-  | .Not a | .UMinus a | .BVNot a | .BVUnsignedToSigned a | .BVSignedToUnsigned a =>
-    assumesW D S Γ w K φ a
+  | .Not a | .UMinus a | .BVNot a | .BVUnsignedToSigned a | .BVSignedToUnsigned a
+  | .BVNarrowingCast a _ | .BVWideningCast a _ => assumesW D S Γ w K φ a
   | .Implies a b =>
     assumesW D S Γ w K φ a ||
       (decide (red K (w (tr D S Γ a)) = .Boolean true) && assumesW D S Γ w K φ b)
   | .Equals a b | .Plus a b | .Minus a b | .Times a b | .LessThan a b | .GreaterThan a b
-  | .LessEquals a b | .GreaterEquals a b => assumesW D S Γ w K φ a || assumesW D S Γ w K φ b
+  | .LessEquals a b | .GreaterEquals a b | .BVAnd a b | .BVOr a b | .BVXor a b
+  | .BVShiftLeft a b | .BVAShiftRight a b | .BVLShiftRight a b =>
+    assumesW D S Γ w K φ a || assumesW D S Γ w K φ b
   | .Division a b | .Remainder a b | .Modulo a b =>
     (!isBv D S Γ a && !isReal D S Γ a &&
         decide (SmtTerm.not (.eq (w (tr D S Γ b)) (.Numeral 0)) = φ)) ||
@@ -681,7 +706,9 @@ theorem holds_of_assumesW (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S)
     | bvTimes _ _ iha ihb | bvLt _ _ iha ihb | bvGt _ _ iha ihb | bvLe _ _ iha ihb
     | bvGe _ _ iha ihb | rPlus _ _ iha ihb | rMinus _ _ iha ihb | rTimes _ _ iha ihb
     | rLt _ _ iha ihb | rGt _ _ iha ihb | rLe _ _ iha ihb | rGe _ _ iha ihb | sLt _ _ iha ihb
-    | sGt _ _ iha ihb | sLe _ _ iha ihb | sGe _ _ iha ihb =>
+    | sGt _ _ iha ihb | sLe _ _ iha ihb | sGe _ _ iha ihb | bvAnd _ _ iha ihb
+    | bvOr _ _ iha ihb | bvXor _ _ iha ihb | bvShl _ _ iha ihb | bvAShr _ _ iha ihb
+    | bvLShr _ _ iha ihb =>
     intro env v hE he M hw hc hV N w hN hT K hK φ hr
     rw [eval] at he
     ok_split he
@@ -752,7 +779,8 @@ theorem holds_of_assumesW (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S)
     · exact ihb env _ hE hy M hw hc hV N w hN hT K hK φ hr
   | bvLit _ _ _ => intro env v hE he M hw hc hV N w hN hT K hK φ hr; simp [assumesW] at hr
   | frac _ => intro env v hE he M hw hc hV N w hN hT K hK φ hr; simp [assumesW] at hr
-  | uminus _ ih | bvNeg _ ih | bvNot _ ih | rNeg _ ih | u2s _ ih | s2u _ ih =>
+  | uminus _ ih | bvNeg _ ih | bvNot _ ih | rNeg _ ih | u2s _ ih | s2u _ ih
+    | narrow _ _ _ ih | widen _ _ ih =>
     intro env v hE he M hw hc hV N w hN hT K hK φ hr
     rw [eval] at he
     ok_split he
