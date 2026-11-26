@@ -1171,22 +1171,17 @@ def okCall (O : Oracle) (P : Program) (S : List Sig) (e : Equation) (ws : List S
 
 variable {O : Oracle} {P : Program} {S : List Sig}
 
-/-- The intended model satisfies the defining equations of the program on the arguments where
-the calls give values. -/
-theorem goodOn_star (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S) (hPF : ProgFrag P)
-    (hP : ProgTy S P) {eqs : List Equation} (hE : ∀ e ∈ eqs, ∃ s ∈ S, EqFor P S s e)
-    (M0 N : SmtModel) (cd : Codes)
-    (hw : model_wf (Model.star (defs S) (interpOf O P S) M0 cd N)) :
-    GoodOn (okCall O P S) eqs (Model.star (defs S) (interpOf O P S) M0 cd N) := by
-  intro e he ws hws
-  obtain ⟨s, hs, hfor⟩ := hE e he
-  obtain ⟨body, hbody, hbty, hpe, hterm⟩ := hfor
-  rw [hterm, eval_eq_term]
-  refine ⟨eval_eq_bool _ _, fun hok => ?_⟩
-  rw [hpe] at hws ⊢
-  obtain ⟨vs, hvs, rfl⟩ := typed_inv (hS.params s hs) hws
-  obtain ⟨n, v, hc⟩ := hok s hs ⟨body, hbody, hbty, hpe, hterm⟩ vs hvs rfl
-  have hwf' := wf_setConsts hw (typed_bindValues (typed_map _ hvs))
+/-- A model where the calls agree, with the constants of the parameters of a function set to
+values of their types: it is well-formed, the calls agree in it, and the variables of the function
+have the values. -/
+theorem bound_model (hS : SigOk S) {s : Sig} (hs : s ∈ S) {M : SmtModel} (hw : model_wf M)
+    (hcalls : ∀ m, CallsOk O P S m M) {vs : List Value}
+    (hvs : List.Forall₂ HasV vs (s.params.map Prod.snd)) :
+    model_wf (setConsts M (bindValues (ptys s.params) (vs.map trV))) ∧
+      (∀ m, CallsOk O P S m (setConsts M (bindValues (ptys s.params) (vs.map trV)))) ∧
+      ∀ bs, bind_all (s.params.map Prod.fst) vs = .Ok bs →
+        VarsOk s.params (Env.Env (bind_types [] [] []) bs)
+          (setConsts M (bindValues (ptys s.params) (vs.map trV))) := by
   have hσ : ∀ s' ∈ S, bindingOf (bindValues (ptys s.params) (vs.map trV)) (nm s'.name)
       s'.toDef.ty = none := by
     intro s' hs'
@@ -1199,14 +1194,30 @@ theorem goodOn_star (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S) (hPF : Pro
     obtain ⟨p, hp, hpe⟩ := hm
     have h1 : nm p.1 = e.1 := congrArg Prod.fst hpe
     exact hS.fresh s hs p hp s' hs' (nm_inj (h1.trans h.1))
-  have hcalls : ∀ m, CallsOk O P S m
-      (setConsts (Model.star (defs S) (interpOf O P S) M0 cd N)
-        (bindValues (ptys s.params) (vs.map trV))) := by
-    intro m s' hs' tenv us u hus hu
-    have := callsOk_star hO hty hS hPF hP M0 N cd m s' hs' tenv us u hus hu
+  refine ⟨wf_setConsts hw (typed_bindValues (typed_map _ hvs)), ?_, ?_⟩
+  · intro m s' hs' tenv us u hus hu
+    have := hcalls m s' hs' tenv us u hus hu
     simp only [__smtx_model_eval] at this ⊢
     rw [applyAll_setConsts, lookup_setConsts, hσ s' hs']
     exact this
+  · intro bs hbs x T hx w hw
+    show native_model_lookup _ (nm x) (trT T) = trV w
+    rw [lookup_setConsts, bindingOf_var s.params vs bs hbs x T hx w hw]
+
+/-- A well-formed model where the calls agree satisfies the defining equations of the program on
+the arguments where the calls give values. -/
+theorem goodOn_calls (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S) (hP : ProgTy S P)
+    {eqs : List Equation} (hE : ∀ e ∈ eqs, ∃ s ∈ S, EqFor P S s e) {M : SmtModel}
+    (hw : model_wf M) (hcalls0 : ∀ m, CallsOk O P S m M) : GoodOn (okCall O P S) eqs M := by
+  intro e he ws hws
+  obtain ⟨s, hs, hfor⟩ := hE e he
+  obtain ⟨body, hbody, hbty, hpe, hterm⟩ := hfor
+  rw [hterm, eval_eq_term]
+  refine ⟨eval_eq_bool _ _, fun hok => ?_⟩
+  rw [hpe] at hws ⊢
+  obtain ⟨vs, hvs, rfl⟩ := typed_inv (hS.params s hs) hws
+  obtain ⟨n, v, hc⟩ := hok s hs ⟨body, hbody, hbty, hpe, hterm⟩ vs hvs rfl
+  obtain ⟨hwf', hcalls, hVgen⟩ := bound_model hS hs hw hcalls0 hvs
   have hnd : ((ptys s.params).map Prod.fst).Nodup := by
     have : (ptys s.params).map Prod.fst = (s.params.map Prod.fst).map nm := by
       simp [ptys, List.map_map, Function.comp_def]
@@ -1214,19 +1225,10 @@ theorem goodOn_star (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S) (hPF : Pro
     exact (hS.pnodup s hs).map (fun _ _ h => nm_inj h)
   have hlen : (vs.map trV).length = (ptys s.params).length := by
     simpa [ptys] using hvs.length_eq
-  have hl := eval_consts (Model.star (defs S) (interpOf O P S) M0 cd N) (ptys s.params)
-    (vs.map trV) [] hnd hlen (by simp)
+  have hl := eval_consts M (ptys s.params) (vs.map trV) [] hnd hlen (by simp)
   rw [List.nil_append] at hl
   rw [eval_spine _ _ _ rfl, hl, hcalls n s hs [] vs v hvs hc]
-  have hVgen : ∀ bs, bind_all (s.params.map Prod.fst) vs = .Ok bs →
-      VarsOk s.params (Env.Env (bind_types [] [] []) bs)
-        (setConsts (Model.star (defs S) (interpOf O P S) M0 cd N)
-          (bindValues (ptys s.params) (vs.map trV))) := by
-    intro bs hbs x T hx w hw
-    show native_model_lookup _ (nm x) (trT T) = trV w
-    rw [lookup_setConsts, bindingOf_var s.params vs bs hbs x T hx w hw]
-  generalize setConsts (Model.star (defs S) (interpOf O P S) M0 cd N)
-    (bindValues (ptys s.params) (vs.map trV)) = M' at hwf' hcalls hVgen
+  generalize setConsts M (bindValues (ptys s.params) (vs.map trV)) = M' at hwf' hcalls hVgen
   -- the body
   by_cases hn : n ≤ 0
   · rw [call, dite_eq_left_of_eq_true (eq_true hn)] at hc; cases hc
@@ -1247,6 +1249,15 @@ theorem goodOn_star (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S) (hPF : Pro
   obtain ⟨hvT, hvM⟩ := ev hO hty hS (call_ty' hO hty hS hP (n - 1)) hbty _ _ hE hc
   rw [hvM _ hwf' (hcalls (n - 1)) hV]
   exact eval_eq_self hvT
+
+/-- The intended model satisfies the defining equations of the program on the arguments where
+the calls give values. -/
+theorem goodOn_star (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S) (hPF : ProgFrag P)
+    (hP : ProgTy S P) {eqs : List Equation} (hE : ∀ e ∈ eqs, ∃ s ∈ S, EqFor P S s e)
+    (M0 N : SmtModel) (cd : Codes)
+    (hw : model_wf (Model.star (defs S) (interpOf O P S) M0 cd N)) :
+    GoodOn (okCall O P S) eqs (Model.star (defs S) (interpOf O P S) M0 cd N) :=
+  goodOn_calls hO hty hS hP hE hw fun m => callsOk_star hO hty hS hPF hP M0 N cd m
 
 /-- When the calls of the functions of `S` to values of their types give values, every guard is
 fine: `GuardOk` holds for every clause. -/

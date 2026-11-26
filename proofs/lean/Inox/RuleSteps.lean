@@ -413,6 +413,44 @@ theorem no_model_of_mem {assums all : List Term} (hno : ∀ M, ¬ Satisfies M as
     (hmem : ∀ a ∈ assums, a ∈ all) : ∀ M, ¬ Satisfies M all :=
   fun M ⟨hwf, h⟩ => hno M ⟨hwf, fun a ha => h a (hmem a ha)⟩
 
+/-- A fact that holds in the models that `Good` selects holds in those among them that `Good'`
+selects. -/
+theorem factsHold_mono {Good Good' : SmtModel → Prop} (h : ∀ M, Good' M → Good M) :
+    ∀ {assums ts : List Term}, FactsHold Good assums ts → FactsHold Good' assums ts
+  | _, [], _ => trivial
+  | _, _ :: _, ⟨h1, h2⟩ => ⟨fun M hM hsat => h1 M (h M hM) hsat, factsHold_mono h h2⟩
+
+/-- `no_good_model_of_accept`, where the facts only have to hold in the models in which the
+constant of each `Enables` step holds only if one of its blockers does (`Step.Only`): the model
+that the fresh-symbol steps build is one. -/
+theorem no_good_model_of_accept_only (sound : LogosSound) (hty : LogosTyping)
+    (Good : SmtModel → Prop) {certificate : Sexp} {checked : Checked} {r : TermSteps}
+    (hAccept : accept certificate = .ok checked) (hr : termSteps checked = .ok r)
+    (hcheck : r.check = true)
+    (hkeep : ∀ st ∈ r.fresh, KeepsConst Good st.const)
+    (hfacts : FactsHold (fun M => Good M ∧ ∀ st ∈ r.fresh, st.Only M) (extend r.base r.fresh)
+      r.facts) :
+    ∀ M, Good M → ¬ Satisfies M r.base := by
+  obtain ⟨cmds, hParse⟩ := termSteps_parse hr
+  simp only [TermSteps.check, Bool.and_eq_true, List.all_eq_true, Std.HashSet.contains_ofList,
+    List.contains_iff_mem, derivedB, decide_eq_true_eq] at hcheck
+  obtain ⟨⟨hfresh, hderived⟩, hmem⟩ := hcheck
+  have hno := no_model_of_mem (no_model_of_accept sound certificate checked r.assums cmds hAccept
+    hParse) hmem
+  intro M hgood hsat
+  obtain ⟨M', hgood', hsat', honly⟩ := extend_sat_only hty Good r.fresh r.base []
+    (stepsOk_fresh (stepsFresh_of_stepsFreshB (namesCover_base r.base) hfresh) hkeep) M hgood
+    hsat (by simp)
+  have hrest : StepsOk (fun M => Good M ∧ ∀ st ∈ r.fresh, st.Only M) (extend r.base r.fresh)
+      (r.facts.map Step.fact ++ r.derived.map (Step.fact ∘ Derived.clause)) :=
+    stepsOk_append (stepsOk_facts hfacts)
+      (stepsOk_derived hty _ (fun t ht => mem_extend ht) fun d hd =>
+        ⟨(hderived d hd).1.1, (hderived d hd).1.2, (hderived d hd).2⟩)
+  obtain ⟨M'', _, hsat''⟩ := extend_sat_good hty _ _ _ hrest M'
+    ⟨hgood', fun st h => honly st (by simpa using h)⟩ hsat'
+  rw [← extend_append] at hsat''
+  exact hno M'' (by simpa [TermSteps.steps, List.append_assoc] using hsat'')
+
 /-- If the checker accepts a certificate and the check on terms holds, then no model that `Good`
 selects satisfies the assumptions of the query, as Logos reads them, given:
 - `hkeep`: reinterpreting a fresh symbol keeps the models that `Good` selects;
@@ -425,21 +463,8 @@ theorem no_good_model_of_accept (sound : LogosSound) (hty : LogosTyping)
     (hcheck : r.check = true)
     (hkeep : ∀ st ∈ r.fresh, KeepsConst Good st.const)
     (hfacts : FactsHold Good (extend r.base r.fresh) r.facts) :
-    ∀ M, Good M → ¬ Satisfies M r.base := by
-  obtain ⟨cmds, hParse⟩ := termSteps_parse hr
-  simp only [TermSteps.check, Bool.and_eq_true, List.all_eq_true, Std.HashSet.contains_ofList,
-    List.contains_iff_mem, derivedB, decide_eq_true_eq] at hcheck
-  obtain ⟨⟨hfresh, hderived⟩, hmem⟩ := hcheck
-  have hno := no_model_of_mem (no_model_of_accept sound certificate checked r.assums cmds hAccept
-    hParse) hmem
-  have hsts : StepsOk Good r.base r.steps :=
-    stepsOk_append
-      (stepsOk_append (stepsOk_fresh (stepsFresh_of_stepsFreshB (namesCover_base r.base) hfresh)
-        hkeep) (stepsOk_facts hfacts))
-      (by
-        rw [extend_append]
-        exact stepsOk_derived hty Good (fun t ht => mem_extend ht) fun d hd =>
-          ⟨(hderived d hd).1.1, (hderived d hd).1.2, (hderived d hd).2⟩)
-  exact no_model_of_extend_good hty hsts fun M _ => hno M
+    ∀ M, Good M → ¬ Satisfies M r.base :=
+  no_good_model_of_accept_only sound hty Good hAccept hr hcheck hkeep
+    (factsHold_mono (fun _ h => h.1) hfacts)
 
 end Inox
