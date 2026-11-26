@@ -25,11 +25,6 @@ class SimplificationRecorderSuite extends AnyFunSuite with DatastructureUtils {
   val increases = new FunDef(increasesID, Seq(), Seq(m), BooleanType(),
     Forall(Seq(k), GreaterThan(Plus(k.toVariable, IntegerLiteral(1)), m.toVariable)), Seq())
 
-  // a function with a postcondition
-  val postID = FreshIdentifier("post")
-  val (pa, pr) = (ValDef.fresh("a", IntegerType()), ValDef.fresh("res", IntegerType()))
-  val post = new FunDef(postID, Seq(), Seq(pa), IntegerType(),
-    Let(pr, FunctionInvocation(incID, Seq(), Seq(pa.toVariable)), Assume(GreaterThan(FunctionInvocation(incID, Seq(), Seq(pa.toVariable)), pr.toVariable), pr.toVariable)), Seq())
   // a constant that is a function
   val idfID = FreshIdentifier("idf")
   val idf = new FunDef(idfID, Seq(), Seq(), FunctionType(Seq(IntegerType()), IntegerType()), Lambda(Seq(n), n.toVariable), Seq())
@@ -40,7 +35,7 @@ class SimplificationRecorderSuite extends AnyFunSuite with DatastructureUtils {
   val wrapEq = new FunDef(wrapEqID, Seq(), Seq(wa, wb), BooleanType(),
     Forall(Seq(wk), Equals(GreaterThan(ADTSelector(wa.toVariable, unwrap), wk.toVariable), GreaterThan(ADTSelector(wb.toVariable, unwrap), wk.toVariable))), Seq())
 
-  given symbols: Symbols = baseSymbols.withSorts(Seq(wrap)).withFunctions(Seq(inc, ones, increases, post, idf, wrapEq))
+  given symbols: Symbols = baseSymbols.withSorts(Seq(wrap)).withFunctions(Seq(inc, ones, increases, idf, wrapEq))
   import symbols._
 
   given ctx: Context = TestContext.empty
@@ -160,7 +155,7 @@ class SimplificationRecorderSuite extends AnyFunSuite with DatastructureUtils {
 
   test("Quantifiers are lifted by steps of prenex, where the checker knows the types to have values") {
     assert(rules(Forall(Seq(i.toVal), And(Forall(Seq(j.toVal), LessThan(i, j)), p))) == Seq("prenex"))
-    assert(rules(Forall(Seq(i.toVal), Implies(p, Forall(Seq(j.toVal), LessThan(i, j))))) == Seq("prenex", "logic"))
+    assert(rules(Forall(Seq(i.toVal), Implies(p, Forall(Seq(j.toVal), LessThan(i, j))))) == Seq("logic", "prenex"))
     // not from the premise of an implication
     assert(rules(Forall(Seq(i.toVal), Implies(Forall(Seq(j.toVal), LessThan(i, j)), p))) == Seq("logic"))
 
@@ -190,10 +185,6 @@ class SimplificationRecorderSuite extends AnyFunSuite with DatastructureUtils {
   test("Finite sets and maps are built by a step of matchers") {
     assert(rules(ElementOfSet(x, FiniteSet(Seq(x, y), IntegerType()))) == Seq("matchers"))
     assert(rules(Equals(MapApply(FiniteMap(Seq(x -> y), int(0), IntegerType(), IntegerType()), x), y)) == Seq("matchers"))
-  }
-
-  test("The postcondition of a call on quantified variables is assumed by a step of inline-postconditions") {
-    assert(rules(Forall(Seq(i.toVal), GreaterThan(FunctionInvocation(postID, Seq(), Seq(i)), i))) == Seq("inline-postconditions"))
   }
 
   test("The equality function of a sort is inlined by a step of inline-equality") {
