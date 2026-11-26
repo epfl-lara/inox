@@ -4,7 +4,7 @@ import Inox.Model
 import Cpc.Proofs.TypePreservation.Helpers
 
 /-!
-# The types and the values of the bridge: integers, Booleans, bit-vectors and datatypes
+# The types and the values of the bridge: integers, Booleans, reals, bit-vectors and datatypes
 
 `Inox/Bridge.lean` ties the semantics of Inox to the models of Logos on the expressions of some
 types. This module gives the types (`FragTy`), their sorts (`trT`), their values (`HasV`) and
@@ -57,10 +57,14 @@ theorem findData_spec {D : List Data} {s : Id} {d : Data} (h : findData D s = so
   simp only [beq_iff_eq] at hp
   exact ⟨List.mem_of_find?_eq_some h, hp⟩
 
+/-- The rational of a fraction. -/
+def ratOf (n d : Int) : ℚ := (n : ℚ) / (d : ℚ)
+
 /-- The sorts of the types of the bridge. -/
 def trT (D : List Data) : Ty → SmtType
   | .IntegerType => .Int
   | .BooleanType => .Bool
+  | .RealType => .Real
   | .BVType false w => .BitVec w.toNat
   | .ADTType s [] =>
     match findData D s with
@@ -72,6 +76,7 @@ def trT (D : List Data) : Ty → SmtType
 def FragTy (D : List Data) : Ty → Prop
   | .IntegerType => True
   | .BooleanType => True
+  | .RealType => True
   | .BVType false w => 0 < w
   | .ADTType s [] => (findData D s).isSome
   | _ => False
@@ -127,14 +132,15 @@ theorem fragTy_data {D : List Data} (hD : DataOk D) {d : Data} (hd : d ∈ D) :
 
 /-- A type of the bridge is of integers, of Booleans, or a datatype of `D`. -/
 theorem fragTy_cases {D : List Data} {T : Ty} (h : FragTy D T) :
-    T = .IntegerType ∨ T = .BooleanType ∨ (∃ w, 0 < w ∧ T = .BVType false w) ∨
+    T = .IntegerType ∨ T = .BooleanType ∨ T = .RealType ∨ (∃ w, 0 < w ∧ T = .BVType false w) ∨
       ∃ d ∈ D, T = .ADTType d.name [] := by
   cases T
   case IntegerType => exact .inl rfl
   case BooleanType => exact .inr (.inl rfl)
+  case RealType => exact .inr (.inr (.inl rfl))
   case BVType s w =>
     cases s with
-    | false => exact .inr (.inr (.inl ⟨w, h, rfl⟩))
+    | false => exact .inr (.inr (.inr (.inl ⟨w, h, rfl⟩)))
     | true => exact absurd h id
   case ADTType s args =>
     cases args with
@@ -142,15 +148,16 @@ theorem fragTy_cases {D : List Data} {T : Ty} (h : FragTy D T) :
       simp only [FragTy] at h
       obtain ⟨d, hd⟩ := Option.isSome_iff_exists.mp h
       obtain ⟨hm, rfl⟩ := findData_spec hd
-      exact .inr (.inr (.inr ⟨d, hm, rfl⟩))
+      exact .inr (.inr (.inr (.inr ⟨d, hm, rfl⟩)))
     | cons _ _ => exact absurd h id
   all_goals exact absurd h id
 
 theorem trT_component {D : List Data} (hD : DataOk D) {T : Ty} (h : FragTy D T) :
     __smtx_type_wf_component (trT D T) = true := by
-  rcases fragTy_cases h with rfl | rfl | ⟨w, _, rfl⟩ | ⟨d, hd, rfl⟩
+  rcases fragTy_cases h with rfl | rfl | rfl | ⟨w, _, rfl⟩ | ⟨d, hd, rfl⟩
   · simp [trT, __smtx_type_wf_component, __smtx_type_wf_rec, native_and]
   · simp [trT, __smtx_type_wf_component, __smtx_type_wf_rec, native_and]
+  · simp [trT, __smtx_type_wf_component, __smtx_type_wf_rec, native_and, __smtx_inhabited_type]
   · simp [trT, __smtx_type_wf_component, __smtx_type_wf_rec, native_and, __smtx_inhabited_type]
   · rw [trT_data hD hd]
     have := hD.wf d hd
@@ -158,14 +165,16 @@ theorem trT_component {D : List Data} (hD : DataOk D) {T : Ty} (h : FragTy D T) 
 
 theorem trT_wf {D : List Data} (hD : DataOk D) {T : Ty} (h : FragTy D T) :
     __smtx_type_wf (trT D T) = true := by
-  rcases fragTy_cases h with rfl | rfl | ⟨w, _, rfl⟩ | ⟨d, hd, rfl⟩
+  rcases fragTy_cases h with rfl | rfl | rfl | ⟨w, _, rfl⟩ | ⟨d, hd, rfl⟩
   · simp only [trT, __smtx_type_wf]; exact trT_component (T := .IntegerType) hD h
   · simp only [trT, __smtx_type_wf]; exact trT_component (T := .BooleanType) hD h
+  · simp only [trT, __smtx_type_wf]; exact trT_component (T := .RealType) hD h
   · simp only [trT, __smtx_type_wf]; exact trT_component (T := .BVType false w) hD h
   · rw [trT_data hD hd]; exact hD.wf d hd
 
 theorem trT_ne {D : List Data} (hD : DataOk D) {T : Ty} (h : FragTy D T) : trT D T ≠ .None := by
-  rcases fragTy_cases h with rfl | rfl | ⟨w, _, rfl⟩ | ⟨d, hd, rfl⟩
+  rcases fragTy_cases h with rfl | rfl | rfl | ⟨w, _, rfl⟩ | ⟨d, hd, rfl⟩
+  · simp [trT]
   · simp [trT]
   · simp [trT]
   · simp [trT]
@@ -272,9 +281,10 @@ theorem findCtor_of {D : List Data} (hD : DataOk D) {d : Data} (hd : d ∈ D) {c
 mutual
 /-- The values of the bridge, as SMT values: a value of a datatype is its constructor applied to
 the values of its fields, one at a time. -/
-def trV (D : List Data) : Value → SmtValue
+noncomputable def trV (D : List Data) : Value → SmtValue
   | .IntV i => .Numeral i
   | .BoolV b => .Boolean b
+  | .RealV n d => .Real (native_rat_to_real (ratOf n d))
   | .BVV _ w x => .Binary w x
   | .ADTV c vs =>
     match findCtor D c with
@@ -283,7 +293,7 @@ def trV (D : List Data) : Value → SmtValue
   | _ => .NotValue
 
 /-- The value `f` applied to the values `vs`, one at a time. -/
-def trVs (D : List Data) (f : SmtValue) : List Value → SmtValue
+noncomputable def trVs (D : List Data) (f : SmtValue) : List Value → SmtValue
   | [] => f
   | v :: vs => trVs D (.Apply f (trV D v)) vs
 end
@@ -294,10 +304,13 @@ def ctorAt (D : List Data) (s : native_String) (dd : SmtDatatypeDecl) (i : Nat) 
   | some d => ((d.ctors[i]?).map (·.1)).getD ""
   | none => ""
 
-/-- The value of the bridge that an SMT value is. -/
-def ofSmt (D : List Data) : SmtValue → Value
+open Classical in
+/-- The value of the bridge that an SMT value is. A real that is not a rational is none. -/
+noncomputable def ofSmt (D : List Data) : SmtValue → Value
   | .Numeral i => .IntV i
   | .Boolean b => .BoolV b
+  | .Real x =>
+    if h : ∃ q : ℚ, native_rat_to_real q = x then .RealV h.choose.num h.choose.den else .UnitV
   | .Binary w x => .BVV false w x
   | .DtCons s dd i => .ADTV (ctorAt D s dd i) []
   | .Apply f a =>
@@ -311,6 +324,7 @@ mutual
 def HasV (D : List Data) : Value → Ty → Prop
   | .IntV _, .IntegerType => True
   | .BoolV _, .BooleanType => True
+  | .RealV n d, .RealType => ∃ q : ℚ, n = q.num ∧ d = q.den
   | .BVV false w' x, .BVType false w => w' = w ∧ 0 < w ∧ 0 ≤ x ∧ x < 2 ^ w.toNat
   | .ADTV c vs, .ADTType s [] =>
     ∃ d i fs, findCtor D c = some (d, i, fs) ∧ d.name = s ∧ HasVs D vs (fs.map Prod.snd)
@@ -359,6 +373,21 @@ theorem hasV_bv_of {D : List Data} {w x : Int} (hw : 0 < w) (h0 : 0 ≤ x)
     (hx : x < 2 ^ w.toNat) : HasV D (.BVV false w x) (.BVType false w) := by
   simp only [HasV]; exact ⟨trivial, hw, h0, hx⟩
 
+/-- A value of the reals is a fraction in lowest terms with a positive denominator. -/
+theorem hasV_real {D : List Data} {v : Value} (h : HasV D v .RealType) :
+    ∃ q : ℚ, v = .RealV q.num q.den := by
+  cases v <;> try no_hasV h
+  case RealV n d =>
+    simp only [HasV] at h
+    obtain ⟨q, rfl, rfl⟩ := h
+    exact ⟨q, rfl⟩
+
+theorem hasV_real_of {D : List Data} (q : ℚ) : HasV D (.RealV q.num q.den) .RealType := by
+  simp only [HasV]; exact ⟨q, rfl, rfl⟩
+
+theorem ratOf_num_den (q : ℚ) : ratOf q.num q.den = q := by
+  simp [ratOf, Rat.num_div_den]
+
 theorem hasV_int {D : List Data} {v : Value} (h : HasV D v .IntegerType) : ∃ i, v = .IntV i := by
   cases v <;> first | exact ⟨_, rfl⟩ | no_hasV h
 
@@ -387,6 +416,7 @@ theorem hasV_fragTy {D : List Data} {v : Value} {T : Ty} (h : HasV D v T) : Frag
   cases T <;> try (cases v <;> no_hasV h; done)
   case IntegerType => trivial
   case BooleanType => trivial
+  case RealType => trivial
   case BVType s w =>
     obtain ⟨rfl, x, rfl, hw, _⟩ := hasV_bv h
     exact hw
@@ -610,7 +640,18 @@ theorem agrees_trV {D : List Data} (hD : DataOk D) (uc : SmtUSortDom) :
     refine ⟨?_, ?_, rfl⟩
     · simp [trV, trT, __smtx_typeof_value, native_ite, native_and, hz, hm, native_int_to_nat]
     · simp [trV, __smtx_value_canonical, native_ite, hz, hm]
-  | .UnitV, T, h | .CharV _, T, h | .RealV _ _, T, h | .StringV _, T, h
+  | .RealV n d, T, h => by
+    cases T <;> try (simp [HasV] at h; done)
+    obtain ⟨q, hq⟩ := hasV_real h
+    cases hq
+    refine ⟨rfl, rfl, ?_⟩
+    have hex : ∃ q' : ℚ, native_rat_to_real q' = native_rat_to_real (ratOf q.num q.den) :=
+      ⟨_, rfl⟩
+    have hq : hex.choose = q := by
+      have := hex.choose_spec
+      exact (Rat.cast_injective this).trans (ratOf_num_den q)
+    simp only [trV, ofSmt, hex, ↓reduceDIte, hq]
+  | .UnitV, T, h | .CharV _, T, h | .StringV _, T, h
   | .FPV _ _ _, T, h | .RoundingModeV _, T, h | .TupleV _, T, h | .ClosureV _ _ _, T, h
   | .SetV _, T, h | .BagV _, T, h | .MapV _ _, T, h => by simp [HasV] at h
 
@@ -750,16 +791,21 @@ theorem exists_values {D : List Data} : ∀ {as : List SmtValue} {fs : List (Id 
     obtain ⟨vs, hvs, rfl⟩ := exists_values hs
     exact ⟨v :: vs, .cons hv hvs, rfl⟩
 
-theorem typed_inv_k {D : List Data} (hD : DataOk D) : ∀ (k : Nat) (w : SmtValue),
-    sizeOf w < k → ∀ T, FragTy D T → __smtx_typeof_value w = trT D T →
+/-- No datatype has a field of the reals. -/
+def RealFree (D : List Data) : Prop := ∀ d ∈ D, ∀ c ∈ d.ctors, ∀ f ∈ c.2, f.2 ≠ .RealType
+
+theorem typed_inv_k {D : List Data} (hD : DataOk D) (hR : RealFree D) :
+    ∀ (k : Nat) (w : SmtValue),
+    sizeOf w < k → ∀ T, FragTy D T → T ≠ .RealType → __smtx_typeof_value w = trT D T →
     ∃ v, HasV D v T ∧ w = trV D v
-  | 0, _, h, _, _, _ => by omega
-  | k + 1, w, hk, T, hT, hw => by
-    rcases fragTy_cases hT with rfl | rfl | ⟨u, hu, rfl⟩ | ⟨d, hd, rfl⟩
+  | 0, _, h, _, _, _, _ => by omega
+  | k + 1, w, hk, T, hT, hne, hw => by
+    rcases fragTy_cases hT with rfl | rfl | rfl | ⟨u, hu, rfl⟩ | ⟨d, hd, rfl⟩
     · obtain ⟨i, rfl⟩ := int_value_canonical hw
       exact ⟨.IntV i, by simp [HasV], rfl⟩
     · obtain ⟨b, rfl⟩ := bool_value_canonical hw
       exact ⟨.BoolV b, by simp [HasV], rfl⟩
+    · exact absurd rfl hne
     · simp only [trT] at hw
       obtain ⟨n, rfl⟩ := bitvec_value_canonical hw
       have hu' : native_nat_to_int u.toNat = u := by
@@ -790,6 +836,7 @@ theorem typed_inv_k {D : List Data} (hD : DataOk D) : ∀ (k : Nat) (w : SmtValu
           exact this
         rw [htake] at hall
         have hflds : ∀ f ∈ flds, FragTy D f.2 := hD.fields d hd (c, flds) (List.mem_of_getElem? hi)
+        have hfr : ∀ f ∈ flds, f.2 ≠ .RealType := hR d hd (c, flds) (List.mem_of_getElem? hi)
         have hex : List.Forall₂ (fun a f => ∃ v, HasV D v f.2 ∧ a = trV D v) as flds := by
           have hsz : ∀ a ∈ as, sizeOf a < k := fun a ha => by
             have := sizeOf_applyVs_lt as (.DtCons (nm d.name) d.decl i) a ha
@@ -800,16 +847,20 @@ theorem typed_inv_k {D : List Data} (hD : DataOk D) : ∀ (k : Nat) (w : SmtValu
           | cons f flds ih =>
             cases hall with
             | cons ha has =>
-              exact .cons (typed_inv_k hD k _ (hsz _ (.head _)) f.2 (hflds f (.head _)) ha)
-                (ih _ has (fun g hg => hflds g (.tail _ hg)) fun b hb => hsz b (.tail _ hb))
+              exact .cons (typed_inv_k hD hR k _ (hsz _ (.head _)) f.2 (hflds f (.head _))
+                  (hfr f (.head _)) ha)
+                (ih _ has (fun g hg => hflds g (.tail _ hg)) (fun g hg => hfr g (.tail _ hg))
+                  fun b hb => hsz b (.tail _ hb))
         obtain ⟨vs, hvs, rfl⟩ := exists_values hex
         have hc := findCtor_of hD hd hi
         exact ⟨.ADTV c vs, hasV_adt hc hvs, by simp only [trV, hc, trVs_eq]⟩
 
-/-- A value of the sort of a type of the bridge is that of a value of the type. -/
-theorem typed_inv1 {D : List Data} (hD : DataOk D) {w : SmtValue} {T : Ty} (hT : FragTy D T)
-    (hw : __smtx_typeof_value w = trT D T) : ∃ v, HasV D v T ∧ w = trV D v :=
-  typed_inv_k hD _ w (Nat.lt_succ_self _) T hT hw
+/-- A value of the sort of a type of the bridge is that of a value of the type, where no real
+is involved: a real of the models needs not be a fraction. -/
+theorem typed_inv1 {D : List Data} (hD : DataOk D) (hR : RealFree D) {w : SmtValue} {T : Ty}
+    (hT : FragTy D T) (hne : T ≠ .RealType) (hw : __smtx_typeof_value w = trT D T) :
+    ∃ v, HasV D v T ∧ w = trV D v :=
+  typed_inv_k hD hR _ w (Nat.lt_succ_self _) T hT hne hw
 
 /-! ## Equality -/
 
@@ -844,7 +895,8 @@ theorem value_eq_hasV {D : List Data} (hO : O.Sound) (P : Program) :
         · rw [dite_eq_right_of_eq_false (eq_false hcc)]
           simp [hcc]
   | .BVV _ _ _, _, b, _, _ => by rw [hO.value_eq]
-  | .UnitV, T, _, h, _ | .CharV _, T, _, h, _ | .RealV _ _, T, _, h, _ | .StringV _, T, _, h, _
+  | .RealV _ _, _, b, _, _ => by rw [hO.value_eq]
+  | .UnitV, T, _, h, _ | .CharV _, T, _, h, _ | .StringV _, T, _, h, _
   | .FPV _ _ _, T, _, h, _ | .RoundingModeV _, T, _, h, _
   | .TupleV _, T, _, h, _ | .ClosureV _ _ _, T, _, h, _ | .SetV _, T, _, h, _
   | .BagV _, T, _, h, _ | .MapV _ _, T, _, h, _ => by simp [HasV] at h
@@ -1046,6 +1098,51 @@ theorem ret_typeof_sel_rec : ∀ (d : SmtDatatype) (i j : Nat),
     simp [__smtx_ret_typeof_sel_rec, ctorFields, ret_typeof_sel_rec d i j]
 
 /-! ## The datatypes of a program -/
+
+/-! ## Reals -/
+
+/-- The greatest common divisor of the semantics is that of the integers. -/
+theorem gcd_nat (m k : Nat) : Inox.Semantics.gcd (m : Int) (k : Int) = (Nat.gcd m k : Int) := by
+  induction k using Nat.strong_induction_on generalizing m with
+  | _ k ih =>
+    rw [Inox.Semantics.gcd]
+    split
+    · next h =>
+      have : k = 0 := by omega
+      subst this; simp
+    · next h =>
+      have hk : 0 < k := by omega
+      rw [← Int.natCast_mod, ih (m % k) (Nat.mod_lt _ hk) k]
+      congr 1
+      rw [Nat.gcd_comm m k, Nat.gcd_rec k m]
+      exact Nat.gcd_comm _ _
+
+theorem sign_eq {d : Int} (h : d ≠ 0) :
+    (if _h : d < 0 then (0 : Int) - 1 else 1) = d.sign := by
+  rcases Int.lt_trichotomy d 0 with h1 | h1 | h1
+  · simp [h1, Int.sign_eq_neg_one_of_neg h1]
+  · exact absurd h1 h
+  · simp [Int.not_lt.mpr (Int.le_of_lt h1), Int.sign_eq_one_of_pos h1]
+
+theorem ratOf_num (n d : Int) : (ratOf n d).num = d.sign * n / (d.gcd n : Int) := by
+  rw [ratOf, ← Rat.divInt_eq_div, Rat.num_divInt]
+
+theorem ratOf_den (n d : Int) (h : d ≠ 0) :
+    ((ratOf n d).den : Int) = d.sign * d / (d.gcd n : Int) := by
+  rw [ratOf, ← Rat.divInt_eq_div, Rat.den_divInt, if_neg h, Int.sign_mul_self_eq_natAbs]; simp
+
+/-- A fraction of the semantics is the rational that it is, in lowest terms. -/
+theorem real_eq {n d : Int} (h : d ≠ 0) :
+    real n d = .Ok (.RealV (ratOf n d).num (ratOf n d).den) := by
+  have hg : Inox.Semantics.gcd (Inox.Semantics.abs n) (Inox.Semantics.abs d) = (d.gcd n : Int) := by
+    have ha : ∀ x : Int, Inox.Semantics.abs x = (x.natAbs : Int) := by
+      intro x; rw [Inox.Semantics.abs]; split <;> omega
+    rw [ha, ha, gcd_nat, Nat.gcd_comm]
+    rfl
+  have hdn : ((d.gcd n : Nat) : Int) ∣ n := Int.gcd_dvd_right _ _
+  have hdd : ((d.gcd n : Nat) : Int) ∣ d := Int.gcd_dvd_left _ _
+  simp only [real, dif_neg h, hg, sign_eq h, ratOf_num, ratOf_den n d h,
+    Int.mul_ediv_assoc _ hdn, Int.mul_ediv_assoc _ hdd]
 
 /-! ## Bit-vectors -/
 

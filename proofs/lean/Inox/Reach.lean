@@ -71,6 +71,7 @@ def reachesW (w : SmtTerm → SmtTerm) (K : List (SmtTerm × Bool)) (c : SmtTerm
   | _, .neg x y => reachesW w K c true x || reachesW w K c true y
   | _, .mult x y => reachesW w K c true x || reachesW w K c true y
   | _, .div x y => reachesW w K c true x || reachesW w K c true y
+  | _, .qdiv x y => reachesW w K c true x || reachesW w K c true y
   | _, .mod x y => reachesW w K c true x || reachesW w K c true y
   | _, .lt x y => reachesW w K c true x || reachesW w K c true y
   | _, .gt x y => reachesW w K c true x || reachesW w K c true y
@@ -319,20 +320,26 @@ theorem called_of_reachesW (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (
     | gt ha _ iha ihb | div ha _ iha ihb | rem ha _ iha ihb | mod ha _ iha ihb
     | le ha _ iha ihb | ge ha _ iha ihb | bvPlus ha _ iha ihb | bvMinus ha _ iha ihb
     | bvTimes ha _ iha ihb | bvDiv ha _ iha ihb | bvRem ha _ iha ihb | bvLt ha _ iha ihb
-    | bvGt ha _ iha ihb | bvLe ha _ iha ihb | bvGe ha _ iha ihb =>
+    | bvGt ha _ iha ihb | bvLe ha _ iha ihb | bvGe ha _ iha ihb | rPlus ha _ iha ihb
+    | rMinus ha _ iha ihb | rTimes ha _ iha ihb | rDiv ha _ iha ihb | rLt ha _ iha ihb
+    | rGt ha _ iha ihb | rLe ha _ iha ihb | rGe ha _ iha ihb =>
     intro env v hE he M hw hc hV N w hN hT K hK c hr
     rw [eval] at he
     ok_split he
     rename_i x hx
     ok_split he
     rename_i y hy
-    simp only [tr, isBv_eq ha, Ty.isBv, Bool.false_eq_true, ↓reduceIte, reachesW,
-      Bool.or_eq_true] at hr
+    simp only [tr, isBv_eq ha, isReal_eq ha, Ty.isBv, Ty.isReal, Bool.false_eq_true, ↓reduceIte,
+      reachesW, Bool.or_eq_true] at hr
     rcases hr with hr | hr
     · exact iha env _ hE hx M hw hc hV N w hN hT K hK c hr
     · exact ihb env _ hE hy M hw hc hV N w hN hT K hK c hr
   | bvLit _ _ _ => intro env v hE he M hw hc hV N w hN hT K hK c hr; simp [tr, reachesW] at hr
-  | uminus ha ih | bvNeg ha ih | bvNot ha ih =>
+  | frac _ =>
+    intro env v hE he M hw hc hV N w hN hT K hK c hr
+    simp only [tr, reachesW, lit] at hr
+    split at hr <;> split at hr <;> simp [reachesW] at hr
+  | uminus ha ih | bvNeg ha ih | bvNot ha ih | rNeg ha ih =>
     intro env v hE he M hw hc hV N w hN hT K hK c hr
     rw [eval] at he
     ok_split he
@@ -464,7 +471,10 @@ def assumesW (D : List Data) (S : List Sig) (Γ : List (Id × Ty)) (w : SmtTerm 
   | .Equals a b | .Plus a b | .Minus a b | .Times a b | .LessThan a b | .GreaterThan a b
   | .LessEquals a b | .GreaterEquals a b => assumesW D S Γ w K φ a || assumesW D S Γ w K φ b
   | .Division a b | .Remainder a b | .Modulo a b =>
-    (!isBv D S Γ a && decide (SmtTerm.not (.eq (w (tr D S Γ b)) (.Numeral 0)) = φ)) ||
+    (!isBv D S Γ a && !isReal D S Γ a &&
+        decide (SmtTerm.not (.eq (w (tr D S Γ b)) (.Numeral 0)) = φ)) ||
+      (isReal D S Γ a &&
+        decide (SmtTerm.not (.eq (w (tr D S Γ b)) (.qdiv (.Numeral 0) (.Numeral 1))) = φ)) ||
       assumesW D S Γ w K φ a || assumesW D S Γ w K φ b
   | .FunctionInvocation _ _ args | .ADT _ _ args => assumesAny D S Γ w K φ args
   | .IsConstructor a _ | .ADTSelector a _ => assumesW D S Γ w K φ a
@@ -650,7 +660,8 @@ theorem holds_of_assumesW (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S)
   | plus _ _ iha ihb | minus _ _ iha ihb | times _ _ iha ihb | lt _ _ iha ihb | gt _ _ iha ihb
     | le _ _ iha ihb | ge _ _ iha ihb | bvPlus _ _ iha ihb | bvMinus _ _ iha ihb
     | bvTimes _ _ iha ihb | bvLt _ _ iha ihb | bvGt _ _ iha ihb | bvLe _ _ iha ihb
-    | bvGe _ _ iha ihb =>
+    | bvGe _ _ iha ihb | rPlus _ _ iha ihb | rMinus _ _ iha ihb | rTimes _ _ iha ihb
+    | rLt _ _ iha ihb | rGt _ _ iha ihb | rLe _ _ iha ihb | rGe _ _ iha ihb =>
     intro env v hE he M hw hc hV N w hN hT K hK φ hr
     rw [eval] at he
     ok_split he
@@ -668,8 +679,8 @@ theorem holds_of_assumesW (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S)
     rename_i x hx
     ok_split he
     rename_i y hy
-    simp only [assumesW, isBv_eq ha, Ty.isBv, Bool.not_true, Bool.false_and, Bool.false_or,
-      Bool.or_eq_true] at hr
+    simp only [assumesW, isBv_eq ha, isReal_eq ha, Ty.isBv, Ty.isReal, Bool.not_true,
+      Bool.false_and, Bool.false_or, Bool.or_eq_true] at hr
     rcases hr with hr | hr
     · exact iha env _ hE hx M hw hc hV N w hN hT K hK φ hr
     · exact ihb env _ hE hy M hw hc hV N w hN hT K hK φ hr
@@ -680,8 +691,8 @@ theorem holds_of_assumesW (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S)
     rename_i x hx
     ok_split he
     rename_i y hy
-    simp only [assumesW, isBv_eq hta, Ty.isBv, Bool.not_false, Bool.true_and, Bool.or_eq_true,
-      decide_eq_true_eq] at hr
+    simp only [assumesW, isBv_eq hta, isReal_eq hta, Ty.isBv, Ty.isReal, Bool.not_false,
+      Bool.true_and, Bool.false_and, Bool.or_false, Bool.or_eq_true, decide_eq_true_eq] at hr
     rcases hr with (hr | hr) | hr
     · obtain ⟨hyT, hbM⟩ := ev hO hty hS hPD hct htb env _ hE hy
       obtain ⟨j, rfl⟩ := hasV_int hyT
@@ -693,8 +704,34 @@ theorem holds_of_assumesW (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S)
         native_veq, hj, __smtx_model_eval_not, native_not]
     · exact iha env _ hE hx M hw hc hV N w hN hT K hK φ hr
     · exact ihb env _ hE hy M hw hc hV N w hN hT K hK φ hr
+  | @rDiv a b hta htb iha ihb =>
+    intro env v hE he M hw hc hV N w hN hT K hK φ hr
+    rw [eval] at he
+    ok_split he
+    rename_i x hx
+    ok_split he
+    rename_i y hy
+    simp only [assumesW, isBv_eq hta, isReal_eq hta, Ty.isBv, Ty.isReal, Bool.not_false,
+      Bool.not_true, Bool.true_and, Bool.false_and, Bool.and_false, Bool.false_or,
+      Bool.or_eq_true, decide_eq_true_eq] at hr
+    rcases hr with (hr | hr) | hr
+    · obtain ⟨hyT, hbM⟩ := ev hO hty hS hPD hct htb env _ hE hy
+      obtain ⟨q, rfl⟩ := hasV_real hyT
+      obtain ⟨p, rfl⟩ := hasV_real (ev hO hty hS hPD hct hta env _ hE hx).1
+      have hq : q.num ≠ 0 := by
+        intro h0
+        simp [arith_div, h0] at he
+      have hq' : (q : ℝ) ≠ 0 := by exact_mod_cast Rat.num_ne_zero.mp hq
+      rw [← hr]
+      simp [__smtx_model_eval, (hT _ _ htb).trans (hbM M hw hc hV), trV, ratOf_num_den,
+        __smtx_model_eval_eq, native_veq, __smtx_model_eval_not, native_not,
+        __smtx_to_real_coerce, __smtx_model_eval_ite, __smtx_model_eval_qdiv_total,
+        native_mk_real, native_rdiv_total, native_rat_to_real, native_int_to_real, hq']
+    · exact iha env _ hE hx M hw hc hV N w hN hT K hK φ hr
+    · exact ihb env _ hE hy M hw hc hV N w hN hT K hK φ hr
   | bvLit _ _ _ => intro env v hE he M hw hc hV N w hN hT K hK φ hr; simp [assumesW] at hr
-  | uminus _ ih | bvNeg _ ih | bvNot _ ih =>
+  | frac _ => intro env v hE he M hw hc hV N w hN hT K hK φ hr; simp [assumesW] at hr
+  | uminus _ ih | bvNeg _ ih | bvNot _ ih | rNeg _ ih =>
     intro env v hE he M hw hc hV N w hN hT K hK φ hr
     rw [eval] at he
     ok_split he

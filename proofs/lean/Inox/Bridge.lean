@@ -8,7 +8,7 @@ import Cpc.Proofs.TypePreservation.Helpers
 
 The semantics of Inox is `eval` and `call` of `proofs/semantics/Inox/Semantics.lean`, generated
 from `semantics.md`. This module ties it to the models that the certificate checker is about, for
-the first-order expressions over integers, Booleans, unsigned bit-vectors and datatypes
+the first-order expressions over integers, Booleans, reals, unsigned bit-vectors and datatypes
 (`HasTy`):
 
 - `tr D S Γ e` is the term of Logos of an expression, and `trV` the value of a value;
@@ -162,6 +162,24 @@ inductive HasTy (D : List Data) (S : List Sig) (Γ : List (Id × Ty)) : Expr →
   | bvGe {a b : Expr} {w : Int} :
       HasTy D S Γ a (.BVType false w) → HasTy D S Γ b (.BVType false w) →
       HasTy D S Γ (.GreaterEquals a b) .BooleanType
+  | frac {n d : Int} : d ≠ 0 → HasTy D S Γ (.FractionLiteral n d) .RealType
+  | rPlus {a b : Expr} : HasTy D S Γ a .RealType → HasTy D S Γ b .RealType →
+      HasTy D S Γ (.Plus a b) .RealType
+  | rMinus {a b : Expr} : HasTy D S Γ a .RealType → HasTy D S Γ b .RealType →
+      HasTy D S Γ (.Minus a b) .RealType
+  | rTimes {a b : Expr} : HasTy D S Γ a .RealType → HasTy D S Γ b .RealType →
+      HasTy D S Γ (.Times a b) .RealType
+  | rDiv {a b : Expr} : HasTy D S Γ a .RealType → HasTy D S Γ b .RealType →
+      HasTy D S Γ (.Division a b) .RealType
+  | rNeg {a : Expr} : HasTy D S Γ a .RealType → HasTy D S Γ (.UMinus a) .RealType
+  | rLt {a b : Expr} : HasTy D S Γ a .RealType → HasTy D S Γ b .RealType →
+      HasTy D S Γ (.LessThan a b) .BooleanType
+  | rGt {a b : Expr} : HasTy D S Γ a .RealType → HasTy D S Γ b .RealType →
+      HasTy D S Γ (.GreaterThan a b) .BooleanType
+  | rLe {a b : Expr} : HasTy D S Γ a .RealType → HasTy D S Γ b .RealType →
+      HasTy D S Γ (.LessEquals a b) .BooleanType
+  | rGe {a b : Expr} : HasTy D S Γ a .RealType → HasTy D S Γ b .RealType →
+      HasTy D S Γ (.GreaterEquals a b) .BooleanType
   | invoke {s : Sig} {args : List Expr} : findSig S s.name = some s →
       args.length = s.params.length →
       (∀ p ∈ args.zip (s.params.map Prod.snd), HasTy D S Γ p.1 p.2) →
@@ -259,9 +277,62 @@ theorem isBv_eq {S : List Sig} {Γ : List (Id × Ty)} {e : Expr} {T : Ty}
   | sel hx _ _ => simp only [isBv, hx]
   | plus _ _ iha _ | minus _ _ iha _ | times _ _ iha _ | div _ _ iha _ | rem _ _ iha _
     | uminus _ iha | bvPlus _ _ iha _ | bvMinus _ _ iha _ | bvTimes _ _ iha _
-    | bvDiv _ _ iha _ | bvRem _ _ iha _ | bvNeg _ iha | bvNot _ iha =>
+    | bvDiv _ _ iha _ | bvRem _ _ iha _ | bvNeg _ iha | bvNot _ iha | rPlus _ _ iha _
+    | rMinus _ _ iha _ | rTimes _ _ iha _ | rDiv _ _ iha _ | rNeg _ iha =>
     simpa only [isBv] using iha
   | _ => rfl
+
+/-- Whether a type is that of the reals. -/
+def _root_.Inox.Semantics.Ty.isReal : Ty → Bool
+  | .RealType => true
+  | _ => false
+
+/-- Whether the expression `e` of the fragment is a real, which chooses the division of its
+term. -/
+def isReal (D : List Data) (S : List Sig) (Γ : List (Id × Ty)) : Expr → Bool
+  | .Variable x =>
+    match Γ.lookup x with
+    | some T => T.isReal
+    | none => false
+  | .FractionLiteral _ _ => true
+  | .IfExpr _ a _ => isReal D S Γ a
+  | .Plus a _ | .Minus a _ | .Times a _ | .Division a _ | .Remainder a _ | .UMinus a
+  | .BVNot a => isReal D S Γ a
+  | .FunctionInvocation f _ _ =>
+    match findSig S f with
+    | some s => s.ret.isReal
+    | none => false
+  | .Assume _ b => isReal D S Γ b
+  | .ADTSelector _ x =>
+    match findSel D x with
+    | some (_, _, _, T) => T.isReal
+    | none => false
+  | _ => false
+
+theorem isReal_eq {S : List Sig} {Γ : List (Id × Ty)} {e : Expr} {T : Ty}
+    (h : HasTy D S Γ e T) : isReal D S Γ e = T.isReal := by
+  induction h with
+  | var hx _ => simp only [isReal, hx]
+  | ite _ _ _ _ iha _ => simpa only [isReal] using iha
+  | invoke hs _ _ _ => simp only [isReal, hs]
+  | assume _ _ _ ihb => simpa only [isReal] using ihb
+  | sel hx _ _ => simp only [isReal, hx]
+  | plus _ _ iha _ | minus _ _ iha _ | times _ _ iha _ | div _ _ iha _ | rem _ _ iha _
+    | uminus _ iha | bvPlus _ _ iha _ | bvMinus _ _ iha _ | bvTimes _ _ iha _
+    | bvDiv _ _ iha _ | bvRem _ _ iha _ | bvNeg _ iha | bvNot _ iha | rPlus _ _ iha _
+    | rMinus _ _ iha _ | rTimes _ _ iha _ | rDiv _ _ iha _ | rNeg _ iha =>
+    simpa only [isReal] using iha
+  | _ => rfl
+
+/-- The term of an integer of a fraction, as Inox prints it: the opposite of a numeral when it is
+negative. -/
+def lit (k : Int) : SmtTerm := if 0 ≤ k then .Numeral k else .uneg (.Numeral (-k))
+
+theorem lit_typeof (k : Int) : __smtx_typeof (lit k) = .Int := by
+  unfold lit; split <;> rfl
+
+theorem lit_eval (M : SmtModel) (k : Int) : __smtx_model_eval M (lit k) = .Numeral k := by
+  unfold lit; split <;> simp [__smtx_model_eval, __smtx_model_eval_uneg, native_zneg]
 
 mutual
 /-- The term of the expression `e` of the fragment: a variable is the constant named after it, of
@@ -280,6 +351,7 @@ def tr (D : List Data) (S : List Sig) (Γ : List (Id × Ty)) : Expr → SmtTerm
   | .Implies a b => .imp (tr D S Γ a) (tr D S Γ b)
   | .Equals a b => .eq (tr D S Γ a) (tr D S Γ b)
   | .BVLiteral _ w x => .Binary w x
+  | .FractionLiteral n d => .qdiv (lit n) (lit d)
   | .Plus a b =>
     if isBv D S Γ a then .bvadd (tr D S Γ a) (tr D S Γ b) else .plus (tr D S Γ a) (tr D S Γ b)
   | .Minus a b =>
@@ -287,7 +359,9 @@ def tr (D : List Data) (S : List Sig) (Γ : List (Id × Ty)) : Expr → SmtTerm
   | .Times a b =>
     if isBv D S Γ a then .bvmul (tr D S Γ a) (tr D S Γ b) else .mult (tr D S Γ a) (tr D S Γ b)
   | .Division a b =>
-    if isBv D S Γ a then .bvudiv (tr D S Γ a) (tr D S Γ b) else .div (tr D S Γ a) (tr D S Γ b)
+    if isBv D S Γ a then .bvudiv (tr D S Γ a) (tr D S Γ b)
+    else if isReal D S Γ a then .qdiv (tr D S Γ a) (tr D S Γ b)
+    else .div (tr D S Γ a) (tr D S Γ b)
   | .Remainder a b =>
     if isBv D S Γ a then .bvurem (tr D S Γ a) (tr D S Γ b) else .mod (tr D S Γ a) (tr D S Γ b)
   | .Modulo a b => .mod (tr D S Γ a) (tr D S Γ b)
@@ -463,14 +537,17 @@ theorem tr_typeof {S : List Sig} (hS : SigOk D S) {Γ : List (Id × Ty)} {e : Ex
       ↓reduceIte]
     rfl
   | plus ha _ iha ihb | minus ha _ iha ihb | times ha _ iha ihb | div ha _ iha ihb
-    | rem ha _ iha ihb | mod ha _ iha ihb =>
-    simp only [tr, isBv_eq ha, Ty.isBv, Bool.false_eq_true, ↓reduceIte, __smtx_typeof, iha, ihb,
-      trT]
+    | rem ha _ iha ihb | mod ha _ iha ihb | rPlus ha _ iha ihb | rMinus ha _ iha ihb
+    | rTimes ha _ iha ihb | rDiv ha _ iha ihb =>
+    simp only [tr, isBv_eq ha, isReal_eq ha, Ty.isBv, Ty.isReal, Bool.false_eq_true, ↓reduceIte,
+      __smtx_typeof, iha, ihb, trT]
     rfl
-  | uminus ha ih =>
+  | frac _ => simp only [tr, __smtx_typeof, lit_typeof]; rfl
+  | uminus ha ih | rNeg ha ih =>
     simp only [tr, isBv_eq ha, Ty.isBv, Bool.false_eq_true, ↓reduceIte, __smtx_typeof, ih, trT]
     rfl
-  | lt ha _ iha ihb | gt ha _ iha ihb | le ha _ iha ihb | ge ha _ iha ihb =>
+  | lt ha _ iha ihb | gt ha _ iha ihb | le ha _ iha ihb | ge ha _ iha ihb | rLt ha _ iha ihb
+    | rGt ha _ iha ihb | rLe ha _ iha ihb | rGe ha _ iha ihb =>
     simp only [tr, isBv_eq ha, Ty.isBv, Bool.false_eq_true, ↓reduceIte, __smtx_typeof, iha, ihb,
       trT]
     rfl
@@ -725,7 +802,8 @@ theorem eval_eq_trV {D : List Data} (hD : DataOk D) {x y : Value} {T : Ty} (hx :
     __smtx_model_eval_eq (trV D x) (trV D y) = trV D (.BoolV (decide (x = y))) := by
   have hne : __smtx_typeof_value (trV D x) ≠ .RegLan := by
     rw [(agrees_trV hD default x T hx).1]
-    rcases fragTy_cases (hasV_fragTy hx) with rfl | rfl | ⟨w, _, rfl⟩ | ⟨d, hd, rfl⟩
+    rcases fragTy_cases (hasV_fragTy hx) with rfl | rfl | rfl | ⟨w, _, rfl⟩ | ⟨d, hd, rfl⟩
+    · simp [trT]
     · simp [trT]
     · simp [trT]
     · simp [trT]
@@ -808,6 +886,43 @@ theorem bvnot_eq {w : Int} (hw : 0 < w) {i : Int} (hi0 : 0 ≤ i) (hi : i < 2 ^ 
     rw [Int.emod_eq_of_lt (by omega) (by omega)]; omega
   simp only [__smtx_model_eval_bvnot, native_mod_total, native_binary_not, native_zplus,
     native_zneg, int_pow2_eq (Int.le_of_lt hw), trV, h]
+
+/-! The operators of the reals, on the fractions. -/
+
+theorem den_ne (q : ℚ) : ((q.den : Int) : ℚ) ≠ 0 := by exact_mod_cast q.den_ne_zero
+
+theorem ratOf_add (p q : ℚ) : ratOf (p.num * q.den + q.num * p.den) (p.den * q.den) = p + q := by
+  have hp := den_ne p
+  have hq := den_ne q
+  conv_rhs => rw [← Rat.num_div_den p, ← Rat.num_div_den q]
+  simp only [ratOf]; push_cast at hp hq ⊢; field_simp
+
+theorem ratOf_sub (p q : ℚ) : ratOf (p.num * q.den - q.num * p.den) (p.den * q.den) = p - q := by
+  have hp := den_ne p
+  have hq := den_ne q
+  conv_rhs => rw [← Rat.num_div_den p, ← Rat.num_div_den q]
+  simp only [ratOf]; push_cast at hp hq ⊢; field_simp
+
+theorem ratOf_mul (p q : ℚ) : ratOf (p.num * q.num) (p.den * q.den) = p * q := by
+  have hp := den_ne p
+  have hq := den_ne q
+  conv_rhs => rw [← Rat.num_div_den p, ← Rat.num_div_den q]
+  simp only [ratOf]; push_cast at hp hq ⊢; field_simp
+
+theorem ratOf_div (p : ℚ) {q : ℚ} (h : q.num ≠ 0) :
+    ratOf (p.num * q.den) (p.den * q.num) = p / q := by
+  have hp := den_ne p
+  have hq := den_ne q
+  have hn : (q.num : ℚ) ≠ 0 := by exact_mod_cast h
+  conv_rhs => rw [← Rat.num_div_den p, ← Rat.num_div_den q]
+  simp only [ratOf]; push_cast at hp hq ⊢; field_simp
+
+theorem ratOf_neg (p : ℚ) : ratOf (-p.num) p.den = -p := by
+  conv_rhs => rw [← Rat.num_div_den p]
+  simp only [ratOf]; push_cast; ring
+
+theorem den_mul_ne (p q : ℚ) : (p.den : Int) * q.den ≠ 0 :=
+  Int.mul_ne_zero (by exact_mod_cast p.den_ne_zero) (by exact_mod_cast q.den_ne_zero)
 
 /-- The agreement: on the fragment, a value of an expression is of its type, and is the value of
 its term in every well-formed model where the calls and the variables agree. -/
@@ -926,8 +1041,9 @@ theorem ev (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hPD : ProgData D
     rename_i hj
     cases he
     refine ⟨trivial, fun M hw hc hV => ?_⟩
-    simp [tr, isBv_eq ha, Ty.isBv, __smtx_model_eval, haM M hw hc hV, hbM M hw hc hV, trV,
-      __smtx_model_eval_eq, native_veq, hj, __smtx_model_eval_ite, __smtx_model_eval_div_total,
+    simp [tr, isBv_eq ha, isReal_eq ha, Ty.isBv, Ty.isReal, __smtx_model_eval, haM M hw hc hV,
+      hbM M hw hc hV, trV, __smtx_model_eval_eq, native_veq, hj, __smtx_model_eval_ite,
+      __smtx_model_eval_div_total,
       __smtx_model_eval_mod_total, native_div_total, native_mod_total]
   | uminus ha ih =>
     intro env v hE he
@@ -1085,6 +1201,100 @@ theorem ev (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hPD : ProgData D
         ⟨fun h => h.elim (fun h => Int.not_lt.mpr (Int.le_of_lt h))
             (fun h => by rw [h]; exact Int.lt_irrefl _),
           fun h => (Int.lt_or_eq_of_le (Int.not_lt.mp h)).imp id Eq.symm⟩
+  | @frac k d hd =>
+    intro env v hE he
+    rw [eval, real_eq hd] at he
+    cases he
+    refine ⟨hasV_real_of _, fun M _ _ _ => ?_⟩
+    have hd' : (d : ℝ) ≠ 0 := by exact_mod_cast hd
+    simp [tr, __smtx_model_eval, lit_eval, trV, ratOf_num_den, __smtx_to_real_coerce,
+      __smtx_model_eval_eq, native_veq, __smtx_model_eval_ite, __smtx_model_eval_qdiv_total,
+      native_rdiv_total, native_rat_to_real, native_mk_real, native_int_to_real, hd', hd]
+    simp [ratOf]
+  | rPlus ha _ iha ihb | rMinus ha _ iha ihb | rTimes ha _ iha ihb =>
+    intro env v hE he
+    rw [eval] at he
+    ok_split he
+    rename_i x hx
+    ok_split he
+    rename_i y hy
+    obtain ⟨hxT, haM⟩ := iha env _ hE hx
+    obtain ⟨hyT, hbM⟩ := ihb env _ hE hy
+    obtain ⟨p, rfl⟩ := hasV_real hxT
+    obtain ⟨q, rfl⟩ := hasV_real hyT
+    simp only [arith_plus, arith_minus, arith_times] at he
+    rw [real_eq (den_mul_ne p q)] at he
+    cases he
+    refine ⟨hasV_real_of _, fun M hwf hc hV => ?_⟩
+    simp only [tr, isBv_eq ha, Ty.isBv, Bool.false_eq_true, ↓reduceIte, __smtx_model_eval,
+      haM M hwf hc hV, hbM M hwf hc hV, trV, ratOf_num_den, __smtx_model_eval_plus,
+      __smtx_model_eval__, __smtx_model_eval_mult, native_rplus, native_rneg, native_rmult,
+      native_rat_to_real, ratOf_add, ratOf_sub, ratOf_mul]
+    congr 1
+    push_cast
+    ring
+  | rDiv ha _ iha ihb =>
+    intro env v hE he
+    rw [eval] at he
+    ok_split he
+    rename_i x hx
+    ok_split he
+    rename_i y hy
+    obtain ⟨hxT, haM⟩ := iha env _ hE hx
+    obtain ⟨hyT, hbM⟩ := ihb env _ hE hy
+    obtain ⟨p, rfl⟩ := hasV_real hxT
+    obtain ⟨q, rfl⟩ := hasV_real hyT
+    by_cases hz : q.num = 0
+    · simp [arith_div, hz] at he
+    simp only [arith_div, hz, ↓reduceDIte] at he
+    have hd : (p.den : Int) * q.num ≠ 0 :=
+      Int.mul_ne_zero (by exact_mod_cast p.den_ne_zero) hz
+    rw [real_eq hd] at he
+    cases he
+    refine ⟨hasV_real_of _, fun M hwf hc hV => ?_⟩
+    have hq : (q : ℝ) ≠ 0 := by exact_mod_cast (Rat.num_ne_zero.mp hz)
+    simp [tr, isBv_eq ha, isReal_eq ha, Ty.isBv, Ty.isReal, __smtx_model_eval, haM M hwf hc hV,
+      hbM M hwf hc hV, trV, ratOf_num_den, __smtx_to_real_coerce, ratOf_div p hz,
+      __smtx_model_eval_eq, native_veq, __smtx_model_eval_ite, __smtx_model_eval_qdiv_total,
+      native_rdiv_total, native_rat_to_real, native_mk_real, hq]
+  | rNeg ha ih =>
+    intro env v hE he
+    rw [eval] at he
+    ok_split he
+    rename_i x hx
+    obtain ⟨hxT, haM⟩ := ih env _ hE hx
+    obtain ⟨p, rfl⟩ := hasV_real hxT
+    simp only [arith_neg] at he
+    cases he
+    have hv : Value.RealV (0 - p.num) p.den = .RealV (-p).num (-p).den := by simp
+    rw [hv]
+    refine ⟨hasV_real_of _, fun M hwf hc hV => ?_⟩
+    simp [tr, isBv_eq ha, Ty.isBv, __smtx_model_eval, haM M hwf hc hV, trV, ratOf_num_den,
+      __smtx_model_eval_uneg, native_rneg, native_rat_to_real, ratOf_neg]
+  | rLt ha _ iha ihb | rGt ha _ iha ihb | rLe ha _ iha ihb | rGe ha _ iha ihb =>
+    intro env v hE he
+    rw [eval] at he
+    ok_split he
+    rename_i x hx
+    ok_split he
+    rename_i y hy
+    obtain ⟨hxT, haM⟩ := iha env _ hE hx
+    obtain ⟨hyT, hbM⟩ := ihb env _ hE hy
+    obtain ⟨p, rfl⟩ := hasV_real hxT
+    obtain ⟨q, rfl⟩ := hasV_real hyT
+    simp only [arith_lt, arith_le] at he
+    cases he
+    refine ⟨trivial, fun M hwf hc hV => ?_⟩
+    simp only [tr, isBv_eq ha, Ty.isBv, Bool.false_eq_true, ↓reduceIte, __smtx_model_eval,
+      haM M hwf hc hV, hbM M hwf hc hV, trV, ratOf_num_den, __smtx_model_eval_lt,
+      __smtx_model_eval_leq, __smtx_model_eval_gt, __smtx_model_eval_geq, native_rlt, native_rleq,
+      native_rat_to_real, Rat.cast_lt, Rat.cast_le]
+    all_goals
+      congr 1
+      first
+        | exact decide_eq_decide.mpr (Rat.lt_iff _ _)
+        | (rw [← decide_not]
+           exact decide_eq_decide.mpr (not_lt.symm.trans (not_congr (Rat.lt_iff _ _))))
   | @invoke s args hs hl hargs ih =>
     intro env v hE he
     rw [eval] at he
@@ -1329,9 +1539,10 @@ theorem ofSmt_map {D : List Data} (hD : DataOk D) : ∀ {vs : List Value} {Ts : 
   | _ :: _, _ :: _, .cons h hs => by
     simp only [List.map_cons, ofSmt_trV hD h, ofSmt_map hD hs]
 
-/-- The values of the sorts of the types of the bridge are those of the values of the types. -/
-theorem typed_inv {D : List Data} (hD : DataOk D) {M : SmtModel} {ps : List (Id × Ty)}
-    (hf : ∀ p ∈ ps, FragTy D p.2) :
+/-- The values of the sorts of the types of the bridge are those of the values of the types, when
+no real is among them: a real of a model need not be a fraction. -/
+theorem typed_inv {D : List Data} (hD : DataOk D) (hR : RealFree D) {M : SmtModel}
+    {ps : List (Id × Ty)} (hf : ∀ p ∈ ps, FragTy D p.2) (hne : ∀ p ∈ ps, p.2 ≠ .RealType) :
     ∀ {ws : List SmtValue}, List.Forall₂ (Typed M) (ptys D ps) ws →
       ∃ vs, List.Forall₂ (HasV D) vs (ps.map Prod.snd) ∧ ws = vs.map (trV D) := by
   induction ps with
@@ -1341,8 +1552,9 @@ theorem typed_inv {D : List Data} (hD : DataOk D) {M : SmtModel} {ps : List (Id 
     simp only [ptys, List.map_cons] at h
     cases h with
     | cons hw hws =>
-      obtain ⟨vs, hvs, rfl⟩ := ih (fun q hq => hf q (.tail _ hq)) hws
-      obtain ⟨v, hv, rfl⟩ := typed_inv1 hD (hf p (.head _)) hw.1
+      obtain ⟨vs, hvs, rfl⟩ := ih (fun q hq => hf q (.tail _ hq)) (fun q hq => hne q (.tail _ hq))
+        hws
+      obtain ⟨v, hv, rfl⟩ := typed_inv1 hD hR (hf p (.head _)) (hne p (.head _)) hw.1
       exact ⟨v :: vs, .cons hv hvs, rfl⟩
 
 theorem applyAll_setConsts (M : SmtModel) (σ : List (native_String × SmtType × SmtValue)) :
@@ -1616,6 +1828,21 @@ def okCall (O : Oracle) (P : Program) (D : List Data) (S : List Sig) (e : Equati
   ∀ s ∈ S, EqFor P D S s e → ∀ vs, List.Forall₂ (HasV D) vs (s.params.map Prod.snd) →
     ws = vs.map (trV D) → ∃ n v, call O P n s.name [] [] vs = .Ok v
 
+/-- The arguments `ws` of a defining equation are accepted when they are values of Inox to which
+the call of its function gives a value with some fuel. Unlike `okCall`, it refuses the arguments
+that are not values of Inox: the reals that are not fractions. -/
+def okCallV (O : Oracle) (P : Program) (D : List Data) (S : List Sig) (e : Equation) (ws : List
+    SmtValue) :
+    Prop :=
+  ∀ s ∈ S, EqFor P D S s e → ∃ vs, List.Forall₂ (HasV D) vs (s.params.map Prod.snd) ∧
+    ws = vs.map (trV D) ∧ ∃ n v, call O P n s.name [] [] vs = .Ok v
+
+/-- No real is among the parameters of the functions and the fields of the datatypes: then every
+value of a model at their sorts is a value of Inox. -/
+structure Discrete (D : List Data) (S : List Sig) : Prop where
+  data : RealFree D
+  params : ∀ s ∈ S, ∀ p ∈ s.params, p.2 ≠ .RealType
+
 variable {O : Oracle} {P : Program} {D : List Data} {S : List Sig}
 
 /-- A model where the calls agree, with the constants of the parameters of a function set to
@@ -1652,18 +1879,17 @@ theorem bound_model (hS : SigOk D S) {s : Sig} (hs : s ∈ S) {M : SmtModel} (hw
     rw [lookup_setConsts, bindingOf_var s.params vs bs hbs x T hx w hw]
 
 /-- A well-formed model where the calls agree satisfies the defining equations of the program on
-the arguments where the calls give values. -/
-theorem goodOn_calls (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hP : ProgTy D S P)
+the values of Inox where the calls give values. -/
+theorem goodOn_callsV (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hP : ProgTy D S P)
     {eqs : List Equation} (hE : ∀ e ∈ eqs, ∃ s ∈ S, EqFor P D S s e) {M : SmtModel}
-    (hw : model_wf M) (hcalls0 : ∀ m, CallsOk O P D S m M) : GoodOn (okCall O P D S) eqs M := by
+    (hw : model_wf M) (hcalls0 : ∀ m, CallsOk O P D S m M) : GoodOn (okCallV O P D S) eqs M := by
   intro e he ws hws
   obtain ⟨s, hs, hfor⟩ := hE e he
   obtain ⟨body, hbody, hbty, hpe, hterm⟩ := hfor
   rw [hterm, eval_eq_term]
   refine ⟨eval_eq_bool _ _, fun hok => ?_⟩
   rw [hpe] at hws ⊢
-  obtain ⟨vs, hvs, rfl⟩ := typed_inv hS.data (hS.params s hs) hws
-  obtain ⟨n, v, hc⟩ := hok s hs ⟨body, hbody, hbty, hpe, hterm⟩ vs hvs rfl
+  obtain ⟨vs, hvs, rfl, n, v, hc⟩ := hok s hs ⟨body, hbody, hbty, hpe, hterm⟩
   obtain ⟨hwf', hcalls, hVgen⟩ := bound_model hS hs hw hcalls0 hvs
   have hnd : ((ptys D s.params).map Prod.fst).Nodup := by
     have : (ptys D s.params).map Prod.fst = (s.params.map Prod.fst).map nm := by
@@ -1697,14 +1923,30 @@ theorem goodOn_calls (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hP : P
   rw [hvM _ hwf' (hcalls (n - 1)) hV]
   exact eval_eq_self hS.data hvT
 
+/-- A well-formed model where the calls agree satisfies the defining equations of the program on
+the arguments where the calls give values, when no real is among the parameters. -/
+theorem goodOn_calls (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hP : ProgTy D S P)
+    (hdis : Discrete D S)
+    {eqs : List Equation} (hE : ∀ e ∈ eqs, ∃ s ∈ S, EqFor P D S s e) {M : SmtModel}
+    (hw : model_wf M) (hcalls0 : ∀ m, CallsOk O P D S m M) : GoodOn (okCall O P D S) eqs M := by
+  intro e he ws hws
+  have hg := goodOn_callsV hO hty hS hP hE hw hcalls0 e he ws hws
+  refine ⟨hg.1, fun hok => hg.2 fun s hs hfor => ?_⟩
+  have hfor' := hfor
+  obtain ⟨_, _, _, hpe, _⟩ := hfor'
+  rw [hpe] at hws
+  obtain ⟨vs, hvs, rfl⟩ := typed_inv hS.data hdis.data (hS.params s hs) (hdis.params s hs) hws
+  exact ⟨vs, hvs, rfl, hok s hs hfor vs hvs rfl⟩
+
 /-- The intended model satisfies the defining equations of the program on the arguments where
 the calls give values. -/
 theorem goodOn_star (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hPF : ProgFrag P)
-    (hP : ProgTy D S P) {eqs : List Equation} (hE : ∀ e ∈ eqs, ∃ s ∈ S, EqFor P D S s e)
+    (hP : ProgTy D S P) (hdis : Discrete D S) {eqs : List Equation}
+    (hE : ∀ e ∈ eqs, ∃ s ∈ S, EqFor P D S s e)
     (M0 N : SmtModel) (cd : Codes)
     (hw : model_wf (Model.star (defs D S) (interpOf O P D S) M0 cd N)) :
     GoodOn (okCall O P D S) eqs (Model.star (defs D S) (interpOf O P D S) M0 cd N) :=
-  goodOn_calls hO hty hS hP hE hw fun m => callsOk_star hO hty hS hPF hP M0 N cd m
+  goodOn_calls hO hty hS hP hdis hE hw fun m => callsOk_star hO hty hS hPF hP M0 N cd m
 
 /-- When the calls of the functions of `S` to values of their types give values, every guard is
 fine: `GuardOk` holds for every clause. -/
@@ -1722,7 +1964,7 @@ facts hold in the models where the equations hold on the arguments where the cal
 (except the unfoldings whose guards imply that the calls give values). The hypothesis on the
 facts stays: only the guarded unfoldings are discharged. -/
 theorem no_star_model (sound : LogosSound) (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S)
-    (hPF : ProgFrag P) (hP : ProgTy D S P)
+    (hPF : ProgFrag P) (hP : ProgTy D S P) (hdis : Discrete D S)
     {certificate : Logos.Sexp} {checked : Checked} {r : TermSteps}
     (hAccept : accept certificate = .ok checked) (hr : termSteps checked = .ok r)
     (hcheck : r.check = true) (hkeeps : r.keeps = true)
@@ -1734,7 +1976,7 @@ theorem no_star_model (sound : LogosSound) (hO : O.Sound) (hty : LogosTyping) (h
     ¬ Satisfies (Model.star (defs D S) (interpOf O P D S) M0 cd N) r.base := by
   have hw := wf_star (defs D S) (interpOf O P D S) M0 cd hM0 hN hu
   exact no_good_model_of_unfold_on sound hty (okCall O P D S) hAccept hr hcheck hkeeps hfacts _
-    (goodOn_star hO hty hS hPF hP hE M0 N cd hw)
+    (goodOn_star hO hty hS hPF hP hdis hE M0 N cd hw)
 
 end Equations
 

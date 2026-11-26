@@ -410,8 +410,8 @@ are relative to an oracle `O` for the functions that quantify over values, and
 `O.Sound` states that it gives them as the semantics defines them. The checker
 and Logos, on the other side, work on SMT-LIB terms and on `SmtValue`s. This
 section says what connects them. The proved part is the first-order fragment of
-integers, Booleans, unsigned bit-vectors and datatypes without type parameters,
-against the generated evaluator (see [What is proved of it so
+integers, Booleans, reals, unsigned bit-vectors and datatypes without type
+parameters, against the generated evaluator (see [What is proved of it so
 far](#what-is-proved-of-it-so-far)).
 
 ### The fragment
@@ -657,42 +657,51 @@ integers, fractions, Booleans, strings and unit, `ADT`, `IsConstructor`,
 and rounding modes, and the string, bit-vector and floating-point operations.
 
 **The agreement theorem** ([`Inox/Bridge.lean`](Inox/Bridge.lean)). The
-translation is for integers, Booleans, unsigned bit-vectors and datatypes
-without type parameters ([`Inox/Data.lean`](Inox/Data.lean)). `D : List Data`
-gives each datatype its name, its declaration in Logos and its constructors
-with their fields. `trT D` sends `IntegerType` and `BooleanType` to `Int` and
-`Bool`, `BVType false w` to `BitVec w` and `ADTType d []` to the datatype of
-`d`, `trV D` sends `IntV i` and `BoolV b` to `Numeral i` and `Boolean b`,
-`BVV false w x` to `Binary w x` and `ADTV c vs` to the constructor of `c`
-applied to the translations of `vs`, and `tr D S Γ e` sends an expression to a
-Logos term: a variable `x` of type `T` in `Γ` to `UConst (nm x) (trT D T)`, an
-invocation of `f` to the application spine of `f`'s constant, `ADT`,
-`IsConstructor` and `ADTSelector` to the constructor, the tester and the
-selector of Logos, which are indices into the declaration, and the operators to
-their SMT-LIB counterparts, which are others on the bit-vectors than on the
-integers (`bvadd` for `Plus`, `bvudiv` for `Division`, `bvult` for `LessThan`):
-`isBv` says which an expression is of, from its variables, its literals and the
-signatures. `S : List Sig` gives each function its parameters and return type,
-which the semantics' `FunDef` doesn't carry. `HasTy D S Γ e T` is the typing of
-the fragment: variables, the integer and Boolean literals, `IfExpr`, `And`,
-`Or`, `Not`, `Implies`, `Equals`, `Plus`, `Minus`, `Times`, `Division`,
-`Remainder`, `Modulo`, `UMinus`, `LessThan`, `GreaterThan`, `LessEquals`,
-`GreaterEquals`, `Assume`, `FunctionInvocation` without type arguments of a
-function of `S`, the literals of the unsigned bit-vectors with `Plus`, `Minus`,
-`Times`, `Division`, `Remainder`, `UMinus`, `BVNot` and the four comparisons on
-them, and `ADT`, `IsConstructor` and `ADTSelector` of a constructor or a field
-of `D`. The signed bit-vectors, whose operators Logos defines from the unsigned
-ones, and the bitwise operators, the shifts and the casts are not there yet.
-`DataOk D` asks that the names of the datatypes, of the constructors and of the
-fields be distinct, that the fields have types of the fragment, and that each
-declaration be well-formed and the one that Logos types its datatype with.
-Under it a value of a datatype translates to a value of Logos of its type
-(`typed_trV`), each value of Logos of that type is the translation of one
-(`typed_inv1`), and `value-eq` on such values is equality (`value_eq_hasV`).
-`ProgData D P` says that the program has the constructors and the sorts of `D`,
-without invariants. For a model whose function constants agree with `call` at
-fuel `n` (`CallsOk`) and whose variable constants agree with the environment
-(`VarsOk`):
+translation is for integers, Booleans, reals, unsigned bit-vectors and
+datatypes without type parameters ([`Inox/Data.lean`](Inox/Data.lean)).
+`D : List Data` gives each datatype its name, its declaration in Logos and its
+constructors with their fields. `trT D` sends `IntegerType`, `BooleanType` and
+`RealType` to `Int`, `Bool` and `Real`, `BVType false w` to `BitVec w` and
+`ADTType d []` to the datatype of `d`, `trV D` sends `IntV i` and `BoolV b` to
+`Numeral i` and `Boolean b`, `RealV n d` to the real number of the fraction
+`n / d`, `BVV false w x` to `Binary w x` and `ADTV c vs` to the constructor of
+`c` applied to the translations of `vs`, and `tr D S Γ e` sends an expression
+to a Logos term: a variable `x` of type `T` in `Γ` to
+`UConst (nm x) (trT D T)`, an invocation of `f` to the application spine of
+`f`'s constant, `ADT`, `IsConstructor` and `ADTSelector` to the constructor,
+the tester and the selector of Logos, which are indices into the declaration, a
+`FractionLiteral` to the division of its integers, as Inox prints it
+(`(/ (- 1) 2)`), and the operators to their SMT-LIB counterparts. Those of the
+integers are also those of the reals, except `/` for `Division`, and the
+bit-vectors have others (`bvadd` for `Plus`, `bvudiv` for `Division`, `bvult`
+for `LessThan`): `isBv` and `isReal` say which an expression is of, from its
+variables, its literals and the signatures. `S : List Sig` gives each function
+its parameters and return type, which the semantics' `FunDef` doesn't carry.
+`HasTy D S Γ e T` is the typing of the fragment: variables, the integer and
+Boolean literals, `IfExpr`, `And`, `Or`, `Not`, `Implies`, `Equals`, `Plus`,
+`Minus`, `Times`, `Division`, `Remainder`, `Modulo`, `UMinus`, `LessThan`,
+`GreaterThan`, `LessEquals`, `GreaterEquals`, `Assume`, `FunctionInvocation`
+without type arguments of a function of `S`, the literals of the reals, with a
+denominator that is not zero, with `Plus`, `Minus`, `Times`, `Division`,
+`UMinus` and the four comparisons on them, the literals of the unsigned
+bit-vectors with `Plus`, `Minus`, `Times`, `Division`, `Remainder`, `UMinus`,
+`BVNot` and the four comparisons on them, and `ADT`, `IsConstructor` and
+`ADTSelector` of a constructor or a field of `D`. The signed bit-vectors, whose
+operators Logos defines from the unsigned ones, and the bitwise operators, the
+shifts and the casts are not there yet. The reals of the semantics are the
+fractions in lowest terms, and those of Logos the real numbers: the operators
+agree on the fractions (`real_eq`, `ratOf_add` and the like), and a real number
+that is not a fraction is the translation of no value. `DataOk D` asks that the
+names of the datatypes, of the constructors and of the fields be distinct, that
+the fields have types of the fragment, and that each declaration be well-formed
+and the one that Logos types its datatype with. Under it a value translates to
+a value of Logos of its type (`typed_trV`), each value of Logos of a type other
+than the reals, in datatypes without real fields (`RealFree D`), is the
+translation of one (`typed_inv1`), and `value-eq` on such values is equality
+(`value_eq_hasV`). `ProgData D P` says that the program has the constructors
+and the sorts of `D`, without invariants. For a model whose function constants
+agree with `call` at fuel `n` (`CallsOk`) and whose variable constants agree
+with the environment (`VarsOk`):
 
 ```lean
 theorem ev (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S)
@@ -761,8 +770,10 @@ certificate without counting the calls of the arguments.
 
 **The query has no solution** ([`Inox/NoSolution.lean`](Inox/NoSolution.lean)).
 For a program whose calls all give values (`Total O P D S`: each function of
-`S`, on values of the types of its parameters, is `Ok` at some fuel), the
-intended model satisfies the defining equations for all arguments
+`S`, on values of the types of its parameters, is `Ok` at some fuel, and no
+real is among the parameters and the fields of the datatypes, `Discrete D S`,
+so that the arguments of a model are all values of the semantics), the intended
+model satisfies the defining equations for all arguments
 (`good_star`), so `no_good_model_of_instances` applies to it with all that it
 covers, not only the unfoldings. A solution of the query gives the model `N`:
 `varsModel D M0 Γ vs` sets the constants of the free variables `Γ` to their
@@ -795,7 +806,10 @@ Boolean expression `q` of the query, and `VarsFresh` that the free variables
 have types of the fragment and are named after no function. This is the theorem
 of an UNSAT answer for this fragment, up to its hypotheses: `Total`, the two
 that relate the certificate to the program and the query (`hE`, `hbase`), and
-`hfacts` for the facts that the check doesn't cover.
+`hfacts` for the facts that the check doesn't cover. A solution gives the free
+variables values of the semantics, so a real variable a fraction: the theorem
+says that the query has no rational solution, where the certificate shows that
+it has no real one.
 
 **The program and the query of a certificate**
 ([`Inox/Source.lean`](Inox/Source.lean)). `no_solution` is about a program and
@@ -907,11 +921,12 @@ cd proofs/lean/verification && lake build inox-solution
 
 The first build compiles the modules that the executable imports, those of
 Mathlib too, which takes a quarter of an hour. Of the 36 certificates of the
-corpus, the checks hold of 6: the 3 of `error-is-infeasible.smt3`, one of
+corpus, the checks hold of 7: the 3 of `error-is-infeasible.smt3`, one of
 `empty-function-codomains.smt3`, that of `size-negative.smt3`, whose function
-is over lists, and that of `bitvector-division-by-zero-is-total.smt3`. 26 are
-outside the fragment, 2 have facts that are not covered, and 2 have a proof
-with a constant array, which Logos doesn't read.
+is over lists, and those of `bitvector-division-by-zero-is-total.smt3` and
+`real-division-by-zero-is-infeasible.smt3`. 25 are outside the fragment, 2
+have facts that are not covered, and 2 have a proof with a constant array,
+which Logos doesn't read.
 
 **Assumptions.** A body with assumptions is read with them: Logos doesn't read
 `(assume c b)` in a term, so the equation that the clauses instantiate is
@@ -932,7 +947,8 @@ goes through, under the literals that `g` makes known, which make the guard of
 the call true (`Paths.assumed`): the precondition of a call is one. A division
 by zero is stuck in the same way, and SMT-LIB leaves its value open, so Inox
 states that a divisor that is not a literal is not zero, in a clause
-`(=> g (not (= d 0)))` under the blocker of the branch of the division.
+`(=> g (not (= d 0)))` under the blocker of the branch of the division
+(`(not (= d (/ 0 1)))` on the reals).
 `Division` is translated to `div`, and `Remainder` and `Modulo`, which are the
 same on integers, to `mod`, which `back` reads as `Modulo`. Where the divisor
 is not zero the terms have the values of the expressions (`ev`), `assumesW`
@@ -992,10 +1008,10 @@ body with many nested assumptions is read slowly.
   than guarded unfoldings. `no_solution_of_reached` has none: `reachedCheck`
   asks that every fact be covered.
 
-The translation stops at integers, Booleans, unsigned bit-vectors and datatypes
-without type parameters: unit, `Let`, `Error`, `Division`, `Remainder`,
-`Modulo`, type arguments, closures, `Forall` and `UninterpretedCall` are not
-translated.
+The translation stops at integers, Booleans, reals, unsigned bit-vectors and
+datatypes without type parameters: unit, `Let`, `Error`, `Division`,
+`Remainder`, `Modulo`, type arguments, closures, `Forall` and
+`UninterpretedCall` are not translated.
 
 **What would make the generated Lean easier to prove things about.** The
 generated `match`es on `Result` (one auxiliary matcher per site) defeat generic
@@ -1015,8 +1031,9 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   base, and the facts that hold as they are (congruence, the reflexivity of the
   declared equalities). The theorem to come is the one of an UNSAT answer in
   [`semantics.md`](../semantics.md): the query has no solution. `no_solution`
-  states it for the first-order programs over integers, Booleans, unsigned
-  bit-vectors and datatypes whose calls all give values, with hypotheses (see
+  states it for the first-order programs over integers, Booleans, reals,
+  unsigned bit-vectors and datatypes whose calls all give values, with
+  hypotheses (see
   [The bridge to the semantics](#the-bridge-to-the-semantics-partly-proved)),
   and `no_solution_of_reached` for those programs whatever their calls, for the
   certificates of which its checks hold. In general it needs the bridge beyond

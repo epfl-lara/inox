@@ -307,7 +307,8 @@ theorem noBinder_tr {S : List Sig} {Γ : List (Id × Ty)} {e : Expr} {T : Ty}
     exact all_of_zip (Q := fun a => noBinder (tr D S Γ a) = true) (by simpa using hl) ih e he
   | isCons hc _ ih => simpa [tr, hc, noBinder] using ih
   | sel hx _ ih => simpa [tr, hx, noBinder] using ih
-  | _ => simp only [tr]; (try split) <;> simp_all [noBinder]
+  | frac _ => simp only [tr, lit, noBinder]; split <;> split <;> simp [noBinder]
+  | _ => simp only [tr]; (try split) <;> (try split) <;> simp_all [noBinder]
 
 /-! ## The literals of definitions -/
 
@@ -467,7 +468,7 @@ theorem guardedEq_sound (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hP 
     simp only [eqInstB, Bool.and_eq_true, decide_eq_true_eq] at hinst
     obtain ⟨⟨hparams, hb⟩, hsubst⟩ := hinst
     obtain ⟨hσ, htyped⟩ := params_of_paramsB hty hM.wf hparams
-    have hgood := goodOn_calls hO hty hS hP hM.eqs hM.wf hM.calls e he _ htyped
+    have hgood := goodOn_callsV hO hty hS hP hM.eqs hM.wf hM.calls e he _ htyped
     have hs : __smtx_model_eval M (.eq lhs rhs) = __smtx_model_eval
         (setConsts M (bindValues e.params ((smtArgs lhs).map (__smtx_model_eval M))))
         (__eo_to_smt e.term) := by
@@ -480,19 +481,16 @@ theorem guardedEq_sound (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hP 
       cases b <;> rfl
     · rw [hs, hgood.2 ?_]
       · exact eval_imp_true hty hM.wf hg
-      · intro s hs hfor vs0 hvs0 hws
+      · intro s hs hfor
         obtain ⟨s', hs', us, vs, hl, hus, hvs, n, v, hcall⟩ := hJ _ hmem hbg
         obtain ⟨body, _, _, _, hterm⟩ := hfor
         replace hl : lhs = _ := hl
-        rw [hl] at hhead hws
+        rw [hl] at hhead ⊢
         simp only [lhsOf, hterm, smtHead_spine, smtHead, smtArgs_spine, smtArgs,
-          List.nil_append] at hhead hws
+          List.nil_append] at hhead ⊢
         have hss : s = s' := sig_eq_of_name hS.nodup hs hs' (nm_inj (uconst_inj hhead))
         subst hss
-        have hvv : vs0 = vs := by
-          rw [← ofSmt_map hS.data hvs0, ← ofSmt_map hS.data hvs, ← hws, hus]
-        subst hvv
-        exact ⟨n, v, hcall⟩
+        exact ⟨vs, hvs, hus, n, v, hcall⟩
   · simp at h
 
 /-- The equation `e` is that of the function read from it, with the body read from it. -/

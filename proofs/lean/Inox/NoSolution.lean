@@ -40,9 +40,10 @@ variable {O : Oracle} {P : Program} {D : List Data} {S : List Sig}
 /-- The calls of the functions of `S` to values of the types of their parameters give values,
 with some fuel: the functions terminate and are never stuck. A function whose `Assume` fails on
 some values of its parameters, as one with a precondition does, is stuck on them, so it is not
-`Total`. -/
+`Total`. No real is among the parameters and the fields of the datatypes (`Discrete`): a real of
+a model need not be a value of the semantics, which has the fractions. -/
 def Total (O : Oracle) (P : Program) (D : List Data) (S : List Sig) : Prop :=
-  ∀ s ∈ S, ∀ vs, List.Forall₂ (HasV D) vs (s.params.map Prod.snd) →
+  Discrete D S ∧ ∀ s ∈ S, ∀ vs, List.Forall₂ (HasV D) vs (s.params.map Prod.snd) →
     ∃ n v, call O P n s.name [] [] vs = .Ok v
 
 /-- When every call gives a value, the intended model satisfies the defining equations of the
@@ -53,8 +54,8 @@ theorem good_star (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hPF : Pro
     (hw : model_wf (Model.star (defs D S) (interpOf O P D S) M0 cd N)) :
     Good eqs (Model.star (defs D S) (interpOf O P D S) M0 cd N) :=
   fun e he vs hvs =>
-    (goodOn_star hO hty hS hPF hP hE M0 N cd hw e he vs hvs).2
-      (fun s hs _ us hus _ => htot s hs us hus)
+    (goodOn_star hO hty hS hPF hP htot.1 hE M0 N cd hw e he vs hvs).2
+      (fun s hs _ us hus _ => htot.2 s hs us hus)
 
 /-- The free variables `Γ` of a query: of types of the fragment, and named after no function. -/
 structure VarsFresh (D : List Data) (S : List Sig) (Γ : List (Id × Ty)) : Prop where
@@ -63,7 +64,7 @@ structure VarsFresh (D : List Data) (S : List Sig) (Γ : List (Id × Ty)) : Prop
 
 /-- The model of the free variables `Γ` with the values `vs`: `M0`, with the constants of the
 variables set to the values. -/
-def varsModel (D : List Data) (M0 : SmtModel) (Γ : List (Id × Ty)) (vs : List Value) :
+noncomputable def varsModel (D : List Data) (M0 : SmtModel) (Γ : List (Id × Ty)) (vs : List Value) :
     SmtModel :=
   setConsts M0 (bindValues (ptys D Γ) (vs.map (trV D)))
 
