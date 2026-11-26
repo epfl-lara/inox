@@ -690,6 +690,35 @@ theorem no_star_model (sound : LogosSound) (hO : O.Sound) (hty : LogosTyping)
 terminate on values of their parameter types (`guardOk_total`). For others it
 stays a hypothesis, inside `hfacts`.
 
+**The calls that evaluation goes through have values**
+([`Inox/Reach.lean`](Inox/Reach.lean)). A solution doesn't need every call to
+give a value, only those that its evaluation goes through, and they do: a call
+that is stuck or out of fuel makes the expression around it so. `reaches K c t`
+decides on terms that evaluating the expression of `t` goes through the call
+`c` in the models where the literals `K` have their values: `c` is `t`, or it
+is reached in an operand that is evaluated. The operands of `ite`, `and`, `or`
+and `=>` after the first are evaluated only when the first has the value that
+selects them, which `red K` has to give.
+
+```lean
+theorem called_of_reaches (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S)
+    (hP : ProgTy S P) {n : Int} (hct : CallTy O P S n) {Γ : List (Id × Ty)}
+    {e : Expr} {T : Ty} (h : HasTy S Γ e T) :
+    ∀ env v, EnvTy Γ env → eval O P n env e = .Ok v →
+      ∀ M, model_wf M → CallsOk O P S n M → VarsOk Γ env M → ∀ K, KSound M K →
+        ∀ c, reaches K c true (tr S Γ e) = true → Called O P S M c
+```
+
+(The conclusion is `Reach O P S n Γ e`, unfolded.) `Called O P S M c` says that
+`c` is a function of `S` applied to terms whose values in `M` are those of
+values of its parameters' types, on which the call is `Ok` at some fuel. `called_of_call` is the same of the body of a function
+whose call is `Ok`, in the models where the constants of its parameters have
+the values of the arguments. This is the semantic half of `GuardOk` without
+`Total`: the guard of an unfolding is a blocker of the path to its call. The
+other half, a check that the meaning of the blocker makes `reaches` hold of the
+call in the query or in the body of a call that was reached, is not there yet,
+so no theorem about a certificate uses it.
+
 **The query has no solution** ([`Inox/NoSolution.lean`](Inox/NoSolution.lean)).
 For a program whose calls all give values (`Total O P S`: each function of `S`,
 on values of the types of its parameters, is `Ok` at some fuel), the intended
