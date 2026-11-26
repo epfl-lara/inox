@@ -192,6 +192,12 @@ class SimplificationRecorderSuite extends AnyFunSuite with DatastructureUtils {
     val bound = Let(n, inc(int(1)), GreaterThan(Times(n.toVariable, n.toVariable), x))
     assert(simplifyFormula(bound) == GreaterThan(int(4), x))
     rules(bound)
+    // a binding that stays is evaluated with its body when its term is a value
+    val s = ValDef.fresh("s", SetType(IntegerType()))
+    val members = Let(s, FiniteSet(Seq(int(1), int(2)), IntegerType()),
+      And(ElementOfSet(int(1), s.toVariable), ElementOfSet(int(2), s.toVariable)))
+    assert(simplifyFormula(members) == BooleanLiteral(true))
+    rules(members)
   }
 
   test("In a lambda, a ground term is evaluated if its operations are pure whatever their operands") {

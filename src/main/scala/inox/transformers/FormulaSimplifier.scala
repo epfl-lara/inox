@@ -137,24 +137,35 @@ trait FormulaSimplifier extends SimplifierWithPath { self =>
     )).booleanValue
   }
 
-  /** Whether each operation of `e` is pure whatever its operands are: with variables for its
+  /** Whether the operation of `e` is pure whatever its operands are: with variables for its
     * operands, it is pure without assuming that it is checked. The purity of a function doesn't
     * look at the bodies of its lambdas: a function whose recursion is in one is pure, and its
-    * value calls it again, so its call is not such an operation. The bodies of the lambdas of
-    * `e`, which the term doesn't evaluate, are not looked at. */
+    * value calls it again, so its call is not such an operation. Neither is a binding, whose
+    * body is not an operand. */
   private def total(e: Expr): Boolean = e match {
-    case _: Lambda => true
     case fi: FunctionInvocation if suspendedRecursive(fi.id) => false
-    case Operator(es, recons) =>
-      es.forall(total) && isAlwaysPure(recons(es.map(e => Variable.fresh("x", e.getType))))
+    case _: Let => false
+    case Operator(es, recons) => isAlwaysPure(recons(es.map(e => Variable.fresh("x", e.getType))))
   }
 
-  /** The value of the ground term `e`, if `evaluator` evaluates it and it is pure. In the body
-    * of a lambda, where the term is part of how the function is written and functions are
-    * compared as they are written, it is only evaluated if it is [[total]]: `10 / 2` stays in
-    * `x => x + 10 / 2`. */
+  /** Whether the operands of `e` are values, or rounding modes, which are their own values.
+    * The operands of a term are simplified before it, and evaluated: a ground one that is not
+    * a value is one that is not evaluated, and neither is the term then. This is what tells
+    * most terms that are not ground, at no cost. The body of a binding is not an operand: it is
+    * not ground without its binding. */
+  private def ofValues(e: Expr): Boolean = e match {
+    case _: Variable => false
+    case Let(_, e, _) => isValue(e)
+    case Operator(es, _) => es.forall(e => isValue(e) || e.getType == RoundingMode)
+  }
+
+  /** The value of the term `e`, if it is ground and not a value, its operands are values,
+    * `evaluator` evaluates it and it is pure. In the body of a lambda, where the term is part
+    * of how the function is written and functions are compared as they are written, it is only
+    * evaluated if its operation is [[total]]: `10 / 2` stays in `x => x + 10 / 2`. */
   private def evaluated(e: Expr, path: Env, evaluator: Expr => Option[Expr]): Option[Expr] =
-    if (!(if (path.underLambda) total(e) else symbols.isPure(e))) None
+    if (!ofValues(e) || isValue(e) || !isGround(e)) None
+    else if (!(if (path.underLambda) total(e) else symbols.isPure(e))) None
     else evaluator(e).map { v =>
       val value = freshenLocals(v)
       val r = path.recorder
@@ -184,8 +195,7 @@ trait FormulaSimplifier extends SimplifierWithPath { self =>
           }
           if (!occurs) e else {
             val node = builder(ids, vs, res.map(_._1), tps, flags).copiedFrom(e)
-            if (vars.nonEmpty || isValue(node)) node
-            else evaluated(node, path, evaluator).getOrElse(node)
+            if (vars.nonEmpty) node else evaluated(node, path, evaluator).getOrElse(node)
           }
         }
         val res = if (!r.active) here else r.at(e)(here)
@@ -200,9 +210,8 @@ trait FormulaSimplifier extends SimplifierWithPath { self =>
   override protected def simplify(e: Expr, path: Env): (Expr, Boolean) = {
     val res = super.simplify(e, path)
     path.evaluator match {
-      case Some(evaluator) if isGround(res._1) && !isValue(res._1) =>
-        evaluated(res._1, path, evaluator).fold(res)(value => (value, true))
-      case _ => res
+      case Some(evaluator) => evaluated(res._1, path, evaluator).fold(res)(value => (value, true))
+      case None => res
     }
   }
 
