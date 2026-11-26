@@ -15,6 +15,7 @@ src/it/resources/regression/smtlib3/inductive-unrolling/sort-preserves-content-1
 src/it/resources/regression/smtlib3/map-merge/element-in-mask.smt3
 src/it/resources/regression/smtlib3/partial-operations/bitvector-division-by-zero-is-total.smt3
 src/it/resources/regression/smtlib3/partial-operations/real-division-by-zero-is-infeasible.smt3
+src/it/resources/regression/smtlib3/partial-operations/error-is-infeasible.smt3
 src/it/resources/regression/smtlib3/quantifiers/unification.smt3
 src/it/resources/regression/smtlib3/quantifiers/propositional-bound-quantifier.smt3
 src/it/resources/regression/smtlib3/refined-calls/dependent-not-lucky.smt3

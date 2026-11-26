@@ -32,6 +32,8 @@ package certificates
   * `S`:
   *  - literals, variables, `let`, `assume`, `ite`, and the Boolean, arithmetic, bit-vector and
   *    array operations are the same; `(! t :unsigned)`, `(! t :signed)` and `(! t :char)` are `t'`;
+  *  - `(error S "message")` is `(assume false (error S'))`: an assumption that never holds, of a
+  *    value that stands for no other;
   *  - `C`, `(C ts)`, `(s t)` and `((_ is C) t)` are the session's constructor, selector and
   *    tester of a datatype without type parameters, and `(as C S)`, `((as C S) ts)`,
   *    `((as s S) t)` and `((as (_ is C) S) t)` those of the datatype sort `S`; `((as tuple S) ts)`
@@ -308,6 +310,8 @@ object Lowering {
         case SList(Atom(op) :: args) if setOperations.contains(op) => SList(Atom(setOperations(op)) :: args.map(rec))
 
         case SList(List(Atom("assume"), p, body)) => app("assume", rec(p), rec(body))
+        // an error is an assumption that never holds, of a value that stands for no other
+        case SList(List(Atom("error"), s, _)) => app("assume", Atom("false"), app("error", lowerSort(s)))
         case SList(Atom(op) :: args) if same(op) => SList(Atom(op) :: args.map(rec))
 
         case SList(head :: args) => applied(symbol(head, None), args.map(rec))

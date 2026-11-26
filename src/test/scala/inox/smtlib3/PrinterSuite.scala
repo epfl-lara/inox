@@ -94,6 +94,13 @@ class PrinterSuite extends AnyFunSuite {
       |(assert (or (= (isqrt 4) 3) (<= (twice (lambda ((x Int)) (+ x 1)) 1) 1)))
       |(check-sat)""".stripMargin)
 
+  scriptTest("errors", "unsat")(
+    """(define-fun-rec count ((x Int)) Int
+      |  (ite (< x 0) (error Int "negative x") (ite (= x 0) 0 (+ 1 (count (- x 1))))))
+      |(declare-const y Int)
+      |(assert (and (< y 2) (not (= (count y) y))))
+      |(check-sat)""".stripMargin)
+
   scriptTest("dependent results", "unsat")(
     """(define-fun inc ((n (! Int :var n :restrict (>= n 0)))) (! Int :var r :restrict (> r n)) (+ n 1))
       |(assert (<= (inc 2) 2))

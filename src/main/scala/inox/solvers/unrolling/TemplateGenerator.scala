@@ -701,6 +701,8 @@ trait TemplateGenerator { self: Templates =>
         storeFailure(pathVar, BooleanLiteral(false))
         val newExpr = Variable.fresh("err", tpe, true)
         storeExpr(newExpr)
+        // The symbol stands for the error of the source, which no clause defines it as
+        storeMeaning(newExpr, expr)
         newExpr
 
       case l @ Let(i, e: Lambda, b) =>

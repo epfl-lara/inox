@@ -95,6 +95,11 @@ class LoweringSuite extends AnyFunSuite {
     assert(refusal("((as size!9 (Bool)) l!0)").contains("has no definition"))
   }
 
+  test("An error is an assumption that never holds") {
+    assert(lowered("(ite (> x!0 0) x!0 (error Int \"negative\"))") == "(ite (> x!0 0) x!0 (assume false (error Int)))")
+    assert(lowered("(error (List!9 Bool) \"empty\")") == "(assume false (error List!1))")
+  }
+
   test("Refinements don't change sorts") {
     assert(lowered("(as Nil!9 (List!9 (! Int :var w :restrict (> w 1))))") == "Nil!0")
   }

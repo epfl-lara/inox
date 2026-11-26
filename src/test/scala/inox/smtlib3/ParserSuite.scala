@@ -424,6 +424,21 @@ class ParserSuite extends AnyFunSuite {
         |(check-sat)""".stripMargin)
   }
 
+  test("errors") {
+    val (program, _) = parseOne(
+      """(define-fun f ((x Int)) Int (ite (>= x 0) x (error Int "negative x")))
+        |(assert (= (f 1) 1))
+        |(check-sat)""".stripMargin)
+    val body = program.symbols.functions.values.find(_.id.name == "f").get.fullBody
+    assert(exprOps.collect[Error] { case e: Error => Set(e) case _ => Set.empty } (body) ==
+      Set(Error(IntegerType(), "negative x")))
+
+    // no model evaluates an error
+    assertSAT("(define-fun f ((x Int)) Int (ite (>= x 0) x (error Int \"negative\")))\n(assert (= (f 1) 1))\n(check-sat)")
+    assertUNSAT("(define-fun f ((x Int)) Int (ite (>= x 0) x (error Int \"negative\")))\n(assert (= (f (- 1)) 1))\n(check-sat)")
+    assertUNSAT("(declare-const y Int)\n(assert (= (ite (> y 0) (error Bool \"positive\") (> y 0)) (> y 0)))\n(assert (> y 0))\n(check-sat)")
+  }
+
   test("unsupported features") {
     intercept[tip.MissformedTIPException] {
       parse("(declare-const f (-> (! Int :var n :implicit) (BitVec n) (BitVec n)))\n(check-sat)")
