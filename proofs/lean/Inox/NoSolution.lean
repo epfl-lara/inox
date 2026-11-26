@@ -1,5 +1,7 @@
 /- Copyright 2009-2026 EPFL, Lausanne -/
 import Inox.Bridge
+import Inox.Codes
+import Cpc.Proofs.TypePreservation.Nonvacuity
 
 /-!
 # An accepted certificate: the query has no solution, on integers and Booleans
@@ -138,7 +140,8 @@ those of the functions of `S` in `P` (`hE`) and whose base clauses are the trans
 expressions `qs` of the query (`hbase`), for a program of the fragment whose calls all give
 values (`htot`), then no values of the free variables make every expression of the query evaluate
 to `true`, given that the facts that the check doesn't cover hold in the models of the defining
-equations (`hfacts`). A well-formed model `M0` gives the sorts and the other function values. -/
+equations (`hfacts`). The model of a solution is over a well-formed model, which exists by the
+theorem of Logos, with an injection of codes, which exists too (`Codes.nonempty`). -/
 theorem no_solution (sound : LogosSound) (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S)
     (hPF : ProgFrag P) (hP : ProgTy S P) (htot : Total O P S)
     {certificate : Logos.Sexp} {checked : Checked} {r : TermSteps}
@@ -146,10 +149,11 @@ theorem no_solution (sound : LogosSound) (hO : O.Sound) (hty : LogosTyping) (hS 
     (hcheck : r.check = true) (hkeeps : r.keeps = true)
     (hE : ∀ e ∈ r.equations, ∃ s ∈ S, EqFor P S s e)
     {Γ : List (Id × Ty)} (hΓ : VarsFresh S Γ) {qs : List Expr} (hbase : BaseFor S Γ qs r.base)
-    (hfacts : FactsHoldExcept (Good r.equations) r.covered (extend r.base r.fresh) r.facts)
-    (cd : Codes) {M0 : SmtModel} (hM0 : model_wf M0) :
+    (hfacts : FactsHoldExcept (Good r.equations) r.covered (extend r.base r.fresh) r.facts) :
     ∀ vs, ¬ Solution O P Γ qs vs := by
   intro vs ⟨hvs, bs, hbs, hsol⟩
+  obtain ⟨cd⟩ := Codes.nonempty
+  obtain ⟨M0, hM0⟩ := Smtm.model_wf_nonvacuous
   have hw := wf_star (defs S) (interpOf O P S) M0 cd hM0 (wf_varsModel hM0 hvs) rfl
   refine no_good_model_of_instances sound hty hAccept hr hcheck hkeeps hfacts _
     (good_star hO hty hS hPF hP htot hE M0 _ cd hw)

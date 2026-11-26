@@ -358,9 +358,9 @@ in the base, which mention their symbols).
 
 The soundness of Logos is a hypothesis of the theorems, `LogosSound`, which is
 the statement of Logos's own theorem. They then only need the definitions of
-Logos, and Mathlib for its reals: the [`verification`](verification) project
-builds them in minutes, and the `Lean proofs` workflow does when this directory
-changes.
+Logos, its proof that a well-formed model exists, and Mathlib for its reals and
+their cardinality: the [`verification`](verification) project builds them in
+minutes, and the `Lean proofs` workflow does when this directory changes.
 
 ```sh
 cd proofs/lean/verification && lake exe cache get && lake build
@@ -446,9 +446,11 @@ Given a program `P` and a solution `σ` of the query, the intended model
 [`Inox/Model.lean`](Inox/Model.lean) builds this model over an arbitrary
 interpretation `interp` of the functions, and proves it well formed whatever
 `interp` is. The bridge instantiates `interp` with `call`. It takes one fact as
-a hypothesis: an injection of names, types and argument lists into the nonzero
-codes of `Fun` values (`Codes`; `ModelId` is `ℝ`, so one exists, but it isn't
-proved yet).
+a parameter: an injection of names, types and argument lists into the nonzero
+codes of `Fun` values (`Codes`). One exists (`Codes.nonempty`,
+[`Inox/Codes.lean`](Inox/Codes.lean)): `ModelId` is `ℝ`, the sorts are
+countable, and a value is written injectively as a list of reals and naturals
+(`ser_inj`), so there are no more partial applications than reals.
 
 ### The agreement theorem
 
@@ -710,8 +712,7 @@ theorem no_solution (sound : LogosSound) (hO : O.Sound) (hty : LogosTyping)
     (hE : ∀ e ∈ r.equations, ∃ s ∈ S, EqFor P S s e)
     (hΓ : VarsFresh S Γ) (hbase : BaseFor S Γ qs r.base)
     (hfacts : FactsHoldExcept (Good r.equations) r.covered
-      (extend r.base r.fresh) r.facts)
-    (cd : Codes) (hM0 : model_wf M0) :
+      (extend r.base r.fresh) r.facts) :
     ∀ vs, ¬ Solution O P Γ qs vs
 ```
 
@@ -744,8 +745,7 @@ theorem no_solution_of_check (sound : LogosSound) (hO : O.Sound)
     (hsrc : sourceCheck r = true)
     (htot : Total O (programOf r.equations) (sigsOf r.equations))
     (hfacts : FactsHoldExcept (Good r.equations) r.covered
-      (extend r.base r.fresh) r.facts)
-    (cd : Codes) (hM0 : model_wf M0) :
+      (extend r.base r.fresh) r.facts) :
     ∀ vs, ¬ Solution O (programOf r.equations)
       (varsOf (sigsOf r.equations) r.base) (queryOf r.base) vs
 ```
@@ -760,7 +760,7 @@ refuses a certificate that has one.
 
 When the check of the certificate covers every fact (`r.facts.all r.covered`),
 `no_solution_of_covered` has no hypothesis on the facts: what is left is
-`Total`, the oracle, `Codes` and the model `M0`.
+`Total` and the oracle.
 
 On the certificates that Inox prints for two inputs of the fragment, a
 recursive function over the integers and a recursive predicate with a query
@@ -790,9 +790,11 @@ first-class functions, it only holds of a few that define no function.
   certificate that has one; the programs of the fragment have none.
 - That the program and the query read from the certificate are those that Inox
   answered about.
-- `model_wf M0`, a well-formed model for the sorts and the other function
-  values, and `cd : Codes`. That both exist is not proved here. For
-  `no_star_model`, also `model_wf N` and `N.usortDom = M0.usortDom`.
+- For `no_star_model`, `model_wf M0`, a well-formed model for the sorts and the
+  other function values, `cd : Codes`, `model_wf N` and
+  `N.usortDom = M0.usortDom`. `no_solution` takes none of them: a well-formed
+  model exists by the theorem of Logos (`Smtm.model_wf_nonvacuous`), and an
+  injection of codes by `Codes.nonempty`.
 - `hfacts`: for `no_solution`, the facts that `r.covered` doesn't cover
   (contracts, assertions and the others, see above), and none when it covers
   them all (`no_solution_of_covered`); for `no_star_model`, the facts other
