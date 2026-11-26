@@ -21,8 +21,12 @@ import solvers.PurityOptions
   * written.
   *
   * All that is done to a formula is done by one simplifier, which records the steps of what it
-  * does in its `recorder`, when it has one (see [[TransformationRecorder]]). */
-trait FormulaSimplifier extends SimplifierWithPC { self =>
+  * does in the recorder that it is given with the formula (see
+  * [[TransformationRecorder]]): the traversal has it in its path, and the simplifier itself
+  * keeps nothing of a formula, so that one simplifier serves the simplifications that are
+  * recorded and those that are not. */
+trait FormulaSimplifier extends SimplifierWithPath { self =>
+
   import trees._
   import trees.exprOps._
   import symbols.{given, _}
@@ -101,7 +105,7 @@ trait FormulaSimplifier extends SimplifierWithPC { self =>
     * - lifts the assumptions of the subterms of an assumption into it. */
   override protected def simplifyCore(e: Expr, path: Env): (Expr, Boolean) = matcher(e) match {
     case Some(m) =>
-      recorded("matchers", m)
+      recorded("matchers", m, path)
       simplify(m, path)
 
     case None => e match {
@@ -109,8 +113,8 @@ trait FormulaSimplifier extends SimplifierWithPC { self =>
       // then drops where they are not used
       case fi: FunctionInvocation if inlines(fi.id) =>
         val inlined = fi.inlined
-        recorded("unfold", unfolded(fi))
-        recorded("logic", inlined)
+        recorded("unfold", unfolded(fi), path)
+        recorded("logic", inlined, path)
         simplify(inlined, path)
 
       case _: Assume => super.simplifyCore(e, path) match {
@@ -138,9 +142,9 @@ trait FormulaSimplifier extends SimplifierWithPC { self =>
         case _ => 0
       } (e)
       val to = Assume(lifted, newBody).copiedFrom(assumption)
-      recorded(if (underBinders(assumption) == underBinders(to)) "logic" else "lift-assumptions", to)
+      recorded(if (underBinders(assumption) == underBinders(to)) "logic" else "lift-assumptions", to, path)
       val (rp, _) = simplify(lifted, path)
-      step("logic", assume(rp, newBody).copiedFrom(assumption))
+      step("logic", assume(rp, newBody).copiedFrom(assumption), path)
     }
   }
 
@@ -148,8 +152,9 @@ trait FormulaSimplifier extends SimplifierWithPC { self =>
     * by evaluating them using [[inox.evaluators.Evaluator]].
     * If `force` is omitted, the given expression will only be evaluated if it is
     * ground, pure, and does not contain uninterpreted calls or quantifiers.
+    * The steps of the evaluations are recorded in `r`, when it is active.
     */
-  def simplifyGround(expr: Expr, reportErrors: Boolean = false)(using sem: symbols.Semantics, ctx: Context): Expr = {
+  def simplifyGround(expr: Expr, reportErrors: Boolean = false, r: Recorder = noRecorder)(using sem: symbols.Semantics, ctx: Context): Expr = {
     val evalCtx = ctx.withOpts(evaluators.optEvalQuantifiers(false))
     val evaluator = sem.getEvaluator(using evalCtx)
 
@@ -175,8 +180,7 @@ trait FormulaSimplifier extends SimplifierWithPC { self =>
     // constants of the program, select fields of their values and test their constructors,
     // and the others are one step, of the rule `evaluate`.
     def record(e: Expr, value: Expr): Unit = {
-      val r = recorder
-      if ((r ne null) && r.active && e != value) {
+      if (r.active && e != value) {
         def steps(e: Expr): Expr = e match {
           case fi @ FunctionInvocation(_, _, Seq()) if !isValue(e) =>
             val body = unfolded(fi)
@@ -206,6 +210,8 @@ trait FormulaSimplifier extends SimplifierWithPC { self =>
     }
 
     // TODO: Should we run this within a fixpoint with simplifyByConstructor?
+    def recordedAt(e: Expr)(body: => Expr): Expr = if (!r.active) body else r.at(e)(body)
+
     def rec(e: Expr)(using PurityOptions): Expr = recordedAt(e)(e match {
       case e if isValue(e) =>
         e
@@ -230,17 +236,16 @@ trait FormulaSimplifier extends SimplifierWithPC { self =>
 
   /** Simplifies the formula `e`, for the solvers: simplifies it under its path conditions,
     * and evaluates its ground subterms. */
-  def simplifyFormula(e: Expr)(using ctx: Context, sem: symbols.Semantics): Expr = {
+  def simplifyFormula(e: Expr, r: Recorder = noRecorder)(using ctx: Context, sem: symbols.Semantics): Expr = {
     val simp: Expr => Expr =
-      recordedPass("evaluate", (e: Expr) => simplifyGround(e))               compose
-      recordedPass("simplify", (e: Expr) => transform(e, initEnv))
+      recordedPass("evaluate", r, (e: Expr) => simplifyGround(e, r = r))     compose
+      recordedPass("simplify", r, (e: Expr) => transform(e, Env.recording(r)))
     simp(e)
   }
 
   /** A pass of a simplification: when it is recorded, what the pass makes of the term without
     * recording how is a step of the rule `rule`. */
-  private def recordedPass(rule: String, pass: Expr => Expr): Expr => Expr = (e: Expr) => {
-    val r = recorder
-    if (r eq null) pass(e) else r.at(e, rule)(pass(e))
+  private def recordedPass(rule: String, r: Recorder, pass: Expr => Expr): Expr => Expr = (e: Expr) => {
+    if (!r.active) pass(e) else r.at(e, rule)(pass(e))
   }
 }
