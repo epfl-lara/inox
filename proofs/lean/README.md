@@ -223,8 +223,12 @@ holds under the literals that `p` being true makes known, for each disjunct of
 `true` under the known literals (`red`: a known subterm is its value, an `ite`
 whose condition reduces to a literal is its branch, Boolean operators of
 literals are reduced, and `(= x y)` is true when `x` and `y` reduce to the same
-term); and an instance of a defining equation holds. So a result defined under
-the guards of both branches, `(=> b1 (= e t1))` and `(=> b2 (= e t2))`, becomes
+term); and an instance of a defining equation holds. The known literals include
+those that a true disjunction with an operand that reduces to false makes
+known, those of its other operand (`unitLits`, `kSound_unitLits`): on the
+branch of `(or b t)` where `b` is false, a query that states the disjunction
+makes `t` known. So a result defined under the guards of both branches,
+`(=> b1 (= e t1))` and `(=> b2 (= e t2))`, becomes
 `(=> (and n c) (= (ite c t1 t2) t1))`, which holds since the guard makes `c`
 known; and the value of a nested call, `(=> b (= lt (f' args)))`, is that call.
 [`Inox/Instances.lean`](Inox/Instances.lean) proves it: `eval_red`,
@@ -350,7 +354,7 @@ many of the source expressions and completeness assumptions are base clauses;
 and how many reflexivity axioms. `--remaining` also prints the remaining facts
 and the definitions left out. On the 31 regression certificates that Logos
 reads, 1,825 facts remain once the 46 completeness assumptions are in the base,
-and 1,356 are covered (24 unfoldings, 1,307 clauses of instances, of which the
+and 1,360 are covered (24 unfoldings, 1,311 clauses of instances, of which the
 180 decreases clauses, 25 directly: 12 `Reflexivity`, 13 `Congruence`); 30 of
 the 32 source expressions are base clauses, and 771 of the 805 definitions are
 steps (5 fewer than without the source expressions and completeness assumptions
@@ -608,7 +612,7 @@ Proving it needs the agreement theorem. The instance and verified facts of
 equations at the instance's arguments without a guard, so restating them needs
 the same obligation at each use of an equation. The gap is large: on the
 regression corpus, `no_good_model_of_unfold_on` covers the 24 unfoldings of the
-1,356 facts that `no_good_model_of_instances` covers, and the other 1,332 stay
+1,360 facts that `no_good_model_of_instances` covers, and the other 1,336 stay
 in `hfacts`.
 
 **Fuel monotonicity** ([`Inox/Mono.lean`](Inox/Mono.lean)), against the
@@ -765,7 +769,7 @@ When the check of the certificate covers every fact (`r.facts.all r.covered`),
 On the certificates that Inox prints for two inputs of the fragment, a
 recursive function over the integers and a recursive predicate with a query
 that has free variables, the checker accepts and `sourceCheck` holds, and the
-check covers every fact of the first, and all but one of the second. They are
+check covers every fact of both, so `no_solution_of_covered` applies. They are
 not kept here. On the regression certificates, which are mostly about ADTs and
 first-class functions, it only holds of a few that define no function.
 
