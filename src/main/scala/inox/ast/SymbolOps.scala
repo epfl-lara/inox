@@ -95,22 +95,22 @@ trait SymbolOps extends TypeOps { self =>
   }
 
   /** A simplifier of formulas: [[simplifier]], with the passes of [[simplifyFormula]]. It records
-    * the steps of what it does in `recorder`, for certificates, unless it is `null`. */
-  protected def formulaSimplifierWithPC(popts: PurityOptions, recorder: Recorder): SimplifierWithPC & transformers.FormulaSimplifier = {
+    * the steps of what it does, for certificates, in the recorder that it is given with a
+    * formula. */
+  protected def formulaSimplifierWithPC(popts: PurityOptions): SimplifierWithPC & transformers.FormulaSimplifier = {
     class Impl(override val trees: self.trees.type,
                override val symbols: self.symbols.type,
                override val s: self.trees.type,
                override val t: self.trees.type,
-               override val opts: inox.solvers.PurityOptions,
-               override protected val recorder: Recorder)
-      extends SimplifierWithPC with transformers.SimplifierWithPath with transformers.FormulaSimplifier
+               override val opts: inox.solvers.PurityOptions)
+      extends SimplifierWithPC with transformers.FormulaSimplifier
 
-    new Impl(self.trees, self.symbols, self.trees, self.trees, popts, recorder)
+    new Impl(self.trees, self.symbols, self.trees, self.trees, popts)
   }
 
   private val formulaSimplifierCache: MutableMap[PurityOptions, SimplifierWithPC & transformers.FormulaSimplifier] = MutableMap.empty
   private[inox] def formulaSimplifier(using purityOpts: PurityOptions): SimplifierWithPC & transformers.FormulaSimplifier = synchronized {
-    formulaSimplifierCache.getOrElseUpdate(purityOpts, formulaSimplifierWithPC(purityOpts, null))
+    formulaSimplifierCache.getOrElseUpdate(purityOpts, formulaSimplifierWithPC(purityOpts))
   }
 
   /** A recorder of the steps of a simplification, for certificates (see [[simplifyFormulaRecorded]]),
@@ -1169,7 +1169,7 @@ trait SymbolOps extends TypeOps { self =>
     // subterms are found by their identity
     val original = transformers.TransformationRecorder.unshared(trees)(e)
     val recorder = transformers.TransformationRecorder(trees)(original)
-    val res = formulaSimplifierWithPC(PurityOptions(ctx), recorder).simplifyFormula(original)
+    val res = formulaSimplifier(using PurityOptions(ctx)).simplifyFormula(original, recorder)
     (res, recorder.result(res))
   }
 
