@@ -307,7 +307,7 @@ theorem noBinder_tr {S : List Sig} {Γ : List (Id × Ty)} {e : Expr} {T : Ty}
     exact all_of_zip (Q := fun a => noBinder (tr D S Γ a) = true) (by simpa using hl) ih e he
   | isCons hc _ ih => simpa [tr, hc, noBinder] using ih
   | sel hx _ ih => simpa [tr, hx, noBinder] using ih
-  | _ => simp_all [tr, noBinder]
+  | _ => simp only [tr]; (try split) <;> simp_all [noBinder]
 
 /-! ## The literals of definitions -/
 

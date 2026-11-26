@@ -4,11 +4,12 @@ import Inox.Relative
 import Cpc.Proofs.TypePreservation.Helpers
 
 /-!
-# From the generated semantics to the intended model, on integers and Booleans
+# From the generated semantics to the intended model, on a first-order fragment
 
 The semantics of Inox is `eval` and `call` of `proofs/semantics/Inox/Semantics.lean`, generated
 from `semantics.md`. This module ties it to the models that the certificate checker is about, for
-the first-order expressions over integers and Booleans (`HasTy`):
+the first-order expressions over integers, Booleans, unsigned bit-vectors and datatypes
+(`HasTy`):
 
 - `tr D S Γ e` is the term of Logos of an expression, and `trV` the value of a value;
 - `ev`, the agreement theorem: where `eval` gives a value, the term evaluates to it in each model
@@ -128,6 +129,39 @@ inductive HasTy (D : List Data) (S : List Sig) (Γ : List (Id × Ty)) : Expr →
       HasTy D S Γ (.LessEquals a b) .BooleanType
   | ge {a b : Expr} : HasTy D S Γ a .IntegerType → HasTy D S Γ b .IntegerType →
       HasTy D S Γ (.GreaterEquals a b) .BooleanType
+  | bvLit {w x : Int} : 0 < w → 0 ≤ x → x < 2 ^ w.toNat →
+      HasTy D S Γ (.BVLiteral false w x) (.BVType false w)
+  | bvPlus {a b : Expr} {w : Int} :
+      HasTy D S Γ a (.BVType false w) → HasTy D S Γ b (.BVType false w) →
+      HasTy D S Γ (.Plus a b) (.BVType false w)
+  | bvMinus {a b : Expr} {w : Int} :
+      HasTy D S Γ a (.BVType false w) → HasTy D S Γ b (.BVType false w) →
+      HasTy D S Γ (.Minus a b) (.BVType false w)
+  | bvTimes {a b : Expr} {w : Int} :
+      HasTy D S Γ a (.BVType false w) → HasTy D S Γ b (.BVType false w) →
+      HasTy D S Γ (.Times a b) (.BVType false w)
+  | bvDiv {a b : Expr} {w : Int} :
+      HasTy D S Γ a (.BVType false w) → HasTy D S Γ b (.BVType false w) →
+      HasTy D S Γ (.Division a b) (.BVType false w)
+  | bvRem {a b : Expr} {w : Int} :
+      HasTy D S Γ a (.BVType false w) → HasTy D S Γ b (.BVType false w) →
+      HasTy D S Γ (.Remainder a b) (.BVType false w)
+  | bvNeg {a : Expr} {w : Int} : HasTy D S Γ a (.BVType false w) →
+      HasTy D S Γ (.UMinus a) (.BVType false w)
+  | bvNot {a : Expr} {w : Int} : HasTy D S Γ a (.BVType false w) →
+      HasTy D S Γ (.BVNot a) (.BVType false w)
+  | bvLt {a b : Expr} {w : Int} :
+      HasTy D S Γ a (.BVType false w) → HasTy D S Γ b (.BVType false w) →
+      HasTy D S Γ (.LessThan a b) .BooleanType
+  | bvGt {a b : Expr} {w : Int} :
+      HasTy D S Γ a (.BVType false w) → HasTy D S Γ b (.BVType false w) →
+      HasTy D S Γ (.GreaterThan a b) .BooleanType
+  | bvLe {a b : Expr} {w : Int} :
+      HasTy D S Γ a (.BVType false w) → HasTy D S Γ b (.BVType false w) →
+      HasTy D S Γ (.LessEquals a b) .BooleanType
+  | bvGe {a b : Expr} {w : Int} :
+      HasTy D S Γ a (.BVType false w) → HasTy D S Γ b (.BVType false w) →
+      HasTy D S Γ (.GreaterEquals a b) .BooleanType
   | invoke {s : Sig} {args : List Expr} : findSig S s.name = some s →
       args.length = s.params.length →
       (∀ p ∈ args.zip (s.params.map Prod.snd), HasTy D S Γ p.1 p.2) →
@@ -156,6 +190,9 @@ theorem HasTy.fragTy {S : List Sig} (hS : SigOk D S) {Γ : List (Id × Ty)} {e :
   | sel hx _ _ =>
     obtain ⟨hd, c, fs, hi, hj⟩ := findSel_spec hx
     exact hS.data.fields _ hd (c, fs) (List.mem_of_getElem? hi) _ (List.mem_of_getElem? hj)
+  | bvLit hw _ _ => exact hw
+  | bvPlus _ _ ih _ | bvMinus _ _ ih _ | bvTimes _ _ ih _ | bvDiv _ _ ih _ | bvRem _ _ ih _
+    | bvNeg _ ih | bvNot _ ih => exact ih
   | _ => trivial
 
 /-- The program `P` has the functions of `S`, of bodies of their types, with no type parameters. -/
@@ -185,6 +222,47 @@ def orT : List SmtTerm → SmtTerm
   | [] => .Boolean false
   | t :: ts => .or t (orT ts)
 
+/-- Whether a type is of bit-vectors. -/
+def _root_.Inox.Semantics.Ty.isBv : Ty → Bool
+  | .BVType _ _ => true
+  | _ => false
+
+/-- Whether the expression `e` of the fragment is of a type of bit-vectors, which chooses the
+operators of its term: SMT-LIB has others for the bit-vectors than for the integers. -/
+def isBv (D : List Data) (S : List Sig) (Γ : List (Id × Ty)) : Expr → Bool
+  | .Variable x =>
+    match Γ.lookup x with
+    | some T => T.isBv
+    | none => false
+  | .BVLiteral _ _ _ => true
+  | .IfExpr _ a _ => isBv D S Γ a
+  | .Plus a _ | .Minus a _ | .Times a _ | .Division a _ | .Remainder a _ | .UMinus a
+  | .BVNot a => isBv D S Γ a
+  | .FunctionInvocation f _ _ =>
+    match findSig S f with
+    | some s => s.ret.isBv
+    | none => false
+  | .Assume _ b => isBv D S Γ b
+  | .ADTSelector _ x =>
+    match findSel D x with
+    | some (_, _, _, T) => T.isBv
+    | none => false
+  | _ => false
+
+theorem isBv_eq {S : List Sig} {Γ : List (Id × Ty)} {e : Expr} {T : Ty}
+    (h : HasTy D S Γ e T) : isBv D S Γ e = T.isBv := by
+  induction h with
+  | var hx _ => simp only [isBv, hx]
+  | ite _ _ _ _ iha _ => simpa only [isBv] using iha
+  | invoke hs _ _ _ => simp only [isBv, hs]
+  | assume _ _ _ ihb => simpa only [isBv] using ihb
+  | sel hx _ _ => simp only [isBv, hx]
+  | plus _ _ iha _ | minus _ _ iha _ | times _ _ iha _ | div _ _ iha _ | rem _ _ iha _
+    | uminus _ iha | bvPlus _ _ iha _ | bvMinus _ _ iha _ | bvTimes _ _ iha _
+    | bvDiv _ _ iha _ | bvRem _ _ iha _ | bvNeg _ iha | bvNot _ iha =>
+    simpa only [isBv] using iha
+  | _ => rfl
+
 mutual
 /-- The term of the expression `e` of the fragment: a variable is the constant named after it, of
 the sort of its type, and a call the application of the constant named after the function. -/
@@ -201,16 +279,28 @@ def tr (D : List Data) (S : List Sig) (Γ : List (Id × Ty)) : Expr → SmtTerm
   | .Not a => .not (tr D S Γ a)
   | .Implies a b => .imp (tr D S Γ a) (tr D S Γ b)
   | .Equals a b => .eq (tr D S Γ a) (tr D S Γ b)
-  | .Plus a b => .plus (tr D S Γ a) (tr D S Γ b)
-  | .Minus a b => .neg (tr D S Γ a) (tr D S Γ b)
-  | .Times a b => .mult (tr D S Γ a) (tr D S Γ b)
-  | .Division a b => .div (tr D S Γ a) (tr D S Γ b)
-  | .Remainder a b | .Modulo a b => .mod (tr D S Γ a) (tr D S Γ b)
-  | .UMinus a => .uneg (tr D S Γ a)
-  | .LessThan a b => .lt (tr D S Γ a) (tr D S Γ b)
-  | .GreaterThan a b => .gt (tr D S Γ a) (tr D S Γ b)
-  | .LessEquals a b => .leq (tr D S Γ a) (tr D S Γ b)
-  | .GreaterEquals a b => .geq (tr D S Γ a) (tr D S Γ b)
+  | .BVLiteral _ w x => .Binary w x
+  | .Plus a b =>
+    if isBv D S Γ a then .bvadd (tr D S Γ a) (tr D S Γ b) else .plus (tr D S Γ a) (tr D S Γ b)
+  | .Minus a b =>
+    if isBv D S Γ a then .bvsub (tr D S Γ a) (tr D S Γ b) else .neg (tr D S Γ a) (tr D S Γ b)
+  | .Times a b =>
+    if isBv D S Γ a then .bvmul (tr D S Γ a) (tr D S Γ b) else .mult (tr D S Γ a) (tr D S Γ b)
+  | .Division a b =>
+    if isBv D S Γ a then .bvudiv (tr D S Γ a) (tr D S Γ b) else .div (tr D S Γ a) (tr D S Γ b)
+  | .Remainder a b =>
+    if isBv D S Γ a then .bvurem (tr D S Γ a) (tr D S Γ b) else .mod (tr D S Γ a) (tr D S Γ b)
+  | .Modulo a b => .mod (tr D S Γ a) (tr D S Γ b)
+  | .UMinus a => if isBv D S Γ a then .bvneg (tr D S Γ a) else .uneg (tr D S Γ a)
+  | .BVNot a => .bvnot (tr D S Γ a)
+  | .LessThan a b =>
+    if isBv D S Γ a then .bvult (tr D S Γ a) (tr D S Γ b) else .lt (tr D S Γ a) (tr D S Γ b)
+  | .GreaterThan a b =>
+    if isBv D S Γ a then .bvugt (tr D S Γ a) (tr D S Γ b) else .gt (tr D S Γ a) (tr D S Γ b)
+  | .LessEquals a b =>
+    if isBv D S Γ a then .bvule (tr D S Γ a) (tr D S Γ b) else .leq (tr D S Γ a) (tr D S Γ b)
+  | .GreaterEquals a b =>
+    if isBv D S Γ a then .bvuge (tr D S Γ a) (tr D S Γ b) else .geq (tr D S Γ a) (tr D S Γ b)
   | .FunctionInvocation f _ args =>
     match findSig S f with
     | some s => spine (.UConst (nm f) (s.toDef D).ty) (trs D S Γ args)
@@ -372,12 +462,32 @@ theorem tr_typeof {S : List Sig} (hS : SigOk D S) {Γ : List (Id × Ty)} {e : Ex
       native_Teq, trT_ne hS.data (ha.fragTy hS), decide_false, decide_true, Bool.false_eq_true,
       ↓reduceIte]
     rfl
-  | plus _ _ iha ihb | minus _ _ iha ihb | times _ _ iha ihb | div _ _ iha ihb
-    | rem _ _ iha ihb | mod _ _ iha ihb =>
-    simp only [tr, __smtx_typeof, iha, ihb, trT]; rfl
-  | uminus _ ih => simp only [tr, __smtx_typeof, ih, trT]; rfl
-  | lt _ _ iha ihb | gt _ _ iha ihb | le _ _ iha ihb | ge _ _ iha ihb =>
-    simp only [tr, __smtx_typeof, iha, ihb, trT]; rfl
+  | plus ha _ iha ihb | minus ha _ iha ihb | times ha _ iha ihb | div ha _ iha ihb
+    | rem ha _ iha ihb | mod ha _ iha ihb =>
+    simp only [tr, isBv_eq ha, Ty.isBv, Bool.false_eq_true, ↓reduceIte, __smtx_typeof, iha, ihb,
+      trT]
+    rfl
+  | uminus ha ih =>
+    simp only [tr, isBv_eq ha, Ty.isBv, Bool.false_eq_true, ↓reduceIte, __smtx_typeof, ih, trT]
+    rfl
+  | lt ha _ iha ihb | gt ha _ iha ihb | le ha _ iha ihb | ge ha _ iha ihb =>
+    simp only [tr, isBv_eq ha, Ty.isBv, Bool.false_eq_true, ↓reduceIte, __smtx_typeof, iha, ihb,
+      trT]
+    rfl
+  | @bvLit w x hw h0 hx =>
+    have hm : native_zeq x (native_mod_total x (native_int_pow2 w)) = true := by
+      simp [native_zeq, native_mod_total, int_pow2_eq (Int.le_of_lt hw), Int.emod_eq_of_lt h0 hx]
+    simp [tr, trT, __smtx_typeof, native_ite, native_and, native_zleq, Int.le_of_lt hw, hm,
+      native_int_to_nat]
+  | bvPlus ha _ iha ihb | bvMinus ha _ iha ihb | bvTimes ha _ iha ihb | bvDiv ha _ iha ihb
+    | bvRem ha _ iha ihb =>
+    simp [tr, isBv_eq ha, Ty.isBv, __smtx_typeof, iha, ihb, trT, __smtx_typeof_bv_op_2,
+      native_ite, native_nateq]
+  | bvNeg ha ih | bvNot ha ih =>
+    simp [tr, isBv_eq ha, Ty.isBv, __smtx_typeof, ih, trT, __smtx_typeof_bv_op_1]
+  | bvLt ha _ iha ihb | bvGt ha _ iha ihb | bvLe ha _ iha ihb | bvGe ha _ iha ihb =>
+    simp [tr, isBv_eq ha, Ty.isBv, __smtx_typeof, iha, ihb, trT, __smtx_typeof_bv_op_2_ret,
+      native_ite, native_nateq]
   | @invoke s args hs hl _ ih =>
     have hmem := (findSig_spec hs).1
     simp only [tr, hs, trs_eq]
@@ -615,7 +725,8 @@ theorem eval_eq_trV {D : List Data} (hD : DataOk D) {x y : Value} {T : Ty} (hx :
     __smtx_model_eval_eq (trV D x) (trV D y) = trV D (.BoolV (decide (x = y))) := by
   have hne : __smtx_typeof_value (trV D x) ≠ .RegLan := by
     rw [(agrees_trV hD default x T hx).1]
-    rcases fragTy_cases (hasV_fragTy hx) with rfl | rfl | ⟨d, hd, rfl⟩
+    rcases fragTy_cases (hasV_fragTy hx) with rfl | rfl | ⟨w, _, rfl⟩ | ⟨d, hd, rfl⟩
+    · simp [trT]
     · simp [trT]
     · simp [trT]
     · rw [trT_data hD hd]; simp
@@ -641,6 +752,62 @@ theorem applyAll_ctor (M : SmtModel) : ∀ (as : List SmtValue) (f : SmtValue), 
     simp only [applyAll, this]
     rw [applyAll_ctor M as (.Apply f a) trivial (fun b hb => h b (.tail _ hb))]
     simp [applyVs]
+
+/-! The operators of the bit-vectors, on the values. -/
+
+theorem bvadd_eq {w : Int} (hw : 0 < w) (i j : Int) :
+    __smtx_model_eval_bvadd (.Binary w i) (.Binary w j) = trV D (bv false w (i + j)) := by
+  rw [trV_bvmk hw]
+  simp [__smtx_model_eval_bvadd, native_mod_total, native_zplus, int_pow2_eq (Int.le_of_lt hw)]
+
+theorem bvmul_eq {w : Int} (hw : 0 < w) (i j : Int) :
+    __smtx_model_eval_bvmul (.Binary w i) (.Binary w j) = trV D (bv false w (i * j)) := by
+  rw [trV_bvmk hw]
+  simp [__smtx_model_eval_bvmul, native_mod_total, native_zmult, int_pow2_eq (Int.le_of_lt hw)]
+
+theorem bvneg_eq {w : Int} (hw : 0 < w) (i : Int) :
+    __smtx_model_eval_bvneg (.Binary w i) = trV D (bv false w (0 - i)) := by
+  rw [trV_bvmk hw]
+  simp [__smtx_model_eval_bvneg, native_mod_total, native_zneg, int_pow2_eq (Int.le_of_lt hw)]
+
+theorem bvsub_eq {w : Int} (hw : 0 < w) (i j : Int) :
+    __smtx_model_eval_bvsub (.Binary w i) (.Binary w j) = trV D (bv false w (i - j)) := by
+  rw [trV_bvmk hw]
+  simp only [__smtx_model_eval_bvsub, __smtx_model_eval_bvneg, __smtx_model_eval_bvadd,
+    native_mod_total, native_zplus, native_zneg, int_pow2_eq (Int.le_of_lt hw)]
+  rw [Int.add_emod_emod, Int.sub_eq_add_neg]
+
+theorem bvudiv_eq {w : Int} (hw : 0 < w) {i : Int} (hi : 0 ≤ i) (j : Int) :
+    __smtx_model_eval_bvudiv (.Binary w i) (.Binary w j) =
+      trV D (if j = 0 then bv false w (pow2 w - 1) else bv false w (tdiv i j)) := by
+  by_cases hj : j = 0
+  · rw [if_pos hj, trV_bvmk hw, pow2_eq (Int.le_of_lt hw)]
+    simp [__smtx_model_eval_bvudiv, native_mod_total, native_ite, native_zeq, hj,
+      native_binary_max, native_zplus, native_zneg, int_pow2_eq (Int.le_of_lt hw),
+      Int.sub_eq_add_neg]
+  · rw [if_neg hj, trV_bvmk hw]
+    simp [__smtx_model_eval_bvudiv, native_mod_total, native_ite, native_zeq, hj,
+      native_div_total, int_pow2_eq (Int.le_of_lt hw), tdiv, hi]
+
+theorem bvurem_eq {w : Int} (hw : 0 < w) {i : Int} (hi0 : 0 ≤ i) (hi : i < 2 ^ w.toNat)
+    (j : Int) :
+    __smtx_model_eval_bvurem (.Binary w i) (.Binary w j) =
+      trV D (if j = 0 then .BVV false w i else bv false w (trem i j)) := by
+  by_cases hj : j = 0
+  · rw [if_pos hj]
+    simp [__smtx_model_eval_bvurem, native_mod_total, native_ite, native_zeq, hj, trV,
+      int_pow2_eq (Int.le_of_lt hw), Int.emod_eq_of_lt hi0 hi]
+  · rw [if_neg hj, trV_bvmk hw]
+    simp [__smtx_model_eval_bvurem, native_mod_total, native_ite, native_zeq, hj,
+      int_pow2_eq (Int.le_of_lt hw), trem, tdiv, hi0, Int.emod_def]
+
+theorem bvnot_eq {w : Int} (hw : 0 < w) {i : Int} (hi0 : 0 ≤ i) (hi : i < 2 ^ w.toNat) :
+    __smtx_model_eval_bvnot (.Binary w i) = trV D (.BVV false w (pow2 w - 1 - i)) := by
+  rw [pow2_eq (Int.le_of_lt hw)]
+  have h : (2 ^ w.toNat + -(i + 1)) % 2 ^ w.toNat = 2 ^ w.toNat - 1 - i := by
+    rw [Int.emod_eq_of_lt (by omega) (by omega)]; omega
+  simp only [__smtx_model_eval_bvnot, native_mod_total, native_binary_not, native_zplus,
+    native_zneg, int_pow2_eq (Int.le_of_lt hw), trV, h]
 
 /-- The agreement: on the fragment, a value of an expression is of its type, and is the value of
 its term in every well-formed model where the calls and the variables agree. -/
@@ -724,7 +891,7 @@ theorem ev (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hPD : ProgData D
     rw [value_eq_hasV hO P x T y hxT hyT] at hsame
     cases hsame
     exact eval_eq_trV hS.data hxT hyT
-  | plus _ _ iha ihb | minus _ _ iha ihb | times _ _ iha ihb =>
+  | plus ha _ iha ihb | minus ha _ iha ihb | times ha _ iha ihb =>
     intro env v hE he
     rw [eval] at he
     ok_split he
@@ -738,10 +905,11 @@ theorem ev (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hPD : ProgData D
     simp only [arith_plus, arith_minus, arith_times] at he
     cases he
     refine ⟨trivial, fun M hw hc hV => ?_⟩
-    simp only [tr, __smtx_model_eval, haM M hw hc hV, hbM M hw hc hV, trV,
+    simp only [tr, isBv_eq ha, Ty.isBv, Bool.false_eq_true, ↓reduceIte, __smtx_model_eval,
+      haM M hw hc hV, hbM M hw hc hV, trV,
       __smtx_model_eval_plus, __smtx_model_eval__, __smtx_model_eval_mult, native_zplus,
       native_zneg, native_zmult, Int.sub_eq_add_neg]
-  | div _ _ iha ihb | rem _ _ iha ihb | mod _ _ iha ihb =>
+  | div ha _ iha ihb | rem ha _ iha ihb | mod ha _ iha ihb =>
     intro env v hE he
     rw [eval] at he
     ok_split he
@@ -758,10 +926,10 @@ theorem ev (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hPD : ProgData D
     rename_i hj
     cases he
     refine ⟨trivial, fun M hw hc hV => ?_⟩
-    simp [tr, __smtx_model_eval, haM M hw hc hV, hbM M hw hc hV, trV, __smtx_model_eval_eq,
-      native_veq, hj, __smtx_model_eval_ite, __smtx_model_eval_div_total,
+    simp [tr, isBv_eq ha, Ty.isBv, __smtx_model_eval, haM M hw hc hV, hbM M hw hc hV, trV,
+      __smtx_model_eval_eq, native_veq, hj, __smtx_model_eval_ite, __smtx_model_eval_div_total,
       __smtx_model_eval_mod_total, native_div_total, native_mod_total]
-  | uminus _ ih =>
+  | uminus ha ih =>
     intro env v hE he
     rw [eval] at he
     ok_split he
@@ -771,9 +939,9 @@ theorem ev (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hPD : ProgData D
     simp only [arith_neg] at he
     cases he
     refine ⟨trivial, fun M hw hc hV => ?_⟩
-    simp only [tr, __smtx_model_eval, haM M hw hc hV, trV, __smtx_model_eval_uneg, native_zneg,
-      Int.zero_sub]
-  | lt _ _ iha ihb | gt _ _ iha ihb | le _ _ iha ihb | ge _ _ iha ihb =>
+    simp only [tr, isBv_eq ha, Ty.isBv, Bool.false_eq_true, ↓reduceIte, __smtx_model_eval,
+      haM M hw hc hV, trV, __smtx_model_eval_uneg, native_zneg, Int.zero_sub]
+  | lt ha _ iha ihb | gt ha _ iha ihb | le ha _ iha ihb | ge ha _ iha ihb =>
     intro env v hE he
     rw [eval] at he
     ok_split he
@@ -787,10 +955,136 @@ theorem ev (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hPD : ProgData D
     simp only [arith_lt, arith_le] at he
     cases he
     refine ⟨trivial, fun M hw hc hV => ?_⟩
-    simp only [tr, __smtx_model_eval, haM M hw hc hV, hbM M hw hc hV, trV,
-      __smtx_model_eval_lt, __smtx_model_eval_leq, __smtx_model_eval_gt, __smtx_model_eval_geq,
+    simp only [tr, isBv_eq ha, Ty.isBv, Bool.false_eq_true, ↓reduceIte, __smtx_model_eval,
+      haM M hw hc hV, hbM M hw hc hV, trV, __smtx_model_eval_lt, __smtx_model_eval_leq,
+          __smtx_model_eval_gt, __smtx_model_eval_geq,
       native_zlt, native_zleq]
     all_goals (congr 1; rw [← decide_not]; exact decide_eq_decide.mpr Int.not_lt.symm)
+  | bvLit hw h0 hx =>
+    intro env v hE he; rw [eval] at he; cases he
+    exact ⟨hasV_bv_of hw h0 hx, fun _ _ _ _ => rfl⟩
+  | bvPlus ha _ iha ihb | bvMinus ha _ iha ihb | bvTimes ha _ iha ihb =>
+    intro env v hE he
+    rw [eval] at he
+    ok_split he
+    rename_i x hx
+    ok_split he
+    rename_i y hy
+    obtain ⟨hxT, haM⟩ := iha env _ hE hx
+    obtain ⟨hyT, hbM⟩ := ihb env _ hE hy
+    obtain ⟨-, i, rfl, hw, hi0, hi⟩ := hasV_bv hxT
+    obtain ⟨-, j, rfl, -, hj0, hj⟩ := hasV_bv hyT
+    simp only [arith_plus, arith_minus, arith_times, same_bv, decide_true, Bool.and_self,
+      ↓reduceDIte, Result.Ok.injEq] at he
+    subst he
+    refine ⟨hasV_bvmk hw _, fun M hwf hc hV => ?_⟩
+    simp only [tr, isBv_eq ha, Ty.isBv, ↓reduceIte, __smtx_model_eval, haM M hwf hc hV,
+      hbM M hwf hc hV, trV]
+    first | exact bvadd_eq hw i j | exact bvsub_eq hw i j | exact bvmul_eq hw i j
+  | bvDiv ha _ iha ihb =>
+    intro env v hE he
+    rw [eval] at he
+    ok_split he
+    rename_i x hx
+    ok_split he
+    rename_i y hy
+    obtain ⟨hxT, haM⟩ := iha env _ hE hx
+    obtain ⟨hyT, hbM⟩ := ihb env _ hE hy
+    obtain ⟨-, i, rfl, hw, hi0, hi⟩ := hasV_bv hxT
+    obtain ⟨-, j, rfl, -, hj0, hj⟩ := hasV_bv hyT
+    by_cases hz : j = 0
+    · simp only [arith_div, same_bv, bv_int, decide_true, Bool.and_self, ↓reduceDIte, hz,
+        Bool.false_eq_true, Result.Ok.injEq] at he
+      subst he
+      refine ⟨hasV_bvmk hw _, fun M hwf hc hV => ?_⟩
+      simp only [tr, isBv_eq ha, Ty.isBv, ↓reduceIte, __smtx_model_eval, haM M hwf hc hV,
+        hbM M hwf hc hV, trV]
+      rw [bvudiv_eq hw hi0, ite_cond_eq_true _ _ (eq_true hz)]
+    · simp only [arith_div, same_bv, bv_int, decide_true, Bool.and_self, ↓reduceDIte, hz,
+        Bool.false_eq_true, Result.Ok.injEq] at he
+      subst he
+      refine ⟨hasV_bvmk hw _, fun M hwf hc hV => ?_⟩
+      simp only [tr, isBv_eq ha, Ty.isBv, ↓reduceIte, __smtx_model_eval, haM M hwf hc hV,
+        hbM M hwf hc hV, trV]
+      rw [bvudiv_eq hw hi0, ite_cond_eq_false _ _ (eq_false hz)]
+  | bvRem ha _ iha ihb =>
+    intro env v hE he
+    rw [eval] at he
+    ok_split he
+    rename_i x hx
+    ok_split he
+    rename_i y hy
+    obtain ⟨hxT, haM⟩ := iha env _ hE hx
+    obtain ⟨hyT, hbM⟩ := ihb env _ hE hy
+    obtain ⟨-, i, rfl, hw, hi0, hi⟩ := hasV_bv hxT
+    obtain ⟨-, j, rfl, -, hj0, hj⟩ := hasV_bv hyT
+    by_cases hz : j = 0
+    · simp only [arith_rem, same_bv, bv_int, decide_true, Bool.and_self, ↓reduceDIte, hz,
+        Bool.false_eq_true, Result.Ok.injEq] at he
+      subst he
+      refine ⟨hxT, fun M hwf hc hV => ?_⟩
+      simp only [tr, isBv_eq ha, Ty.isBv, ↓reduceIte, __smtx_model_eval, haM M hwf hc hV,
+        hbM M hwf hc hV, trV]
+      rw [bvurem_eq (D := D) hw hi0 hi, ite_cond_eq_true _ _ (eq_true hz)]
+      rfl
+    · simp only [arith_rem, same_bv, bv_int, decide_true, Bool.and_self, ↓reduceDIte, hz,
+        Bool.false_eq_true, Result.Ok.injEq] at he
+      subst he
+      refine ⟨hasV_bvmk hw _, fun M hwf hc hV => ?_⟩
+      simp only [tr, isBv_eq ha, Ty.isBv, ↓reduceIte, __smtx_model_eval, haM M hwf hc hV,
+        hbM M hwf hc hV, trV]
+      rw [bvurem_eq hw hi0 hi, ite_cond_eq_false _ _ (eq_false hz)]
+  | bvNeg ha ih =>
+    intro env v hE he
+    rw [eval] at he
+    ok_split he
+    rename_i x hx
+    obtain ⟨hxT, haM⟩ := ih env _ hE hx
+    obtain ⟨-, i, rfl, hw, hi0, hi⟩ := hasV_bv hxT
+    simp only [arith_neg, Result.Ok.injEq] at he
+    subst he
+    refine ⟨hasV_bvmk hw _, fun M hwf hc hV => ?_⟩
+    simp only [tr, isBv_eq ha, Ty.isBv, ↓reduceIte, __smtx_model_eval, haM M hwf hc hV, trV]
+    exact bvneg_eq hw i
+  | bvNot ha ih =>
+    intro env v hE he
+    rw [eval] at he
+    ok_split he
+    rename_i x hx
+    obtain ⟨hxT, haM⟩ := ih env _ hE hx
+    obtain ⟨-, i, rfl, hw, hi0, hi⟩ := hasV_bv hxT
+    simp only [Result.Ok.injEq] at he
+    subst he
+    have hp := pow2_eq (Int.le_of_lt hw)
+    refine ⟨hasV_bv_of hw (by omega) (by omega), fun M hwf hc hV => ?_⟩
+    simp only [tr, __smtx_model_eval, haM M hwf hc hV, trV]
+    exact bvnot_eq (D := D) hw hi0 hi
+  | bvLt ha _ iha ihb | bvGt ha _ iha ihb | bvLe ha _ iha ihb | bvGe ha _ iha ihb =>
+    intro env v hE he
+    rw [eval] at he
+    ok_split he
+    rename_i x hx
+    ok_split he
+    rename_i y hy
+    obtain ⟨hxT, haM⟩ := iha env _ hE hx
+    obtain ⟨hyT, hbM⟩ := ihb env _ hE hy
+    obtain ⟨-, i, rfl, hw, hi0, hi⟩ := hasV_bv hxT
+    obtain ⟨-, j, rfl, -, hj0, hj⟩ := hasV_bv hyT
+    simp only [arith_lt, arith_le, same_bv, bv_int, decide_true, Bool.and_self, ↓reduceDIte,
+      Bool.false_eq_true] at he
+    cases he
+    refine ⟨trivial, fun M hwf hc hV => ?_⟩
+    simp only [tr, isBv_eq ha, Ty.isBv, ↓reduceIte, __smtx_model_eval, haM M hwf hc hV,
+      hbM M hwf hc hV, trV]
+    simp [__smtx_model_eval_bvult, __smtx_model_eval_bvule, __smtx_model_eval_bvugt,
+      __smtx_model_eval_bvuge, __smtx_model_eval_or, __smtx_model_eval_eq, native_veq, native_or,
+      native_zlt]
+    all_goals
+      simp only [← Bool.decide_or, ← decide_not]
+      exact decide_eq_decide.mpr
+        ⟨fun h => h.elim (fun h => Int.not_lt.mpr (Int.le_of_lt h))
+            (fun h => by rw [h]; exact Int.lt_irrefl _),
+          fun h => (Int.lt_or_eq_of_le (Int.not_lt.mp h)).imp id Eq.symm⟩
   | @invoke s args hs hl hargs ih =>
     intro env v hE he
     rw [eval] at he

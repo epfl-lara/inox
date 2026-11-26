@@ -4,11 +4,12 @@ import Inox.Codes
 import Cpc.Proofs.TypePreservation.Nonvacuity
 
 /-!
-# An accepted certificate: the query has no solution, on integers and Booleans
+# An accepted certificate: the query has no solution, on a first-order fragment
 
-The theorem of an UNSAT answer, for the first-order programs over integers and Booleans whose
-calls all give values (`Total`), given what the certificate doesn't yet prove. `Total` leaves out
-the functions that don't terminate and those with a precondition that can fail.
+The theorem of an UNSAT answer, for the first-order programs of the fragment of
+`Inox/Bridge.lean` whose calls all give values (`Total`), given what the certificate doesn't yet
+prove. `Total` leaves out the functions that don't terminate and those with a precondition that
+can fail.
 
 A solution of a query is an assignment of values to its free variables under which each of its
 expressions evaluates to `true` with some fuel. From one, `Inox/Bridge.lean` gives a model: the

@@ -76,6 +76,17 @@ def reachesW (w : SmtTerm → SmtTerm) (K : List (SmtTerm × Bool)) (c : SmtTerm
   | _, .gt x y => reachesW w K c true x || reachesW w K c true y
   | _, .leq x y => reachesW w K c true x || reachesW w K c true y
   | _, .geq x y => reachesW w K c true x || reachesW w K c true y
+  | _, .bvneg x => reachesW w K c true x
+  | _, .bvnot x => reachesW w K c true x
+  | _, .bvadd x y => reachesW w K c true x || reachesW w K c true y
+  | _, .bvsub x y => reachesW w K c true x || reachesW w K c true y
+  | _, .bvmul x y => reachesW w K c true x || reachesW w K c true y
+  | _, .bvudiv x y => reachesW w K c true x || reachesW w K c true y
+  | _, .bvurem x y => reachesW w K c true x || reachesW w K c true y
+  | _, .bvult x y => reachesW w K c true x || reachesW w K c true y
+  | _, .bvugt x y => reachesW w K c true x || reachesW w K c true y
+  | _, .bvule x y => reachesW w K c true x || reachesW w K c true y
+  | _, .bvuge x y => reachesW w K c true x || reachesW w K c true y
   | _, _ => false
 
 /-- `reachesW` with the terms as they are. -/
@@ -304,24 +315,29 @@ theorem called_of_reachesW (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (
     rcases hr with hr | hr
     · exact iha env _ hE hx M hw hc hV N w hN hT K hK c hr
     · exact ihb env _ hE hy M hw hc hV N w hN hT K hK c hr
-  | plus _ _ iha ihb | minus _ _ iha ihb | times _ _ iha ihb | lt _ _ iha ihb | gt _ _ iha ihb
-    | div _ _ iha ihb | rem _ _ iha ihb | mod _ _ iha ihb | le _ _ iha ihb | ge _ _ iha ihb =>
+  | plus ha _ iha ihb | minus ha _ iha ihb | times ha _ iha ihb | lt ha _ iha ihb
+    | gt ha _ iha ihb | div ha _ iha ihb | rem ha _ iha ihb | mod ha _ iha ihb
+    | le ha _ iha ihb | ge ha _ iha ihb | bvPlus ha _ iha ihb | bvMinus ha _ iha ihb
+    | bvTimes ha _ iha ihb | bvDiv ha _ iha ihb | bvRem ha _ iha ihb | bvLt ha _ iha ihb
+    | bvGt ha _ iha ihb | bvLe ha _ iha ihb | bvGe ha _ iha ihb =>
     intro env v hE he M hw hc hV N w hN hT K hK c hr
     rw [eval] at he
     ok_split he
     rename_i x hx
     ok_split he
     rename_i y hy
-    simp only [tr, reachesW, Bool.or_eq_true] at hr
+    simp only [tr, isBv_eq ha, Ty.isBv, Bool.false_eq_true, ↓reduceIte, reachesW,
+      Bool.or_eq_true] at hr
     rcases hr with hr | hr
     · exact iha env _ hE hx M hw hc hV N w hN hT K hK c hr
     · exact ihb env _ hE hy M hw hc hV N w hN hT K hK c hr
-  | uminus _ ih =>
+  | bvLit _ _ _ => intro env v hE he M hw hc hV N w hN hT K hK c hr; simp [tr, reachesW] at hr
+  | uminus ha ih | bvNeg ha ih | bvNot ha ih =>
     intro env v hE he M hw hc hV N w hN hT K hK c hr
     rw [eval] at he
     ok_split he
     rename_i x hx
-    simp only [tr, reachesW] at hr
+    simp only [tr, isBv_eq ha, Ty.isBv, Bool.false_eq_true, ↓reduceIte, reachesW] at hr
     exact ih env _ hE hx M hw hc hV N w hN hT K hK c hr
   | @invoke s args hs hl hargs ih =>
     intro env v hE he M hw hc hV N w hN hT K hK c hr
@@ -441,15 +457,15 @@ def assumesW (D : List Data) (S : List Sig) (Γ : List (Id × Ty)) (w : SmtTerm 
       (decide (red K (w (tr D S Γ c)) = .Boolean false) && assumesW D S Γ w K φ b)
   | .And es => assumesAnd D S Γ w K φ es
   | .Or es => assumesOr D S Γ w K φ es
-  | .Not a | .UMinus a => assumesW D S Γ w K φ a
+  | .Not a | .UMinus a | .BVNot a => assumesW D S Γ w K φ a
   | .Implies a b =>
     assumesW D S Γ w K φ a ||
       (decide (red K (w (tr D S Γ a)) = .Boolean true) && assumesW D S Γ w K φ b)
   | .Equals a b | .Plus a b | .Minus a b | .Times a b | .LessThan a b | .GreaterThan a b
   | .LessEquals a b | .GreaterEquals a b => assumesW D S Γ w K φ a || assumesW D S Γ w K φ b
   | .Division a b | .Remainder a b | .Modulo a b =>
-    decide (SmtTerm.not (.eq (w (tr D S Γ b)) (.Numeral 0)) = φ) || assumesW D S Γ w K φ a ||
-      assumesW D S Γ w K φ b
+    (!isBv D S Γ a && decide (SmtTerm.not (.eq (w (tr D S Γ b)) (.Numeral 0)) = φ)) ||
+      assumesW D S Γ w K φ a || assumesW D S Γ w K φ b
   | .FunctionInvocation _ _ args | .ADT _ _ args => assumesAny D S Γ w K φ args
   | .IsConstructor a _ | .ADTSelector a _ => assumesW D S Γ w K φ a
   | _ => false
@@ -632,7 +648,9 @@ theorem holds_of_assumesW (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S)
     · exact iha env _ hE hx M hw hc hV N w hN hT K hK φ hr
     · exact ihb env _ hE hy M hw hc hV N w hN hT K hK φ hr
   | plus _ _ iha ihb | minus _ _ iha ihb | times _ _ iha ihb | lt _ _ iha ihb | gt _ _ iha ihb
-    | le _ _ iha ihb | ge _ _ iha ihb =>
+    | le _ _ iha ihb | ge _ _ iha ihb | bvPlus _ _ iha ihb | bvMinus _ _ iha ihb
+    | bvTimes _ _ iha ihb | bvLt _ _ iha ihb | bvGt _ _ iha ihb | bvLe _ _ iha ihb
+    | bvGe _ _ iha ihb =>
     intro env v hE he M hw hc hV N w hN hT K hK φ hr
     rw [eval] at he
     ok_split he
@@ -643,14 +661,27 @@ theorem holds_of_assumesW (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S)
     rcases hr with hr | hr
     · exact iha env _ hE hx M hw hc hV N w hN hT K hK φ hr
     · exact ihb env _ hE hy M hw hc hV N w hN hT K hK φ hr
-  | @div a b _ htb iha ihb | @rem a b _ htb iha ihb | @mod a b _ htb iha ihb =>
+  | bvDiv ha _ iha ihb | bvRem ha _ iha ihb =>
     intro env v hE he M hw hc hV N w hN hT K hK φ hr
     rw [eval] at he
     ok_split he
     rename_i x hx
     ok_split he
     rename_i y hy
-    simp only [assumesW, Bool.or_eq_true, decide_eq_true_eq] at hr
+    simp only [assumesW, isBv_eq ha, Ty.isBv, Bool.not_true, Bool.false_and, Bool.false_or,
+      Bool.or_eq_true] at hr
+    rcases hr with hr | hr
+    · exact iha env _ hE hx M hw hc hV N w hN hT K hK φ hr
+    · exact ihb env _ hE hy M hw hc hV N w hN hT K hK φ hr
+  | @div a b hta htb iha ihb | @rem a b hta htb iha ihb | @mod a b hta htb iha ihb =>
+    intro env v hE he M hw hc hV N w hN hT K hK φ hr
+    rw [eval] at he
+    ok_split he
+    rename_i x hx
+    ok_split he
+    rename_i y hy
+    simp only [assumesW, isBv_eq hta, Ty.isBv, Bool.not_false, Bool.true_and, Bool.or_eq_true,
+      decide_eq_true_eq] at hr
     rcases hr with (hr | hr) | hr
     · obtain ⟨hyT, hbM⟩ := ev hO hty hS hPD hct htb env _ hE hy
       obtain ⟨j, rfl⟩ := hasV_int hyT
@@ -662,7 +693,8 @@ theorem holds_of_assumesW (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S)
         native_veq, hj, __smtx_model_eval_not, native_not]
     · exact iha env _ hE hx M hw hc hV N w hN hT K hK φ hr
     · exact ihb env _ hE hy M hw hc hV N w hN hT K hK φ hr
-  | uminus _ ih =>
+  | bvLit _ _ _ => intro env v hE he M hw hc hV N w hN hT K hK φ hr; simp [assumesW] at hr
+  | uminus _ ih | bvNeg _ ih | bvNot _ ih =>
     intro env v hE he M hw hc hV N w hN hT K hK φ hr
     rw [eval] at he
     ok_split he

@@ -4,7 +4,7 @@ import Inox.Model
 import Cpc.Proofs.TypePreservation.Helpers
 
 /-!
-# The types and the values of the bridge: integers, Booleans and datatypes
+# The types and the values of the bridge: integers, Booleans, bit-vectors and datatypes
 
 `Inox/Bridge.lean` ties the semantics of Inox to the models of Logos on the expressions of some
 types. This module gives the types (`FragTy`), their sorts (`trT`), their values (`HasV`) and
@@ -61,6 +61,7 @@ theorem findData_spec {D : List Data} {s : Id} {d : Data} (h : findData D s = so
 def trT (D : List Data) : Ty → SmtType
   | .IntegerType => .Int
   | .BooleanType => .Bool
+  | .BVType false w => .BitVec w.toNat
   | .ADTType s [] =>
     match findData D s with
     | some d => .Datatype (nm s) d.decl
@@ -71,6 +72,7 @@ def trT (D : List Data) : Ty → SmtType
 def FragTy (D : List Data) : Ty → Prop
   | .IntegerType => True
   | .BooleanType => True
+  | .BVType false w => 0 < w
   | .ADTType s [] => (findData D s).isSome
   | _ => False
 
@@ -125,38 +127,46 @@ theorem fragTy_data {D : List Data} (hD : DataOk D) {d : Data} (hd : d ∈ D) :
 
 /-- A type of the bridge is of integers, of Booleans, or a datatype of `D`. -/
 theorem fragTy_cases {D : List Data} {T : Ty} (h : FragTy D T) :
-    T = .IntegerType ∨ T = .BooleanType ∨ ∃ d ∈ D, T = .ADTType d.name [] := by
+    T = .IntegerType ∨ T = .BooleanType ∨ (∃ w, 0 < w ∧ T = .BVType false w) ∨
+      ∃ d ∈ D, T = .ADTType d.name [] := by
   cases T
   case IntegerType => exact .inl rfl
   case BooleanType => exact .inr (.inl rfl)
+  case BVType s w =>
+    cases s with
+    | false => exact .inr (.inr (.inl ⟨w, h, rfl⟩))
+    | true => exact absurd h id
   case ADTType s args =>
     cases args with
     | nil =>
       simp only [FragTy] at h
       obtain ⟨d, hd⟩ := Option.isSome_iff_exists.mp h
       obtain ⟨hm, rfl⟩ := findData_spec hd
-      exact .inr (.inr ⟨d, hm, rfl⟩)
+      exact .inr (.inr (.inr ⟨d, hm, rfl⟩))
     | cons _ _ => exact absurd h id
   all_goals exact absurd h id
 
 theorem trT_component {D : List Data} (hD : DataOk D) {T : Ty} (h : FragTy D T) :
     __smtx_type_wf_component (trT D T) = true := by
-  rcases fragTy_cases h with rfl | rfl | ⟨d, hd, rfl⟩
+  rcases fragTy_cases h with rfl | rfl | ⟨w, _, rfl⟩ | ⟨d, hd, rfl⟩
   · simp [trT, __smtx_type_wf_component, __smtx_type_wf_rec, native_and]
   · simp [trT, __smtx_type_wf_component, __smtx_type_wf_rec, native_and]
+  · simp [trT, __smtx_type_wf_component, __smtx_type_wf_rec, native_and, __smtx_inhabited_type]
   · rw [trT_data hD hd]
     have := hD.wf d hd
     simpa only [__smtx_type_wf] using this
 
 theorem trT_wf {D : List Data} (hD : DataOk D) {T : Ty} (h : FragTy D T) :
     __smtx_type_wf (trT D T) = true := by
-  rcases fragTy_cases h with rfl | rfl | ⟨d, hd, rfl⟩
+  rcases fragTy_cases h with rfl | rfl | ⟨w, _, rfl⟩ | ⟨d, hd, rfl⟩
   · simp only [trT, __smtx_type_wf]; exact trT_component (T := .IntegerType) hD h
   · simp only [trT, __smtx_type_wf]; exact trT_component (T := .BooleanType) hD h
+  · simp only [trT, __smtx_type_wf]; exact trT_component (T := .BVType false w) hD h
   · rw [trT_data hD hd]; exact hD.wf d hd
 
 theorem trT_ne {D : List Data} (hD : DataOk D) {T : Ty} (h : FragTy D T) : trT D T ≠ .None := by
-  rcases fragTy_cases h with rfl | rfl | ⟨d, hd, rfl⟩
+  rcases fragTy_cases h with rfl | rfl | ⟨w, _, rfl⟩ | ⟨d, hd, rfl⟩
+  · simp [trT]
   · simp [trT]
   · simp [trT]
   · rw [trT_data hD hd]; simp
@@ -265,6 +275,7 @@ the values of its fields, one at a time. -/
 def trV (D : List Data) : Value → SmtValue
   | .IntV i => .Numeral i
   | .BoolV b => .Boolean b
+  | .BVV _ w x => .Binary w x
   | .ADTV c vs =>
     match findCtor D c with
     | some (d, i, _) => trVs D (.DtCons (nm d.name) d.decl i) vs
@@ -287,6 +298,7 @@ def ctorAt (D : List Data) (s : native_String) (dd : SmtDatatypeDecl) (i : Nat) 
 def ofSmt (D : List Data) : SmtValue → Value
   | .Numeral i => .IntV i
   | .Boolean b => .BoolV b
+  | .Binary w x => .BVV false w x
   | .DtCons s dd i => .ADTV (ctorAt D s dd i) []
   | .Apply f a =>
     match ofSmt D f with
@@ -299,6 +311,7 @@ mutual
 def HasV (D : List Data) : Value → Ty → Prop
   | .IntV _, .IntegerType => True
   | .BoolV _, .BooleanType => True
+  | .BVV false w' x, .BVType false w => w' = w ∧ 0 < w ∧ 0 ≤ x ∧ x < 2 ^ w.toNat
   | .ADTV c vs, .ADTType s [] =>
     ∃ d i fs, findCtor D c = some (d, i, fs) ∧ d.name = s ∧ HasVs D vs (fs.map Prod.snd)
   | _, _ => False
@@ -317,18 +330,47 @@ theorem hasVs_iff {D : List Data} : ∀ {vs : List Value} {Ts : List Ty},
   | _ :: _, [] => by simp [HasVs]
   | v :: vs, T :: Ts => by simp [HasVs, hasVs_iff (vs := vs) (Ts := Ts)]
 
+/-- A value of a type of bit-vectors is unsigned, of the width of the type and in its range. -/
+theorem hasV_bv_inv {D : List Data} {s : Bool} {w' x : Int} {T : Ty}
+    (h : HasV D (.BVV s w' x) T) :
+    s = false ∧ T = .BVType false w' ∧ 0 < w' ∧ 0 ≤ x ∧ x < 2 ^ w'.toNat := by
+  cases s <;> cases T <;> try (simp [HasV] at h; done)
+  case false.BVType t w =>
+    cases t <;> try (simp [HasV] at h; done)
+    simp only [HasV] at h
+    obtain ⟨rfl, h⟩ := h
+    exact ⟨rfl, rfl, h⟩
+
+/-- Closes a goal with a value `h` of a type that has no such value. -/
+macro "no_hasV " h:ident : tactic =>
+  `(tactic| first
+    | (have h' := (hasV_bv_inv $h).2.1; cases h'; done)
+    | (simp [HasV] at $h:ident; done))
+
+theorem hasV_bv {D : List Data} {v : Value} {s : Bool} {w : Int} (h : HasV D v (.BVType s w)) :
+    s = false ∧ ∃ x, v = .BVV false w x ∧ 0 < w ∧ 0 ≤ x ∧ x < 2 ^ w.toNat := by
+  cases v <;> try (cases s <;> simp [HasV] at h; done)
+  case BVV t w' x =>
+    obtain ⟨rfl, hT, hr⟩ := hasV_bv_inv h
+    cases hT
+    exact ⟨rfl, x, rfl, hr⟩
+
+theorem hasV_bv_of {D : List Data} {w x : Int} (hw : 0 < w) (h0 : 0 ≤ x)
+    (hx : x < 2 ^ w.toNat) : HasV D (.BVV false w x) (.BVType false w) := by
+  simp only [HasV]; exact ⟨trivial, hw, h0, hx⟩
+
 theorem hasV_int {D : List Data} {v : Value} (h : HasV D v .IntegerType) : ∃ i, v = .IntV i := by
-  cases v <;> first | exact ⟨_, rfl⟩ | simp [HasV] at h
+  cases v <;> first | exact ⟨_, rfl⟩ | no_hasV h
 
 theorem hasV_bool {D : List Data} {v : Value} (h : HasV D v .BooleanType) :
     ∃ b, v = .BoolV b := by
-  cases v <;> first | exact ⟨_, rfl⟩ | simp [HasV] at h
+  cases v <;> first | exact ⟨_, rfl⟩ | no_hasV h
 
 /-- A value of a datatype is a constructor of it with values of the types of its fields. -/
 theorem hasV_data {D : List Data} {v : Value} {s : Id} (h : HasV D v (.ADTType s [])) :
     ∃ c vs d i fs, v = .ADTV c vs ∧ findCtor D c = some (d, i, fs) ∧ d.name = s ∧
       List.Forall₂ (HasV D) vs (fs.map Prod.snd) := by
-  cases v <;> try (simp [HasV] at h; done)
+  cases v <;> try no_hasV h
   case ADTV c vs =>
     simp only [HasV] at h
     obtain ⟨d, i, fs, hc, hs, hvs⟩ := h
@@ -342,16 +384,20 @@ theorem hasV_adt {D : List Data} {c : Id} {vs : List Value} {d : Data} {i : Nat}
   exact ⟨d, i, fs, hc, rfl, hasVs_iff.mpr hvs⟩
 
 theorem hasV_fragTy {D : List Data} {v : Value} {T : Ty} (h : HasV D v T) : FragTy D T := by
-  cases T <;> try (cases v <;> simp [HasV] at h <;> done)
+  cases T <;> try (cases v <;> no_hasV h; done)
   case IntegerType => trivial
   case BooleanType => trivial
+  case BVType s w =>
+    obtain ⟨rfl, x, rfl, hw, _⟩ := hasV_bv h
+    exact hw
   case ADTType s args =>
     cases args with
     | nil =>
       obtain ⟨c, vs, d, i, fs, _, hc, rfl, _⟩ := hasV_data h
       simp only [FragTy, findData]
       exact List.find?_isSome.mpr ⟨d, (findCtor_spec hc).1, by simp⟩
-    | cons _ _ => cases v <;> simp [HasV] at h
+    | cons _ _ =>
+      cases v <;> no_hasV h
 
 /-! ## The sorts of the constructors -/
 
@@ -554,7 +600,17 @@ theorem agrees_trV {D : List Data} (hD : DataOk D) (uc : SmtUSortDom) :
         simp only [HasV] at h
         obtain ⟨d, i, fs, hc, rfl, hvs⟩ := h
         exact agrees_adt hD uc hc (agrees_trVs hD uc vs _ hvs)
-  | .UnitV, T, h | .CharV _, T, h | .RealV _ _, T, h | .StringV _, T, h | .BVV _ _ _, T, h
+  | .BVV s w x, T, h => by
+    obtain ⟨rfl, rfl, hw, h0, hx⟩ := hasV_bv_inv h
+    have hp : native_int_pow2 w = 2 ^ w.toNat := by
+      simp [native_int_pow2, native_zexp_total, Int.not_lt.mpr (Int.le_of_lt hw)]
+    have hm : native_zeq x (native_mod_total x (native_int_pow2 w)) = true := by
+      simp [native_zeq, native_mod_total, hp, Int.emod_eq_of_lt h0 hx]
+    have hz : native_zleq 0 w = true := by simp [native_zleq, Int.le_of_lt hw]
+    refine ⟨?_, ?_, rfl⟩
+    · simp [trV, trT, __smtx_typeof_value, native_ite, native_and, hz, hm, native_int_to_nat]
+    · simp [trV, __smtx_value_canonical, native_ite, hz, hm]
+  | .UnitV, T, h | .CharV _, T, h | .RealV _ _, T, h | .StringV _, T, h
   | .FPV _ _ _, T, h | .RoundingModeV _, T, h | .TupleV _, T, h | .ClosureV _ _ _, T, h
   | .SetV _, T, h | .BagV _, T, h | .MapV _ _, T, h => by simp [HasV] at h
 
@@ -699,11 +755,22 @@ theorem typed_inv_k {D : List Data} (hD : DataOk D) : ∀ (k : Nat) (w : SmtValu
     ∃ v, HasV D v T ∧ w = trV D v
   | 0, _, h, _, _, _ => by omega
   | k + 1, w, hk, T, hT, hw => by
-    rcases fragTy_cases hT with rfl | rfl | ⟨d, hd, rfl⟩
+    rcases fragTy_cases hT with rfl | rfl | ⟨u, hu, rfl⟩ | ⟨d, hd, rfl⟩
     · obtain ⟨i, rfl⟩ := int_value_canonical hw
       exact ⟨.IntV i, by simp [HasV], rfl⟩
     · obtain ⟨b, rfl⟩ := bool_value_canonical hw
       exact ⟨.BoolV b, by simp [HasV], rfl⟩
+    · simp only [trT] at hw
+      obtain ⟨n, rfl⟩ := bitvec_value_canonical hw
+      have hu' : native_nat_to_int u.toNat = u := by
+        simp [native_nat_to_int, Int.toNat_of_nonneg (Int.le_of_lt hu)]
+      rw [hu'] at hw ⊢
+      have hr := bitvec_payload_range_of_canonical (w := u) (n := n)
+        (by simp [native_zleq, Int.le_of_lt hu]) (bitvec_payload_canonical hw)
+      have hp : native_int_pow2 u = 2 ^ u.toNat := by
+        simp [native_int_pow2, native_zexp_total, Int.not_lt.mpr (Int.le_of_lt hu)]
+      rw [hp] at hr
+      exact ⟨.BVV false u n, hasV_bv_of hu hr.1 hr.2, rfl⟩
     · rw [trT_data hD hd] at hw
       obtain ⟨s, dd, i, as, fs, rfl, hfs, hch, hall⟩ := spine_inv w (by rw [hw]; trivial)
       rw [hw] at hch
@@ -776,8 +843,9 @@ theorem value_eq_hasV {D : List Data} (hO : O.Sound) (P : Program) :
           simp
         · rw [dite_eq_right_of_eq_false (eq_false hcc)]
           simp [hcc]
+  | .BVV _ _ _, _, b, _, _ => by rw [hO.value_eq]
   | .UnitV, T, _, h, _ | .CharV _, T, _, h, _ | .RealV _ _, T, _, h, _ | .StringV _, T, _, h, _
-  | .BVV _ _ _, T, _, h, _ | .FPV _ _ _, T, _, h, _ | .RoundingModeV _, T, _, h, _
+  | .FPV _ _ _, T, _, h, _ | .RoundingModeV _, T, _, h, _
   | .TupleV _, T, _, h, _ | .ClosureV _ _ _, T, _, h, _ | .SetV _, T, _, h, _
   | .BagV _, T, _, h, _ | .MapV _ _, T, _, h, _ => by simp [HasV] at h
 
@@ -978,6 +1046,38 @@ theorem ret_typeof_sel_rec : ∀ (d : SmtDatatype) (i j : Nat),
     simp [__smtx_ret_typeof_sel_rec, ctorFields, ret_typeof_sel_rec d i j]
 
 /-! ## The datatypes of a program -/
+
+/-! ## Bit-vectors -/
+
+theorem pow2_toNat : ∀ (k : Nat) (w : Int), w.toNat = k → 0 ≤ w → pow2 w = 2 ^ k
+  | 0, w, hk, hw => by
+    have : w = 0 := by omega
+    subst this
+    rw [pow2]; simp
+  | k + 1, w, hk, hw => by
+    rw [pow2]
+    have hn : ¬ w ≤ 0 := by omega
+    rw [dif_neg hn, pow2_toNat k (w - 1) (by omega) (by omega), Int.pow_succ, Int.mul_comm]
+
+/-- The power of two of the semantics is that of the integers. -/
+theorem pow2_eq {w : Int} (hw : 0 ≤ w) : pow2 w = 2 ^ w.toNat := pow2_toNat _ w rfl hw
+
+/-- The power of two of Logos is that of the integers. -/
+theorem int_pow2_eq {w : Int} (hw : 0 ≤ w) : native_int_pow2 w = 2 ^ w.toNat := by
+  simp [native_int_pow2, native_zexp_total, Int.not_lt.mpr hw]
+
+theorem two_pow_pos (k : Nat) : (0 : Int) < 2 ^ k := Int.pow_pos (by decide)
+
+/-- A bit-vector of the semantics is a value of its type. -/
+theorem hasV_bvmk {D : List Data} {w : Int} (hw : 0 < w) (z : Int) :
+    HasV D (bv false w z) (.BVType false w) := by
+  rw [bv, pow2_eq (Int.le_of_lt hw)]
+  exact hasV_bv_of hw (Int.emod_nonneg _ (Int.ne_of_gt (two_pow_pos _)))
+    (Int.emod_lt_of_pos _ (two_pow_pos _))
+
+theorem trV_bvmk {D : List Data} {w : Int} (hw : 0 < w) (z : Int) :
+    trV D (bv false w z) = .Binary w (z % 2 ^ w.toNat) := by
+  rw [bv, pow2_eq (Int.le_of_lt hw)]; rfl
 
 /-- The program has the constructors of `D`, with their fields, in datatypes without type
 parameters and without invariants. -/

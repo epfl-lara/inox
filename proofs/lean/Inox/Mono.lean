@@ -72,6 +72,7 @@ inductive Frag : Expr → Prop where
   | gt {a b} : Frag a → Frag b → Frag (.GreaterThan a b)
   | le {a b} : Frag a → Frag b → Frag (.LessEquals a b)
   | ge {a b} : Frag a → Frag b → Frag (.GreaterEquals a b)
+  | bvnot {a} : Frag a → Frag (.BVNot a)
 
 /-- Every function of the program has a body in the fragment. -/
 def ProgFrag : Program → Prop
@@ -163,7 +164,7 @@ theorem frag_mono
     · le_step (le_bool (ihb env)); exact Le.refl _
     · exact Le.refl _
   | not _ ih => intro env; rw [eval, eval]; le_step (le_bool (ih env)); exact Le.refl _
-  | uminus _ ih => intro env; rw [eval, eval]; le_step (ih env); exact Le.refl _
+  | uminus _ ih | bvnot _ ih => intro env; rw [eval, eval]; le_step (ih env); exact Le.refl _
   | plus _ _ iha ihb | minus _ _ iha ihb | times _ _ iha ihb | div _ _ iha ihb
   | rem _ _ iha ihb | mod _ _ iha ihb | lt _ _ iha ihb | gt _ _ iha ihb | le _ _ iha ihb
   | ge _ _ iha ihb =>
