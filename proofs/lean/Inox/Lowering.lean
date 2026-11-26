@@ -476,11 +476,15 @@ partial def unmark (meanings : List (Sexp × Sexp)) (seen : List Sexp) (e : Sexp
     | .expr items => .expr (items.map (unmark meanings seen))
     | a => a
 
-/-- `e` without its assumptions, `(assume c b)` being `b`, and without the conjuncts that have
-markers, of its conjunctions that hold where `e` does. -/
+/-- `e` without the conjuncts that have markers, of its conjunctions that hold where `e` does and
+of the conditions of its assumptions there, and without the assumptions whose conditions are
+then `true` or still have a marker, `(assume c b)` being `b`. The other assumptions are kept,
+for the readings of `Inox/Terms.lean`. -/
 partial def strip (e : Sexp) : Sexp :=
   match e with
-  | .expr [.atom "assume", _, b] => strip b
+  | .expr [.atom "assume", c, b] =>
+    let c := strip c
+    if t.hasMarker c || c == tt then strip b else .expr [.atom "assume", c, strip b]
   | .expr (.atom "and" :: cs) =>
     match (cs.map strip).filter (!t.hasMarker ·) with
     | [] => tt
@@ -490,10 +494,12 @@ partial def strip (e : Sexp) : Sexp :=
 
 /-- What the checker in Lean states of the expression of a lowered source of kind `expression`,
 which an instance of `expression` kind asserts: the expression, with the meanings that the source
-gives to its markers in place of the markers, without its assumptions, and without the conjuncts
-that have markers left; nothing if a marker is left outside of them. This is the expression, or a
-weaker one: a model of the source's expression is one of it, given the meanings of the markers,
-which only the Scala checker checks against the clauses of the template. -/
+gives to its markers in place of the markers, without the conjuncts that have markers left and
+without the assumptions that `strip` drops; nothing if a marker is left outside of them. The
+assumptions that are kept are left out or marked when Logos reads it (`Inox/Terms.lean`). This
+is the expression, or a weaker one: a model of the source's expression is one of it, given the
+meanings of the markers, which only the Scala checker checks against the clauses of the
+template. -/
 def statement : Source → Option Sexp
   | .expression e meanings =>
     let terms := meanings.filter fun (l, _) => match l with | .expr _ => true | _ => false
