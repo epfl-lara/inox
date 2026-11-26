@@ -65,21 +65,26 @@ trait CVCTarget extends SMTLIBTarget with SMTLIBDebugger {
           case expr => expr
         }
       case (EmptySet(sort), Some(SetType(base))) => FiniteSet(Seq.empty, base)
-      case (EmptySet(sort), _) => FiniteSet(Seq.empty, fromSMT(sort))
+      // the sort of `(as emptyset (Set T))` is that of the set
+      case (EmptySet(sort), _) => fromSMT(sort) match {
+        case SetType(base) => FiniteSet(Seq.empty, base)
+        case tpe => unsupported(tpe, "woot? empty set of a non-set type")
+      }
 
       case (Singleton(e), Some(SetType(base))) => FiniteSet(Seq(fromSMT(e, base)), base)
       case (Singleton(e), _) =>
         val elem = fromSMT(e)
         FiniteSet(Seq(elem), elem.getType)
 
-      case (Insert(set, es@_*), Some(SetType(base))) => es.foldLeft(fromSMT(set, SetType(base))) {
+      // `(insert e1 ... en s)` adds the elements to the set `s`, which comes last
+      case (Insert(args*), Some(SetType(base))) => args.init.foldLeft(fromSMT(args.last, SetType(base))) {
         case (FiniteSet(elems, base), e) =>
           val elem = fromSMT(e, base)
           FiniteSet(elems.filter(_ != elem) :+ elem, base)
         case (s, e) => SetAdd(s, fromSMT(e, base))
       }
 
-      case (Insert(set, es@_*), _) => es.foldLeft(fromSMT(set)) {
+      case (Insert(args*), _) => args.init.foldLeft(fromSMT(args.last)) {
         case (FiniteSet(elems, base), e) =>
           val elem = fromSMT(e, base)
           FiniteSet(elems.filter(_ != elem) :+ elem, base)

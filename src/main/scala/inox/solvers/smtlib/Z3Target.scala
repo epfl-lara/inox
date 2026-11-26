@@ -187,8 +187,9 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
     case (QualifiedIdentifier(SimpleIdentifier(SSymbol("#unspecified")), None), Some(tpe)) =>
       exprOps.freshUninterpretedCall("unspecified", Seq.empty, tpe)
 
+    // the string of one character, which older versions of Z3 give as a bit-vector
     case (FunctionApplication(QualifiedIdentifier(SimpleIdentifier(SSymbol("seq.unit")), None), Seq(SHexadecimal(hex))), _) =>
-      StringLiteral(utils.StringUtils.decode(hex.repr))
+      StringLiteral(Seq(hex.toInt))
 
     case (FunctionApplication(QualifiedIdentifier(SimpleIdentifier(SSymbol("seq.unit")), None),
         Seq(QualifiedIdentifier(SMTIdentifier(SSymbol("Char"), Seq(SNumeral(n))), None))), Some(StringType())) =>
@@ -197,7 +198,7 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
     case (FunctionApplication(QualifiedIdentifier(SimpleIdentifier(SSymbol("str.++")), None), strs), _) =>
       val strings = strs.map(fromSMT(_, Some(StringType())))
       if (strings.isEmpty) StringLiteral(Seq())
-      else strings.tail.foldRight(strings.head)(StringConcat(_, _))
+      else strings.reduceLeft(StringConcat(_, _))
 
     case (QualifiedIdentifier(SMTIdentifier(SSymbol("Char"), Seq(SNumeral(n))), None), Some(CharType())) =>
       CharLiteral(n.toChar)
@@ -347,11 +348,16 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
     // and short form (_ map ite).
     case (FunctionApplication(
       QualifiedIdentifier(SMTIdentifier(SSymbol("map"),
-        List(SList(List(SSymbol("ite"), SList(List(SSymbol("Bool"), _, _, _)), _))
+        List(SList(List(SSymbol("ite"), SList(List(SSymbol("Bool"), _, _)), _))
           | SSymbol("ite"))), None),
       Seq(mask, map1, map2)
     ), _) =>
-      MapMerge(fromSMT(mask), fromSMT(map1), fromSMT(map2))
+      // the mask of a merge is a set, which Z3 gives as an array of booleans
+      val maskSet = otpe match {
+        case Some(MapType(from, _)) => fromSMT(mask, SetType(from))
+        case _ => extractSet(fromSMT(mask))
+      }
+      MapMerge(maskSet, fromSMT(map1, otpe), fromSMT(map2, otpe))
 
     case _ => unhandled
   }
