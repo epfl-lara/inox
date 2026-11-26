@@ -282,9 +282,10 @@ fresh symbol, whose value the steps choose) can't be assumptions of a model of
 the query: such a completeness assumption stays a fact, and such a source
 expression is left out of the base. The clauses of an assertion's instance are
 then checked as those of a function's, given the base: the literals that the
-base clauses make known (`TermSteps.baseLits`, by `lits`) are known to `verify`
-in each clause (`instClauseB`, `kSound_baseLits`), so the meanings of the
-instance's symbols, substituted, reduce under the source expression.
+base clauses and the constants of the root steps make known
+(`TermSteps.baseLits`, by `lits`) are known to `verify` in each clause
+(`instClauseB`, `kSound_baseLits`), so the meanings of the instance's symbols,
+substituted, reduce under the source expression.
 
 So the final theorem (`no_good_model_of_instances`) reads: for each model `M`
 that is well formed and satisfies the defining equations `r.equations`
@@ -324,25 +325,36 @@ accepts:
   are those where `eq` is reflexive, and the facts are its instances by modus
   ponens. That this holds of the program's equality is a fact about Inox, as
   the defining equations are.
+- **Decreases**: a decreases clause is `(=> b (or (> r r') diverges))`, where
+  `r` and `r'` are the ranks of a call and of a call of its body, and nothing
+  else constrains `diverges`. So it is a fresh symbol that may be true: the
+  checker adds a root step for each constant that ends the disjunction of a
+  fact and that neither the base clauses, the equations, the other steps nor
+  the definitions mention (`unconstrained`), which the check of the steps
+  decides as for any other. The constants of the root steps are then known
+  literals (`TermSteps.roots`, `roots_subset_extend`), under which the clause
+  reduces to true. The clauses say nothing of the termination of the calls,
+  which the theorems about the semantics take as a hypothesis (`Total`).
 
 `inox-check --terms` prints, for each certificate, how many facts are
 unfoldings, how many are clauses of instances that the check accepts, how many
 hold as they are (by rule kind), and how many remain, by category: `decreases`
-(the clauses of the `diverges!` symbols), `contract` (the clauses of an
-`Unfold` rule that are not about its symbols' meanings: preconditions,
-postconditions, ADT invariants, refinements), `assertion` (`Instance` rules),
-`typing` (the `tp!` predicates), `definition without source` (a template whose
-source is not a function), `binder`, `completeness`, and the other rules by
-kind; how many definitions of local symbols are steps; the base: how many of
-its clauses are the query's, how many of the source expressions and
-completeness assumptions are base clauses; and how many reflexivity axioms.
-`--remaining` also prints the remaining facts and the definitions left out. On
-the 31 regression certificates that Logos reads, 1,825 facts remain once the 46
-completeness assumptions are in the base, and 1,176 are covered (24 unfoldings,
-1,127 clauses of instances, 25 directly: 12 `Reflexivity`, 13 `Congruence`); 30
-of the 32 source expressions are base clauses, and 771 of the 805 definitions
-are steps (5 fewer than without the source expressions and completeness
-assumptions in the base, which mention their symbols).
+(the clauses of the `diverges!` symbols that are constrained), `contract` (the
+clauses of an `Unfold` rule that are not about its symbols' meanings:
+preconditions, postconditions, ADT invariants, refinements), `assertion`
+(`Instance` rules), `typing` (the `tp!` predicates),
+`definition without source` (a template whose source is not a function),
+`binder`, `completeness`, and the other rules by kind; how many definitions of
+local symbols are steps; the base: how many of its clauses are the query's, how
+many of the source expressions and completeness assumptions are base clauses;
+and how many reflexivity axioms. `--remaining` also prints the remaining facts
+and the definitions left out. On the 31 regression certificates that Logos
+reads, 1,825 facts remain once the 46 completeness assumptions are in the base,
+and 1,356 are covered (24 unfoldings, 1,307 clauses of instances, of which the
+180 decreases clauses, 25 directly: 12 `Reflexivity`, 13 `Congruence`); 30 of
+the 32 source expressions are base clauses, and 771 of the 805 definitions are
+steps (5 fewer than without the source expressions and completeness assumptions
+in the base, which mention their symbols).
 
 The soundness of Logos is a hypothesis of the theorems, `LogosSound`, which is
 the statement of Logos's own theorem. They then only need the definitions of
@@ -594,7 +606,7 @@ Proving it needs the agreement theorem. The instance and verified facts of
 equations at the instance's arguments without a guard, so restating them needs
 the same obligation at each use of an equation. The gap is large: on the
 regression corpus, `no_good_model_of_unfold_on` covers the 24 unfoldings of the
-1,176 facts that `no_good_model_of_instances` covers, and the other 1,152 stay
+1,356 facts that `no_good_model_of_instances` covers, and the other 1,332 stay
 in `hfacts`.
 
 **Fuel monotonicity** ([`Inox/Mono.lean`](Inox/Mono.lean)), against the
@@ -746,9 +758,14 @@ answered about is what the certificate's sources state, and is not proved. A
 call of a function without parameters is read as a variable, so the check
 refuses a certificate that has one.
 
+When the check of the certificate covers every fact (`r.facts.all r.covered`),
+`no_solution_of_covered` has no hypothesis on the facts: what is left is
+`Total`, the oracle, `Codes` and the model `M0`.
+
 On the certificates that Inox prints for two inputs of the fragment, a
 recursive function over the integers and a recursive predicate with a query
-that has free variables, the checker accepts and `sourceCheck` holds. They are
+that has free variables, the checker accepts and `sourceCheck` holds, and the
+check covers every fact of the first, and all but one of the second. They are
 not kept here. On the regression certificates, which are mostly about ADTs and
 first-class functions, it only holds of a few that define no function.
 
@@ -763,22 +780,23 @@ first-class functions, it only holds of a few that define no function.
 - `LogosSound`, `LogosTyping` (discharged in `InoxClosed`), and `O.Sound`, that
   the oracle of `Forall` and `UninterpretedCall` agrees with the semantics
   (unused on the fragment but required by `call`).
-- For `no_solution` and `no_star_model`, the shape of the program (`ProgFrag
-  P`, `ProgTy S P`, `SigOk S`) and that the equations and the base clauses of
-  the certificate are the translations of its bodies and of the query (`EqFor`,
-  `BaseFor`). `sourceCheck` decides them for the program and the query read
-  from the certificate, so `no_solution_of_check` has `sourceCheck r = true` in
-  their place. A reflexivity axiom among the equations is not the translation
-  of a body, so the check refuses a certificate that has one; the programs of
-  the fragment have none.
+- For `no_solution` and `no_star_model`, the shape of the program
+  (`ProgFrag P`, `ProgTy S P`, `SigOk S`) and that the equations and the base
+  clauses of the certificate are the translations of its bodies and of the
+  query (`EqFor`, `BaseFor`). `sourceCheck` decides them for the program and
+  the query read from the certificate, so `no_solution_of_check` has
+  `sourceCheck r = true` in their place. A reflexivity axiom among the
+  equations is not the translation of a body, so the check refuses a
+  certificate that has one; the programs of the fragment have none.
 - That the program and the query read from the certificate are those that Inox
   answered about.
 - `model_wf M0`, a well-formed model for the sorts and the other function
   values, and `cd : Codes`. That both exist is not proved here. For
   `no_star_model`, also `model_wf N` and `N.usortDom = M0.usortDom`.
 - `hfacts`: for `no_solution`, the facts that `r.covered` doesn't cover
-  (contracts, `decreases`, assertions and the others, see above); for
-  `no_star_model`, the facts other than guarded unfoldings.
+  (contracts, assertions and the others, see above), and none when it covers
+  them all (`no_solution_of_covered`); for `no_star_model`, the facts other
+  than guarded unfoldings.
 
 The translation stops at integers and Booleans: ADTs, unit, `Let`, `Error`,
 `Division`, `Remainder`, `Modulo`, type arguments, closures, `Forall` and
@@ -809,14 +827,13 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   the declared equalities are reflexive and the completeness assumptions hold,
   and for the programs with calls that give no value, with the clauses of
   instances relativized as the unfoldings are), and for each other kind of
-  rule, that its clauses hold in them (`hfacts`): the decreases clauses; the
-  preconditions, postconditions, ADT invariants and refinements of the
-  templates (`contract`), which are assumptions about the program; the clauses
-  of assertions about the instances of quantifiers, and those whose source
-  expression has a binder or mentions a fresh symbol; the typing predicates;
-  the templates whose source is not a function; the clauses with binders; and
-  the other rules (`Dispatched`, `SameLambda`, the `Congruence` of instances of
-  quantifiers, …).
+  rule, that its clauses hold in them (`hfacts`): the preconditions,
+  postconditions, ADT invariants and refinements of the templates (`contract`),
+  which are assumptions about the program; the clauses of assertions about the
+  instances of quantifiers, and those whose source expression has a binder or
+  mentions a fresh symbol; the typing predicates; the templates whose source is
+  not a function; the clauses with binders; and the other rules (`Dispatched`,
+  `SameLambda`, the `Congruence` of instances of quantifiers, …).
 - **Longer cycles of `Enables` rules.** A cycle where a target reaches a
   definition that enables it only through other definitions or targets
   (`bs := (and d s)`, `(=> m s)`, `(=> bs2 m)`, `bs2 := (and d2 x)`,
