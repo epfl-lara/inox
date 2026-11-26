@@ -26,14 +26,18 @@ trait SimplifierWithPC extends Transformer { self =>
   import exprOps._
   import dsl._
 
-  /** A recorder of the steps of a simplification, or `null` for one that is not recorded. */
+  /** A recorder of the steps of a simplification, which is [[noRecorder]] for one that is not
+    * recorded. */
   type Recorder = TransformationRecorder { val trees: self.trees.type }
 
+  /** The recorder of the simplifications that are not recorded, which is never active. */
+  lazy val noRecorder: Recorder = TransformationRecorder.none(trees)
+
   trait SolvingPath { selfP: Env =>
-    /** The recorder of the steps of the simplification under this path, for certificates, or
-      * `null` when it is not recorded (see [[TransformationRecorder]]). The paths that a recorded
-      * one is extended to record as well. */
-    def recorder: Recorder = null
+    /** The recorder of the steps of the simplification under this path, for certificates, which
+      * is [[noRecorder]] when it is not recorded (see [[TransformationRecorder]]). The paths that
+      * a recorded one is extended to record as well. */
+    def recorder: Recorder = noRecorder
 
     def expand(expr: Expr): Expr = expr
     def implies(expr: Expr): Boolean
@@ -105,20 +109,20 @@ trait SimplifierWithPC extends Transformer { self =>
   // a purity check simplifies terms that are not the one whose simplification is recorded
   final def isPure(e: Expr, path: Env): Boolean = {
     val r = path.recorder
-    if (r eq null) simplify(e, path)._2 else r.suspended(simplify(e, path)._2)
+    if (!r.active) simplify(e, path)._2 else r.suspended(simplify(e, path)._2)
   }
 
   /** Rewrites the subterm that the recorded simplification is at, if it is recorded. */
   protected inline def recorded(rule: String, inline to: Expr, path: Env): Unit = {
     val r = path.recorder
-    if (r ne null) r.rewrite(rule, to)
+    if (r.active) r.rewrite(rule, to)
   }
 
   /** Runs `body`, which simplifies `e`, at `e` in the term of the recorded simplification. What
     * it makes of `e` without a step is one of `rule`, or of the pass around without one. */
   protected inline def recordedAt(e: Expr, path: Env, rule: String = null)(inline body: Expr): Expr = {
     val r = path.recorder
-    if (r eq null) body else r.at(e, rule)(body)
+    if (!r.active) body else r.at(e, rule)(body)
   }
 
   /** `res`, which the subterm that the recorded simplification is at becomes by the rule `rule`
@@ -135,7 +139,7 @@ trait SimplifierWithPC extends Transformer { self =>
     * from the outermost on, where `inner` then becomes `last`. */
   private def recordedBinds(bindings: Seq[(ValDef, Expr)], inner: Expr, path: Env)(last: => Expr): Unit = {
     val r = path.recorder
-    if (r ne null) {
+    if (r.active) {
       def rec(bs: Seq[(ValDef, Expr)]): Expr =
         if (bs.isEmpty) last
         else {
@@ -153,7 +157,7 @@ trait SimplifierWithPC extends Transformer { self =>
     */
   protected def simplify(e: Expr, path: Env): (Expr, Boolean) = {
     val r = path.recorder
-    if (r eq null) simplifyCases(e, path) else {
+    if (!r.active) simplifyCases(e, path) else {
       // the recorded steps are from what the simplifier is given to what it returns
       var pure = false
       val res = r.at(e, "simplify") { val (re, pe) = simplifyCases(e, path); pure = pe; re }
@@ -449,7 +453,7 @@ trait SimplifierWithPC extends Transformer { self =>
     * of the rule `fold`. */
   private def recordedCons(rule: String, res: (Expr, Boolean), path: Env): (Expr, Boolean) = {
     val r = path.recorder
-    if ((r ne null) && r.active) {
+    if (r.active) {
       val arith = r.node match {
         case Equals(a, b) => res._1 == BooleanLiteral(true) ||
           ((a, b) match { case (_: IntegerLiteral, _: IntegerLiteral) | (_: BooleanLiteral, _: BooleanLiteral) => true; case _ => false })

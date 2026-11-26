@@ -21,7 +21,7 @@ import solvers.PurityOptions
   * written.
   *
   * All that is done to a formula is done by one simplifier, which records the steps of what it
-  * does in the recorder that it is given with the formula, if any (see
+  * does in the recorder that it is given with the formula (see
   * [[TransformationRecorder]]): the traversal has it in its path, and the simplifier itself
   * keeps nothing of a formula, so that one simplifier serves the simplifications that are
   * recorded and those that are not. */
@@ -152,9 +152,9 @@ trait FormulaSimplifier extends SimplifierWithPath { self =>
     * by evaluating them using [[inox.evaluators.Evaluator]].
     * If `force` is omitted, the given expression will only be evaluated if it is
     * ground, pure, and does not contain uninterpreted calls or quantifiers.
-    * The steps of the evaluations are recorded in `r`, unless it is `null`.
+    * The steps of the evaluations are recorded in `r`, when it is active.
     */
-  def simplifyGround(expr: Expr, reportErrors: Boolean = false, r: Recorder = null)(using sem: symbols.Semantics, ctx: Context): Expr = {
+  def simplifyGround(expr: Expr, reportErrors: Boolean = false, r: Recorder = noRecorder)(using sem: symbols.Semantics, ctx: Context): Expr = {
     val evalCtx = ctx.withOpts(evaluators.optEvalQuantifiers(false))
     val evaluator = sem.getEvaluator(using evalCtx)
 
@@ -180,7 +180,7 @@ trait FormulaSimplifier extends SimplifierWithPath { self =>
     // constants of the program, select fields of their values and test their constructors,
     // and the others are one step, of the rule `evaluate`.
     def record(e: Expr, value: Expr): Unit = {
-      if ((r ne null) && r.active && e != value) {
+      if (r.active && e != value) {
         def steps(e: Expr): Expr = e match {
           case fi @ FunctionInvocation(_, _, Seq()) if !isValue(e) =>
             val body = unfolded(fi)
@@ -210,7 +210,7 @@ trait FormulaSimplifier extends SimplifierWithPath { self =>
     }
 
     // TODO: Should we run this within a fixpoint with simplifyByConstructor?
-    def recordedAt(e: Expr)(body: => Expr): Expr = if (r eq null) body else r.at(e)(body)
+    def recordedAt(e: Expr)(body: => Expr): Expr = if (!r.active) body else r.at(e)(body)
 
     def rec(e: Expr)(using PurityOptions): Expr = recordedAt(e)(e match {
       case e if isValue(e) =>
@@ -236,7 +236,7 @@ trait FormulaSimplifier extends SimplifierWithPath { self =>
 
   /** Simplifies the formula `e`, for the solvers: simplifies it under its path conditions,
     * and evaluates its ground subterms. */
-  def simplifyFormula(e: Expr, r: Recorder = null)(using ctx: Context, sem: symbols.Semantics): Expr = {
+  def simplifyFormula(e: Expr, r: Recorder = noRecorder)(using ctx: Context, sem: symbols.Semantics): Expr = {
     val simp: Expr => Expr =
       recordedPass("evaluate", r, (e: Expr) => simplifyGround(e, r = r))     compose
       recordedPass("simplify", r, (e: Expr) => transform(e, Env.recording(r)))
@@ -246,6 +246,6 @@ trait FormulaSimplifier extends SimplifierWithPath { self =>
   /** A pass of a simplification: when it is recorded, what the pass makes of the term without
     * recording how is a step of the rule `rule`. */
   private def recordedPass(rule: String, r: Recorder, pass: Expr => Expr): Expr => Expr = (e: Expr) => {
-    if (r eq null) pass(e) else r.at(e, rule)(pass(e))
+    if (!r.active) pass(e) else r.at(e, rule)(pass(e))
   }
 }

@@ -114,8 +114,11 @@ trait SymbolOps extends TypeOps { self =>
   }
 
   /** A recorder of the steps of a simplification, for certificates (see [[simplifyFormulaRecorded]]),
-    * or `null` for a simplification that is not recorded. */
+    * which is [[noRecorder]] for a simplification that is not recorded. */
   private[inox] type Recorder = transformers.TransformationRecorder { val trees: self.trees.type }
+
+  /** The recorder of the simplifications that are not recorded, which is never active. */
+  private[inox] lazy val noRecorder: Recorder = transformers.TransformationRecorder.none(trees)
 
   /** Whether `a` is `b` up to the names of the variables that they bind. */
   private[inox] def sameUpToLocals(a: Expr, b: Expr): Boolean = (a == b) || {
@@ -885,12 +888,12 @@ trait SymbolOps extends TypeOps { self =>
    *   forall((x: BigInt) => x + 1 == x + 1)
    * }}}
    */
-  def inlineLambdas(e: Expr)(using PurityOptions): Expr = inlineLambdas(e, null)
+  def inlineLambdas(e: Expr)(using PurityOptions): Expr = inlineLambdas(e, noRecorder)
 
-  /** [[inlineLambdas]], which records its steps in `r` unless it is `null`. */
+  /** [[inlineLambdas]], which records its steps in `r` when it is active. */
   private[inox] def inlineLambdas(e: Expr, r: Recorder)(using PurityOptions): Expr = {
-    inline def recordedAt(e: Expr, rule: String = null)(inline body: Expr): Expr = if (r eq null) body else r.at(e, rule)(body)
-    inline def recorded(rule: String, inline to: Expr): Unit = if (r ne null) r.rewrite(rule, to)
+    inline def recordedAt(e: Expr, rule: String = null)(inline body: Expr): Expr = if (!r.active) body else r.at(e, rule)(body)
+    inline def recorded(rule: String, inline to: Expr): Unit = if (r.active) r.rewrite(rule, to)
 
     def rec(e: Expr, lambdas: Map[Variable, Lambda], inForall: Boolean): Expr = recordedAt(e)(e match {
       case Let(vd, l: Lambda, b) =>
@@ -1389,7 +1392,7 @@ trait SymbolOps extends TypeOps { self =>
     * `unused` of certificates for the types that are known to have values. */
   private def recordedForall(args: Seq[ValDef], body: Expr, r: Recorder): Expr = {
     val res = forall(args, body)
-    if ((r ne null) && r.active && r.node != res) {
+    if (r.active && r.node != res) {
       val vars = exprOps.variablesOf(body)
       val dropped = args.filterNot(vd => vars(vd.toVariable))
       val known = body == BooleanLiteral(true) || dropped.forall(vd => certifiablyInhabited(vd.tpe))
@@ -1424,12 +1427,12 @@ trait SymbolOps extends TypeOps { self =>
   private[inox] def applied(l: Lambda, args: Seq[Expr]): Expr =
     (l.params zip args).foldRight(l.body) { case ((vd, e), body) => Let(vd, e, body) }
 
-  def simpForall(args: Seq[ValDef], body: Expr): Expr = simpForall(args, body, null)
+  def simpForall(args: Seq[ValDef], body: Expr): Expr = simpForall(args, body, noRecorder)
 
-  /** [[simpForall]], which records its steps in `r` unless it is `null`: the quantifier is then
+  /** [[simpForall]], which records its steps in `r` when it is active: the quantifier is then
     * the subterm that the recorded simplification is at. */
   private[inox] def simpForall(args: Seq[ValDef], body: Expr, r: Recorder): Expr =
-    if (r eq null) simpForallSteps(args, body, r) else r.at(Forall(args, body), "quantifiers")(simpForallSteps(args, body, r))
+    if (!r.active) simpForallSteps(args, body, r) else r.at(Forall(args, body), "quantifiers")(simpForallSteps(args, body, r))
 
   private def simpForallSteps(args: Seq[ValDef], body: Expr, r: Recorder): Expr = {
     // The quantifiers of the operands `es` of the body that `lifted` holds of become the outer
@@ -1452,10 +1455,10 @@ trait SymbolOps extends TypeOps { self =>
       val newBody = recons(allBodies)
       if (flatArgs.isEmpty) {
         // the constructor of the connective may simplify it
-        if (r ne null) r.at(body, "logic")(newBody)
+        if (r.active) r.at(body, "logic")(newBody)
         recordedForall(args, newBody, r)
       } else {
-        if ((r ne null) && r.active) {
+        if (r.active) {
           // the rule `prenex` of certificates is that of the types that are known to have values
           val Operator(_, same) = body: @unchecked
           val lifted = same(allBodies)
@@ -1469,7 +1472,7 @@ trait SymbolOps extends TypeOps { self =>
 
     body match {
       case Forall(args2, body) =>
-        if (r ne null) r.rewrite("merge", Forall(args ++ args2, body))
+        if (r.active) r.rewrite("merge", Forall(args ++ args2, body))
         simpForall(args ++ args2, body, r)
       case And(es) => liftForalls(es, andJoin, (f, _) => f.params.forall(vd => certifiablyInhabited(vd.tpe)))
       case Or(es) => liftForalls(es, orJoin, (_, _) => true)

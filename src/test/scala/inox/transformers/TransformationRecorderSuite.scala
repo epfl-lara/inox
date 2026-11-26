@@ -112,4 +112,14 @@ class TransformationRecorderSuite extends AnyFunSuite {
     rec.rewrite("logic", first)
     assert(rec.result(first) == Seq("logic" -> And(p, Or(t, q)), "logic" -> p))
   }
+
+  test("The recorder of a transformation that is not recorded is never active") {
+    val rec = TransformationRecorder.none(inox.trees)
+    assert(!rec.active)
+    // the transformation runs, and none of its steps is recorded
+    assert(rec.at(And(p, q), "pass") { rec.rewrite("logic", t); t } == t)
+    assert(rec.suspended(rec.active) == false)
+    assert(!rec.active)
+    assert(rec.result(t) == Seq())
+  }
 }

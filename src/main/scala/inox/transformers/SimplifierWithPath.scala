@@ -12,7 +12,7 @@ trait SimplifierWithPath extends SimplifierWithPC {
   class Env private(
     private val conditions: Set[Expr],
     private val exprSubst: Map[Variable, Expr],
-    override val recorder: Recorder = null
+    override val recorder: Recorder = noRecorder
   ) extends PathLike[Env] with SolvingPath {
 
     override def withBinding(p: (ValDef, Expr)): Env = p match {
@@ -47,10 +47,8 @@ trait SimplifierWithPath extends SimplifierWithPC {
   object Env extends PathProvider[Env] {
     def empty = new Env(Set(), Map())
 
-    /** The empty path of a simplification that records its steps in `recorder`, unless it is
-      * `null`. */
-    def recording(recorder: Recorder): Env =
-      if (recorder eq null) empty else new Env(Set(), Map(), recorder)
+    /** The empty path of a simplification that records its steps in `recorder`. */
+    def recording(recorder: Recorder): Env = new Env(Set(), Map(), recorder)
   }
 
   override def initEnv = Env.empty
