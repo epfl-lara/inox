@@ -166,8 +166,9 @@ trait SimplifierWithPC extends Transformer { self =>
   }
 
   /** What the simplification makes of the simplified body `e` of a binding that it inlined:
-    * `e` is not simplified again, and has new terms where the bound variable was. */
-  protected def substituted(e: Expr, path: Env): Expr = e
+    * `e` is not simplified again, and has `value`, the same object, where the bound variable
+    * was. */
+  protected def substituted(e: Expr, value: Expr, path: Env): Expr = e
 
   private def simplifyCases(e: Expr, path: Env): (Expr, Boolean) =
     simplifyCore(e, path) otherwise simplifyData(e, path) otherwise simplifyBindings(e, path) otherwise
@@ -371,7 +372,7 @@ trait SimplifierWithPC extends Transformer { self =>
         // We can assume here that all `important` simplifications have already taken place
         // as if the bound expression was an ADT or variable, then `path.expand` has already
         // made sure that all possible simplifications have taken place in `rb`.
-        (substituted(step("logic", replaceFromSymbols(Map(vd -> re), rb), path), path), pe && pb)
+        (substituted(step("logic", replaceFromSymbols(Map(vd -> re), rb), path), re, path), pe && pb)
       } else {
         val newLet = Let(vd, re, rb).copiedFrom(let)
         re match {

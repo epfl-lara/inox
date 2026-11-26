@@ -178,6 +178,14 @@ class SimplificationRecorderSuite extends AnyFunSuite with DatastructureUtils {
   test("The ground terms that an inlined binding leaves are evaluated") {
     assert(simplifyFormula(Let(n, int(42), GreaterThan(Times(n.toVariable, n.toVariable), x))) == GreaterThan(int(1764), x))
     assert(rules(Let(n, int(42), GreaterThan(Times(n.toVariable, n.toVariable), x))) == Seq("logic", "evaluate"))
+    // in the body of a lambda, as the ground terms that are written there
+    val f = Variable.fresh("f", FunctionType(Seq(IntegerType()), IntegerType()))
+    def fun(e: Expr): Expr = Lambda(Seq(m), Plus(m.toVariable, e))
+    assert(simplifyFormula(Let(n, int(42), Equals(f, fun(Times(n.toVariable, n.toVariable))))) == Equals(f, fun(int(1764))))
+    assert(simplifyFormula(Let(n, int(42), Equals(f, fun(Division(n.toVariable, int(2)))))) == Equals(f, fun(Division(int(42), int(2)))))
+    // a term that the value doesn't make ground stays, and so does one that it is not in
+    assert(simplifyFormula(Let(n, int(42), Equals(f, fun(Plus(Times(n.toVariable, x), Division(int(10), int(2))))))) ==
+      Equals(f, fun(Plus(Times(int(42), x), Division(int(10), int(2))))))
   }
 
   test("The value of the term of a binding is simplified with in its body") {

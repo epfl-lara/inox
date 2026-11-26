@@ -65,12 +65,15 @@ trait FormulaSimplifier extends SimplifierWithPath { self =>
   private val suspendedCallees = new java.util.concurrent.ConcurrentHashMap[Identifier, Set[Identifier]]
   private val suspendedRecursions = new java.util.concurrent.ConcurrentHashMap[Identifier, java.lang.Boolean]
 
+  // the functions that `e` calls: an equality of a sort calls its equality function
+  private def calledIn(e: Expr): Set[Identifier] = collect[Identifier] {
+    case fi: FunctionInvocation => Set(fi.id)
+    case Equals(IsTyped(_, adt: ADTType), _) if adt.getSort.hasEquality => Set(adt.getSort.equality.get.id)
+    case _ => Set.empty
+  } (e)
+
   private def calleesOf(id: Identifier): Set[Identifier] =
-    callees.computeIfAbsent(id, id => collect[Identifier] {
-      case fi: FunctionInvocation => Set(fi.id)
-      case Equals(IsTyped(_, adt: ADTType), _) if adt.getSort.hasEquality => Set(adt.getSort.equality.get.id)
-      case _ => Set.empty
-    } (getFunction(id).fullBody))
+    callees.computeIfAbsent(id, id => calledIn(getFunction(id).fullBody))
 
   /** Whether the function `id` is called from its own body, directly or not. */
   private def recursive(id: Identifier): Boolean =
@@ -88,7 +91,7 @@ trait FormulaSimplifier extends SimplifierWithPath { self =>
   // the functions that each function calls in the bodies of its lambdas
   private def suspendedCalleesOf(id: Identifier): Set[Identifier] =
     suspendedCallees.computeIfAbsent(id, id => collect[Identifier] {
-      case Lambda(_, body) => collect[Identifier] { case fi: FunctionInvocation => Set(fi.id) case _ => Set.empty } (body)
+      case Lambda(_, body) => calledIn(body)
       case _ => Set.empty
     } (getFunction(id).fullBody))
 
@@ -129,7 +132,6 @@ trait FormulaSimplifier extends SimplifierWithPath { self =>
       case Operator(es, _) => es.exists(hasForall)
     }
 
-
     inlined.computeIfAbsent(id, id => java.lang.Boolean.valueOf(
       hasForall(getFunction(id).fullBody) && !recursive(id)
     )).booleanValue
@@ -160,22 +162,36 @@ trait FormulaSimplifier extends SimplifierWithPath { self =>
       value
     }
 
-  /** Evaluates the ground terms of `e`, from the largest ones, with `evaluator`. */
-  private def evaluatedIn(e: Expr, path: Env, evaluator: Expr => Option[Expr]): Expr = {
+  /** Evaluates with `evaluator` the terms of `e` that the occurrences of `value` make ground,
+    * from the smallest ones: `e` is a simplified term in which `value`, which is ground, was
+    * substituted for a variable. The other terms of `e` are as the simplification left them. */
+  private def evaluatedAround(e: Expr, value: Expr, path: Env, evaluator: Expr => Option[Expr]): Expr = {
     val r = path.recorder
-    def rec(e: Expr, path: Env): Expr = {
-      def children: Expr = {
-        val Operator(es, recons) = e: @unchecked
+    // what `e` becomes, whether `value` occurs in it, and its free variables
+    def rec(e: Expr, path: Env): (Expr, Boolean, Set[Variable]) = e match {
+      case _ if e eq value => (e, true, Set.empty)
+      case v: Variable => (v, false, Set(v))
+      case _ =>
+        val (ids, vs, es, tps, flags, builder) = deconstructor.deconstruct(e)
         val inner = e match { case _: Lambda => path.inLambda case _ => path }
-        val res = es.map(rec(_, inner))
-        if ((res zip es).forall(p => p._1 eq p._2)) e else recons(res).copiedFrom(e)
-      }
-      def here: Expr =
-        if (isGround(e) && !isValue(e)) evaluated(e, path, evaluator).getOrElse(children)
-        else children
-      if (!r.active) here else r.at(e)(here)
+        var occurs = false
+        var vars = Set.empty[Variable]
+        def here: Expr = {
+          val res = es.map(rec(_, inner))
+          occurs = res.exists(_._2)
+          vars = vs.foldRight(res.flatMap(_._3).toSet ++ tps.flatMap(typeOps.variablesOf)) {
+            case (v, vars) => vars - v ++ typeOps.variablesOf(v.tpe)
+          }
+          if (!occurs) e else {
+            val node = builder(ids, vs, res.map(_._1), tps, flags).copiedFrom(e)
+            if (vars.nonEmpty || isValue(node)) node
+            else evaluated(node, path, evaluator).getOrElse(node)
+          }
+        }
+        val res = if (!r.active) here else r.at(e)(here)
+        (res, occurs, vars)
     }
-    rec(e, path)
+    rec(e, path)._1
   }
 
   /** Simplifies `e` under `path`, and evaluates what it becomes when that is ground and the path
@@ -183,16 +199,19 @@ trait FormulaSimplifier extends SimplifierWithPath { self =>
     * ground term is done by its rules, and recorded as their steps. */
   override protected def simplify(e: Expr, path: Env): (Expr, Boolean) = {
     val res = super.simplify(e, path)
-    val evaluator = path.evaluator
-    if ((evaluator eq null) || !isGround(res._1) || isValue(res._1)) res
-    else evaluated(res._1, path, evaluator).fold(res)(value => (value, true))
+    path.evaluator match {
+      case Some(evaluator) if isGround(res._1) && !isValue(res._1) =>
+        evaluated(res._1, path, evaluator).fold(res)(value => (value, true))
+      case _ => res
+    }
   }
 
-  /** Evaluates the ground terms of `e`, where a binding to a ground term was inlined: these are
-    * not simplified again. */
-  override protected def substituted(e: Expr, path: Env): Expr = {
-    val evaluator = path.evaluator
-    if (evaluator eq null) e else evaluatedIn(e, path, evaluator)
+  /** Evaluates the terms of `e` that `value` makes ground, where it was substituted for the
+    * variable of a binding that is inlined: these are not simplified again. A term that is not
+    * ground makes none. */
+  override protected def substituted(e: Expr, value: Expr, path: Env): Expr = path.evaluator match {
+    case Some(evaluator) if isGround(value) => evaluatedAround(e, value, path, evaluator)
+    case _ => e
   }
 
   /** The simplification under path conditions, which also
@@ -333,7 +352,7 @@ trait FormulaSimplifier extends SimplifierWithPath { self =>
     * and evaluates its ground subterms as it does. */
   def simplifyFormula(e: Expr, r: Recorder = noRecorder)(using ctx: Context, sem: symbols.Semantics): Expr = {
     val evaluator = sem.getEvaluator(using ctx.withOpts(evaluators.optEvalQuantifiers(false)))
-    val path = Env.of(r, (e: Expr) => evaluator.eval(e).result)
+    val path = Env.of(r, Some((e: Expr) => evaluator.eval(e).result))
     if (!r.active) transform(e, path) else r.at(e, "simplify")(transform(e, path))
   }
 }

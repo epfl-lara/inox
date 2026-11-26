@@ -10,14 +10,13 @@ trait SimplifierWithPath extends SimplifierWithPC {
   import symbols.{given, _}
 
   /** A path of conditions and bindings, with what a simplification is given for the term that
-    * it simplifies: the `recorder` of its steps and the `evaluator` of its ground terms, which
-    * are `null` when it doesn't record and doesn't evaluate, and whether the path is `underLambda`,
-    * the body of a lambda. */
+    * it simplifies: the `recorder` of its steps, the `evaluator` of its ground terms, if it
+    * evaluates them, and whether the path is `underLambda`, the body of a lambda. */
   class Env private(
     private val conditions: Set[Expr],
     private val exprSubst: Map[Variable, Expr],
     override val recorder: Recorder = noRecorder,
-    val evaluator: Expr => Option[Expr] = null,
+    val evaluator: Option[Expr => Option[Expr]] = None,
     val underLambda: Boolean = false
   ) extends PathLike[Env] with SolvingPath {
 
@@ -61,8 +60,8 @@ trait SimplifierWithPath extends SimplifierWithPC {
     def empty = new Env(Set(), Map())
 
     /** The empty path of a simplification that records its steps in `recorder` and evaluates
-      * its ground terms with `evaluator`, unless they are `null`. */
-    def of(recorder: Recorder, evaluator: Expr => Option[Expr]): Env =
+      * its ground terms with `evaluator`, if any. */
+    def of(recorder: Recorder, evaluator: Option[Expr => Option[Expr]]): Env =
       new Env(Set(), Map(), recorder, evaluator)
   }
 
