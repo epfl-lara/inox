@@ -37,3 +37,10 @@ globs = ["Inox.Correct", "Inox.NoModel", "Inox.Fresh", "Inox.Extend", "Inox.Rule
 name = "InoxClosed"
 roots = []
 globs = ["Inox.Closed"]
+
+# The command that says of which certificates `no_solution_of_reached` holds: its checks are
+# defined over the semantics, so it is of this package. `lake build inox-solution` compiles the
+# modules that it imports, those of Mathlib too, which takes a quarter of an hour the first time.
+[[lean_exe]]
+name = "inox-solution"
+root = "SolutionMain"

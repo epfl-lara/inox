@@ -14,17 +14,6 @@ exits with 1 unless it accepts every certificate.
 open Inox
 open Logos (Sexp)
 
-/-- The certificates of `content`: the s-expressions that start a line with `(inox-certificate`,
-since Inox prints other lines there too. -/
-def certificates (content : String) : List (Except String Sexp) :=
-  let rec go : List String → List (Except String Sexp)
-    | [] => []
-    | line :: rest =>
-      if line.startsWith "(inox-certificate" then
-        (Sexp.Parser.sexp.run ("\n".intercalate (line :: rest))) :: go rest
-      else go rest
-  go (content.splitOn "\n")
-
 def main (args : List String) : IO UInt32 := do
   let (rulesOnly, terms, files) := match args with
     | "--rules" :: files => (true, false, files)
