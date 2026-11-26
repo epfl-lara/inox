@@ -151,9 +151,12 @@ def timings_table(sections, with_details=True):
             continue
         if j.get("ci"):
             lo, hi = j["ci"]
-            total = f"{factor(j['total'])} ({interval(lo, hi)})"
+            # A total whose interval holds no change is the same as main's.
             if lo > 0 or hi < 0:
-                total = f"<b>{total}</b>"
+                what = "slower" if lo > 0 else "faster"
+                total = f"<b>{factor(j['total'])} {what}</b> ({interval(lo, hi)})"
+            else:
+                total = "within noise"
         else:
             total = "–"
         c = counts.get(id(j), {1: 0, -1: 0})
@@ -189,6 +192,9 @@ def timings_table(sections, with_details=True):
         out += [f"<details><summary>Tests that changed ({n})</summary>", "", *lines, explain, "", "</details>", ""]
     elif n:
         out += [f"_{n} tests changed: too many to list here._", ""]
+    if any(j.get("ci") and j["ci"][0] <= 0 <= j["ci"][1] for j in jobs):
+        notes.insert(0, "Within noise: the total differs from `main`'s by no more than earlier "
+                        "builds of `main` differ from each other.")
     if any(j.get("enough") and not j.get("ci") for j in jobs):
         notes.insert(0, "A total is shown once 2 earlier builds of `main` give its interval.")
     if notes:
