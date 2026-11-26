@@ -41,6 +41,17 @@ class SimplificationRecorderSuite extends AnyFunSuite with DatastructureUtils {
   val bounded = new FunDef(boundedID, Seq(), Seq(bm), BooleanType(),
     Assume(GreaterThan(bm.toVariable, IntegerLiteral(0)), Forall(Seq(bk), GreaterThan(Plus(bk.toVariable, bm.toVariable), bk.toVariable))), Seq())
 
+  // a recursive function, which terminates
+  val downID = FreshIdentifier("down")
+  val dm = ValDef.fresh("m", IntegerType())
+  val downDef = new FunDef(downID, Seq(), Seq(dm), IntegerType(),
+    IfExpr(LessEquals(dm.toVariable, IntegerLiteral(0)), IntegerLiteral(0),
+      FunctionInvocation(downID, Seq(), Seq(Minus(dm.toVariable, IntegerLiteral(1))))), Seq())
+  // a constant that is a function, which calls it again
+  val againID = FreshIdentifier("again")
+  val am = ValDef.fresh("m", IntegerType())
+  val againDef = new FunDef(againID, Seq(), Seq(), FunctionType(Seq(IntegerType()), IntegerType()),
+    Lambda(Seq(am), Application(FunctionInvocation(againID, Seq(), Seq()), Seq(am.toVariable))), Seq())
   // a constant that is a function
   val idfID = FreshIdentifier("idf")
   val idf = new FunDef(idfID, Seq(), Seq(), FunctionType(Seq(IntegerType()), IntegerType()), Lambda(Seq(n), n.toVariable), Seq())
@@ -51,7 +62,7 @@ class SimplificationRecorderSuite extends AnyFunSuite with DatastructureUtils {
   val wrapEq = new FunDef(wrapEqID, Seq(), Seq(wa, wb), BooleanType(),
     Forall(Seq(wk), Equals(GreaterThan(ADTSelector(wa.toVariable, unwrap), wk.toVariable), GreaterThan(ADTSelector(wb.toVariable, unwrap), wk.toVariable))), Seq())
 
-  given symbols: Symbols = baseSymbols.withSorts(Seq(wrap)).withFunctions(Seq(inc, ones, increases, ever, calls, bounded, idf, wrapEq))
+  given symbols: Symbols = baseSymbols.withSorts(Seq(wrap)).withFunctions(Seq(inc, ones, increases, ever, calls, bounded, idf, wrapEq, downDef, againDef))
   import symbols._
 
   given ctx: Context = TestContext.empty
@@ -98,6 +109,7 @@ class SimplificationRecorderSuite extends AnyFunSuite with DatastructureUtils {
   }
 
   def inc(e: Expr): Expr = FunctionInvocation(incID, Seq(), Seq(e))
+  def down(e: Expr): Expr = FunctionInvocation(downID, Seq(), Seq(e))
   def int(i: Int): Expr = IntegerLiteral(i)
 
   test("No steps are recorded for a term that is not simplified") {
@@ -150,9 +162,58 @@ class SimplificationRecorderSuite extends AnyFunSuite with DatastructureUtils {
   }
 
   test("Constants of the program are unfolded, and ground calls are evaluated") {
-    assert(rules(GreaterThan(ADTSelector(FunctionInvocation(onesID, Seq(), Seq()), head), x)) == Seq("unfold"))
+    assert(rules(GreaterThan(ADTSelector(FunctionInvocation(onesID, Seq(), Seq()), head), x)) == Seq("unfold", "select"))
     assert(rules(GreaterThan(inc(int(1)), x)) == Seq("evaluate"))
     assert(rules(GreaterThan(Plus(int(1), int(2)), x)) == Seq("evaluate"))
+  }
+
+  test("The values of ground terms are simplified with, in the same traversal") {
+    // the condition is evaluated, and its conditional is then one of its branches
+    assert(simplifyFormula(IfExpr(GreaterThan(inc(int(1)), int(1)), p, q)) == p)
+    assert(rules(IfExpr(GreaterThan(inc(int(1)), int(1)), p, q)) == Seq("evaluate", "evaluate", "logic"))
+    assert(simplifyFormula(And(Equals(x, int(3)), LessThan(inc(int(1)), int(1)))) == BooleanLiteral(false))
+    assert(simplifyFormula(Or(Equals(x, int(3)), LessThan(inc(int(1)), int(1)))) == Equals(x, int(3)))
+  }
+
+  test("The ground terms that an inlined binding leaves are evaluated") {
+    assert(simplifyFormula(Let(n, int(42), GreaterThan(Times(n.toVariable, n.toVariable), x))) == GreaterThan(int(1764), x))
+    assert(rules(Let(n, int(42), GreaterThan(Times(n.toVariable, n.toVariable), x))) == Seq("logic", "evaluate"))
+    // in the body of a lambda, as the ground terms that are written there
+    val f = Variable.fresh("f", FunctionType(Seq(IntegerType()), IntegerType()))
+    def fun(e: Expr): Expr = Lambda(Seq(m), Plus(m.toVariable, e))
+    assert(simplifyFormula(Let(n, int(42), Equals(f, fun(Times(n.toVariable, n.toVariable))))) == Equals(f, fun(int(1764))))
+    assert(simplifyFormula(Let(n, int(42), Equals(f, fun(Division(n.toVariable, int(2)))))) == Equals(f, fun(Division(int(42), int(2)))))
+    // a term that the value doesn't make ground stays, and so does one that it is not in
+    assert(simplifyFormula(Let(n, int(42), Equals(f, fun(Plus(Times(n.toVariable, x), Division(int(10), int(2))))))) ==
+      Equals(f, fun(Plus(Times(int(42), x), Division(int(10), int(2))))))
+  }
+
+  test("The value of the term of a binding is simplified with in its body") {
+    val bound = Let(n, inc(int(1)), GreaterThan(Times(n.toVariable, n.toVariable), x))
+    assert(simplifyFormula(bound) == GreaterThan(int(4), x))
+    rules(bound)
+    // a binding that stays is evaluated with its body when its term is a value
+    val s = ValDef.fresh("s", SetType(IntegerType()))
+    val members = Let(s, FiniteSet(Seq(int(1), int(2)), IntegerType()),
+      And(ElementOfSet(int(1), s.toVariable), ElementOfSet(int(2), s.toVariable)))
+    assert(simplifyFormula(members) == BooleanLiteral(true))
+    rules(members)
+  }
+
+  test("In a lambda, a ground term is evaluated if its operations are pure whatever their operands") {
+    val f = Variable.fresh("f", FunctionType(Seq(IntegerType()), IntegerType()))
+    def fun(e: Expr): Expr = Lambda(Seq(n), Plus(n.toVariable, e))
+    // whether or not the lambda is ground
+    assert(simplifyFormula(Equals(f, fun(inc(int(1))))) == Equals(f, fun(int(2))))
+    assert(simplifyFormula(Equals(f, fun(Plus(x, inc(int(1)))))) == Equals(f, fun(Plus(x, int(2)))))
+    // a division is not pure for any divisor, and stays as it is written
+    assert(simplifyFormula(Equals(f, fun(Division(int(10), int(2))))) == Equals(f, fun(Division(int(10), int(2)))))
+    assert(simplifyFormula(GreaterThan(Division(int(10), int(2)), x)) == GreaterThan(int(5), x))
+    // a recursive function is not pure unless it is checked to terminate
+    assert(simplifyFormula(Equals(f, fun(down(int(3))))) == Equals(f, fun(down(int(3)))))
+    // the value of a function whose recursion is in a lambda calls it again
+    val again = Lambda(Seq(n), Application(FunctionInvocation(againID, Seq(), Seq()), Seq(n.toVariable)))
+    assert(simplifyFormula(Equals(f, again)) == Equals(f, again))
   }
 
   test("Functions with quantifiers are unfolded where they are called") {
