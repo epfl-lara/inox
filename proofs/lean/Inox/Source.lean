@@ -49,7 +49,7 @@ def tyOf : SmtType → Ty
 mutual
 /-- The expression that the term `t` is read as. A term outside the fragment is read as `Error`,
 which no check accepts. An assumption is read from its mark (`markAssumes` of
-`Inox/Terms.lean`). -/
+`Inox/Terms.lean`), and `mod` as `Modulo`, which is `Remainder` on integers. -/
 def back : SmtTerm → Expr
   | .UConst s _ => .Variable (idOf s)
   | .Numeral i => .IntegerLiteral i
@@ -62,6 +62,8 @@ def back : SmtTerm → Expr
   | .plus a b => .Plus (back a) (back b)
   | .neg a b => .Minus (back a) (back b)
   | .mult a b => .Times (back a) (back b)
+  | .div a b => .Division (back a) (back b)
+  | .mod a b => .Modulo (back a) (back b)
   | .uneg a => .UMinus (back a)
   | .lt a b => .LessThan (back a) (back b)
   | .gt a b => .GreaterThan (back a) (back b)
@@ -100,8 +102,8 @@ def consts : SmtTerm → List (native_String × SmtType)
   | .UConst s T => [(s, T)]
   | .ite c a b => consts c ++ consts a ++ consts b
   | .not a | .uneg a => consts a
-  | .imp a b | .eq a b | .plus a b | .neg a b | .mult a b | .lt a b | .gt a b | .leq a b
-  | .geq a b | .and a b | .or a b => consts a ++ consts b
+  | .imp a b | .eq a b | .plus a b | .neg a b | .mult a b | .div a b | .mod a b | .lt a b
+  | .gt a b | .leq a b | .geq a b | .and a b | .or a b => consts a ++ consts b
   | .Apply (.UConst _ _) a => consts a
   | .Apply f a => consts f ++ consts a
   | _ => []
@@ -143,7 +145,7 @@ def infer (S : List Sig) (Γ : List (Id × Ty)) : Expr → Option Bool
     match infer S Γ a, infer S Γ b with
     | some k, some k' => if k = k' then some true else none
     | _, _ => none
-  | .Plus a b | .Minus a b | .Times a b =>
+  | .Plus a b | .Minus a b | .Times a b | .Division a b | .Remainder a b | .Modulo a b =>
     if infer S Γ a = some false ∧ infer S Γ b = some false then some false else none
   | .UMinus a => if infer S Γ a = some false then some false else none
   | .LessThan a b | .GreaterThan a b | .LessEquals a b | .GreaterEquals a b =>
@@ -254,6 +256,27 @@ theorem infer_sound (S : List Sig) (Γ : List (Id × Ty)) :
       simp only [Option.some.injEq] at h; subst h
       exact .times (infer_sound S Γ a false hab.1) (infer_sound S Γ b false hab.2)
     · cases h
+  | .Division a b, k, h => by
+    simp only [infer] at h
+    split at h
+    · rename_i hab
+      simp only [Option.some.injEq] at h; subst h
+      exact .div (infer_sound S Γ a false hab.1) (infer_sound S Γ b false hab.2)
+    · cases h
+  | .Remainder a b, k, h => by
+    simp only [infer] at h
+    split at h
+    · rename_i hab
+      simp only [Option.some.injEq] at h; subst h
+      exact .rem (infer_sound S Γ a false hab.1) (infer_sound S Γ b false hab.2)
+    · cases h
+  | .Modulo a b, k, h => by
+    simp only [infer] at h
+    split at h
+    · rename_i hab
+      simp only [Option.some.injEq] at h; subst h
+      exact .mod (infer_sound S Γ a false hab.1) (infer_sound S Γ b false hab.2)
+    · cases h
   | .UMinus a, k, h => by
     simp only [infer] at h
     split at h
@@ -316,7 +339,7 @@ theorem infer_sound (S : List Sig) (Γ : List (Id × Ty)) :
   | .RoundNearestTiesToAway, k, h | .RoundTowardPositive, k, h | .RoundTowardNegative, k, h
   | .RoundTowardZero, k, h | .ADT _ _ _, k, h | .IsConstructor _ _, k, h | .ADTSelector _ _, k, h
   | .StringConcat _ _, k, h | .SubString _ _ _, k, h | .StringLength _, k, h
-  | .Division _ _, k, h | .Remainder _ _, k, h | .Modulo _ _, k, h | .BVNot _, k, h
+  | .BVNot _, k, h
   | .BVAnd _ _, k, h | .BVOr _ _, k, h | .BVXor _ _, k, h | .BVShiftLeft _ _, k, h
   | .BVAShiftRight _ _, k, h | .BVLShiftRight _ _, k, h | .BVNarrowingCast _ _, k, h
   | .BVWideningCast _ _, k, h | .BVUnsignedToSigned _, k, h | .BVSignedToUnsigned _, k, h
@@ -380,6 +403,9 @@ theorem HasTy.frag {S : List Sig} {Γ : List (Id × Ty)} {e : Expr} {T : Ty} (h 
   | plus _ _ iha ihb => exact .plus iha ihb
   | minus _ _ iha ihb => exact .minus iha ihb
   | times _ _ iha ihb => exact .times iha ihb
+  | div _ _ iha ihb => exact .div iha ihb
+  | rem _ _ iha ihb => exact .rem iha ihb
+  | mod _ _ iha ihb => exact .mod iha ihb
   | uminus _ ih => exact .uminus ih
   | lt _ _ iha ihb => exact .lt iha ihb
   | gt _ _ iha ihb => exact .gt iha ihb

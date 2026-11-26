@@ -62,6 +62,8 @@ def reachesW (w : SmtTerm → SmtTerm) (K : List (SmtTerm × Bool)) (c : SmtTerm
   | _, .plus x y => reachesW w K c true x || reachesW w K c true y
   | _, .neg x y => reachesW w K c true x || reachesW w K c true y
   | _, .mult x y => reachesW w K c true x || reachesW w K c true y
+  | _, .div x y => reachesW w K c true x || reachesW w K c true y
+  | _, .mod x y => reachesW w K c true x || reachesW w K c true y
   | _, .lt x y => reachesW w K c true x || reachesW w K c true y
   | _, .gt x y => reachesW w K c true x || reachesW w K c true y
   | _, .leq x y => reachesW w K c true x || reachesW w K c true y
@@ -291,7 +293,7 @@ theorem called_of_reachesW (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S) (hP
     · exact iha env _ hE hx M hw hc hV N w hN hT K hK c hr
     · exact ihb env _ hE hy M hw hc hV N w hN hT K hK c hr
   | plus _ _ iha ihb | minus _ _ iha ihb | times _ _ iha ihb | lt _ _ iha ihb | gt _ _ iha ihb
-    | le _ _ iha ihb | ge _ _ iha ihb =>
+    | div _ _ iha ihb | rem _ _ iha ihb | mod _ _ iha ihb | le _ _ iha ihb | ge _ _ iha ihb =>
     intro env v hE he M hw hc hV N w hN hT K hK c hr
     rw [eval] at he
     ok_split he
@@ -388,9 +390,10 @@ end Reach
 /-! ## The assumptions that evaluation goes through hold -/
 
 mutual
-/-- Evaluating `e` goes through an assumption whose term, through `w`, is `φ`, in the models where
-the literals `K` have their values: an `Assume` of `e` in an operand that is evaluated, as for
-`reachesW`. -/
+/-- Evaluating `e` goes through an operation that is only defined where `φ` holds, in the models
+where the literals `K` have their values: an `Assume` whose term, through `w`, is `φ`, or a
+division whose divisor `d`, through `w`, makes `φ` be `(not (= d 0))`, in an operand that is
+evaluated, as for `reachesW`. -/
 def assumesW (S : List Sig) (Γ : List (Id × Ty)) (w : SmtTerm → SmtTerm)
     (K : List (SmtTerm × Bool)) (φ : SmtTerm) : Expr → Bool
   | .Assume p b =>
@@ -407,6 +410,9 @@ def assumesW (S : List Sig) (Γ : List (Id × Ty)) (w : SmtTerm → SmtTerm)
       (decide (red K (w (tr S Γ a)) = .Boolean true) && assumesW S Γ w K φ b)
   | .Equals a b | .Plus a b | .Minus a b | .Times a b | .LessThan a b | .GreaterThan a b
   | .LessEquals a b | .GreaterEquals a b => assumesW S Γ w K φ a || assumesW S Γ w K φ b
+  | .Division a b | .Remainder a b | .Modulo a b =>
+    decide (SmtTerm.not (.eq (w (tr S Γ b)) (.Numeral 0)) = φ) || assumesW S Γ w K φ a ||
+      assumesW S Γ w K φ b
   | .FunctionInvocation _ _ args => assumesAny S Γ w K φ args
   | _ => false
 
@@ -594,6 +600,25 @@ theorem holds_of_assumesW (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S) {n :
     rename_i y hy
     simp only [assumesW, Bool.or_eq_true] at hr
     rcases hr with hr | hr
+    · exact iha env _ hE hx M hw hc hV N w hN hT K hK φ hr
+    · exact ihb env _ hE hy M hw hc hV N w hN hT K hK φ hr
+  | @div a b _ htb iha ihb | @rem a b _ htb iha ihb | @mod a b _ htb iha ihb =>
+    intro env v hE he M hw hc hV N w hN hT K hK φ hr
+    rw [eval] at he
+    ok_split he
+    rename_i x hx
+    ok_split he
+    rename_i y hy
+    simp only [assumesW, Bool.or_eq_true, decide_eq_true_eq] at hr
+    rcases hr with (hr | hr) | hr
+    · obtain ⟨hyT, hbM⟩ := ev hO hty hS hct htb env _ hE hy
+      obtain ⟨j, rfl⟩ := hasV_int hyT
+      have hj : j ≠ 0 := by
+        rintro rfl
+        cases x <;> simp [arith_div, arith_rem, arith_mod] at he
+      rw [← hr]
+      simp [__smtx_model_eval, (hT _ _ htb).trans (hbM M hw hc hV), trV, __smtx_model_eval_eq,
+        native_veq, hj, __smtx_model_eval_not, native_not]
     · exact iha env _ hE hx M hw hc hV N w hN hT K hK φ hr
     · exact ihb env _ hE hy M hw hc hV N w hN hT K hK φ hr
   | uminus _ ih =>
