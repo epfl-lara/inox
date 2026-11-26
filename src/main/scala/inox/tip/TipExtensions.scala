@@ -14,6 +14,7 @@ object Tokens {
   import LT.ReservedWord
 
   case object Assume extends ReservedWord
+  case object Error extends ReservedWord
   case object DatatypeInvariant extends ReservedWord
 }
 
@@ -24,6 +25,17 @@ object Terms {
       ctx.print(pred)
       ctx.print(" ")
       ctx.print(body)
+      ctx.print(")")
+    }
+  }
+
+  /** An expression of sort `sort` whose evaluation fails with `message`. */
+  case class Error(sort: Sort, message: String) extends TermExtension {
+    override def print(ctx: PrintingContext): Unit = {
+      ctx.print("(error ")
+      ctx.print(sort)
+      ctx.print(" ")
+      ctx.print(SString(message))
       ctx.print(")")
     }
   }
@@ -65,6 +77,7 @@ class TipLexer(reader: java.io.Reader) extends SMTLexer(reader) {
 
   override protected def toReserved(s: String): Option[Token] = s match {
     case "assume" => Some(Token(Tokens.Assume))
+    case "error" => Some(Token(Tokens.Error))
     case "datatype-invariant" => Some(Token(Tokens.DatatypeInvariant))
     case _ => super.toReserved(s)
   }
@@ -82,6 +95,12 @@ class TipParser(lexer: TipLexer) extends SMTParser(lexer) {
       val pred = parseTerm
       val body = parseTerm
       Assume(pred, body)
+
+    case Tokens.Error =>
+      eat(Tokens.Error)
+      val sort = parseSort
+      val message = parseString.value
+      Error(sort, message)
 
     case _ => super.parseTermWithoutParens(startPos)
   }

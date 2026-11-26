@@ -885,8 +885,13 @@ also finds `(not (= d 0))` for a divisor `d` that evaluation goes through, and
 checks hold of the certificates of a recursive function with a precondition,
 with a query that calls it within the precondition, and with one that calls it
 outside, which has no solution for that reason, and of those of functions that
-divide, one of them by zero on an argument of the query. A mark doubles the
-body after it, so a body with many nested assumptions is read slowly.
+divide, one of them by zero on an argument of the query. An `Error` of a source
+is read as the assumption that it is lowered to, `(assume false v)`, which is
+stuck as it is: the program of the certificate has an `Assume` in its place,
+and the clause `(=> g false)` of its branch is that of this assumption. The
+checks hold of the certificates of a recursive function with an error, with a
+query that stays away from it and with one that only reaches it. A mark doubles
+the body after it, so a body with many nested assumptions is read slowly.
 
 **The hypotheses that remain.**
 
@@ -969,8 +974,12 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   template to the syntax of the session, as the Scala checker does
   ([`Lowering.lean`](Inox/Lowering.lean), a port of
   [`Lowering.scala`](../src/main/scala/inox/certificates/Lowering.scala)), and
-  refuses a certificate with a source that doesn't lower. Only the Scala
-  checker checks that the clauses of a template are those of its source
+  refuses a certificate with a source that doesn't lower. An error of a source,
+  `(error S "message")`, is lowered to an assumption that never holds,
+  `(assume false v)` with `v` the `0` or the `false` of its sort, since Logos
+  reads the terms of a source, and an error of another sort is refused. Only
+  the Scala checker checks that the clauses of a template are those of its
+  source
   ([`Sources.scala`](../src/main/scala/inox/certificates/Sources.scala)); this
   checker only checks the clauses that it covers against the lowered source
   (`unfoldB`, and the clauses of instances, given the meanings of their

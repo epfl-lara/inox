@@ -20,6 +20,11 @@ one session symbol of its definition. Sorts are compared without their refinemen
 `:restrict`). The bodies of the `source-definitions` are generic: their keys mention the type
 parameters of the definition, which the type arguments of a call, the key of its head, replace.
 
+An error `(error S "message")` is lowered to an assumption that never holds, `(assume false v)`,
+where `v` is a value of its sort that Logos reads, `0` or `false`, in place of the Scala
+checker's `(error S')`: the terms of a source are read by Logos. An error of another sort is
+refused.
+
 It refuses a symbol of which the session has no symbol or several, and lambdas, `tuple.unit`,
 bags, string operations and floating points, which it doesn't lower.
 -/
@@ -384,6 +389,12 @@ where
         else pure (.expr (.atom "set.insert" :: (← rest.mapM (lower bound)) ++ [singleton]))
       else pure (.expr (.atom "set.insert" :: (← (first :: rest).mapM (lower bound)) ++ [← lower bound empty]))
     | .expr [.atom "insert", s, x] => do pure (app "set.insert" [← lower bound x, ← lower bound s])
+    | .expr [.atom "error", s, _] => do
+      -- an error is an assumption that never holds, of some value of its sort
+      match ← t.lowerSort s with
+      | .atom "Bool" => pure (app "assume" [ff, ff])
+      | .atom "Int" => pure (app "assume" [ff, .atom "0"])
+      | other => refuse s!"an error of sort {text other} is not lowered yet"
     | .expr (.atom op :: args) =>
       match setOperations.lookup op with
       | some op' => do pure (app op' (← args.mapM (lower bound)))

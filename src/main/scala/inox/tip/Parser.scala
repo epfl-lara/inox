@@ -13,7 +13,7 @@ import smtlib.theories.cvc.{CVC4Sets => Sets} // We use the Set operations as us
 import smtlib.extensions.tip.Terms.{Lambda => SMTLambda, Application => SMTApplication, _}
 import smtlib.extensions.tip.Commands._
 
-import Terms.{Assume => SMTAssume}
+import Terms.{Assume => SMTAssume, Error => SMTError}
 import Commands._
 
 import scala.collection.BitSet
@@ -471,6 +471,9 @@ class Parser(reader: Reader, file: Option[File]) {
 
       case SMTAssume(pred, body) =>
         Assume(fromSMT(pred), fromSMT(body))
+
+      case SMTError(sort, message) =>
+        Error(fromSMT(sort), message)
 
       case SMTLet(binding, bindings, term) =>
         var context = ctx

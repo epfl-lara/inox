@@ -64,7 +64,8 @@ its body in place: that of a lambda, the value that the solver computed for
 a call, or the body of a function that has equal subterms that the template
 has different terms for. A source is an Inox expression, which Inox's SMT-LIB 3 printer prints
 (`inox.smtlib3.Printer`, the syntax of `.smt3` inputs, with an
-`(assume <condition> <body>)` for each assumption). Its variables are those of
+`(assume <condition> <body>)` for each assumption and an
+`(error <sort> "<message>")` for each error). Its variables are those of
 the script, under the script's names, and its other symbols are those of the
 printer, which names identifiers as the script does. The source symbols say
 what each symbol of the sources stands for, as the solver symbols do for the script.
@@ -134,7 +135,9 @@ nor that the functions that a capture orders are those of the value.
 The `where` also gives the meanings of symbols of the template: the lambdas that
 the source holds, and each symbol that the clauses don't define with one
 equation, such as the result of a conditional, whose clauses give its value on
-each branch, and which means the conditional of those values. The generator
+each branch, and which means the conditional of those values, or the symbol
+that stands for an error, which no clause defines and which means that error.
+The generator
 records them where it creates the symbols, so that the checker reads what a
 symbol stands for rather than finds it from the shapes of the clauses. The
 checker doesn't rely on them: under them, each clause must hold for the source.
