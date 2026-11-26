@@ -16,7 +16,8 @@ defining equations and the base clauses of the certificate are their translation
 - `sourceCheck` holds when each equation is the translation of the body read from it, each base
   clause that of the expression read from it, and the names and the types are those of the
   fragment. It gives the hypotheses of `no_solution` on the program and the query
-  (`no_solution_of_check`).
+  (`no_solution_of_check`). When the check of the certificate covers every fact, nothing is
+  assumed of its clauses (`no_solution_of_covered`).
 
 The names are those that Logos gives the constants, and an n-ary operation is read as Logos
 reads it: `(+ a b)` is `a + (b + 0)`. That this program and this query are the ones that Inox
@@ -553,5 +554,19 @@ theorem no_solution_of_check (sound : LogosSound) (hO : O.Sound) (hty : LogosTyp
     (fun e he => ⟨sigOf e, List.mem_map_of_mem he,
       eqCheck_spec hS he (List.all_eq_true.mp hE e he)⟩)
     (varsFresh_of_check hΓ) (baseFor_of_check hB) hfacts cd hM0
+
+/-- As `no_solution_of_check`, for a certificate of which the check covers every fact
+(`hcovered`): nothing is assumed of its clauses. -/
+theorem no_solution_of_covered (sound : LogosSound) (hO : O.Sound) (hty : LogosTyping)
+    {certificate : Logos.Sexp} {checked : Checked} {r : TermSteps}
+    (hAccept : accept certificate = .ok checked) (hr : termSteps checked = .ok r)
+    (hcheck : r.check = true) (hkeeps : r.keeps = true) (hsrc : sourceCheck r = true)
+    (hcovered : r.facts.all r.covered = true)
+    (htot : Total O (programOf r.equations) (sigsOf r.equations))
+    (cd : Codes) {M0 : SmtModel} (hM0 : model_wf M0) :
+    ∀ vs, ¬ Solution O (programOf r.equations) (varsOf (sigsOf r.equations) r.base)
+      (queryOf r.base) vs :=
+  no_solution_of_check sound hO hty hAccept hr hcheck hkeeps hsrc htot
+    (factsHoldExcept_of_all hcovered) cd hM0
 
 end Inox.Bridge

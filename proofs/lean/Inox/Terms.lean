@@ -1195,11 +1195,40 @@ def reflexivities (terms : List Term) (fresh : List Step) (kinds : List (String 
   let terms := (all.map (·.term)).eraseDups
   terms.filterMap fun t => (all.find? (·.term == t)).filter fun e => mentionsNone fresh e.term
 
+/-- The last disjunct of `t`, if it is a constant: of `(or … d)`, as Logos reads it with or
+without the `false` that ends it. -/
+def lastDisjunct : Term → Option Term
+  | .Apply (.Apply (.UOp .or) a) (.Boolean false) => match a with
+    | .UConst _ _ => some a
+    | _ => none
+  | .Apply (.Apply (.UOp .or) _) r => match r with
+    | .UConst _ _ => some r
+    | _ => lastDisjunct r
+  | _ => none
+
+/-- A root step for each constant that ends the disjunction of a fact `(=> b (or … d))` or
+`(or … d)` and that neither the base clauses, the equations, the steps `fresh` nor the definitions
+`defs` mention, as the `diverges` of the decreases clauses: such a constant may be true. Nothing
+relies on this: the check decides that the steps are fresh. -/
+def unconstrained (eqs : List Equation) (base : List Term) (fresh : List Step) (defs : List Term)
+    (facts : List Term) : List Step :=
+  let names := addClauseNames {} (base ++ eqs.map (·.term) ++ fresh.flatMap (·.clauses) ++ defs)
+  let ends := facts.filterMap fun t => match t with
+    | .Apply (.Apply (.UOp .imp) _) c => lastDisjunct c
+    | c => lastDisjunct c
+  let ok (c : Term) : Bool := match asConst (__eo_to_smt c) with
+    | some (s, T) => T == SmtType.Bool && decide (Unreserved s) && !names.contains s &&
+        eqs.all fun e => !e.params.contains (s, T)
+    | none => false
+  (ends.eraseDups.filter ok).map Step.root
+
 /-- The steps of the clauses `terms` of the second parse: the base clauses are the query's
 assumptions, the source expressions of the instances of `expression` kind and the completeness
 assumptions, those of the latter two that mention none of the constants of the steps of the
 rules; the other completeness assumptions are facts, and the other source expressions are left
-out. -/
+out. The fresh-symbol steps are those of the rules, a root step for each constant that only ends
+disjunctions of facts (`unconstrained`), and the definitions of the local symbols of the instances
+that can be steps (`addDefinitions`). -/
 def termStepsOf (checked : Checked) (terms : List Term) : Except String TermSteps :=
   let nq := checked.query.length
   let counts := checked.applied.map fun (k, cs) => (k, cs.length)
@@ -1227,8 +1256,10 @@ def termStepsOf (checked : Checked) (terms : List Term) : Except String TermStep
         let out :=
           if k == "Unfold" || k == "Instance" then out ++ [(ds.take nd, cs.take n)] else out
         (out, cs.drop n, ds.drop nd)) ([], ruleTerms, defs)
+    let facts := facts ++ completeFacts.map (·.1)
+    let fresh := unconstrained eqs base fresh defs facts ++ fresh
     .ok { assums := [], base, fresh := addDefinitions eqs base fresh defs,
-          facts := facts ++ completeFacts.map (·.1), derived, equations := eqs,
+          facts, derived, equations := eqs,
           instances := instances.1, axioms := axioms.length, expressions := exprs.length,
           completeBase := completeBase.length,
           kinds := factKinds checked ++ completeFacts.map fun (_, c) => ("complete", c) }
@@ -1474,9 +1505,16 @@ def instClauseB (eqs : List Equation) (K : List (SmtTerm × Bool))
     (σ : List (SmtEval.native_String × SmtType × SmtTerm)) (c : Term) : Bool :=
   noBinder (__eo_to_smt c) && verify eqs K (substSmt σ (__eo_to_smt c))
 
-/-- The literals that the base clauses make known. -/
+/-- The constants of the root steps: the clauses that state them are among those of the
+fresh-symbol steps. -/
+def TermSteps.roots (r : TermSteps) : List Term :=
+  r.fresh.filterMap fun st => match st with
+    | .root c => some c
+    | _ => none
+
+/-- The literals that the base clauses and the root steps make known. -/
 def TermSteps.baseLits (r : TermSteps) : List (SmtTerm × Bool) :=
-  r.base.flatMap fun t => lits (__eo_to_smt t) true
+  (r.base ++ r.roots).flatMap fun t => lits (__eo_to_smt t) true
 
 /-- The clauses of the instances that hold, given the base clauses and the definitions of their
 local symbols that are clauses of the fresh-symbol steps. -/
