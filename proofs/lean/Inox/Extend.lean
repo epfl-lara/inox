@@ -181,13 +181,16 @@ theorem hypothesis_extends {a f : Term} (ha : mentions s T (__eo_to_smt a) = fal
     (eval_bool hty hsat.1 hfb)).2.2
 
 /-- `Enables`: `(=> b c)` for each blocker `b` of `bs`, for a fresh constant `c` that the blockers
-do not mention. -/
+do not mention. The model makes `c` their disjunction, so there `c` holds only if one of them
+does. -/
 theorem enables_extends {bs : List Term}
     (hbs : ∀ b ∈ bs, mentions s T (__eo_to_smt b) = false)
     (hbool : ∀ b ∈ bs, __smtx_typeof (__eo_to_smt (mkImp b c)) = SmtType.Bool) :
-    ∃ M', Satisfies M' (assums ++ bs.map fun b => mkImp b c) ∧ Reinterprets c M M' := by
+    ∃ M', Satisfies M' (assums ++ bs.map fun b => mkImp b c) ∧ Reinterprets c M M' ∧
+      (bs ≠ [] → __smtx_model_eval M' (__eo_to_smt c) = SmtValue.Boolean true →
+        ∃ b ∈ bs, __smtx_model_eval M' (__eo_to_smt b) = SmtValue.Boolean true) := by
   cases bs with
-  | nil => exact ⟨M, by simpa using hsat, Or.inl rfl⟩
+  | nil => exact ⟨M, by simpa using hsat, Or.inl rfl, fun h => absurd rfl h⟩
   | cons b0 bs0 =>
     have h0 := hbool b0 List.mem_cons_self
     rw [eo_to_smt_mkImp, hc] at h0
@@ -205,11 +208,18 @@ theorem enables_extends {bs : List Term}
       (v := SmtValue.Boolean
         (((b0 :: bs0).map __eo_to_smt).any fun b => __smtx_model_eval M b == SmtValue.Boolean true))
       (by simp [__smtx_typeof_value]) (by simp [__smtx_value_canonical]) ?_,
-      Or.inr ⟨_, _, _, hc, rfl⟩⟩
-    intro t ht
-    obtain ⟨b, hb, rfl⟩ := List.mem_map.mp ht
-    rw [eo_to_smt_mkImp, hc]
-    exact hall.2.2 _ (List.mem_map_of_mem hb)
+      Or.inr ⟨_, _, _, hc, rfl⟩, ?_⟩
+    · intro t ht
+      obtain ⟨b, hb, rfl⟩ := List.mem_map.mp ht
+      rw [eo_to_smt_mkImp, hc]
+      exact hall.2.2 _ (List.mem_map_of_mem hb)
+    · intro _ hcv
+      rw [hc, eval_setConst_self] at hcv
+      obtain ⟨t, ht, hte⟩ := List.any_eq_true.mp (SmtValue.Boolean.inj hcv)
+      obtain ⟨b, hb, rfl⟩ := List.mem_map.mp ht
+      refine ⟨b, hb, ?_⟩
+      rw [eval_setConst hs M _ _ (hbs b hb)]
+      simpa using hte
 
 end Rules
 
@@ -227,21 +237,50 @@ def Fresh (st : Step) (assums : List Term) : Prop :=
     (∀ t ∈ st.parts, mentions s T (__eo_to_smt t) = false) ∧
     ∀ t ∈ st.clauses, __smtx_typeof (__eo_to_smt t) = SmtType.Bool
 
+/-- What the model of a step's clauses also has: the constant of an `Enables` step holds only if
+one of its blockers does, when it has blockers. The clauses `(=> b c)` don't say so, but the model
+that makes `c` the disjunction of the blockers does, and the later steps keep it. -/
+def Only (st : Step) (M : SmtModel) : Prop :=
+  match st with
+  | enables c bs => bs ≠ [] → __smtx_model_eval M (__eo_to_smt c) = SmtValue.Boolean true →
+      ∃ b ∈ bs, __smtx_model_eval M (__eo_to_smt b) = SmtValue.Boolean true
+  | _ => True
+
+/-- Reinterpreting a constant that the clauses of a step don't mention keeps `Only` of it. -/
+theorem only_setConst {st : Step} {assums : List Term} (hsub : ∀ t ∈ st.clauses, t ∈ assums)
+    {s : native_String} {T : SmtType} (hs : Unreserved s)
+    (hfresh : ∀ a ∈ assums, mentions s T (__eo_to_smt a) = false) {M : SmtModel} (v : SmtValue)
+    (h : st.Only M) : st.Only (setConst s T M v) := by
+  cases st
+  case enables c bs =>
+    intro hne hcv
+    have hm : ∀ b ∈ bs, mentions s T (__eo_to_smt b) = false ∧
+        mentions s T (__eo_to_smt c) = false := by
+      intro b hb
+      have := hfresh _ (hsub (mkImp b c) (List.mem_map_of_mem hb))
+      simpa [mentions] using this
+    obtain ⟨b0, hb0⟩ := List.exists_mem_of_ne_nil bs hne
+    rw [eval_setConst hs M v _ (hm b0 hb0).2] at hcv
+    obtain ⟨b, hb, hbv⟩ := h hne hcv
+    exact ⟨b, hb, by rw [eval_setConst hs M v _ (hm b hb).1]; exact hbv⟩
+  all_goals trivial
+
 /-- A model of `assums` extends to a model of `assums` and the clauses of a step that can follow
-them, by reinterpreting the step's constant. -/
+them, by reinterpreting the step's constant, in which the step's constant holds only as `Only`
+says. -/
 theorem extends_reinterprets (hty : LogosTyping) {st : Step} {assums : List Term}
     (hst : st.Fresh assums) {M : SmtModel} (hsat : Satisfies M assums) :
-    ∃ M', Satisfies M' (assums ++ st.clauses) ∧ Reinterprets st.const M M' := by
+    ∃ M', Satisfies M' (assums ++ st.clauses) ∧ Reinterprets st.const M M' ∧ st.Only M' := by
   obtain ⟨hnf, s, T, hc, hs, hfresh, hparts, hbool⟩ := hst
-  cases st <;> simp only [isFact, const, parts, clauses] at hnf hc hparts hbool ⊢
+  cases st <;> simp only [isFact, const, parts, clauses, Only] at hnf hc hparts hbool ⊢
   case define c rhs =>
-    exact define_extends hty hsat hc hs hfresh (hparts rhs (by simp)) (hbool _ (by simp))
+    simpa using define_extends hty hsat hc hs hfresh (hparts rhs (by simp)) (hbool _ (by simp))
   case defineGuarded c g rhs =>
-    exact define_guarded_extends hty hsat hc hs hfresh (hparts g (by simp))
+    simpa using define_guarded_extends hty hsat hc hs hfresh (hparts g (by simp))
       (hparts rhs (by simp)) (hbool _ (by simp))
-  case root c => exact root_extends hsat hc hs hfresh (hbool _ (by simp))
+  case root c => simpa using root_extends hsat hc hs hfresh (hbool _ (by simp))
   case hypothesis c a f =>
-    exact hypothesis_extends hty hsat hc hs hfresh (hparts a (by simp))
+    simpa using hypothesis_extends hty hsat hc hs hfresh (hparts a (by simp))
       (hparts f (by simp)) (hbool _ (by simp))
   case enables c bs =>
     exact enables_extends hty hsat hc hs hfresh hparts
@@ -314,8 +353,35 @@ theorem extends_good (hty : LogosTyping) {Good : SmtModel → Prop} {st : Step}
       exact hst M hgood hsat
   all_goals
     obtain ⟨hf, hk⟩ := hst
-    obtain ⟨M', hM', hr⟩ := extends_reinterprets hty hf hsat
+    obtain ⟨M', hM', hr, _⟩ := extends_reinterprets hty hf hsat
     exact ⟨M', good_of_reinterprets hk hgood hr, hM'⟩
+
+/-- `extends_good`, with what the extended model also has: `Only` of the step, and of each step
+before it, whose clauses are among `assums`, that the model had it of. -/
+theorem extends_good_only (hty : LogosTyping) {Good : SmtModel → Prop} {st : Step}
+    {assums : List Term} (hst : st.Ok Good assums) {M : SmtModel} (hgood : Good M)
+    (hsat : Satisfies M assums) :
+    ∃ M', Good M' ∧ Satisfies M' (assums ++ st.clauses) ∧ st.Only M' ∧
+      ∀ st0 : Step, (∀ t ∈ st0.clauses, t ∈ assums) → st0.Only M → st0.Only M' := by
+  by_cases hfact : st.isFact = true
+  · cases st <;> simp only [isFact, Bool.false_eq_true] at hfact
+    case fact t =>
+      refine ⟨M, hgood, ⟨hsat.1, fun u hu => ?_⟩, trivial, fun _ _ h => h⟩
+      rcases List.mem_append.mp hu with hu | hu
+      · exact hsat.2 u hu
+      · rw [List.mem_singleton.mp hu]
+        exact hst M hgood hsat
+  · have hst' : st.Fresh assums ∧ KeepsConst Good st.const := by
+      cases st <;> first | exact hst | exact absurd rfl hfact
+    obtain ⟨hf, hk⟩ := hst'
+    obtain ⟨M', hM', hr, ho⟩ := extends_reinterprets hty hf hsat
+    refine ⟨M', good_of_reinterprets hk hgood hr, hM', ho, fun st0 hsub h0 => ?_⟩
+    obtain ⟨_, s, T, hc, hs, hfresh, _⟩ := hf
+    rcases hr with rfl | ⟨s', T', v, hc', rfl⟩
+    · exact h0
+    · rw [hc] at hc'
+      cases hc'
+      exact only_setConst hsub hs hfresh v h0
 
 end Step
 
@@ -334,6 +400,26 @@ theorem extend_sat_good (hty : LogosTyping) (Good : SmtModel → Prop) :
   | st :: sts, assums, ⟨hst, hsts⟩, M, hgood, hsat => by
     obtain ⟨M', hgood', hM'⟩ := st.extends_good hty hst hgood hsat
     exact extend_sat_good hty Good sts (assums ++ st.clauses) hsts M' hgood' hM'
+
+/-- `extend_sat_good`, with `Only` of each step in the extended model. -/
+theorem extend_sat_only (hty : LogosTyping) (Good : SmtModel → Prop) :
+    ∀ (sts : List Step) (assums : List Term) (done : List Step), StepsOk Good assums sts →
+      ∀ M, Good M → Satisfies M assums →
+        (∀ st ∈ done, (∀ t ∈ st.clauses, t ∈ assums) ∧ st.Only M) →
+        ∃ M', Good M' ∧ Satisfies M' (extend assums sts) ∧ ∀ st ∈ done ++ sts, st.Only M'
+  | [], _, _, _, M, hgood, hsat, hdone =>
+    ⟨M, hgood, hsat, fun st h => (hdone st (by simpa using h)).2⟩
+  | st :: sts, assums, done, ⟨hst, hsts⟩, M, hgood, hsat, hdone => by
+    obtain ⟨M', hgood', hM', ho, hkeep⟩ := st.extends_good_only hty hst hgood hsat
+    obtain ⟨M'', hg, hs, hall⟩ := extend_sat_only hty Good sts (assums ++ st.clauses)
+      (done ++ [st]) hsts M' hgood' hM' (by
+        intro st0 h0
+        rcases List.mem_append.mp h0 with h0 | h0
+        · exact ⟨fun t ht => List.mem_append_left _ ((hdone st0 h0).1 t ht),
+            hkeep st0 (hdone st0 h0).1 (hdone st0 h0).2⟩
+        · rw [List.mem_singleton.mp h0]
+          exact ⟨fun t ht => List.mem_append_right _ ht, ho⟩)
+    exact ⟨M'', hg, hs, fun st0 h0 => hall st0 (by simpa using h0)⟩
 
 /-- So if no model that `Good` selects satisfies the assumptions with the clauses of the steps,
 none satisfies the assumptions alone. -/

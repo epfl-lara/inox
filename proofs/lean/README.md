@@ -135,6 +135,21 @@ What remains is `hfacts`, that each rule that is a fact holds in the models
 that the solutions of the query give, and `hkeep`, that those models don't
 depend on the fresh symbols: these are about the semantics of Inox.
 
+The clauses of an `Enables` step, `(=> b c)` for each blocker `b`, don't say
+that the activation literal `c` holds only if one of its blockers does. The
+model that the steps build does have it, since it makes `c` the disjunction of
+the blockers and the later steps don't reinterpret them (`Step.Only`,
+`extend_sat_only`). `no_good_model_of_accept_only` is the same theorem with the
+facts only asked of such models, so that a fact about a call can go from its
+activation literal to the blockers of the paths that reach the call:
+
+```lean
+    (hfacts : FactsHold (fun M => Good M ∧ ∀ st ∈ r.fresh, st.Only M)
+      (extend r.base r.fresh) r.facts) :
+```
+
+The theorem without `Total` uses it (`no_solution_of_reached`, below).
+
 [`Inox/Unfold.lean`](Inox/Unfold.lean) discharges `hkeep`, and `hfacts` for
 the unfoldings of functions without branches, with `Good` the models of the
 program's defining equations. The checker keeps the source of each template
@@ -338,7 +353,9 @@ accepts:
   decides as for any other. The constants of the root steps are then known
   literals (`TermSteps.roots`, `roots_subset_extend`), under which the clause
   reduces to true. The clauses say nothing of the termination of the calls,
-  which the theorems about the semantics take as a hypothesis (`Total`).
+  which the theorems about the semantics take as a hypothesis (`Total`) or do
+  without, for the calls that evaluation goes through
+  (`no_solution_of_reached`).
 
 `inox-check --terms` prints, for each certificate, how many facts are
 unfoldings, how many are clauses of instances that the check accepts, how many
@@ -703,21 +720,20 @@ selects them, which `red K` has to give.
 ```lean
 theorem called_of_reaches (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S)
     (hP : ProgTy S P) {n : Int} (hct : CallTy O P S n) {Γ : List (Id × Ty)}
-    {e : Expr} {T : Ty} (h : HasTy S Γ e T) :
-    ∀ env v, EnvTy Γ env → eval O P n env e = .Ok v →
-      ∀ M, model_wf M → CallsOk O P S n M → VarsOk Γ env M → ∀ K, KSound M K →
-        ∀ c, reaches K c true (tr S Γ e) = true → Called O P S M c
+    {e : Expr} {T : Ty} (h : HasTy S Γ e T) {env : Env} {v : Value}
+    (hE : EnvTy Γ env) (he : eval O P n env e = .Ok v) {M : SmtModel}
+    (hw : model_wf M) (hc : CallsOk O P S n M) (hV : VarsOk Γ env M)
+    {K : List (SmtTerm × Bool)} (hK : KSound M K) {c : SmtTerm}
+    (hr : reaches K c true (tr S Γ e) = true) : Called O P S M c
 ```
 
-(The conclusion is `Reach O P S n Γ e`, unfolded.) `Called O P S M c` says that
-`c` is a function of `S` applied to terms whose values in `M` are those of
-values of its parameters' types, on which the call is `Ok` at some fuel. `called_of_call` is the same of the body of a function
-whose call is `Ok`, in the models where the constants of its parameters have
-the values of the arguments. This is the semantic half of `GuardOk` without
-`Total`: the guard of an unfolding is a blocker of the path to its call. The
-other half, a check that the meaning of the blocker makes `reaches` hold of the
-call in the query or in the body of a call that was reached, is not there yet,
-so no theorem about a certificate uses it.
+`Called O P S M c` says that `c` is a function of `S` applied to terms whose
+values in `M` are those of values of its parameters' types, on which the call
+is `Ok` at some fuel. `called_of_call` is the same of the body of a function
+whose call is `Ok`, with the arguments of the call for its parameters.
+`reaches` is `reachesW` with the terms as they are, and `reachesW` sees them
+through a substitution, so that the body is compared with the terms of the
+certificate without counting the calls of the arguments.
 
 **The query has no solution** ([`Inox/NoSolution.lean`](Inox/NoSolution.lean)).
 For a program whose calls all give values (`Total O P S`: each function of `S`,
@@ -802,9 +818,51 @@ check covers every fact of both, so `no_solution_of_covered` applies. They are
 not kept here. On the regression certificates, which are mostly about ADTs and
 first-class functions, it only holds of a few that define no function.
 
+**The query has no solution, whatever the calls**
+([`Inox/Reached.lean`](Inox/Reached.lean)). The models of a solution satisfy
+the defining equation of a function only where its call gives a value
+(`goodOn_calls`), so the certificate has to use the equations on such calls
+only. It does, and `reachedCheck` decides it:
+
+- an instance of a defining equation is guarded by the activation literal of
+  its call, `(=> d (= (f u1 … un) body))`, as it is or once the definitions
+  of the local symbols of its instance are in place (`guardedEq`);
+- the literal holds only if one of its blockers does (`Step.Only`);
+- under each blocker, with the literals that its definition and those of the
+  constants it mentions make known (`closeK`), evaluation goes through the call
+  (`Paths.guards`): a base clause reaches it, or the body of a call that is
+  already guarded, by a literal that is known, reaches it (`reachedBy`);
+- the other facts hold without the equations (`TermSteps.covered` with none),
+  and no fresh symbol is a function of the program or a variable of the query
+  (`apart`).
+
+Then a guard that holds implies that its call gives a value, by induction along
+the guarded calls (`inv_calls`), and so each fact holds in the models where the
+calls and the variables agree (`Agrees`), which the intended model of a
+solution is one of:
+
+```lean
+theorem no_solution_of_reached {O : Oracle} (sound : LogosSound) (hO : O.Sound)
+    (hty : LogosTyping) {certificate : Logos.Sexp} {checked : Checked}
+    {r : TermSteps} (hAccept : accept certificate = .ok checked)
+    (hr : termSteps checked = .ok r) (hcheck : r.check = true)
+    (hsrc : sourceCheck r = true) (hreached : reachedCheck r = true) :
+    ∀ vs, ¬ Solution O (programOf r.equations)
+      (varsOf (sigsOf r.equations) r.base) (queryOf r.base) vs
+```
+
+Nothing is assumed of the calls of the program, and `r.keeps` is not needed.
+The checks hold of the two certificates above, and of the certificate of a
+function that doesn't terminate on negative integers, with a query that only
+calls it on 0 and 1, which `Total` leaves out. They don't hold of a function
+with a precondition: the clause that states the precondition of its recursive
+call is a contract, which `reachedCovered` doesn't cover. Like `sourceCheck`,
+`reachedCheck` is defined over the semantics, so `inox-check` doesn't run it.
+
 **The hypotheses that remain.**
 
-- `Total`, for `no_solution`. It leaves out the functions that don't terminate
+- `Total`, for `no_solution` and `no_solution_of_covered`, not for
+  `no_solution_of_reached`. It leaves out the functions that don't terminate
   on some arguments and those that are stuck on some, as a function with a
   precondition is where its `Assume` fails. Without it, `no_star_model` has
   `GuardOk` for the unfoldings, that a guard true in the intended model selects
@@ -831,7 +889,8 @@ first-class functions, it only holds of a few that define no function.
 - `hfacts`: for `no_solution`, the facts that `r.covered` doesn't cover
   (contracts, assertions and the others, see above), and none when it covers
   them all (`no_solution_of_covered`); for `no_star_model`, the facts other
-  than guarded unfoldings.
+  than guarded unfoldings. `no_solution_of_reached` has none: `reachedCheck`
+  asks that every fact be covered.
 
 The translation stops at integers and Booleans: ADTs, unit, `Let`, `Error`,
 `Division`, `Remainder`, `Modulo`, type arguments, closures, `Forall` and
@@ -857,7 +916,9 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   [`semantics.md`](../semantics.md): the query has no solution. `no_solution`
   states it for the first-order programs over integers and Booleans whose calls
   all give values, with hypotheses (see [The bridge to the
-  semantics](#the-bridge-to-the-semantics-partly-proved)). In general it needs
+  semantics](#the-bridge-to-the-semantics-partly-proved)), and
+  `no_solution_of_reached` for those programs whatever their calls, for the
+  certificates of which its checks hold. In general it needs
   the bridge beyond that fragment, that its solutions give `Good` models (where
   the declared equalities are reflexive and the completeness assumptions hold,
   and for the programs with calls that give no value, with the clauses of
