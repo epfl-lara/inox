@@ -284,17 +284,17 @@ The base `r.base`, which the theorems say no `Good` model satisfies, is:
 The source expressions are in SMT-LIB 3, with markers and assumptions, which
 Logos doesn't read. The base has each one lowered to the syntax of the session
 (`Inox/Lowering.lean`), with the meaning that its `where` gives to each marker
-(a typing `((as typing!0 S) "free" x)`, for one) in place of the marker, each
-`(assume c b)` in a position where the expression holds replaced by `b`, and
-the conjuncts that still have markers left out; an expression with a marker
-left elsewhere is left out of the base. So the base's clause is implied by the
-source expression, given the meanings of its markers: the theorems' hypotheses
-are weaker than the query's assertions with their assumptions, and the theorems
-stronger than about the assertions themselves. That the meanings of the markers
-are those that the source gives them, and that a typing's meaning is what the
-template's clauses state of the marker, is only checked by the Scala checker
-(`Sources.scala`); neither checker checks that the meaning of a typing is that
-of the type.
+(a typing `((as typing!0 S) "free" x)`, for one) in place of the marker, the
+conjuncts that still have markers left out, of the expression and of the
+conditions of its assumptions, and each `(assume c b)` replaced by `b`; an
+expression with a marker left elsewhere is left out of the base. So the base's
+clause is implied by the source expression, given the meanings of its markers:
+the theorems' hypotheses are weaker than the query's assertions with their
+assumptions, and the theorems stronger than about the assertions themselves.
+That the meanings of the markers are those that the source gives them, and that
+a typing's meaning is what the template's clauses state of the marker, is only
+checked by the Scala checker (`Sources.scala`); neither checker checks that the
+meaning of a typing is that of the type.
 
 Of the latter two, those that mention a constant that a rule introduces (a
 fresh symbol, whose value the steps choose) can't be assumptions of a model of
@@ -778,12 +778,14 @@ a query, and asks that the equations and the base clauses of the certificate
 are their translations. `no_solution_of_check` takes them from the certificate:
 `back` reads a term of Logos as an expression, `programOf r.equations` is the
 program of the functions that the defining equations read as, with the
-signatures `sigsOf r.equations`, and `queryOf r.base` the expressions that the
-base clauses read as, over the free variables `varsOf`. Nothing is proved of
-`back`. Instead `sourceCheck r` translates what it gives and compares the
-result with the terms, types the bodies and the query (`infer`, with
-`infer_sound`), and checks the names and the types, which gives `EqFor`,
-`BaseFor`, `SigOk`, `ProgTy`, `ProgFrag` and `VarsFresh`:
+signatures `sigsOf r.equations`, and `queryOf r.query` the expressions that the
+base clauses read as, over the free variables `varsOf`, where `r.query` is the
+base with the assumptions that are inside the source expressions marked, as for
+the bodies (see below). Nothing is proved of `back`. Instead `sourceCheck r`
+translates what it gives and compares the result with the terms, types the
+bodies and the query (`infer`, with `infer_sound`), and checks the names and
+the types, which gives `EqFor`, `BaseFor`, `SigOk`, `ProgTy`, `ProgFrag` and
+`VarsFresh`:
 
 ```lean
 theorem no_solution_of_check (sound : LogosSound) (hO : O.Sound)
@@ -796,7 +798,7 @@ theorem no_solution_of_check (sound : LogosSound) (hO : O.Sound)
     (hfacts : FactsHoldExcept (Good r.equations) r.covered
       (extend r.base r.fresh) r.facts) :
     ∀ vs, ¬ Solution O (programOf r.equations)
-      (varsOf (sigsOf r.equations) r.base) (queryOf r.base) vs
+      (varsOf (sigsOf r.equations) r.query) (queryOf r.query) vs
 ```
 
 The program read is the one that the certificate states, as Logos reads it: its
@@ -848,7 +850,7 @@ theorem no_solution_of_reached {O : Oracle} (sound : LogosSound) (hO : O.Sound)
     (hr : termSteps checked = .ok r) (hcheck : r.check = true)
     (hsrc : sourceCheck r = true) (hreached : reachedCheck r = true) :
     ∀ vs, ¬ Solution O (programOf r.equations)
-      (varsOf (sigsOf r.equations) r.base) (queryOf r.base) vs
+      (varsOf (sigsOf r.equations) r.query) (queryOf r.query) vs
 ```
 
 Nothing is assumed of the calls of the program, and `r.keeps` is not needed.
@@ -890,8 +892,18 @@ is read as the assumption that it is lowered to, `(assume false v)`, which is
 stuck as it is: the program of the certificate has an `Assume` in its place,
 and the clause `(=> g false)` of its branch is that of this assumption. The
 checks hold of the certificates of a recursive function with an error, with a
-query that stays away from it and with one that only reaches it. A mark doubles
-the body after it, so a body with many nested assumptions is read slowly.
+query that stays away from it and with one that only reaches it. The query is
+read in the same way: its source expressions are read once without the
+assumptions inside them, for the base clauses, and once with them marked, for
+`r.query`, which `sourceCheck` checks the base clauses to be the translations
+of. `reachedCovered` accepts the clause of an assumption, of a divisor or of an
+error that the evaluation of an expression of the query goes through
+(`Paths.assumedQuery`), since a solution gives the query a value. The checks
+hold of the certificates of queries that divide by zero, that reach an error,
+and that assume what doesn't hold. An assumption whose condition still has a
+marker, such as the typing of a free variable of a type that is not a sort of
+the session, is left out of the query. A mark doubles the body after it, so a
+body with many nested assumptions is read slowly.
 
 **The hypotheses that remain.**
 
