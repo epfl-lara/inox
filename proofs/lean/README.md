@@ -410,8 +410,8 @@ are relative to an oracle `O` for the functions that quantify over values, and
 `O.Sound` states that it gives them as the semantics defines them. The checker
 and Logos, on the other side, work on SMT-LIB terms and on `SmtValue`s. This
 section says what connects them. The proved part is the first-order fragment of
-integers, Booleans, reals, unsigned bit-vectors and datatypes without type
-parameters, against the generated evaluator (see [What is proved of it so
+integers, Booleans, reals, bit-vectors and datatypes without type parameters,
+against the generated evaluator (see [What is proved of it so
 far](#what-is-proved-of-it-so-far)).
 
 ### The fragment
@@ -657,38 +657,45 @@ integers, fractions, Booleans, strings and unit, `ADT`, `IsConstructor`,
 and rounding modes, and the string, bit-vector and floating-point operations.
 
 **The agreement theorem** ([`Inox/Bridge.lean`](Inox/Bridge.lean)). The
-translation is for integers, Booleans, reals, unsigned bit-vectors and
-datatypes without type parameters ([`Inox/Data.lean`](Inox/Data.lean)).
-`D : List Data` gives each datatype its name, its declaration in Logos and its
-constructors with their fields. `trT D` sends `IntegerType`, `BooleanType` and
-`RealType` to `Int`, `Bool` and `Real`, `BVType false w` to `BitVec w` and
-`ADTType d []` to the datatype of `d`, `trV D` sends `IntV i` and `BoolV b` to
-`Numeral i` and `Boolean b`, `RealV n d` to the real number of the fraction
-`n / d`, `BVV false w x` to `Binary w x` and `ADTV c vs` to the constructor of
-`c` applied to the translations of `vs`, and `tr D S Γ e` sends an expression
-to a Logos term: a variable `x` of type `T` in `Γ` to
-`UConst (nm x) (trT D T)`, an invocation of `f` to the application spine of
-`f`'s constant, `ADT`, `IsConstructor` and `ADTSelector` to the constructor,
-the tester and the selector of Logos, which are indices into the declaration, a
-`FractionLiteral` to the division of its integers, as Inox prints it
-(`(/ (- 1) 2)`), and the operators to their SMT-LIB counterparts. Those of the
-integers are also those of the reals, except `/` for `Division`, and the
-bit-vectors have others (`bvadd` for `Plus`, `bvudiv` for `Division`, `bvult`
-for `LessThan`): `isBv` and `isReal` say which an expression is of, from its
-variables, its literals and the signatures. `S : List Sig` gives each function
-its parameters and return type, which the semantics' `FunDef` doesn't carry.
-`HasTy D S Γ e T` is the typing of the fragment: variables, the integer and
-Boolean literals, `IfExpr`, `And`, `Or`, `Not`, `Implies`, `Equals`, `Plus`,
-`Minus`, `Times`, `Division`, `Remainder`, `Modulo`, `UMinus`, `LessThan`,
-`GreaterThan`, `LessEquals`, `GreaterEquals`, `Assume`, `FunctionInvocation`
-without type arguments of a function of `S`, the literals of the reals, with a
-denominator that is not zero, with `Plus`, `Minus`, `Times`, `Division`,
-`UMinus` and the four comparisons on them, the literals of the unsigned
-bit-vectors with `Plus`, `Minus`, `Times`, `Division`, `Remainder`, `UMinus`,
-`BVNot` and the four comparisons on them, and `ADT`, `IsConstructor` and
-`ADTSelector` of a constructor or a field of `D`. The signed bit-vectors, whose
-operators Logos defines from the unsigned ones, and the bitwise operators, the
-shifts and the casts are not there yet. The reals of the semantics are the
+translation is for integers, Booleans, reals, bit-vectors and datatypes without
+type parameters ([`Inox/Data.lean`](Inox/Data.lean)). `D : List Data` gives
+each datatype its name, its declaration in Logos and its constructors with
+their fields. `trT D` sends `IntegerType`, `BooleanType` and `RealType` to
+`Int`, `Bool` and `Real`, `BVType s w` to `BitVec w`, whatever the sign `s`,
+and `ADTType d []` to the datatype of `d`, `trV D` sends `IntV i` and `BoolV b`
+to `Numeral i` and `Boolean b`, `RealV n d` to the real number of the fraction
+`n / d`, `BVV s w x` to `Binary w x` and `ADTV c vs` to the constructor of `c`
+applied to the translations of `vs`, and `tr D S Γ e` sends an expression to a
+Logos term: a variable `x` of type `T` in `Γ` to `UConst (nm x) (trT D T)`, an
+invocation of `f` to the application spine of `f`'s constant, `ADT`,
+`IsConstructor` and `ADTSelector` to the constructor, the tester and the
+selector of Logos, which are indices into the declaration, a `FractionLiteral`
+to the division of its integers, as Inox prints it (`(/ (- 1) 2)`), and the
+operators to their SMT-LIB counterparts. Those of the integers are also those
+of the reals, except `/` for `Division`, and the bit-vectors have others
+(`bvadd` for `Plus`, `bvudiv` or `bvsdiv` for `Division`, `bvult` or `bvslt`
+for `LessThan`): `isBv`, `isSigned` and `isReal` say which an expression is of,
+from its variables, its literals and the signatures. `S : List Sig` gives each
+function its parameters and return type, which the semantics' `FunDef` doesn't
+carry. `HasTy D S Γ e T` is the typing of the fragment: variables, the integer
+and Boolean literals, `IfExpr`, `And`, `Or`, `Not`, `Implies`, `Equals`,
+`Plus`, `Minus`, `Times`, `Division`, `Remainder`, `Modulo`, `UMinus`,
+`LessThan`, `GreaterThan`, `LessEquals`, `GreaterEquals`, `Assume`,
+`FunctionInvocation` without type arguments of a function of `S`, the literals
+of the reals, with a denominator that is not zero, with `Plus`, `Minus`,
+`Times`, `Division`, `UMinus` and the four comparisons on them, the literals of
+the bit-vectors with `Plus`, `Minus`, `Times`, `Division`, `Remainder`,
+`Modulo`, `UMinus`, `BVNot` and the four comparisons on them, signed or not,
+`BVUnsignedToSigned` and `BVSignedToUnsigned`, which translate to their
+operand, and `ADT`, `IsConstructor` and `ADTSelector` of a constructor or a
+field of `D`. A bit-vector of the semantics is its unsigned integer with a
+sign, which says how the division, the remainder, the modulo and the
+comparisons read it, and Logos defines the signed operators of SMT-LIB from the
+unsigned ones by the cases of the top bits:
+[`Inox/Signed.lean`](Inox/Signed.lean) proves that they agree (`bvsdiv_eq`,
+`bvsrem_eq`, `bvsmod_eq`, `bvsgt_eq`, `bvsge_eq`). The two signs have one sort,
+so a value of Logos is read back at a type (`resign`). The bitwise operators,
+the shifts and the casts are not there yet. The reals of the semantics are the
 fractions in lowest terms, and those of Logos the real numbers: the operators
 agree on the fractions (`real_eq`, `ratOf_add` and the like), and a real number
 that is not a fraction is the translation of no value. `DataOk D` asks that the
@@ -825,11 +832,14 @@ expressions marked, as for the bodies (see below). Logos names a constructor by
 its datatype and its index, so the program has the constructors and their
 fields under names made from these (`ctorName`, `fieldName`), not under those
 of the script, and a sort `BitVec w` is read as the unsigned type, since
-SMT-LIB has one sort for the two. Nothing is proved of `back`. Instead
-`sourceCheck r` translates what it gives and compares the result with the
-terms, types the bodies and the query (`infer`, with `infer_sound`), and checks
-the names, the types and the datatypes (`dataCheck`), which gives `DataOk`,
-`ProgData`, `EqFor`, `BaseFor`, `SigOk`, `ProgTy`, `ProgFrag` and `VarsFresh`:
+SMT-LIB has one sort for the two: a signed operator is read as the operator of
+Inox on its operands turned signed (`BVUnsignedToSigned`), and `bvsdiv`,
+`bvsrem` and `bvsmod` with their result turned unsigned. Nothing is proved of
+`back`. Instead `sourceCheck r` translates what it gives and compares the
+result with the terms, types the bodies and the query (`infer`, with
+`infer_sound`), and checks the names, the types and the datatypes
+(`dataCheck`), which gives `DataOk`, `ProgData`, `EqFor`, `BaseFor`, `SigOk`,
+`ProgTy`, `ProgFrag` and `VarsFresh`:
 
 ```lean
 theorem no_solution_of_check (sound : LogosSound) (hO : O.Sound)
@@ -1008,10 +1018,10 @@ body with many nested assumptions is read slowly.
   than guarded unfoldings. `no_solution_of_reached` has none: `reachedCheck`
   asks that every fact be covered.
 
-The translation stops at integers, Booleans, reals, unsigned bit-vectors and
-datatypes without type parameters: unit, `Let`, `Error`, `Division`,
-`Remainder`, `Modulo`, type arguments, closures, `Forall` and
-`UninterpretedCall` are not translated.
+The translation stops at integers, Booleans, reals, bit-vectors and datatypes
+without type parameters: unit, `Let`, `Error`, `Division`, `Remainder`,
+`Modulo`, type arguments, closures, `Forall` and `UninterpretedCall` are not
+translated.
 
 **What would make the generated Lean easier to prove things about.** The
 generated `match`es on `Result` (one auxiliary matcher per site) defeat generic
@@ -1032,8 +1042,7 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   declared equalities). The theorem to come is the one of an UNSAT answer in
   [`semantics.md`](../semantics.md): the query has no solution. `no_solution`
   states it for the first-order programs over integers, Booleans, reals,
-  unsigned bit-vectors and datatypes whose calls all give values, with
-  hypotheses (see
+  bit-vectors and datatypes whose calls all give values, with hypotheses (see
   [The bridge to the semantics](#the-bridge-to-the-semantics-partly-proved)),
   and `no_solution_of_reached` for those programs whatever their calls, for the
   certificates of which its checks hold. In general it needs the bridge beyond

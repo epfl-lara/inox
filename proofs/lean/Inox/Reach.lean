@@ -88,6 +88,13 @@ def reachesW (w : SmtTerm → SmtTerm) (K : List (SmtTerm × Bool)) (c : SmtTerm
   | _, .bvugt x y => reachesW w K c true x || reachesW w K c true y
   | _, .bvule x y => reachesW w K c true x || reachesW w K c true y
   | _, .bvuge x y => reachesW w K c true x || reachesW w K c true y
+  | _, .bvsdiv x y => reachesW w K c true x || reachesW w K c true y
+  | _, .bvsrem x y => reachesW w K c true x || reachesW w K c true y
+  | _, .bvsmod x y => reachesW w K c true x || reachesW w K c true y
+  | _, .bvslt x y => reachesW w K c true x || reachesW w K c true y
+  | _, .bvsgt x y => reachesW w K c true x || reachesW w K c true y
+  | _, .bvsle x y => reachesW w K c true x || reachesW w K c true y
+  | _, .bvsge x y => reachesW w K c true x || reachesW w K c true y
   | _, _ => false
 
 /-- `reachesW` with the terms as they are. -/
@@ -240,6 +247,7 @@ theorem reach_or (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hPD : Prog
 
 end Lists
 
+set_option maxHeartbeats 1600000 in
 /-- The calls that evaluation goes through have values: where an expression of the fragment has a
 value in the models where the calls and the variables agree, each call that its term reaches,
 through `w` and under literals that have their values in a model where the terms have through `w`
@@ -322,15 +330,17 @@ theorem called_of_reachesW (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (
     | bvTimes ha _ iha ihb | bvDiv ha _ iha ihb | bvRem ha _ iha ihb | bvLt ha _ iha ihb
     | bvGt ha _ iha ihb | bvLe ha _ iha ihb | bvGe ha _ iha ihb | rPlus ha _ iha ihb
     | rMinus ha _ iha ihb | rTimes ha _ iha ihb | rDiv ha _ iha ihb | rLt ha _ iha ihb
-    | rGt ha _ iha ihb | rLe ha _ iha ihb | rGe ha _ iha ihb =>
+    | rGt ha _ iha ihb | rLe ha _ iha ihb | rGe ha _ iha ihb | bvMod ha _ iha ihb
+    | sDiv ha _ iha ihb | sRem ha _ iha ihb | sMod ha _ iha ihb | sLt ha _ iha ihb
+    | sGt ha _ iha ihb | sLe ha _ iha ihb | sGe ha _ iha ihb =>
     intro env v hE he M hw hc hV N w hN hT K hK c hr
     rw [eval] at he
     ok_split he
     rename_i x hx
     ok_split he
     rename_i y hy
-    simp only [tr, isBv_eq ha, isReal_eq ha, Ty.isBv, Ty.isReal, Bool.false_eq_true, ↓reduceIte,
-      reachesW, Bool.or_eq_true] at hr
+    simp only [tr, isBv_eq ha, isReal_eq ha, isSigned_eq ha, Ty.isBv, Ty.isReal, Ty.isSigned,
+      Bool.false_eq_true, ↓reduceIte, reachesW, Bool.or_eq_true] at hr
     rcases hr with hr | hr
     · exact iha env _ hE hx M hw hc hV N w hN hT K hK c hr
     · exact ihb env _ hE hy M hw hc hV N w hN hT K hK c hr
@@ -339,6 +349,13 @@ theorem called_of_reachesW (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (
     intro env v hE he M hw hc hV N w hN hT K hK c hr
     simp only [tr, reachesW, lit] at hr
     split at hr <;> split at hr <;> simp [reachesW] at hr
+  | u2s _ ih | s2u _ ih =>
+    intro env v hE he M hw hc hV N w hN hT K hK c hr
+    rw [eval] at he
+    ok_split he
+    rename_i x hx
+    simp only [tr] at hr
+    exact ih env _ hE hx M hw hc hV N w hN hT K hK c hr
   | uminus ha ih | bvNeg ha ih | bvNot ha ih | rNeg ha ih =>
     intro env v hE he M hw hc hV N w hN hT K hK c hr
     rw [eval] at he
@@ -464,7 +481,8 @@ def assumesW (D : List Data) (S : List Sig) (Γ : List (Id × Ty)) (w : SmtTerm 
       (decide (red K (w (tr D S Γ c)) = .Boolean false) && assumesW D S Γ w K φ b)
   | .And es => assumesAnd D S Γ w K φ es
   | .Or es => assumesOr D S Γ w K φ es
-  | .Not a | .UMinus a | .BVNot a => assumesW D S Γ w K φ a
+  | .Not a | .UMinus a | .BVNot a | .BVUnsignedToSigned a | .BVSignedToUnsigned a =>
+    assumesW D S Γ w K φ a
   | .Implies a b =>
     assumesW D S Γ w K φ a ||
       (decide (red K (w (tr D S Γ a)) = .Boolean true) && assumesW D S Γ w K φ b)
@@ -580,6 +598,7 @@ theorem assumed_or (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hPD : Pr
 
 end Lists
 
+set_option maxHeartbeats 1600000 in
 /-- The assumptions that evaluation goes through hold: where an expression of the fragment has a
 value in the models where the calls and the variables agree, the term of each assumption that its
 evaluation goes through, through `w` and under literals that have their values in a model where
@@ -661,7 +680,8 @@ theorem holds_of_assumesW (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S)
     | le _ _ iha ihb | ge _ _ iha ihb | bvPlus _ _ iha ihb | bvMinus _ _ iha ihb
     | bvTimes _ _ iha ihb | bvLt _ _ iha ihb | bvGt _ _ iha ihb | bvLe _ _ iha ihb
     | bvGe _ _ iha ihb | rPlus _ _ iha ihb | rMinus _ _ iha ihb | rTimes _ _ iha ihb
-    | rLt _ _ iha ihb | rGt _ _ iha ihb | rLe _ _ iha ihb | rGe _ _ iha ihb =>
+    | rLt _ _ iha ihb | rGt _ _ iha ihb | rLe _ _ iha ihb | rGe _ _ iha ihb | sLt _ _ iha ihb
+    | sGt _ _ iha ihb | sLe _ _ iha ihb | sGe _ _ iha ihb =>
     intro env v hE he M hw hc hV N w hN hT K hK φ hr
     rw [eval] at he
     ok_split he
@@ -672,7 +692,8 @@ theorem holds_of_assumesW (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S)
     rcases hr with hr | hr
     · exact iha env _ hE hx M hw hc hV N w hN hT K hK φ hr
     · exact ihb env _ hE hy M hw hc hV N w hN hT K hK φ hr
-  | bvDiv ha _ iha ihb | bvRem ha _ iha ihb =>
+  | bvDiv ha _ iha ihb | bvRem ha _ iha ihb | bvMod ha _ iha ihb | sDiv ha _ iha ihb
+    | sRem ha _ iha ihb | sMod ha _ iha ihb =>
     intro env v hE he M hw hc hV N w hN hT K hK φ hr
     rw [eval] at he
     ok_split he
@@ -731,7 +752,7 @@ theorem holds_of_assumesW (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S)
     · exact ihb env _ hE hy M hw hc hV N w hN hT K hK φ hr
   | bvLit _ _ _ => intro env v hE he M hw hc hV N w hN hT K hK φ hr; simp [assumesW] at hr
   | frac _ => intro env v hE he M hw hc hV N w hN hT K hK φ hr; simp [assumesW] at hr
-  | uminus _ ih | bvNeg _ ih | bvNot _ ih | rNeg _ ih =>
+  | uminus _ ih | bvNeg _ ih | bvNot _ ih | rNeg _ ih | u2s _ ih | s2u _ ih =>
     intro env v hE he M hw hc hV N w hN hT K hK φ hr
     rw [eval] at he
     ok_split he

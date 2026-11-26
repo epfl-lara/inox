@@ -102,6 +102,19 @@ def back : SmtTerm → Expr
   | .bvugt a b => .GreaterThan (back a) (back b)
   | .bvule a b => .LessEquals (back a) (back b)
   | .bvuge a b => .GreaterEquals (back a) (back b)
+  | .bvsdiv a b =>
+    .BVSignedToUnsigned
+      (.Division (.BVUnsignedToSigned (back a)) (.BVUnsignedToSigned (back b)))
+  | .bvsrem a b =>
+    .BVSignedToUnsigned
+      (.Remainder (.BVUnsignedToSigned (back a)) (.BVUnsignedToSigned (back b)))
+  | .bvsmod a b =>
+    .BVSignedToUnsigned
+      (.Modulo (.BVUnsignedToSigned (back a)) (.BVUnsignedToSigned (back b)))
+  | .bvslt a b => .LessThan (.BVUnsignedToSigned (back a)) (.BVUnsignedToSigned (back b))
+  | .bvsgt a b => .GreaterThan (.BVUnsignedToSigned (back a)) (.BVUnsignedToSigned (back b))
+  | .bvsle a b => .LessEquals (.BVUnsignedToSigned (back a)) (.BVUnsignedToSigned (back b))
+  | .bvsge a b => .GreaterEquals (.BVUnsignedToSigned (back a)) (.BVUnsignedToSigned (back b))
   | .and a r => .And (back a :: backAnd r)
   | .or a r => .Or (back a :: backOr r)
   | .DtCons s _ i => .ADT (ctorName s i) [] []
@@ -145,7 +158,8 @@ def consts : SmtTerm → List (native_String × SmtType)
   | .imp a b | .eq a b | .plus a b | .neg a b | .mult a b | .div a b | .mod a b | .lt a b
   | .gt a b | .leq a b | .geq a b | .and a b | .or a b | .bvadd a b | .bvsub a b | .bvmul a b
   | .bvudiv a b | .bvurem a b | .bvult a b | .bvugt a b | .bvule a b | .bvuge a b
-  | .qdiv a b => consts a ++ consts b
+  | .qdiv a b | .bvsdiv a b | .bvsrem a b | .bvsmod a b | .bvslt a b | .bvsgt a b | .bvsle a b
+  | .bvsge a b => consts a ++ consts b
   | .Apply (.UConst _ _) a => consts a
   | .Apply f a => consts f ++ consts a
   | _ => []
@@ -158,7 +172,7 @@ inductive K where
   | int
   | bool
   | real
-  | bv (w : Int)
+  | bv (s : Bool) (w : Int)
   | data (s : Id)
   deriving DecidableEq
 
@@ -167,7 +181,7 @@ def K.ty : K → Ty
   | .int => .IntegerType
   | .bool => .BooleanType
   | .real => .RealType
-  | .bv w => .BVType false w
+  | .bv s w => .BVType s w
   | .data s => .ADTType s []
 
 /-- The kind of a type of the fragment. -/
@@ -175,7 +189,7 @@ def kind (D : List Data) : Ty → Option K
   | .IntegerType => some .int
   | .BooleanType => some .bool
   | .RealType => some .real
-  | .BVType false w => if 0 < w then some (.bv w) else none
+  | .BVType s w => if 0 < w then some (.bv s w) else none
   | .ADTType s [] => if (findData D s).isSome then some (.data s) else none
   | _ => none
 
@@ -185,10 +199,9 @@ theorem kind_spec {D : List Data} {T : Ty} {k : K} (h : kind D T = some k) : T =
   case BooleanType => simp only [kind, Option.some.injEq] at h; subst h; rfl
   case RealType => simp only [kind, Option.some.injEq] at h; subst h; rfl
   case BVType s w =>
-    cases s <;> simp only [kind] at h
-    · split at h
-      · simp only [Option.some.injEq] at h; subst h; rfl
-      · cases h
+    simp only [kind] at h
+    split at h
+    · simp only [Option.some.injEq] at h; subst h; rfl
     · cases h
   case ADTType s args =>
     cases args with
@@ -205,10 +218,9 @@ theorem fragTy_of_kind {D : List Data} {T : Ty} (h : (kind D T).isSome = true) :
   case BooleanType => trivial
   case RealType => trivial
   case BVType s w =>
-    cases s <;> simp only [kind] at h
-    · split at h
-      · rename_i hw; exact hw
-      · cases h
+    simp only [kind] at h
+    split at h
+    · rename_i hw; exact hw
     · cases h
   case ADTType s args =>
     cases args with
@@ -242,36 +254,47 @@ def infer (D : List Data) (S : List Sig) (Γ : List (Id × Ty)) : Expr → Optio
     match infer D S Γ a, infer D S Γ b with
     | some k, some k' => if k = k' then some .bool else none
     | _, _ => none
-  | .BVLiteral false w x =>
-    if 0 < w ∧ 0 ≤ x ∧ x < 2 ^ w.toNat then some (.bv w) else none
+  | .BVLiteral s w x =>
+    if 0 < w ∧ 0 ≤ x ∧ x < 2 ^ w.toNat then some (.bv s w) else none
   | .FractionLiteral _ d => if d ≠ 0 then some .real else none
   | .Plus a b | .Minus a b | .Times a b | .Division a b =>
     match infer D S Γ a, infer D S Γ b with
     | some .int, some .int => some .int
-    | some (.bv w), some (.bv w') => if w = w' then some (.bv w) else none
+    | some (.bv s w), some (.bv s' w') => if s = s' ∧ w = w' then some (.bv s w) else none
     | some .real, some .real => some .real
     | _, _ => none
   | .Remainder a b =>
     match infer D S Γ a, infer D S Γ b with
     | some .int, some .int => some .int
-    | some (.bv w), some (.bv w') => if w = w' then some (.bv w) else none
+    | some (.bv s w), some (.bv s' w') => if s = s' ∧ w = w' then some (.bv s w) else none
     | _, _ => none
   | .Modulo a b =>
-    if infer D S Γ a = some .int ∧ infer D S Γ b = some .int then some .int else none
+    match infer D S Γ a, infer D S Γ b with
+    | some .int, some .int => some .int
+    | some (.bv s w), some (.bv s' w') => if s = s' ∧ w = w' then some (.bv s w) else none
+    | _, _ => none
+  | .BVUnsignedToSigned a =>
+    match infer D S Γ a with
+    | some (.bv false w) => some (.bv true w)
+    | _ => none
+  | .BVSignedToUnsigned a =>
+    match infer D S Γ a with
+    | some (.bv true w) => some (.bv false w)
+    | _ => none
   | .UMinus a =>
     match infer D S Γ a with
     | some .int => some .int
-    | some (.bv w) => some (.bv w)
+    | some (.bv s w) => some (.bv s w)
     | some .real => some .real
     | _ => none
   | .BVNot a =>
     match infer D S Γ a with
-    | some (.bv w) => some (.bv w)
+    | some (.bv s w) => some (.bv s w)
     | _ => none
   | .LessThan a b | .GreaterThan a b | .LessEquals a b | .GreaterEquals a b =>
     match infer D S Γ a, infer D S Γ b with
     | some .int, some .int => some .bool
-    | some (.bv w), some (.bv w') => if w = w' then some .bool else none
+    | some (.bv s w), some (.bv s' w') => if s = s' ∧ w = w' then some .bool else none
     | some .real, some .real => some .bool
     | _, _ => none
   | .FunctionInvocation f [] args =>
@@ -379,11 +402,12 @@ theorem infer_sound (hD : DataOk D) (S : List Sig) (Γ : List (Id × Ty)) :
     · rename_i ha hb
       simp only [Option.some.injEq] at h; subst h
       exact .plus (infer_sound hD S Γ a .int ha) (infer_sound hD S Γ b .int hb)
-    · rename_i w w' ha hb
+    · rename_i s w s' w' ha hb
       split at h
       · rename_i hw
-        simp only [Option.some.injEq] at h; subst h; subst hw
-        exact .bvPlus (infer_sound hD S Γ a (.bv w) ha) (infer_sound hD S Γ b (.bv w) hb)
+        obtain ⟨rfl, rfl⟩ := hw
+        simp only [Option.some.injEq] at h; subst h
+        exact .bvPlus (infer_sound hD S Γ a (.bv _ w) ha) (infer_sound hD S Γ b (.bv _ w) hb)
       · cases h
     · rename_i ha hb
       simp only [Option.some.injEq] at h; subst h
@@ -395,11 +419,12 @@ theorem infer_sound (hD : DataOk D) (S : List Sig) (Γ : List (Id × Ty)) :
     · rename_i ha hb
       simp only [Option.some.injEq] at h; subst h
       exact .minus (infer_sound hD S Γ a .int ha) (infer_sound hD S Γ b .int hb)
-    · rename_i w w' ha hb
+    · rename_i s w s' w' ha hb
       split at h
       · rename_i hw
-        simp only [Option.some.injEq] at h; subst h; subst hw
-        exact .bvMinus (infer_sound hD S Γ a (.bv w) ha) (infer_sound hD S Γ b (.bv w) hb)
+        obtain ⟨rfl, rfl⟩ := hw
+        simp only [Option.some.injEq] at h; subst h
+        exact .bvMinus (infer_sound hD S Γ a (.bv _ w) ha) (infer_sound hD S Γ b (.bv _ w) hb)
       · cases h
     · rename_i ha hb
       simp only [Option.some.injEq] at h; subst h
@@ -411,11 +436,12 @@ theorem infer_sound (hD : DataOk D) (S : List Sig) (Γ : List (Id × Ty)) :
     · rename_i ha hb
       simp only [Option.some.injEq] at h; subst h
       exact .times (infer_sound hD S Γ a .int ha) (infer_sound hD S Γ b .int hb)
-    · rename_i w w' ha hb
+    · rename_i s w s' w' ha hb
       split at h
       · rename_i hw
-        simp only [Option.some.injEq] at h; subst h; subst hw
-        exact .bvTimes (infer_sound hD S Γ a (.bv w) ha) (infer_sound hD S Γ b (.bv w) hb)
+        obtain ⟨rfl, rfl⟩ := hw
+        simp only [Option.some.injEq] at h; subst h
+        exact .bvTimes (infer_sound hD S Γ a (.bv _ w) ha) (infer_sound hD S Γ b (.bv _ w) hb)
       · cases h
     · rename_i ha hb
       simp only [Option.some.injEq] at h; subst h
@@ -427,11 +453,14 @@ theorem infer_sound (hD : DataOk D) (S : List Sig) (Γ : List (Id × Ty)) :
     · rename_i ha hb
       simp only [Option.some.injEq] at h; subst h
       exact .div (infer_sound hD S Γ a .int ha) (infer_sound hD S Γ b .int hb)
-    · rename_i w w' ha hb
+    · rename_i s w s' w' ha hb
       split at h
       · rename_i hw
-        simp only [Option.some.injEq] at h; subst h; subst hw
-        exact .bvDiv (infer_sound hD S Γ a (.bv w) ha) (infer_sound hD S Γ b (.bv w) hb)
+        obtain ⟨rfl, rfl⟩ := hw
+        simp only [Option.some.injEq] at h; subst h
+        cases s
+        · exact .bvDiv (infer_sound hD S Γ a (.bv _ w) ha) (infer_sound hD S Γ b (.bv _ w) hb)
+        · exact .sDiv (infer_sound hD S Γ a (.bv _ w) ha) (infer_sound hD S Γ b (.bv _ w) hb)
       · cases h
     · rename_i ha hb
       simp only [Option.some.injEq] at h; subst h
@@ -443,19 +472,45 @@ theorem infer_sound (hD : DataOk D) (S : List Sig) (Γ : List (Id × Ty)) :
     · rename_i ha hb
       simp only [Option.some.injEq] at h; subst h
       exact .rem (infer_sound hD S Γ a .int ha) (infer_sound hD S Γ b .int hb)
-    · rename_i w w' ha hb
+    · rename_i s w s' w' ha hb
       split at h
       · rename_i hw
-        simp only [Option.some.injEq] at h; subst h; subst hw
-        exact .bvRem (infer_sound hD S Γ a (.bv w) ha) (infer_sound hD S Γ b (.bv w) hb)
+        obtain ⟨rfl, rfl⟩ := hw
+        simp only [Option.some.injEq] at h; subst h
+        cases s
+        · exact .bvRem (infer_sound hD S Γ a (.bv _ w) ha) (infer_sound hD S Γ b (.bv _ w) hb)
+        · exact .sRem (infer_sound hD S Γ a (.bv _ w) ha) (infer_sound hD S Γ b (.bv _ w) hb)
       · cases h
     · cases h
   | .Modulo a b, k, h => by
     simp only [infer] at h
     split at h
-    · rename_i hab
+    · rename_i ha hb
       simp only [Option.some.injEq] at h; subst h
-      exact .mod (infer_sound hD S Γ a .int hab.1) (infer_sound hD S Γ b .int hab.2)
+      exact .mod (infer_sound hD S Γ a .int ha) (infer_sound hD S Γ b .int hb)
+    · rename_i s w s' w' ha hb
+      split at h
+      · rename_i hw
+        obtain ⟨rfl, rfl⟩ := hw
+        simp only [Option.some.injEq] at h; subst h
+        cases s
+        · exact .bvMod (infer_sound hD S Γ a (.bv _ w) ha) (infer_sound hD S Γ b (.bv _ w) hb)
+        · exact .sMod (infer_sound hD S Γ a (.bv _ w) ha) (infer_sound hD S Γ b (.bv _ w) hb)
+      · cases h
+    · cases h
+  | .BVUnsignedToSigned a, k, h => by
+    simp only [infer] at h
+    split at h
+    · rename_i w ha
+      simp only [Option.some.injEq] at h; subst h
+      exact .u2s (infer_sound hD S Γ a (.bv false w) ha)
+    · cases h
+  | .BVSignedToUnsigned a, k, h => by
+    simp only [infer] at h
+    split at h
+    · rename_i w ha
+      simp only [Option.some.injEq] at h; subst h
+      exact .s2u (infer_sound hD S Γ a (.bv true w) ha)
     · cases h
   | .UMinus a, k, h => by
     simp only [infer] at h
@@ -463,9 +518,9 @@ theorem infer_sound (hD : DataOk D) (S : List Sig) (Γ : List (Id × Ty)) :
     · rename_i ha
       simp only [Option.some.injEq] at h; subst h
       exact .uminus (infer_sound hD S Γ a .int ha)
-    · rename_i w ha
+    · rename_i s w ha
       simp only [Option.some.injEq] at h; subst h
-      exact .bvNeg (infer_sound hD S Γ a (.bv w) ha)
+      exact .bvNeg (infer_sound hD S Γ a (.bv s w) ha)
     · rename_i ha
       simp only [Option.some.injEq] at h; subst h
       exact .rNeg (infer_sound hD S Γ a .real ha)
@@ -473,9 +528,9 @@ theorem infer_sound (hD : DataOk D) (S : List Sig) (Γ : List (Id × Ty)) :
   | .BVNot a, k, h => by
     simp only [infer] at h
     split at h
-    · rename_i w ha
+    · rename_i s w ha
       simp only [Option.some.injEq] at h; subst h
-      exact .bvNot (infer_sound hD S Γ a (.bv w) ha)
+      exact .bvNot (infer_sound hD S Γ a (.bv s w) ha)
     · cases h
   | .FractionLiteral n d, k, h => by
     simp only [infer] at h
@@ -485,12 +540,11 @@ theorem infer_sound (hD : DataOk D) (S : List Sig) (Γ : List (Id × Ty)) :
       exact .frac hd
     · cases h
   | .BVLiteral s w x, k, h => by
-    cases s <;> simp only [infer] at h
-    · split at h
-      · rename_i hc
-        simp only [Option.some.injEq] at h; subst h
-        exact .bvLit hc.1 hc.2.1 hc.2.2
-      · cases h
+    simp only [infer] at h
+    split at h
+    · rename_i hc
+      simp only [Option.some.injEq] at h; subst h
+      exact .bvLit hc.1 hc.2.1 hc.2.2
     · cases h
   | .LessThan a b, k, h => by
     simp only [infer] at h
@@ -498,11 +552,14 @@ theorem infer_sound (hD : DataOk D) (S : List Sig) (Γ : List (Id × Ty)) :
     · rename_i ha hb
       simp only [Option.some.injEq] at h; subst h
       exact .lt (infer_sound hD S Γ a .int ha) (infer_sound hD S Γ b .int hb)
-    · rename_i w w' ha hb
+    · rename_i s w s' w' ha hb
       split at h
       · rename_i hw
-        simp only [Option.some.injEq] at h; subst h; subst hw
-        exact .bvLt (infer_sound hD S Γ a (.bv w) ha) (infer_sound hD S Γ b (.bv w) hb)
+        obtain ⟨rfl, rfl⟩ := hw
+        simp only [Option.some.injEq] at h; subst h
+        cases s
+        · exact .bvLt (infer_sound hD S Γ a (.bv _ w) ha) (infer_sound hD S Γ b (.bv _ w) hb)
+        · exact .sLt (infer_sound hD S Γ a (.bv _ w) ha) (infer_sound hD S Γ b (.bv _ w) hb)
       · cases h
     · rename_i ha hb
       simp only [Option.some.injEq] at h; subst h
@@ -514,11 +571,14 @@ theorem infer_sound (hD : DataOk D) (S : List Sig) (Γ : List (Id × Ty)) :
     · rename_i ha hb
       simp only [Option.some.injEq] at h; subst h
       exact .gt (infer_sound hD S Γ a .int ha) (infer_sound hD S Γ b .int hb)
-    · rename_i w w' ha hb
+    · rename_i s w s' w' ha hb
       split at h
       · rename_i hw
-        simp only [Option.some.injEq] at h; subst h; subst hw
-        exact .bvGt (infer_sound hD S Γ a (.bv w) ha) (infer_sound hD S Γ b (.bv w) hb)
+        obtain ⟨rfl, rfl⟩ := hw
+        simp only [Option.some.injEq] at h; subst h
+        cases s
+        · exact .bvGt (infer_sound hD S Γ a (.bv _ w) ha) (infer_sound hD S Γ b (.bv _ w) hb)
+        · exact .sGt (infer_sound hD S Γ a (.bv _ w) ha) (infer_sound hD S Γ b (.bv _ w) hb)
       · cases h
     · rename_i ha hb
       simp only [Option.some.injEq] at h; subst h
@@ -530,11 +590,14 @@ theorem infer_sound (hD : DataOk D) (S : List Sig) (Γ : List (Id × Ty)) :
     · rename_i ha hb
       simp only [Option.some.injEq] at h; subst h
       exact .le (infer_sound hD S Γ a .int ha) (infer_sound hD S Γ b .int hb)
-    · rename_i w w' ha hb
+    · rename_i s w s' w' ha hb
       split at h
       · rename_i hw
-        simp only [Option.some.injEq] at h; subst h; subst hw
-        exact .bvLe (infer_sound hD S Γ a (.bv w) ha) (infer_sound hD S Γ b (.bv w) hb)
+        obtain ⟨rfl, rfl⟩ := hw
+        simp only [Option.some.injEq] at h; subst h
+        cases s
+        · exact .bvLe (infer_sound hD S Γ a (.bv _ w) ha) (infer_sound hD S Γ b (.bv _ w) hb)
+        · exact .sLe (infer_sound hD S Γ a (.bv _ w) ha) (infer_sound hD S Γ b (.bv _ w) hb)
       · cases h
     · rename_i ha hb
       simp only [Option.some.injEq] at h; subst h
@@ -546,11 +609,14 @@ theorem infer_sound (hD : DataOk D) (S : List Sig) (Γ : List (Id × Ty)) :
     · rename_i ha hb
       simp only [Option.some.injEq] at h; subst h
       exact .ge (infer_sound hD S Γ a .int ha) (infer_sound hD S Γ b .int hb)
-    · rename_i w w' ha hb
+    · rename_i s w s' w' ha hb
       split at h
       · rename_i hw
-        simp only [Option.some.injEq] at h; subst h; subst hw
-        exact .bvGe (infer_sound hD S Γ a (.bv w) ha) (infer_sound hD S Γ b (.bv w) hb)
+        obtain ⟨rfl, rfl⟩ := hw
+        simp only [Option.some.injEq] at h; subst h
+        cases s
+        · exact .bvGe (infer_sound hD S Γ a (.bv _ w) ha) (infer_sound hD S Γ b (.bv _ w) hb)
+        · exact .sGe (infer_sound hD S Γ a (.bv _ w) ha) (infer_sound hD S Γ b (.bv _ w) hb)
       · cases h
     · rename_i ha hb
       simp only [Option.some.injEq] at h; subst h
@@ -617,7 +683,7 @@ theorem infer_sound (hD : DataOk D) (S : List Sig) (Γ : List (Id × Ty)) :
   | .StringConcat _ _, k, h | .SubString _ _ _, k, h | .StringLength _, k, h
   | .BVAnd _ _, k, h | .BVOr _ _, k, h | .BVXor _ _, k, h | .BVShiftLeft _ _, k, h
   | .BVAShiftRight _ _, k, h | .BVLShiftRight _ _, k, h | .BVNarrowingCast _ _, k, h
-  | .BVWideningCast _ _, k, h | .BVUnsignedToSigned _, k, h | .BVSignedToUnsigned _, k, h
+  | .BVWideningCast _ _, k, h
   | .BVToInt _, k, h | .IntToBV _ _ _, k, h | .FPEquals _ _, k, h | .FPAdd _ _ _, k, h
   | .FPSub _ _ _, k, h | .FPUMinus _, k, h | .FPFMA _ _ _ _, k, h | .FPMul _ _ _, k, h
   | .FPDiv _ _ _, k, h | .FPAbs _, k, h | .FPMax _ _, k, h | .FPMin _ _, k, h
@@ -683,6 +749,16 @@ theorem HasTy.frag {S : List Sig} {Γ : List (Id × Ty)} {e : Expr} {T : Ty} (h 
   | mod _ _ iha ihb => exact .mod iha ihb
   | uminus _ ih => exact .uminus ih
   | bvLit _ _ _ => exact .bv
+  | bvMod _ _ iha ihb => exact .mod iha ihb
+  | sDiv _ _ iha ihb => exact .div iha ihb
+  | sRem _ _ iha ihb => exact .rem iha ihb
+  | sMod _ _ iha ihb => exact .mod iha ihb
+  | sLt _ _ iha ihb => exact .lt iha ihb
+  | sGt _ _ iha ihb => exact .gt iha ihb
+  | sLe _ _ iha ihb => exact .le iha ihb
+  | sGe _ _ iha ihb => exact .ge iha ihb
+  | u2s _ ih => exact .u2s ih
+  | s2u _ ih => exact .s2u ih
   | frac _ => exact .frac
   | rPlus _ _ iha ihb => exact .plus iha ihb
   | rMinus _ _ iha ihb => exact .minus iha ihb
@@ -761,7 +837,8 @@ def typesOf : SmtTerm → List SmtType
   | .xor a b | .imp a b | .eq a b | .plus a b | .neg a b | .mult a b | .div a b | .mod a b
   | .lt a b | .gt a b | .leq a b | .geq a b | .and a b | .or a b | .Apply a b | .bvadd a b
   | .bvsub a b | .bvmul a b | .bvudiv a b | .bvurem a b | .bvult a b | .bvugt a b | .bvule a b
-  | .bvuge a b | .qdiv a b => typesOf a ++ typesOf b
+  | .bvuge a b | .qdiv a b | .bvsdiv a b | .bvsrem a b | .bvsmod a b | .bvslt a b | .bvsgt a b
+  | .bvsle a b | .bvsge a b => typesOf a ++ typesOf b
   | _ => []
 
 /-- The fields of a constructor of the datatype `s`, of index `i`, from the field of index `j`

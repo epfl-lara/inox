@@ -1,5 +1,6 @@
 /- Copyright 2009-2026 EPFL, Lausanne -/
 import Inox.Data
+import Inox.Signed
 import Inox.Relative
 import Cpc.Proofs.TypePreservation.Helpers
 
@@ -8,8 +9,7 @@ import Cpc.Proofs.TypePreservation.Helpers
 
 The semantics of Inox is `eval` and `call` of `proofs/semantics/Inox/Semantics.lean`, generated
 from `semantics.md`. This module ties it to the models that the certificate checker is about, for
-the first-order expressions over integers, Booleans, reals, unsigned bit-vectors and datatypes
-(`HasTy`):
+the first-order expressions over integers, Booleans, reals, bit-vectors and datatypes (`HasTy`):
 
 - `tr D S Γ e` is the term of Logos of an expression, and `trV` the value of a value;
 - `ev`, the agreement theorem: where `eval` gives a value, the term evaluates to it in each model
@@ -129,27 +129,27 @@ inductive HasTy (D : List Data) (S : List Sig) (Γ : List (Id × Ty)) : Expr →
       HasTy D S Γ (.LessEquals a b) .BooleanType
   | ge {a b : Expr} : HasTy D S Γ a .IntegerType → HasTy D S Γ b .IntegerType →
       HasTy D S Γ (.GreaterEquals a b) .BooleanType
-  | bvLit {w x : Int} : 0 < w → 0 ≤ x → x < 2 ^ w.toNat →
-      HasTy D S Γ (.BVLiteral false w x) (.BVType false w)
-  | bvPlus {a b : Expr} {w : Int} :
-      HasTy D S Γ a (.BVType false w) → HasTy D S Γ b (.BVType false w) →
-      HasTy D S Γ (.Plus a b) (.BVType false w)
-  | bvMinus {a b : Expr} {w : Int} :
-      HasTy D S Γ a (.BVType false w) → HasTy D S Γ b (.BVType false w) →
-      HasTy D S Γ (.Minus a b) (.BVType false w)
-  | bvTimes {a b : Expr} {w : Int} :
-      HasTy D S Γ a (.BVType false w) → HasTy D S Γ b (.BVType false w) →
-      HasTy D S Γ (.Times a b) (.BVType false w)
+  | bvLit {s : Bool} {w x : Int} : 0 < w → 0 ≤ x → x < 2 ^ w.toNat →
+      HasTy D S Γ (.BVLiteral s w x) (.BVType s w)
+  | bvPlus {a b : Expr} {s : Bool} {w : Int} :
+      HasTy D S Γ a (.BVType s w) → HasTy D S Γ b (.BVType s w) →
+      HasTy D S Γ (.Plus a b) (.BVType s w)
+  | bvMinus {a b : Expr} {s : Bool} {w : Int} :
+      HasTy D S Γ a (.BVType s w) → HasTy D S Γ b (.BVType s w) →
+      HasTy D S Γ (.Minus a b) (.BVType s w)
+  | bvTimes {a b : Expr} {s : Bool} {w : Int} :
+      HasTy D S Γ a (.BVType s w) → HasTy D S Γ b (.BVType s w) →
+      HasTy D S Γ (.Times a b) (.BVType s w)
   | bvDiv {a b : Expr} {w : Int} :
       HasTy D S Γ a (.BVType false w) → HasTy D S Γ b (.BVType false w) →
       HasTy D S Γ (.Division a b) (.BVType false w)
   | bvRem {a b : Expr} {w : Int} :
       HasTy D S Γ a (.BVType false w) → HasTy D S Γ b (.BVType false w) →
       HasTy D S Γ (.Remainder a b) (.BVType false w)
-  | bvNeg {a : Expr} {w : Int} : HasTy D S Γ a (.BVType false w) →
-      HasTy D S Γ (.UMinus a) (.BVType false w)
-  | bvNot {a : Expr} {w : Int} : HasTy D S Γ a (.BVType false w) →
-      HasTy D S Γ (.BVNot a) (.BVType false w)
+  | bvNeg {a : Expr} {s : Bool} {w : Int} : HasTy D S Γ a (.BVType s w) →
+      HasTy D S Γ (.UMinus a) (.BVType s w)
+  | bvNot {a : Expr} {s : Bool} {w : Int} : HasTy D S Γ a (.BVType s w) →
+      HasTy D S Γ (.BVNot a) (.BVType s w)
   | bvLt {a b : Expr} {w : Int} :
       HasTy D S Γ a (.BVType false w) → HasTy D S Γ b (.BVType false w) →
       HasTy D S Γ (.LessThan a b) .BooleanType
@@ -162,6 +162,34 @@ inductive HasTy (D : List Data) (S : List Sig) (Γ : List (Id × Ty)) : Expr →
   | bvGe {a b : Expr} {w : Int} :
       HasTy D S Γ a (.BVType false w) → HasTy D S Γ b (.BVType false w) →
       HasTy D S Γ (.GreaterEquals a b) .BooleanType
+  | bvMod {a b : Expr} {w : Int} :
+      HasTy D S Γ a (.BVType false w) → HasTy D S Γ b (.BVType false w) →
+      HasTy D S Γ (.Modulo a b) (.BVType false w)
+  | sDiv {a b : Expr} {w : Int} :
+      HasTy D S Γ a (.BVType true w) → HasTy D S Γ b (.BVType true w) →
+      HasTy D S Γ (.Division a b) (.BVType true w)
+  | sRem {a b : Expr} {w : Int} :
+      HasTy D S Γ a (.BVType true w) → HasTy D S Γ b (.BVType true w) →
+      HasTy D S Γ (.Remainder a b) (.BVType true w)
+  | sMod {a b : Expr} {w : Int} :
+      HasTy D S Γ a (.BVType true w) → HasTy D S Γ b (.BVType true w) →
+      HasTy D S Γ (.Modulo a b) (.BVType true w)
+  | sLt {a b : Expr} {w : Int} :
+      HasTy D S Γ a (.BVType true w) → HasTy D S Γ b (.BVType true w) →
+      HasTy D S Γ (.LessThan a b) .BooleanType
+  | sGt {a b : Expr} {w : Int} :
+      HasTy D S Γ a (.BVType true w) → HasTy D S Γ b (.BVType true w) →
+      HasTy D S Γ (.GreaterThan a b) .BooleanType
+  | sLe {a b : Expr} {w : Int} :
+      HasTy D S Γ a (.BVType true w) → HasTy D S Γ b (.BVType true w) →
+      HasTy D S Γ (.LessEquals a b) .BooleanType
+  | sGe {a b : Expr} {w : Int} :
+      HasTy D S Γ a (.BVType true w) → HasTy D S Γ b (.BVType true w) →
+      HasTy D S Γ (.GreaterEquals a b) .BooleanType
+  | u2s {a : Expr} {w : Int} : HasTy D S Γ a (.BVType false w) →
+      HasTy D S Γ (.BVUnsignedToSigned a) (.BVType true w)
+  | s2u {a : Expr} {w : Int} : HasTy D S Γ a (.BVType true w) →
+      HasTy D S Γ (.BVSignedToUnsigned a) (.BVType false w)
   | frac {n d : Int} : d ≠ 0 → HasTy D S Γ (.FractionLiteral n d) .RealType
   | rPlus {a b : Expr} : HasTy D S Γ a .RealType → HasTy D S Γ b .RealType →
       HasTy D S Γ (.Plus a b) .RealType
@@ -210,7 +238,8 @@ theorem HasTy.fragTy {S : List Sig} (hS : SigOk D S) {Γ : List (Id × Ty)} {e :
     exact hS.data.fields _ hd (c, fs) (List.mem_of_getElem? hi) _ (List.mem_of_getElem? hj)
   | bvLit hw _ _ => exact hw
   | bvPlus _ _ ih _ | bvMinus _ _ ih _ | bvTimes _ _ ih _ | bvDiv _ _ ih _ | bvRem _ _ ih _
-    | bvNeg _ ih | bvNot _ ih => exact ih
+    | bvNeg _ ih | bvNot _ ih | bvMod _ _ ih _ | sDiv _ _ ih _ | sRem _ _ ih _ | sMod _ _ ih _
+    | u2s _ ih | s2u _ ih => exact ih
   | _ => trivial
 
 /-- The program `P` has the functions of `S`, of bodies of their types, with no type parameters. -/
@@ -254,8 +283,9 @@ def isBv (D : List Data) (S : List Sig) (Γ : List (Id × Ty)) : Expr → Bool
     | none => false
   | .BVLiteral _ _ _ => true
   | .IfExpr _ a _ => isBv D S Γ a
-  | .Plus a _ | .Minus a _ | .Times a _ | .Division a _ | .Remainder a _ | .UMinus a
-  | .BVNot a => isBv D S Γ a
+  | .Plus a _ | .Minus a _ | .Times a _ | .Division a _ | .Remainder a _ | .Modulo a _
+  | .UMinus a | .BVNot a => isBv D S Γ a
+  | .BVUnsignedToSigned _ | .BVSignedToUnsigned _ => true
   | .FunctionInvocation f _ _ =>
     match findSig S f with
     | some s => s.ret.isBv
@@ -276,10 +306,58 @@ theorem isBv_eq {S : List Sig} {Γ : List (Id × Ty)} {e : Expr} {T : Ty}
   | assume _ _ _ ihb => simpa only [isBv] using ihb
   | sel hx _ _ => simp only [isBv, hx]
   | plus _ _ iha _ | minus _ _ iha _ | times _ _ iha _ | div _ _ iha _ | rem _ _ iha _
+    | mod _ _ iha _
     | uminus _ iha | bvPlus _ _ iha _ | bvMinus _ _ iha _ | bvTimes _ _ iha _
     | bvDiv _ _ iha _ | bvRem _ _ iha _ | bvNeg _ iha | bvNot _ iha | rPlus _ _ iha _
-    | rMinus _ _ iha _ | rTimes _ _ iha _ | rDiv _ _ iha _ | rNeg _ iha =>
+    | rMinus _ _ iha _ | rTimes _ _ iha _ | rDiv _ _ iha _ | rNeg _ iha | bvMod _ _ iha _
+    | sDiv _ _ iha _ | sRem _ _ iha _ | sMod _ _ iha _ =>
     simpa only [isBv] using iha
+  | _ => rfl
+
+/-- Whether a type is of signed bit-vectors. -/
+def _root_.Inox.Semantics.Ty.isSigned : Ty → Bool
+  | .BVType true _ => true
+  | _ => false
+
+/-- Whether the expression `e` of the fragment is of a type of signed bit-vectors, which chooses
+the division, the remainder, the modulo and the comparisons of its term. -/
+def isSigned (D : List Data) (S : List Sig) (Γ : List (Id × Ty)) : Expr → Bool
+  | .Variable x =>
+    match Γ.lookup x with
+    | some T => T.isSigned
+    | none => false
+  | .BVLiteral s _ _ => s
+  | .IfExpr _ a _ => isSigned D S Γ a
+  | .Plus a _ | .Minus a _ | .Times a _ | .Division a _ | .Remainder a _ | .Modulo a _
+  | .UMinus a | .BVNot a => isSigned D S Γ a
+  | .BVUnsignedToSigned _ => true
+  | .FunctionInvocation f _ _ =>
+    match findSig S f with
+    | some s => s.ret.isSigned
+    | none => false
+  | .Assume _ b => isSigned D S Γ b
+  | .ADTSelector _ x =>
+    match findSel D x with
+    | some (_, _, _, T) => T.isSigned
+    | none => false
+  | _ => false
+
+theorem isSigned_eq {S : List Sig} {Γ : List (Id × Ty)} {e : Expr} {T : Ty}
+    (h : HasTy D S Γ e T) : isSigned D S Γ e = T.isSigned := by
+  induction h with
+  | var hx _ => simp only [isSigned, hx]
+  | ite _ _ _ _ iha _ => simpa only [isSigned] using iha
+  | invoke hs _ _ _ => simp only [isSigned, hs]
+  | assume _ _ _ ihb => simpa only [isSigned] using ihb
+  | sel hx _ _ => simp only [isSigned, hx]
+  | @bvLit s _ _ _ _ _ => cases s <;> rfl
+  | plus _ _ iha _ | minus _ _ iha _ | times _ _ iha _ | div _ _ iha _ | rem _ _ iha _
+    | mod _ _ iha _
+    | uminus _ iha | bvPlus _ _ iha _ | bvMinus _ _ iha _ | bvTimes _ _ iha _
+    | bvDiv _ _ iha _ | bvRem _ _ iha _ | bvNeg _ iha | bvNot _ iha | rPlus _ _ iha _
+    | rMinus _ _ iha _ | rTimes _ _ iha _ | rDiv _ _ iha _ | rNeg _ iha | bvMod _ _ iha _
+    | sDiv _ _ iha _ | sRem _ _ iha _ | sMod _ _ iha _ =>
+    simpa only [isSigned] using iha
   | _ => rfl
 
 /-- Whether a type is that of the reals. -/
@@ -320,7 +398,8 @@ theorem isReal_eq {S : List Sig} {Γ : List (Id × Ty)} {e : Expr} {T : Ty}
   | plus _ _ iha _ | minus _ _ iha _ | times _ _ iha _ | div _ _ iha _ | rem _ _ iha _
     | uminus _ iha | bvPlus _ _ iha _ | bvMinus _ _ iha _ | bvTimes _ _ iha _
     | bvDiv _ _ iha _ | bvRem _ _ iha _ | bvNeg _ iha | bvNot _ iha | rPlus _ _ iha _
-    | rMinus _ _ iha _ | rTimes _ _ iha _ | rDiv _ _ iha _ | rNeg _ iha =>
+    | rMinus _ _ iha _ | rTimes _ _ iha _ | rDiv _ _ iha _ | rNeg _ iha | sDiv _ _ iha _
+    | sRem _ _ iha _ =>
     simpa only [isReal] using iha
   | _ => rfl
 
@@ -359,22 +438,44 @@ def tr (D : List Data) (S : List Sig) (Γ : List (Id × Ty)) : Expr → SmtTerm
   | .Times a b =>
     if isBv D S Γ a then .bvmul (tr D S Γ a) (tr D S Γ b) else .mult (tr D S Γ a) (tr D S Γ b)
   | .Division a b =>
-    if isBv D S Γ a then .bvudiv (tr D S Γ a) (tr D S Γ b)
+    if isBv D S Γ a then
+      if isSigned D S Γ a then .bvsdiv (tr D S Γ a) (tr D S Γ b)
+      else .bvudiv (tr D S Γ a) (tr D S Γ b)
     else if isReal D S Γ a then .qdiv (tr D S Γ a) (tr D S Γ b)
     else .div (tr D S Γ a) (tr D S Γ b)
   | .Remainder a b =>
-    if isBv D S Γ a then .bvurem (tr D S Γ a) (tr D S Γ b) else .mod (tr D S Γ a) (tr D S Γ b)
-  | .Modulo a b => .mod (tr D S Γ a) (tr D S Γ b)
+    if isBv D S Γ a then
+      if isSigned D S Γ a then .bvsrem (tr D S Γ a) (tr D S Γ b)
+      else .bvurem (tr D S Γ a) (tr D S Γ b)
+    else .mod (tr D S Γ a) (tr D S Γ b)
+  | .Modulo a b =>
+    if isBv D S Γ a then
+      if isSigned D S Γ a then .bvsmod (tr D S Γ a) (tr D S Γ b)
+      else .bvurem (tr D S Γ a) (tr D S Γ b)
+    else .mod (tr D S Γ a) (tr D S Γ b)
+  | .BVUnsignedToSigned a | .BVSignedToUnsigned a => tr D S Γ a
   | .UMinus a => if isBv D S Γ a then .bvneg (tr D S Γ a) else .uneg (tr D S Γ a)
   | .BVNot a => .bvnot (tr D S Γ a)
   | .LessThan a b =>
-    if isBv D S Γ a then .bvult (tr D S Γ a) (tr D S Γ b) else .lt (tr D S Γ a) (tr D S Γ b)
+    if isBv D S Γ a then
+      if isSigned D S Γ a then .bvslt (tr D S Γ a) (tr D S Γ b)
+      else .bvult (tr D S Γ a) (tr D S Γ b)
+    else .lt (tr D S Γ a) (tr D S Γ b)
   | .GreaterThan a b =>
-    if isBv D S Γ a then .bvugt (tr D S Γ a) (tr D S Γ b) else .gt (tr D S Γ a) (tr D S Γ b)
+    if isBv D S Γ a then
+      if isSigned D S Γ a then .bvsgt (tr D S Γ a) (tr D S Γ b)
+      else .bvugt (tr D S Γ a) (tr D S Γ b)
+    else .gt (tr D S Γ a) (tr D S Γ b)
   | .LessEquals a b =>
-    if isBv D S Γ a then .bvule (tr D S Γ a) (tr D S Γ b) else .leq (tr D S Γ a) (tr D S Γ b)
+    if isBv D S Γ a then
+      if isSigned D S Γ a then .bvsle (tr D S Γ a) (tr D S Γ b)
+      else .bvule (tr D S Γ a) (tr D S Γ b)
+    else .leq (tr D S Γ a) (tr D S Γ b)
   | .GreaterEquals a b =>
-    if isBv D S Γ a then .bvuge (tr D S Γ a) (tr D S Γ b) else .geq (tr D S Γ a) (tr D S Γ b)
+    if isBv D S Γ a then
+      if isSigned D S Γ a then .bvsge (tr D S Γ a) (tr D S Γ b)
+      else .bvuge (tr D S Γ a) (tr D S Γ b)
+    else .geq (tr D S Γ a) (tr D S Γ b)
   | .FunctionInvocation f _ args =>
     match findSig S f with
     | some s => spine (.UConst (nm f) (s.toDef D).ty) (trs D S Γ args)
@@ -551,20 +652,23 @@ theorem tr_typeof {S : List Sig} (hS : SigOk D S) {Γ : List (Id × Ty)} {e : Ex
     simp only [tr, isBv_eq ha, Ty.isBv, Bool.false_eq_true, ↓reduceIte, __smtx_typeof, iha, ihb,
       trT]
     rfl
-  | @bvLit w x hw h0 hx =>
+  | @bvLit _ w x hw h0 hx =>
     have hm : native_zeq x (native_mod_total x (native_int_pow2 w)) = true := by
       simp [native_zeq, native_mod_total, int_pow2_eq (Int.le_of_lt hw), Int.emod_eq_of_lt h0 hx]
     simp [tr, trT, __smtx_typeof, native_ite, native_and, native_zleq, Int.le_of_lt hw, hm,
       native_int_to_nat]
   | bvPlus ha _ iha ihb | bvMinus ha _ iha ihb | bvTimes ha _ iha ihb | bvDiv ha _ iha ihb
-    | bvRem ha _ iha ihb =>
-    simp [tr, isBv_eq ha, Ty.isBv, __smtx_typeof, iha, ihb, trT, __smtx_typeof_bv_op_2,
-      native_ite, native_nateq]
+    | bvRem ha _ iha ihb | bvMod ha _ iha ihb | sDiv ha _ iha ihb | sRem ha _ iha ihb
+    | sMod ha _ iha ihb =>
+    simp [tr, isBv_eq ha, isSigned_eq ha, Ty.isBv, Ty.isSigned, __smtx_typeof, iha, ihb, trT,
+      __smtx_typeof_bv_op_2, native_ite, native_nateq]
+  | u2s _ ih | s2u _ ih => simpa only [tr, trT] using ih
   | bvNeg ha ih | bvNot ha ih =>
     simp [tr, isBv_eq ha, Ty.isBv, __smtx_typeof, ih, trT, __smtx_typeof_bv_op_1]
-  | bvLt ha _ iha ihb | bvGt ha _ iha ihb | bvLe ha _ iha ihb | bvGe ha _ iha ihb =>
-    simp [tr, isBv_eq ha, Ty.isBv, __smtx_typeof, iha, ihb, trT, __smtx_typeof_bv_op_2_ret,
-      native_ite, native_nateq]
+  | bvLt ha _ iha ihb | bvGt ha _ iha ihb | bvLe ha _ iha ihb | bvGe ha _ iha ihb
+    | sLt ha _ iha ihb | sGt ha _ iha ihb | sLe ha _ iha ihb | sGe ha _ iha ihb =>
+    simp [tr, isBv_eq ha, isSigned_eq ha, Ty.isBv, Ty.isSigned, __smtx_typeof, iha, ihb, trT,
+      __smtx_typeof_bv_op_2_ret, native_ite, native_nateq]
   | @invoke s args hs hl _ ih =>
     have hmem := (findSig_spec hs).1
     simp only [tr, hs, trs_eq]
@@ -802,7 +906,7 @@ theorem eval_eq_trV {D : List Data} (hD : DataOk D) {x y : Value} {T : Ty} (hx :
     __smtx_model_eval_eq (trV D x) (trV D y) = trV D (.BoolV (decide (x = y))) := by
   have hne : __smtx_typeof_value (trV D x) ≠ .RegLan := by
     rw [(agrees_trV hD default x T hx).1]
-    rcases fragTy_cases (hasV_fragTy hx) with rfl | rfl | rfl | ⟨w, _, rfl⟩ | ⟨d, hd, rfl⟩
+    rcases fragTy_cases (hasV_fragTy hx) with rfl | rfl | rfl | ⟨sg, w, _, rfl⟩ | ⟨d, hd, rfl⟩
     · simp [trT]
     · simp [trT]
     · simp [trT]
@@ -833,23 +937,23 @@ theorem applyAll_ctor (M : SmtModel) : ∀ (as : List SmtValue) (f : SmtValue), 
 
 /-! The operators of the bit-vectors, on the values. -/
 
-theorem bvadd_eq {w : Int} (hw : 0 < w) (i j : Int) :
-    __smtx_model_eval_bvadd (.Binary w i) (.Binary w j) = trV D (bv false w (i + j)) := by
+theorem bvadd_eq {s : Bool} {w : Int} (hw : 0 < w) (i j : Int) :
+    __smtx_model_eval_bvadd (.Binary w i) (.Binary w j) = trV D (bv s w (i + j)) := by
   rw [trV_bvmk hw]
   simp [__smtx_model_eval_bvadd, native_mod_total, native_zplus, int_pow2_eq (Int.le_of_lt hw)]
 
-theorem bvmul_eq {w : Int} (hw : 0 < w) (i j : Int) :
-    __smtx_model_eval_bvmul (.Binary w i) (.Binary w j) = trV D (bv false w (i * j)) := by
+theorem bvmul_eq {s : Bool} {w : Int} (hw : 0 < w) (i j : Int) :
+    __smtx_model_eval_bvmul (.Binary w i) (.Binary w j) = trV D (bv s w (i * j)) := by
   rw [trV_bvmk hw]
   simp [__smtx_model_eval_bvmul, native_mod_total, native_zmult, int_pow2_eq (Int.le_of_lt hw)]
 
-theorem bvneg_eq {w : Int} (hw : 0 < w) (i : Int) :
-    __smtx_model_eval_bvneg (.Binary w i) = trV D (bv false w (0 - i)) := by
+theorem bvneg_eq {s : Bool} {w : Int} (hw : 0 < w) (i : Int) :
+    __smtx_model_eval_bvneg (.Binary w i) = trV D (bv s w (0 - i)) := by
   rw [trV_bvmk hw]
   simp [__smtx_model_eval_bvneg, native_mod_total, native_zneg, int_pow2_eq (Int.le_of_lt hw)]
 
-theorem bvsub_eq {w : Int} (hw : 0 < w) (i j : Int) :
-    __smtx_model_eval_bvsub (.Binary w i) (.Binary w j) = trV D (bv false w (i - j)) := by
+theorem bvsub_eq {s : Bool} {w : Int} (hw : 0 < w) (i j : Int) :
+    __smtx_model_eval_bvsub (.Binary w i) (.Binary w j) = trV D (bv s w (i - j)) := by
   rw [trV_bvmk hw]
   simp only [__smtx_model_eval_bvsub, __smtx_model_eval_bvneg, __smtx_model_eval_bvadd,
     native_mod_total, native_zplus, native_zneg, int_pow2_eq (Int.le_of_lt hw)]
@@ -879,8 +983,9 @@ theorem bvurem_eq {w : Int} (hw : 0 < w) {i : Int} (hi0 : 0 ≤ i) (hi : i < 2 ^
     simp [__smtx_model_eval_bvurem, native_mod_total, native_ite, native_zeq, hj,
       int_pow2_eq (Int.le_of_lt hw), trem, tdiv, hi0, Int.emod_def]
 
-theorem bvnot_eq {w : Int} (hw : 0 < w) {i : Int} (hi0 : 0 ≤ i) (hi : i < 2 ^ w.toNat) :
-    __smtx_model_eval_bvnot (.Binary w i) = trV D (.BVV false w (pow2 w - 1 - i)) := by
+theorem bvnot_eq {s : Bool} {w : Int} (hw : 0 < w) {i : Int} (hi0 : 0 ≤ i)
+    (hi : i < 2 ^ w.toNat) :
+    __smtx_model_eval_bvnot (.Binary w i) = trV D (.BVV s w (pow2 w - 1 - i)) := by
   rw [pow2_eq (Int.le_of_lt hw)]
   have h : (2 ^ w.toNat + -(i + 1)) % 2 ^ w.toNat = 2 ^ w.toNat - 1 - i := by
     rw [Int.emod_eq_of_lt (by omega) (by omega)]; omega
@@ -924,6 +1029,7 @@ theorem ratOf_neg (p : ℚ) : ratOf (-p.num) p.den = -p := by
 theorem den_mul_ne (p q : ℚ) : (p.den : Int) * q.den ≠ 0 :=
   Int.mul_ne_zero (by exact_mod_cast p.den_ne_zero) (by exact_mod_cast q.den_ne_zero)
 
+set_option maxHeartbeats 1600000 in
 /-- The agreement: on the fragment, a value of an expression is of its type, and is the value of
 its term in every well-formed model where the calls and the variables agree. -/
 theorem ev (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hPD : ProgData D P) {n : Int}
@@ -1088,8 +1194,8 @@ theorem ev (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hPD : ProgData D
     rename_i y hy
     obtain ⟨hxT, haM⟩ := iha env _ hE hx
     obtain ⟨hyT, hbM⟩ := ihb env _ hE hy
-    obtain ⟨-, i, rfl, hw, hi0, hi⟩ := hasV_bv hxT
-    obtain ⟨-, j, rfl, -, hj0, hj⟩ := hasV_bv hyT
+    obtain ⟨i, rfl, hw, hi0, hi⟩ := hasV_bv hxT
+    obtain ⟨j, rfl, -, hj0, hj⟩ := hasV_bv hyT
     simp only [arith_plus, arith_minus, arith_times, same_bv, decide_true, Bool.and_self,
       ↓reduceDIte, Result.Ok.injEq] at he
     subst he
@@ -1106,21 +1212,23 @@ theorem ev (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hPD : ProgData D
     rename_i y hy
     obtain ⟨hxT, haM⟩ := iha env _ hE hx
     obtain ⟨hyT, hbM⟩ := ihb env _ hE hy
-    obtain ⟨-, i, rfl, hw, hi0, hi⟩ := hasV_bv hxT
-    obtain ⟨-, j, rfl, -, hj0, hj⟩ := hasV_bv hyT
+    obtain ⟨i, rfl, hw, hi0, hi⟩ := hasV_bv hxT
+    obtain ⟨j, rfl, -, hj0, hj⟩ := hasV_bv hyT
     by_cases hz : j = 0
     · simp only [arith_div, same_bv, bv_int, decide_true, Bool.and_self, ↓reduceDIte, hz,
         Bool.false_eq_true, Result.Ok.injEq] at he
       subst he
       refine ⟨hasV_bvmk hw _, fun M hwf hc hV => ?_⟩
-      simp only [tr, isBv_eq ha, Ty.isBv, ↓reduceIte, __smtx_model_eval, haM M hwf hc hV,
+      simp only [tr, isBv_eq ha, isSigned_eq ha, Ty.isBv, Ty.isSigned, Bool.false_eq_true,
+        ↓reduceIte, __smtx_model_eval, haM M hwf hc hV,
         hbM M hwf hc hV, trV]
       rw [bvudiv_eq hw hi0, ite_cond_eq_true _ _ (eq_true hz)]
     · simp only [arith_div, same_bv, bv_int, decide_true, Bool.and_self, ↓reduceDIte, hz,
         Bool.false_eq_true, Result.Ok.injEq] at he
       subst he
       refine ⟨hasV_bvmk hw _, fun M hwf hc hV => ?_⟩
-      simp only [tr, isBv_eq ha, Ty.isBv, ↓reduceIte, __smtx_model_eval, haM M hwf hc hV,
+      simp only [tr, isBv_eq ha, isSigned_eq ha, Ty.isBv, Ty.isSigned, Bool.false_eq_true,
+        ↓reduceIte, __smtx_model_eval, haM M hwf hc hV,
         hbM M hwf hc hV, trV]
       rw [bvudiv_eq hw hi0, ite_cond_eq_false _ _ (eq_false hz)]
   | bvRem ha _ iha ihb =>
@@ -1132,14 +1240,15 @@ theorem ev (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hPD : ProgData D
     rename_i y hy
     obtain ⟨hxT, haM⟩ := iha env _ hE hx
     obtain ⟨hyT, hbM⟩ := ihb env _ hE hy
-    obtain ⟨-, i, rfl, hw, hi0, hi⟩ := hasV_bv hxT
-    obtain ⟨-, j, rfl, -, hj0, hj⟩ := hasV_bv hyT
+    obtain ⟨i, rfl, hw, hi0, hi⟩ := hasV_bv hxT
+    obtain ⟨j, rfl, -, hj0, hj⟩ := hasV_bv hyT
     by_cases hz : j = 0
     · simp only [arith_rem, same_bv, bv_int, decide_true, Bool.and_self, ↓reduceDIte, hz,
         Bool.false_eq_true, Result.Ok.injEq] at he
       subst he
       refine ⟨hxT, fun M hwf hc hV => ?_⟩
-      simp only [tr, isBv_eq ha, Ty.isBv, ↓reduceIte, __smtx_model_eval, haM M hwf hc hV,
+      simp only [tr, isBv_eq ha, isSigned_eq ha, Ty.isBv, Ty.isSigned, Bool.false_eq_true,
+        ↓reduceIte, __smtx_model_eval, haM M hwf hc hV,
         hbM M hwf hc hV, trV]
       rw [bvurem_eq (D := D) hw hi0 hi, ite_cond_eq_true _ _ (eq_true hz)]
       rfl
@@ -1147,7 +1256,8 @@ theorem ev (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hPD : ProgData D
         Bool.false_eq_true, Result.Ok.injEq] at he
       subst he
       refine ⟨hasV_bvmk hw _, fun M hwf hc hV => ?_⟩
-      simp only [tr, isBv_eq ha, Ty.isBv, ↓reduceIte, __smtx_model_eval, haM M hwf hc hV,
+      simp only [tr, isBv_eq ha, isSigned_eq ha, Ty.isBv, Ty.isSigned, Bool.false_eq_true,
+        ↓reduceIte, __smtx_model_eval, haM M hwf hc hV,
         hbM M hwf hc hV, trV]
       rw [bvurem_eq hw hi0 hi, ite_cond_eq_false _ _ (eq_false hz)]
   | bvNeg ha ih =>
@@ -1156,7 +1266,7 @@ theorem ev (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hPD : ProgData D
     ok_split he
     rename_i x hx
     obtain ⟨hxT, haM⟩ := ih env _ hE hx
-    obtain ⟨-, i, rfl, hw, hi0, hi⟩ := hasV_bv hxT
+    obtain ⟨i, rfl, hw, hi0, hi⟩ := hasV_bv hxT
     simp only [arith_neg, Result.Ok.injEq] at he
     subst he
     refine ⟨hasV_bvmk hw _, fun M hwf hc hV => ?_⟩
@@ -1168,13 +1278,13 @@ theorem ev (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hPD : ProgData D
     ok_split he
     rename_i x hx
     obtain ⟨hxT, haM⟩ := ih env _ hE hx
-    obtain ⟨-, i, rfl, hw, hi0, hi⟩ := hasV_bv hxT
+    obtain ⟨i, rfl, hw, hi0, hi⟩ := hasV_bv hxT
     simp only [Result.Ok.injEq] at he
     subst he
     have hp := pow2_eq (Int.le_of_lt hw)
     refine ⟨hasV_bv_of hw (by omega) (by omega), fun M hwf hc hV => ?_⟩
     simp only [tr, __smtx_model_eval, haM M hwf hc hV, trV]
-    exact bvnot_eq (D := D) hw hi0 hi
+    exact bvnot_eq (D := D) (s := false) hw hi0 hi
   | bvLt ha _ iha ihb | bvGt ha _ iha ihb | bvLe ha _ iha ihb | bvGe ha _ iha ihb =>
     intro env v hE he
     rw [eval] at he
@@ -1184,13 +1294,14 @@ theorem ev (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hPD : ProgData D
     rename_i y hy
     obtain ⟨hxT, haM⟩ := iha env _ hE hx
     obtain ⟨hyT, hbM⟩ := ihb env _ hE hy
-    obtain ⟨-, i, rfl, hw, hi0, hi⟩ := hasV_bv hxT
-    obtain ⟨-, j, rfl, -, hj0, hj⟩ := hasV_bv hyT
+    obtain ⟨i, rfl, hw, hi0, hi⟩ := hasV_bv hxT
+    obtain ⟨j, rfl, -, hj0, hj⟩ := hasV_bv hyT
     simp only [arith_lt, arith_le, same_bv, bv_int, decide_true, Bool.and_self, ↓reduceDIte,
       Bool.false_eq_true] at he
     cases he
     refine ⟨trivial, fun M hwf hc hV => ?_⟩
-    simp only [tr, isBv_eq ha, Ty.isBv, ↓reduceIte, __smtx_model_eval, haM M hwf hc hV,
+    simp only [tr, isBv_eq ha, isSigned_eq ha, Ty.isBv, Ty.isSigned, Bool.false_eq_true,
+        ↓reduceIte, __smtx_model_eval, haM M hwf hc hV,
       hbM M hwf hc hV, trV]
     simp [__smtx_model_eval_bvult, __smtx_model_eval_bvule, __smtx_model_eval_bvugt,
       __smtx_model_eval_bvuge, __smtx_model_eval_or, __smtx_model_eval_eq, native_veq, native_or,
@@ -1201,6 +1312,91 @@ theorem ev (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hPD : ProgData D
         ⟨fun h => h.elim (fun h => Int.not_lt.mpr (Int.le_of_lt h))
             (fun h => by rw [h]; exact Int.lt_irrefl _),
           fun h => (Int.lt_or_eq_of_le (Int.not_lt.mp h)).imp id Eq.symm⟩
+  | bvMod ha _ iha ihb =>
+    intro env v hE he
+    rw [eval] at he
+    ok_split he
+    rename_i x hx
+    ok_split he
+    rename_i y hy
+    obtain ⟨hxT, haM⟩ := iha env _ hE hx
+    obtain ⟨hyT, hbM⟩ := ihb env _ hE hy
+    obtain ⟨i, rfl, hw, hi0, hi⟩ := hasV_bv hxT
+    obtain ⟨j, rfl, -, hj0, hj⟩ := hasV_bv hyT
+    by_cases hz : j = 0
+    · simp only [arith_mod, same_bv, bv_int, decide_true, Bool.and_self, ↓reduceDIte, hz,
+        Bool.false_eq_true, Result.Ok.injEq] at he
+      subst he
+      refine ⟨hxT, fun M hwf hc hV => ?_⟩
+      simp only [tr, isBv_eq ha, isSigned_eq ha, Ty.isBv, Ty.isSigned, Bool.false_eq_true,
+        ↓reduceIte, __smtx_model_eval, haM M hwf hc hV, hbM M hwf hc hV, trV]
+      rw [bvurem_eq (D := D) hw hi0 hi, ite_cond_eq_true _ _ (eq_true hz)]
+      rfl
+    · have hneg : ¬(j < 0 ∧ ¬i % j = 0) := fun h => by omega
+      simp only [arith_mod, same_bv, bv_int, decide_true, Bool.and_self, ↓reduceDIte, hz,
+        Bool.false_eq_true, hneg, Result.Ok.injEq] at he
+      subst he
+      refine ⟨hasV_bvmk hw _, fun M hwf hc hV => ?_⟩
+      simp only [tr, isBv_eq ha, isSigned_eq ha, Ty.isBv, Ty.isSigned, Bool.false_eq_true,
+        ↓reduceIte, __smtx_model_eval, haM M hwf hc hV, hbM M hwf hc hV, trV]
+      rw [bvurem_eq (D := D) hw hi0 hi, ite_cond_eq_false _ _ (eq_false hz)]
+      simp [trem, tdiv, hi0, Int.emod_def]
+  | sDiv ha _ iha ihb | sRem ha _ iha ihb | sMod ha _ iha ihb =>
+    intro env v hE he
+    rw [eval] at he
+    ok_split he
+    rename_i x hx
+    ok_split he
+    rename_i y hy
+    obtain ⟨hxT, haM⟩ := iha env _ hE hx
+    obtain ⟨hyT, hbM⟩ := ihb env _ hE hy
+    obtain ⟨i, rfl, hw, hi0, hi⟩ := hasV_bv hxT
+    obtain ⟨j, rfl, -, hj0, hj⟩ := hasV_bv hyT
+    first
+      | (obtain ⟨hv, hm⟩ := bvsdiv_eq (D := D) hw hi0 hi hj0 hj he
+         refine ⟨hv, fun M hwf hc hV => ?_⟩
+         simp only [tr, isBv_eq ha, isSigned_eq ha, Ty.isBv, Ty.isSigned, Bool.false_eq_true,
+           ↓reduceIte, __smtx_model_eval, haM M hwf hc hV, hbM M hwf hc hV, trV]
+         exact hm)
+      | (obtain ⟨hv, hm⟩ := bvsrem_eq (D := D) hw hi0 hi hj0 hj he
+         refine ⟨hv, fun M hwf hc hV => ?_⟩
+         simp only [tr, isBv_eq ha, isSigned_eq ha, Ty.isBv, Ty.isSigned, Bool.false_eq_true,
+           ↓reduceIte, __smtx_model_eval, haM M hwf hc hV, hbM M hwf hc hV, trV]
+         exact hm)
+      | (obtain ⟨hv, hm⟩ := bvsmod_eq (D := D) hw hi0 hi hj0 hj he
+         refine ⟨hv, fun M hwf hc hV => ?_⟩
+         simp only [tr, isBv_eq ha, isSigned_eq ha, Ty.isBv, Ty.isSigned, Bool.false_eq_true,
+           ↓reduceIte, __smtx_model_eval, haM M hwf hc hV, hbM M hwf hc hV, trV]
+         exact hm)
+  | sLt ha _ iha ihb | sGt ha _ iha ihb | sLe ha _ iha ihb | sGe ha _ iha ihb =>
+    intro env v hE he
+    rw [eval] at he
+    ok_split he
+    rename_i x hx
+    ok_split he
+    rename_i y hy
+    obtain ⟨hxT, haM⟩ := iha env _ hE hx
+    obtain ⟨hyT, hbM⟩ := ihb env _ hE hy
+    obtain ⟨i, rfl, hw, hi0, hi⟩ := hasV_bv hxT
+    obtain ⟨j, rfl, -, hj0, hj⟩ := hasV_bv hyT
+    simp only [arith_lt, arith_le, same_bv, bv_int, decide_true, Bool.and_self, ↓reduceDIte]
+      at he
+    cases he
+    refine ⟨trivial, fun M hwf hc hV => ?_⟩
+    simp only [tr, isBv_eq ha, isSigned_eq ha, Ty.isBv, Ty.isSigned, ↓reduceIte,
+      __smtx_model_eval, haM M hwf hc hV, hbM M hwf hc hV, trV, __smtx_model_eval_bvslt,
+      __smtx_model_eval_bvsle, bvsgt_eq hw hi0 hi hj0 hj, bvsgt_eq hw hj0 hj hi0 hi,
+      bvsge_eq hw hi0 hi hj0 hj, bvsge_eq hw hj0 hj hi0 hi]
+  | u2s _ ih | s2u _ ih =>
+    intro env v hE he
+    rw [eval] at he
+    ok_split he
+    rename_i x hx
+    obtain ⟨hxT, haM⟩ := ih env _ hE hx
+    obtain ⟨i, rfl, hw, hi0, hi⟩ := hasV_bv hxT
+    simp only [Result.Ok.injEq] at he
+    subst he
+    exact ⟨hasV_bv_of hw hi0 hi, fun M hwf hc hV => by simpa only [tr, trV] using haM M hwf hc hV⟩
   | @frac k d hd =>
     intro env v hE he
     rw [eval, real_eq hd] at he
@@ -1506,21 +1702,26 @@ theorem toDef_params_ne {S : List Sig} (hS : SigOk D S) {s : Sig} (hs : s ∈ S)
   obtain ⟨p, hp, rfl⟩ := hq
   exact trT_ne hS.data (hS.params s hs p hp)
 
+/-- The values of the bridge that SMT values are, at the types `Ts`. -/
+noncomputable def ofSmts (D : List Data) (Ts : List Ty) (ws : List SmtValue) : List Value :=
+  List.zipWith (fun T w => resign T (ofSmt D w)) Ts ws
+
 open Classical in
 /-- The interpretation of the functions of `S` by their calls: the value of a call with some fuel
 to the values `ws`, if one gives a value, and otherwise no value. -/
 noncomputable def interpOf (O : Oracle) (P : Program) (D : List Data) (S : List Sig) (d : Def)
     (ws : List SmtValue) : SmtValue :=
   if h : ∃ v, ∃ s ∈ S, ∃ n,
-      (s.toDef D) = d ∧ call O P n s.name [] [] (ws.map (ofSmt D)) = .Ok v then
+      (s.toDef D) = d ∧ call O P n s.name [] [] (ofSmts D (s.params.map Prod.snd) ws) = .Ok v then
     trV D h.choose else .NotValue
 
 theorem interpOf_eq {O : Oracle} {P : Program} {S : List Sig} (hP : ProgFrag P) (hS : SigOk D S)
     {s : Sig} (hs : s ∈ S) {n : Int} {ws : List SmtValue} {v : Value}
-    (hc : call O P n s.name [] [] (ws.map (ofSmt D)) = .Ok v) : interpOf O P D S (s.toDef D) ws =
-        trV D v := by
+    (hc : call O P n s.name [] [] (ofSmts D (s.params.map Prod.snd) ws) = .Ok v) :
+    interpOf O P D S (s.toDef D) ws = trV D v := by
   have h : ∃ v, ∃ s' ∈ S, ∃ n, (s'.toDef D) = (s.toDef D) ∧
-      call O P n s'.name [] [] (ws.map (ofSmt D)) = .Ok v := ⟨v, s, hs, n, rfl, hc⟩
+      call O P n s'.name [] [] (ofSmts D (s'.params.map Prod.snd) ws) = .Ok v :=
+    ⟨v, s, hs, n, rfl, hc⟩
   simp only [interpOf, h, ↓reduceDIte]
   obtain ⟨s', hs', n', hd, hc'⟩ := h.choose_spec
   have := sig_eq_of_name hS.nodup hs' hs (nm_inj (congrArg Def.name hd))
@@ -1534,10 +1735,12 @@ theorem typed_map {D : List Data} (hD : DataOk D) (M : SmtModel) :
   | _ :: _, _ :: _, .cons h hs => .cons (typed_trV hD M _ h) (typed_map hD M hs)
 
 theorem ofSmt_map {D : List Data} (hD : DataOk D) : ∀ {vs : List Value} {Ts : List Ty},
-    List.Forall₂ (HasV D) vs Ts → (vs.map (trV D)).map (ofSmt D) = vs
+    List.Forall₂ (HasV D) vs Ts → ofSmts D Ts (vs.map (trV D)) = vs
   | [], [], .nil => rfl
   | _ :: _, _ :: _, .cons h hs => by
-    simp only [List.map_cons, ofSmt_trV hD h, ofSmt_map hD hs]
+    have := ofSmt_map hD hs
+    simp only [ofSmts] at this ⊢
+    simp only [List.map_cons, List.zipWith_cons_cons, ofSmt_trV hD h, this]
 
 /-- The values of the sorts of the types of the bridge are those of the values of the types, when
 no real is among them: a real of a model need not be a fraction. -/
