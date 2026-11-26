@@ -543,8 +543,7 @@ theorem no_solution_of_check (sound : LogosSound) (hO : O.Sound) (hty : LogosTyp
     (hAccept : accept certificate = .ok checked) (hr : termSteps checked = .ok r)
     (hcheck : r.check = true) (hkeeps : r.keeps = true) (hsrc : sourceCheck r = true)
     (htot : Total O (programOf r.equations) (sigsOf r.equations))
-    (hfacts : FactsHoldExcept (Good r.equations) r.covered (extend r.base r.fresh) r.facts)
-    (cd : Codes) {M0 : SmtModel} (hM0 : model_wf M0) :
+    (hfacts : FactsHoldExcept (Good r.equations) r.covered (extend r.base r.fresh) r.facts) :
     ∀ vs, ¬ Solution O (programOf r.equations) (varsOf (sigsOf r.equations) r.base)
       (queryOf r.base) vs := by
   simp only [sourceCheck, Bool.and_eq_true] at hsrc
@@ -553,7 +552,7 @@ theorem no_solution_of_check (sound : LogosSound) (hO : O.Sound) (hty : LogosTyp
     (progTy_of_check hS hE) htot hAccept hr hcheck hkeeps
     (fun e he => ⟨sigOf e, List.mem_map_of_mem he,
       eqCheck_spec hS he (List.all_eq_true.mp hE e he)⟩)
-    (varsFresh_of_check hΓ) (baseFor_of_check hB) hfacts cd hM0
+    (varsFresh_of_check hΓ) (baseFor_of_check hB) hfacts
 
 /-- As `no_solution_of_check`, for a certificate of which the check covers every fact
 (`hcovered`): nothing is assumed of its clauses. -/
@@ -562,11 +561,10 @@ theorem no_solution_of_covered (sound : LogosSound) (hO : O.Sound) (hty : LogosT
     (hAccept : accept certificate = .ok checked) (hr : termSteps checked = .ok r)
     (hcheck : r.check = true) (hkeeps : r.keeps = true) (hsrc : sourceCheck r = true)
     (hcovered : r.facts.all r.covered = true)
-    (htot : Total O (programOf r.equations) (sigsOf r.equations))
-    (cd : Codes) {M0 : SmtModel} (hM0 : model_wf M0) :
+    (htot : Total O (programOf r.equations) (sigsOf r.equations)) :
     ∀ vs, ¬ Solution O (programOf r.equations) (varsOf (sigsOf r.equations) r.base)
       (queryOf r.base) vs :=
   no_solution_of_check sound hO hty hAccept hr hcheck hkeeps hsrc htot
-    (factsHoldExcept_of_all hcovered) cd hM0
+    (factsHoldExcept_of_all hcovered)
 
 end Inox.Bridge

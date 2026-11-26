@@ -58,8 +58,8 @@ def arrow : List (native_String × SmtType) → SmtType → SmtType
 
 /-- Identifiers for the partial applications of the functions of the program, as function values
 of the model: an injection into the non-zero identifiers. One exists, since there are as many
-identifiers (reals) as constants, sorts and lists of values, but that is not proved here: the
-theorems below take it as a hypothesis. -/
+identifiers (reals) as constants, sorts and lists of values (`Codes.nonempty`, `Inox/Codes.lean`);
+the theorems below take one as a parameter. -/
 structure Codes where
   code : native_String → SmtType → List SmtValue → ModelId
   inj : ∀ {s T vs s' T' vs'}, code s T vs = code s' T' vs' → s = s' ∧ T = T' ∧ vs = vs'

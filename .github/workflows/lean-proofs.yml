@@ -1,10 +1,10 @@
 name: Lean proofs
 # The theorems of the certificate checker in Lean (proofs/lean/verification), when they or the
 # generated semantics that they are about (proofs/semantics) change.
-# They take the soundness of Logos as a hypothesis, and so only need its definitions and
-# Mathlib, from its cache. Run by hand with `closed`, the workflow also builds the proofs of
-# Logos, which take hours, to check the theorems without that hypothesis: once for each version
-# of Logos is enough, and Logos checks its proofs itself.
+# They take the soundness of Logos as a hypothesis, and so only need its definitions, its proof
+# that a well-formed model exists, and Mathlib, from its cache. Run by hand with `closed`, the
+# workflow also builds the proofs of Logos, which take hours, to check the theorems without that
+# hypothesis: once for each version of Logos is enough, and Logos checks its proofs itself.
 on:
   workflow_dispatch:
     inputs:
