@@ -73,3 +73,5 @@ project/project/
 
 *.semanticdb
 recorded-metadata/
+
+__pycache__/
