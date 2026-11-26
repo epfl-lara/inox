@@ -275,12 +275,10 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
     * which the `dynLambda` of its type takes as first argument to dispatch on. */
   protected def closureType: Type = IntegerType()
 
-  /** The number of a function value in a model, or of a literal that it is compared with in the
-    * body of a `dynLambda`. */
-  protected def closureNumber(e: Expr): Option[BigInt] = e match {
-    case IntegerLiteral(i) => Some(i)
-    case UMinus(IntegerLiteral(i)) => Some(-i)
-    case bv: BVLiteral => Some(bv.toBigInt)
+  /** The number of a function value, given as a term of sort `closureType`: a value in a model, or
+    * a literal that the body of a `dynLambda` compares its first argument with. */
+  protected def closureNumber(t: Term): Option[BigInt] = t match {
+    case Num(n) => Some(n)
     case _ => None
   }
 
@@ -725,11 +723,9 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
     }
   }
 
-  /** The number of a function value in a model, which is a term of sort `closureType`. */
-  private def closureNumberOf(t: Term)(using Context): Option[BigInt] = (t, closureType) match {
-    case (Num(n), IntegerType()) => Some(n)
-    case (FixedSizeBitVectors.BitVectorConstant(_, _) | FixedSizeBitVectors.BitVectorLit(_), _: BVType) =>
-      closureNumber(fromSMT(t, closureType))
+  // The number of a literal that the body of a `dynLambda` compares its first argument with
+  private def dispatchedNumber(e: Expr): Option[BigInt] = e match {
+    case _: Literal[?] | UMinus(_: Literal[?]) => closureNumber(toSMT(e)(using Map()))
     case _ => None
   }
 
@@ -785,16 +781,16 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
           throw new Unsupported(s"Can't decode string \"$v\" with characters outside of the alphabet (see --strings-bmp)")
         StringLiteral(cps)
 
-      case (t, Some(ft: FunctionType)) if closureNumberOf(t).exists(n => context.seen(n -> ft)) =>
-        val n = closureNumberOf(t).get
+      case (t, Some(ft: FunctionType)) if closureNumber(t).exists(n => context.seen(n -> ft)) =>
+        val n = closureNumber(t).get
         context.interpretations.getOrElse(n -> ft, {
           val res = UninterpretedCall(FreshIdentifier("x", true), Seq.empty, Seq.empty, FunctionType(Seq.empty, ft))
           context.interpretations(n -> ft) = res
           res
         })
 
-      case (t, Some(ft: FunctionType)) if closureNumberOf(t).isDefined =>
-        val n = closureNumberOf(t).get
+      case (t, Some(ft: FunctionType)) if closureNumber(t).isDefined =>
+        val n = closureNumber(t).get
         context.lambdas.getOrElse(n -> ft, {
           val lambda = (lambdas.getB(ft)
             .flatMap { dynLambda =>
@@ -804,8 +800,8 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
                 val dv = dispatcher.toVariable
 
                 val dispatchedBody = exprOps.postMap {
-                  case Equals(`dv`, e) if closureNumber(e).isDefined => Some(BooleanLiteral(closureNumber(e).contains(n)))
-                  case Equals(e, `dv`) if closureNumber(e).isDefined => Some(BooleanLiteral(closureNumber(e).contains(n)))
+                  case Equals(`dv`, e) if dispatchedNumber(e).isDefined => Some(BooleanLiteral(dispatchedNumber(e).contains(n)))
+                  case Equals(e, `dv`) if dispatchedNumber(e).isDefined => Some(BooleanLiteral(dispatchedNumber(e).contains(n)))
                   case _ => None
                 } (body)
 

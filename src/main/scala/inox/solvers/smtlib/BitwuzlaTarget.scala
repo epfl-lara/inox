@@ -20,9 +20,14 @@ trait BitwuzlaTarget extends SMTLIBTarget with SMTLIBDebugger {
 
 
   // Bitwuzla has no integers, so the values of functions are 64-bit vectors instead. A model
-  // numbers its closures from 0, so 2^64 closures are more than any query can tell apart. The
-  // vectors are signed, like the literals of a model whose type isn't known.
+  // numbers its closures from 0, so 2^64 closures are more than any query can tell apart.
   override protected def closureType: Type = BVType(true, 64)
+
+  override protected def closureNumber(t: Term): Option[BigInt] = t match {
+    case FixedSizeBitVectors.BitVectorLit(bits) => Some(bits.foldLeft(BigInt(0))((n, b) => 2 * n + (if (b) 1 else 0)))
+    case FixedSizeBitVectors.BitVectorConstant(n, _) => Some(n)
+    case _ => None
+  }
 
   override protected def computeSort(t: Type): Sort = t match {
     case _ : BooleanType | _ : BVType | _ : CharType | _ : FPType | RoundingMode | _ : FunctionType | _ : MapType => super.computeSort(t)
