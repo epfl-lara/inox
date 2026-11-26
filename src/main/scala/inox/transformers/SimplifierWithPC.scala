@@ -119,7 +119,7 @@ trait SimplifierWithPC extends Transformer { self =>
 
   /** `res`, which the subterm that the recorded simplification is at becomes by the rule `rule`
     * of certificates, when the simplification is recorded (see [[TransformationRecorder]]). */
-  private def step(rule: String, res: Expr): Expr = { recorded(rule, res); res }
+  protected def step(rule: String, res: Expr): Expr = { recorded(rule, res); res }
 
   /** The term that the path binds `e` to, which `e` becomes where it is. */
   private def recordedExpand(e: Expr, path: Env): Expr = {

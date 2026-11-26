@@ -24,6 +24,22 @@ class SimplificationRecorderSuite extends AnyFunSuite with DatastructureUtils {
   val (m, k) = (ValDef.fresh("m", IntegerType()), ValDef.fresh("k", IntegerType()))
   val increases = new FunDef(increasesID, Seq(), Seq(m), BooleanType(),
     Forall(Seq(k), GreaterThan(Plus(k.toVariable, IntegerLiteral(1)), m.toVariable)), Seq())
+  // a recursive function with a quantifier, which is not inlined
+  val everID = FreshIdentifier("ever")
+  val (em, ek) = (ValDef.fresh("m", IntegerType()), ValDef.fresh("k", IntegerType()))
+  val ever = new FunDef(everID, Seq(), Seq(em), BooleanType(),
+    And(Forall(Seq(ek), GreaterThan(Plus(ek.toVariable, IntegerLiteral(1)), em.toVariable)),
+      FunctionInvocation(everID, Seq(), Seq(Plus(em.toVariable, IntegerLiteral(1))))), Seq())
+  // a function that calls one with a quantifier, and has none itself
+  val callsID = FreshIdentifier("calls")
+  val cm = ValDef.fresh("m", IntegerType())
+  val calls = new FunDef(callsID, Seq(), Seq(cm), BooleanType(),
+    FunctionInvocation(increasesID, Seq(), Seq(Plus(cm.toVariable, IntegerLiteral(1)))), Seq())
+  // a function with a quantifier under an assumption, which is inlined
+  val boundedID = FreshIdentifier("bounded")
+  val (bm, bk) = (ValDef.fresh("m", IntegerType()), ValDef.fresh("k", IntegerType()))
+  val bounded = new FunDef(boundedID, Seq(), Seq(bm), BooleanType(),
+    Assume(GreaterThan(bm.toVariable, IntegerLiteral(0)), Forall(Seq(bk), GreaterThan(Plus(bk.toVariable, bm.toVariable), bk.toVariable))), Seq())
 
   // a constant that is a function
   val idfID = FreshIdentifier("idf")
@@ -35,7 +51,7 @@ class SimplificationRecorderSuite extends AnyFunSuite with DatastructureUtils {
   val wrapEq = new FunDef(wrapEqID, Seq(), Seq(wa, wb), BooleanType(),
     Forall(Seq(wk), Equals(GreaterThan(ADTSelector(wa.toVariable, unwrap), wk.toVariable), GreaterThan(ADTSelector(wb.toVariable, unwrap), wk.toVariable))), Seq())
 
-  given symbols: Symbols = baseSymbols.withSorts(Seq(wrap)).withFunctions(Seq(inc, ones, increases, idf, wrapEq))
+  given symbols: Symbols = baseSymbols.withSorts(Seq(wrap)).withFunctions(Seq(inc, ones, increases, ever, calls, bounded, idf, wrapEq))
   import symbols._
 
   given ctx: Context = TestContext.empty
@@ -140,7 +156,27 @@ class SimplificationRecorderSuite extends AnyFunSuite with DatastructureUtils {
   }
 
   test("Functions with quantifiers are unfolded where they are called") {
-    assert(rules(And(p, FunctionInvocation(increasesID, Seq(), Seq(y)))) == Seq("unfold", "logic", "logic"))
+    def increases(e: Expr): Expr = FunctionInvocation(increasesID, Seq(), Seq(e))
+    def called(e: Expr): Boolean = exprOps.exists { case _: FunctionInvocation => true case _ => false } (simplifyFormula(e))
+    assert(rules(And(p, increases(y))) == Seq("unfold", "logic", "logic"))
+    // wherever the call is: under a negation, in a branch, a quantifier, a lambda that is applied
+    assert(!called(Not(increases(y))))
+    assert(!called(IfExpr(p, increases(x), increases(y))))
+    assert(!called(Forall(Seq(i.toVal), Or(GreaterThan(i, y), increases(i)))))
+    assert(!called(Application(Lambda(Seq(i.toVal), increases(i)), Seq(y))))
+    assert(rules(Forall(Seq(i.toVal), Or(GreaterThan(i, y), increases(i)))).contains("unfold"))
+    // the call of an inlined function may bring another one
+    assert(!called(And(p, increases(Plus(x, y)))) && !called(Or(increases(x), increases(y))))
+  }
+
+  test("Only the functions with quantifiers that are not recursive are unfolded") {
+    val recursive = And(p, FunctionInvocation(everID, Seq(), Seq(y)))
+    assert(rules(recursive) == Seq() && simplifyFormula(recursive) == recursive)
+    // a function without a quantifier is not, even if it calls one that has one
+    val indirect = And(p, FunctionInvocation(callsID, Seq(), Seq(y)))
+    assert(rules(indirect) == Seq() && simplifyFormula(indirect) == indirect)
+    val none = And(p, GreaterThan(inc(x), y))
+    assert(rules(none) == Seq() && simplifyFormula(none) == none)
   }
 
   test("Quantifiers are merged, and their unused variables dropped") {
@@ -172,6 +208,24 @@ class SimplificationRecorderSuite extends AnyFunSuite with DatastructureUtils {
     assert(rules(Assume(p, Forall(Seq(i.toVal), Assume(q, GreaterThan(i, int(0)))))) == Seq("lift-assumptions"))
   }
 
+  test("Assumptions under assumptions are merged, in their predicates and in their bodies") {
+    assert(simplifyFormula(Assume(p, Assume(q, x))) == Assume(And(p, q), x))
+    assert(simplifyFormula(Assume(Assume(p, q), x)) == Assume(And(p, q), x))
+    assert(simplifyFormula(Assume(p, Plus(Assume(q, x), Assume(r, y)))) == Assume(And(Seq(p, q, r)), Plus(x, y)))
+    assert(rules(Assume(p, Assume(q, x))) == Seq("logic"))
+    // an assumption that the lifted ones make true is dropped
+    assert(simplifyFormula(Assume(p, Plus(Assume(p, x), y))) == Assume(p, Plus(x, y)))
+  }
+
+  test("The assumptions of an inlined function are lifted into the assumption around its call") {
+    val e = Assume(p, FunctionInvocation(boundedID, Seq(), Seq(x)))
+    assert(rules(e) == Seq("unfold", "logic", "logic", "logic"))
+    simplifyFormula(e) match {
+      case Assume(And(Seq(`p`, GreaterThan(`x`, IntegerLiteral(zero)))), _: Forall) => assert(zero == 0)
+      case res => fail(s"$e simplifies into $res")
+    }
+  }
+
   test("A constant that evaluates to itself up to its bound variables is renamed") {
     val f = Variable.fresh("f", FunctionType(Seq(IntegerType()), IntegerType()))
     assert(rules(Equals(FunctionInvocation(idfID, Seq(), Seq()), f)) == Seq("unfold", "rename"))
@@ -187,13 +241,15 @@ class SimplificationRecorderSuite extends AnyFunSuite with DatastructureUtils {
     assert(rules(Equals(MapApply(FiniteMap(Seq(x -> y), int(0), IntegerType(), IntegerType()), x), y)) == Seq("matchers"))
   }
 
-  test("The equality function of a sort is inlined by a step of inline-equality") {
+  test("The equality function of a sort is inlined where it is called, and its equalities are kept") {
     val (a, b) = (Variable.fresh("a", T(wrapID)()), Variable.fresh("b", T(wrapID)()))
     // the call is unfolded by steps that the checker knows
     assert(rules(And(p, FunctionInvocation(wrapEqID, Seq(), Seq(a, b)))) == Seq("unfold", "logic", "logic", "logic"))
-    // an equality is only inlined where the function is called too
+    // an equality stays one, also where the function is called
     assert(rules(And(p, Equals(a, b))) == Seq())
-    assert(rules(Or(FunctionInvocation(wrapEqID, Seq(), Seq(b, a)), Not(Equals(a, b)))).contains("inline-equality"))
+    val both = Or(FunctionInvocation(wrapEqID, Seq(), Seq(b, a)), Not(Equals(a, b)))
+    assert(exprOps.exists { case Equals(`a`, `b`) => true case _ => false } (simplifyFormula(both)))
+    assert(!exprOps.exists { case fi: FunctionInvocation => true case _ => false } (simplifyFormula(both)))
   }
 
   test("The elements of tuples are simplified, and their sets built by a step of matchers") {

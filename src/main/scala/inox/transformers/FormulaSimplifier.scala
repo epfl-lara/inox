@@ -5,17 +5,20 @@ package transformers
 
 import evaluators.EvaluationResults._
 import solvers.PurityOptions
-import utils.fixpoint
 
 /** A simplifier of the formulas that the solvers are given: the simplification under path
-  * conditions of [[SimplifierWithPC]], which here also rewrites the sets, bags and maps that
-  * quantifiers are instantiated on, with the passes that go before and after it for formulas
-  * (the lifting of assumptions, the inlining that helps the instantiation of quantifiers, and
-  * the evaluation of ground terms).
+  * conditions of [[SimplifierWithPC]], which here also does what helps the instantiation of
+  * quantifiers, followed by the evaluation of ground terms.
   *
-  * The lambdas that are bound around quantifiers are inlined by the simplification under path
-  * conditions itself, as it applies the lambdas that the path binds, and so are the quantifiers
-  * simplified.
+  * In one traversal, the simplification applies the lambdas that the path binds, which inlines
+  * those that are bound around quantifiers, simplifies the quantifiers, rewrites the sets, bags
+  * and maps that quantifiers are instantiated on, inlines the functions that have quantifiers
+  * (see [[inlines]]) and lifts the assumptions of the subterms of an assumption.
+  *
+  * The ground terms are evaluated by a pass of its own, after the traversal: the traversal
+  * compares terms that an evaluation would make the same, like the lambdas `x => x + 10 / 2`
+  * and `x => x + 5`, which are not the same function when functions are compared as they are
+  * written.
   *
   * All that is done to a formula is done by one simplifier, which records the steps of what it
   * does in its `recorder`, when it has one (see [[TransformationRecorder]]). */
@@ -25,13 +28,6 @@ trait FormulaSimplifier extends SimplifierWithPC { self =>
   import symbols.{given, _}
 
   private given PurityOptions = opts
-
-  /** `postMap`, which records the rewrites when the simplification is recorded (see
-    * `TransformationRecorder.postMap`). */
-  private def recordedPostMap(rule: String)(f: Expr => Option[Expr])(record: (Expr, Expr) => Unit = (_, _) => ())(e: Expr): Expr = {
-    val r = recorder
-    if (r eq null) postMap(f)(e) else r.postMap(rule)(f)(record)(e)
-  }
 
   /** The sets, bags and maps of several elements as updates of smaller ones, which the
     * instantiation of quantifiers matches on. */
@@ -53,15 +49,100 @@ trait FormulaSimplifier extends SimplifierWithPC { self =>
     case _ => None
   }
 
-  /** The simplification under path conditions, which also rewrites the terms that [[matcher]]
-    * does, for the instantiation of quantifiers. */
-  override protected def simplifyCore(e: Expr, path: Env): (Expr, Boolean) =
-    matcher(e) match {
-      case Some(m) =>
-        recorded("matchers", m)
-        simplify(m, path)
-      case None => super.simplifyCore(e, path)
+  // The call edges of the functions and which of them are inlined (see [[inlines]]), which only
+  // depend on the symbols
+  private val callees = new java.util.concurrent.ConcurrentHashMap[Identifier, Set[Identifier]]
+  private val inlined = new java.util.concurrent.ConcurrentHashMap[Identifier, java.lang.Boolean]
+
+  private def calleesOf(id: Identifier): Set[Identifier] =
+    callees.computeIfAbsent(id, id => collect[Identifier] {
+      case fi: FunctionInvocation => Set(fi.id)
+      case Equals(IsTyped(_, adt: ADTType), _) if adt.getSort.hasEquality => Set(adt.getSort.equality.get.id)
+      case _ => Set.empty
+    } (getFunction(id).fullBody))
+
+  /** Whether the calls of the function `id` are inlined: it has a quantifier outside of
+    * assumptions, which then has the polarity of the call, and is not (mutually) recursive. Calls
+    * are followed through the equalities of sorts, which count as calls of the equality function
+    * of the sort.
+    *
+    * The equalities of a sort whose equality function is inlined are not inlined themselves:
+    * they are kept as equalities, of which the solvers know more than the function says (see
+    * `EqualityTemplates`). The quantifiers of the function are encoded at the polarity of the
+    * equality where its template is generated (see `TemplateGenerator`). */
+  def inlines(id: Identifier): Boolean = {
+    def hasForall(e: Expr): Boolean = e match {
+      case _: Forall => true
+      case Assume(_, body) => hasForall(body)
+      case Operator(es, _) => es.exists(hasForall)
     }
+
+    // whether the function `id` is called from its own body, directly or not
+    def recursive: Boolean = {
+      val seen = scala.collection.mutable.Set.empty[Identifier]
+      var todo = calleesOf(id).toList
+      while (todo.nonEmpty) {
+        val callee = todo.head
+        todo = todo.tail
+        if (seen.add(callee)) todo = calleesOf(callee).toList ++ todo
+      }
+      seen(id)
+    }
+
+    inlined.computeIfAbsent(id, id => java.lang.Boolean.valueOf(
+      hasForall(getFunction(id).fullBody) && !recursive
+    )).booleanValue
+  }
+
+  /** The simplification under path conditions, which also
+    * - rewrites the terms that [[matcher]] does, for the instantiation of quantifiers;
+    * - inlines the calls of the functions that have quantifiers (see [[inlines]]), which gives
+    *   the quantifiers the polarity of the call;
+    * - lifts the assumptions of the subterms of an assumption into it. */
+  override protected def simplifyCore(e: Expr, path: Env): (Expr, Boolean) = matcher(e) match {
+    case Some(m) =>
+      recorded("matchers", m)
+      simplify(m, path)
+
+    case None => e match {
+      // the call unfolds into the body under the bindings of its parameters, which `inlined`
+      // then drops where they are not used
+      case fi: FunctionInvocation if inlines(fi.id) =>
+        val inlined = fi.inlined
+        recorded("unfold", unfolded(fi))
+        recorded("logic", inlined)
+        simplify(inlined, path)
+
+      case _: Assume => super.simplifyCore(e, path) match {
+        case (assumption: Assume, pure) => (liftedAssumptions(assumption, path), pure)
+        case res => res
+      }
+
+      case _ => super.simplifyCore(e, path)
+    }
+  }
+
+  /** The simplified assumption `assumption` with the assumptions of its subterms lifted into
+    * its predicate, which is then simplified again. */
+  private def liftedAssumptions(assumption: Assume, path: Env): Expr = {
+    val Assume(pred, body) = assumption
+    val (predAssumptions, newPred) = liftAssumptions(pred)
+    val (bodyAssumptions, newBody) = liftAssumptions(body)
+    if (predAssumptions.isEmpty && bodyAssumptions.isEmpty) assumption else {
+      val lifted = andJoin(predAssumptions ++ (newPred +: bodyAssumptions))
+      // The `logic` rule of certificates doesn't look into lambdas and quantifiers: an
+      // assumption that is lifted out of one is not a step of that rule.
+      def underBinders(e: Expr): Int = count {
+        case Lambda(_, body) => count { case _: Assume => 1; case _ => 0 } (body)
+        case Forall(_, body) => count { case _: Assume => 1; case _ => 0 } (body)
+        case _ => 0
+      } (e)
+      val to = Assume(lifted, newBody).copiedFrom(assumption)
+      recorded(if (underBinders(assumption) == underBinders(to)) "logic" else "lift-assumptions", to)
+      val (rp, _) = simplify(lifted, path)
+      step("logic", assume(rp, newBody).copiedFrom(assumption))
+    }
+  }
 
   /** Simplify all the pure and ground sub-expressions of the given expression,
     * by evaluating them using [[inox.evaluators.Evaluator]].
@@ -147,81 +228,12 @@ trait FormulaSimplifier extends SimplifierWithPC { self =>
     rec(expr)(using opts)
   }
 
-  /** Pre-processing for solvers that handle universal quantification
-    * in order to increase the precision of polarity analysis for
-    * quantification instantiations.
-    *
-    * These are the passes that go before the simplification under path conditions, which does
-    * the rest (see [[simplifyFormula]]).
-    */
-  def simplifyForalls(e: Expr): Expr = {
-
-    def inlineFunctions(e: Expr): Expr = {
-      val toInline = forallInlining.toInline(e)
-
-      def inlineExpr(e: Expr): Expr = recordedPostMap("inline-equality") {
-        case fi: FunctionInvocation if toInline(fi.id) =>
-          Some(fi.inlined)
-        case Equals(IsTyped(e1, adt: ADTType), e2)
-        if adt.getSort.hasEquality && toInline(adt.getSort.equality.get.id) =>
-          Some(adt.getSort.equality.get.applied(Seq(e1, e2)).inlined)
-        case _ => None
-      } {
-        // the call unfolds into the body under the bindings of its parameters, which `inlined`
-        // then drops where they are not used
-        case (fi: FunctionInvocation, inlined) =>
-          recorded("unfold", unfolded(fi))
-          recorded("logic", inlined)
-        // the call of the equality function of a sort is not unfolded in steps
-        case _ =>
-      } (e)
-
-      fixpoint(inlineExpr)(e)
-    }
-
-    /* Weaker variant of conjunctive normal form */
-    def normalizeClauses(e: Expr): Expr = e match {
-      case Not(Not(e)) => normalizeClauses(e)
-      case Not(Or(es)) => andJoin(es.map(e => normalizeClauses(Not(e))))
-      case Not(Implies(e1, e2)) => and(normalizeClauses(e1), normalizeClauses(Not(e2)))
-      case And(es) => andJoin(es map normalizeClauses)
-      case _ => e
-    }
-
-    val simp: Expr => Expr =
-      recordedPass("normalize", (e: Expr) => { val n = normalizeClauses(e); recorded("logic", n); n }) compose
-      recordedPass("lift-assumptions", (e: Expr) => simplifyAssumptions(e))  compose
-      recordedPass("inline-functions", (e: Expr) => inlineFunctions(e))
-    simp(e)
-  }
-
-  /** Lifts the assumptions of the subterms of `expr` to the assumptions that they are under. */
-  def simplifyAssumptions(expr: Expr): Expr = recordedPostMap("lift-assumptions") {
-    case Assume(pred, body) =>
-      val (predAssumptions, newPred) = liftAssumptions(pred)
-      val (bodyAssumptions, newBody) = liftAssumptions(body)
-      Some(assume(andJoin(predAssumptions ++ (newPred +: bodyAssumptions)), newBody))
-    case _ => None
-  } { (from, to) =>
-    // The `logic` rule of certificates doesn't look into lambdas and quantifiers: an assumption
-    // that is lifted out of one is not a step of that rule.
-    def underBinders(e: Expr): Int = count {
-      case Lambda(_, body) => count { case _: Assume => 1; case _ => 0 } (body)
-      case Forall(_, body) => count { case _: Assume => 1; case _ => 0 } (body)
-      case _ => 0
-    } (e)
-    if (underBinders(from) == underBinders(to)) recorded("logic", to)
-  } (expr)
-
-  /** Simplifies the formula `e`, for the solvers: lifts its assumptions, simplifies it for
-    * the instantiation of its quantifiers, simplifies it under its path conditions, and
-    * evaluates its ground subterms. */
+  /** Simplifies the formula `e`, for the solvers: simplifies it under its path conditions,
+    * and evaluates its ground subterms. */
   def simplifyFormula(e: Expr)(using ctx: Context, sem: symbols.Semantics): Expr = {
     val simp: Expr => Expr =
       recordedPass("evaluate", (e: Expr) => simplifyGround(e))               compose
-      recordedPass("simplify", (e: Expr) => transform(e, initEnv))           compose
-      ((e: Expr) => simplifyForalls(e))                                      compose
-      recordedPass("lift-assumptions", (e: Expr) => simplifyAssumptions(e))
+      recordedPass("simplify", (e: Expr) => transform(e, initEnv))
     simp(e)
   }
 

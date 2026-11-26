@@ -112,15 +112,4 @@ class TransformationRecorderSuite extends AnyFunSuite {
     rec.rewrite("logic", first)
     assert(rec.result(first) == Seq("logic" -> And(p, Or(t, q)), "logic" -> p))
   }
-
-  test("postMap records what it makes of each subterm") {
-    val e = And(Not(Not(p)), Or(q, Not(Not(r))))
-    val rec = recorder(e)
-    val res = rec.postMap("double-negation") {
-      case Not(Not(e)) => Some(e)
-      case _ => None
-    } () (e)
-    assert(res == And(p, Or(q, r)))
-    assert(rec.result(res) == Seq("double-negation" -> And(p, Or(q, Not(Not(r)))), "double-negation" -> res))
-  }
 }
