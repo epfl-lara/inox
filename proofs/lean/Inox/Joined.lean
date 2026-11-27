@@ -54,6 +54,48 @@ def kindOfTy : Ty → LK
   | .IntegerType => .int
   | _ => .prim
 
+/-- The kind of a field of the type `T`: integers, other primitive values, values of a
+datatype, or any value. -/
+def fieldKindOfTy : Ty → LK
+  | .IntegerType => .int
+  | .BooleanType | .RealType => .prim
+  | .ADTType s [] => .data s
+  | _ => .any
+
+/-- The kind of a field. -/
+def fieldKindOf : Param → LK
+  | .Param _ T => fieldKindOfTy T
+
+/-- The name of a field. -/
+def paramName : Param → Id
+  | .Param f _ => f
+
+/-- Two kinds that are the same, other than of tuples. -/
+def kindEq : LK → LK → Bool
+  | .int, .int | .prim, .prim | .any, .any => true
+  | .data s, .data s' => s == s'
+  | _, _ => false
+
+theorem kindEq_eq {a b : LK} (h : kindEq a b = true) : a = b := by
+  unfold kindEq at h
+  split at h <;> simp_all
+
+/-- `F` gives the field `p` the datatype `s` and its kind. -/
+def fieldKindOk (F : Id → Option (Id × LK)) (s : Id) (p : Param) : Bool :=
+  match F (paramName p) with
+  | some (s', k) => s' == s && kindEq k (fieldKindOf p)
+  | none => false
+
+theorem fieldKindOk_eq {F : Id → Option (Id × LK)} {s : Id} {p : Param}
+    (h : fieldKindOk F s p = true) : F (paramName p) = some (s, fieldKindOf p) := by
+  unfold fieldKindOk at h
+  split at h
+  · next s' k he =>
+    simp only [Bool.and_eq_true, beq_iff_eq] at h
+    rw [he, h.1, kindEq_eq h.2]
+  · cases h
+
+
 /-- The input: its functions, with the kinds of their parameters and of their results, its
 constraints, its variables and whether it may compare functions. -/
 structure InputRead where
@@ -157,10 +199,10 @@ def readInput (certificate : Sexp) : Except String InputRead := do
   if fs.length + sorts.length != definitions.length then
     throw "a definition of the input is not that of a function or a datatype that is read"
   if sorts.any (fun s => !s.2.1.isEmpty) then throw "a datatype has type parameters"
-  -- the kind of a sort: that of its type, or any value for a datatype
+  -- the kind of a sort: that of its type, or of the values of a datatype
   let kindOf (s : Sexp) : Option LK := match primTy s, s with
     | some T, _ => some (kindOfTy T)
-    | none, .atom a => if t.kind a == "sort" then some .any else none
+    | none, .atom a => if t.kind a == "sort" then some (.data (t.id a)) else none
     | none, _ => none
   let read ← fs.mapM fun f => do
     if !f.tparams.isEmpty then throw s!"the function {f.name} has type parameters"
@@ -273,6 +315,11 @@ def Link.sig (L : Link) (R : InputRead) : LSig where
     | _, _ => none
   ctors c := L.κ.lookup c
   fields f := L.σ.lookup f
+  kinds c := match L.κ.lookup c, lookup_ctor R.ctors c with
+    | some _, .Ok (.Constructor _ s fs) => some (s, fs.map fieldKindOf)
+    | _, _ => none
+  fieldKinds f := R.ctors.findSome? fun
+    | .Constructor _ s fs => (fs.find? (paramName · == f)).map fun p => (s, fieldKindOf p)
 
 /-- The variables of the input that are matched, with their kinds. -/
 def Link.ctx (L : Link) (R : InputRead) : Id → Option (Expr × LK) := fun x =>
@@ -323,6 +370,13 @@ def ctorCheck (S : LSig) (cs : List Constructor) (ss : List ADTSort) (cs' : List
       fieldsOkB S.fields (fieldNames fs) (fieldNames fs')
   | _, _ => false
 
+theorem fieldKinds_of {F : Id → Option (Id × LK)} {s : Id} : ∀ {fs : List Param},
+    fs.all (fieldKindOk F s) = true → FieldKinds F s fs (fs.map fieldKindOf)
+  | [], _ => trivial
+  | .Param f T :: fs, h => by
+    simp only [List.all_cons, Bool.and_eq_true] at h
+    exact ⟨fieldKindOk_eq h.1, fieldKinds_of h.2⟩
+
 theorem ctorOf_of {cs : List Constructor} {ss : List ADTSort} {c s : Id} {fs : List Param}
     {fns : List FunDef} {is : List Interpretation} {eqm : FunctionEquality}
     (hc : lookup_ctor cs c = .Ok (.Constructor c s fs)) (hs : noInv ss s = true) :
@@ -368,7 +422,10 @@ def linkCheck (R : InputRead) (r : TermSteps) : Bool :=
           ((dataOf r).map fun d => .Sort d.name [] none none) c c'
       | none => true) &&
     L.κ.all (fun (c, _) => L.κ.all fun (d, _) => !(S.ctors c == S.ctors d) || c == d) &&
-    L.σ.all (fun (f, _) => L.σ.all fun (g, _) => !(S.fields f == S.fields g) || f == g)
+    L.σ.all (fun (f, _) => L.σ.all fun (g, _) => !(S.fields f == S.fields g) || f == g) &&
+    L.κ.all (fun (c, _) => match lookup_ctor R.ctors c with
+      | .Ok (.Constructor _ s fs) => fs.all (fieldKindOk S.fieldKinds s)
+      | _ => true)
 
 /-! ## The theorem -/
 
@@ -399,14 +456,15 @@ theorem lookup_of_mem {α β : Type} [BEq α] [LawfulBEq α] :
       · next he => exact absurd (beq_iff_eq.mp he) hp
       · exact hb
 
-theorem has_of_hasV {D : List Data} {T : Ty} (hT : isPrimTy T = true) {v : Value}
-    (h : HasV D v T) : Has (kindOfTy T) v := by
+theorem has_of_hasV {D : List Data} {K : Id → Option (Id × List LK)} {T : Ty}
+    (hT : isPrimTy T = true) {v : Value} (h : HasV D v T) : Has K (kindOfTy T) v := by
   cases T <;> simp [isPrimTy] at hT <;> cases v <;> simp [HasV] at h
   · exact .int _
   · exact .prim rfl
   · exact .prim rfl
 
-theorem prim_of_kind {T : Ty} {v : Value} (h : Has (kindOfTy T) v) : IsPrim v = true := by
+theorem prim_of_kind {K : Id → Option (Id × List LK)} {T : Ty} {v : Value}
+    (h : Has K (kindOfTy T) v) : IsPrim v = true := by
   cases T <;> simp only [kindOfTy] at h <;> cases h <;> first | rfl | assumption
 
 /-- Binding the names `ys` to the values that `g` gives them. -/
@@ -452,8 +510,8 @@ theorem no_input_solution {O : Oracle} (sound : LogosSound) (hO : O.Sound)
   intro vs ⟨hvs, bs, hbs, hsol⟩
   unfold linkCheck at hlink
   simp only [Bool.and_eq_true, List.all_eq_true, beq_iff_eq] at hlink
-  obtain ⟨⟨⟨⟨⟨⟨⟨⟨hprim, hlen⟩, hq⟩, hfuns⟩, hvars⟩, hρ⟩, hctors⟩, hκ⟩, hσ⟩ := hlink
-  generalize hL : Link.of R r = L at hq hfuns hvars hρ hctors hκ hσ
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨hprim, hlen⟩, hq⟩, hfuns⟩, hvars⟩, hρ⟩, hctors⟩, hκ⟩, hσ⟩, hfk⟩ := hlink
+  generalize hL : Link.of R r = L at hq hfuns hvars hρ hctors hκ hσ hfk
   have hF : Funs R.program (programOf (dataOf r) r.equations) (L.sig R) := by
     intro f g ks k hf
     have hf' := hf
@@ -472,7 +530,8 @@ theorem no_input_solution {O : Oracle} (sound : LogosSound) (hO : O.Sound)
       · cases hc
     · cases hf'
   have hC : Ctors R.program (programOf (dataOf r) r.equations) (L.sig R) := by
-    refine ⟨fun c c' hc => ?_, fun c d c' hc hd => ?_, fun f g f' hf hg => ?_⟩
+    refine ⟨fun c c' hc => ?_, fun c d c' hc hd => ?_, fun f g f' hf hg => ?_,
+      fun c s ks hk => ?_⟩
     · have hk := hctors (c, c') (Inox.Lowered.mem_of_lookup hc)
       simp only [show (L.sig R).ctors c = some c' from hc] at hk
       unfold ctorCheck at hk
@@ -492,6 +551,25 @@ theorem no_input_solution {O : Oracle} (sound : LogosSound) (hO : O.Sound)
       simp only [show (L.sig R).fields f = some f' from hf,
         show (L.sig R).fields g = some f' from hg] at hk
       simpa using hk
+    · have hk' := hk
+      simp only [Link.sig] at hk'
+      split at hk'
+      · next c' c0 s0 fs h1 h2 =>
+        cases hk'
+        have hf := hfk (c, c') (Inox.Lowered.mem_of_lookup h1)
+        simp only [h2] at hf
+        have hc := hctors (c, c') (Inox.Lowered.mem_of_lookup h1)
+        simp only [show (L.sig R).ctors c = some c' from h1] at hc
+        unfold ctorCheck at hc
+        rw [h2] at hc
+        split at hc
+        · next c2 s2 fs2 c1 s' fs' he _ =>
+          cases he
+          simp only [Bool.and_eq_true, beq_iff_eq] at hc
+          obtain ⟨⟨⟨⟨rfl, rfl⟩, hs⟩, _⟩, _⟩ := hc
+          exact ⟨fs, ctorOf_of h2 hs, fieldKinds_of hf⟩
+        · cases hc
+      · cases hk'
   -- the values of the variables of the query: those of the variables of the input
   let g : Id → Value := fun y => match L.pre y with
     | some x => match lookup_var bs x with
@@ -504,8 +582,8 @@ theorem no_input_solution {O : Oracle} (sound : LogosSound) (hO : O.Sound)
     obtain ⟨v, hv1, hv2⟩ := bind_lookup R.vars vs bs hbs hvs x T hx
     exact ⟨v, hv1, hv2, by simp only [g, hy, hv1]⟩
   obtain ⟨bs', hbs', hl'⟩ := bind_map g ((varsOf (sigsOf r.equations) r.query).map Prod.fst)
-  have hEnv : EnvOk O (programOf (dataOf r) r.equations) (L.sig R).ctors (L.ctx R)
-      (Env.Env [] bs) (Env.Env [] bs') := by
+  have hEnv : EnvOk O (programOf (dataOf r) r.equations) (L.sig R).ctors (L.sig R).kinds
+      (L.ctx R) (Env.Env [] bs) (Env.Env [] bs') := by
     intro x y k hx
     have hx' := hx
     unfold Link.ctx at hx'
@@ -516,7 +594,8 @@ theorem no_input_solution {O : Oracle} (sound : LogosSound) (hO : O.Sound)
       simp only [hx, Bool.and_eq_true, beq_iff_eq, List.any_eq_true] at hc
       obtain ⟨hpre, y1, hy1, hy⟩ := hc
       obtain ⟨v, hv1, hv2, hgv⟩ := hg x T y0 h2 hpre
-      have hk := has_of_hasV (hprim (x, T) (Inox.Lowered.mem_of_lookup h2)) hv2
+      have hk := has_of_hasV (K := (L.sig R).kinds)
+        (hprim (x, T) (Inox.Lowered.mem_of_lookup h2)) hv2
       refine ⟨v, hv1, hk, v, 0, .prim (prim_of_kind hk), fun _ _ => ?_⟩
       rw [eval, show lookup_var (env_vars (Env.Env [] bs')) y0 = lookup_var bs' y0 from rfl,
         hl' y0 (List.mem_map.mpr ⟨y1, hy1, hy⟩), hgv]
