@@ -1181,7 +1181,8 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   encoder does, which the checker checks for `get` and the constructors, and
   that the elements have an equality that is an equivalence. `encodes_eval`
   puts them together for expressions: when an expression of integers, of
-  elements and of bags of them (variables, sums, the bag operations above,
+  elements and of bags of them (variables, literals, sums, differences,
+  comparisons, connectives, conditionals, lets, the bag operations above,
   multiplicities and equalities) evaluates to a value, what the encoder makes
   of it evaluates, with enough fuel, to the same value or to the encoding of
   the bag. It assumes the invariant of the datatype as the encoder defines
@@ -1196,8 +1197,8 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   `inox-solution --input` says how many constraints of each certificate that
   covers, and what the first of the others has that isn't read. On the
   corpus it covers none of the 36 constraints: 22 call functions of the
-  program or build its datatypes, 19 have conjunctions, 17 quantifiers and 14
-  implications, and the two with bags have calls and datatypes too. Nor is
+  program or build its datatypes, 17 have quantifiers and 5 have lambdas,
+  and the two with bags have calls and datatypes too. Nor is
   this theorem joined to `no_solution_of_reached` yet, whose program has
   neither sorts with type parameters nor sorts with an equality.
 - **The link between the proof and the script.** The checker checks that each
