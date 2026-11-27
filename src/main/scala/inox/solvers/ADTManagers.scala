@@ -72,9 +72,9 @@ trait ADTManagers {
         map.map {  case (tpe, types) => tpe -> (types ++ types.flatMap(map.getOrElse(_, Set.empty))) }
       } (deps)
 
-      // The types are visited by their names, rather than by their hashes, which depend on the global ids of
-      // their identifiers, so that the order in which they are declared doesn't either
-      val sccs = SCC.scc(deps, Some(Ordering.by[Type, String](_.asString(using PrinterOptions()))))
+      // The types are visited in the order of their identifiers, rather than by their hashes, which depend on
+      // the global ids of the identifiers, so that the order in which they are declared doesn't either
+      val sccs = SCC.scc(deps, Some(treeOrdering[Type]))
 
       // check whether all types can be defined
       for (scc <- sccs if scc.exists(tpe => (transitiveDeps(tpe) & scc).nonEmpty); tpe <- scc) tpe match {

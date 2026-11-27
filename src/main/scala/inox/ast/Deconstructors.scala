@@ -755,6 +755,55 @@ trait Deconstructors { self: Trees =>
     val t: self.type
   } = getDeconstructor(self)
 
+  /** An ordering on trees that compares their identifiers with the ordering of [[Identifier]], rather
+    * than by their hash codes, which depend on the global ids of the identifiers. Trees of different
+    * classes compare by the names of their classes, and the leaves by their other fields, such as the
+    * value of a literal or the size of a bitvector type. */
+  def treeOrdering[T <: Tree]: Ordering[T] = TreeOrdering.asInstanceOf[Ordering[T]]
+
+  private object TreeOrdering extends Ordering[Tree] {
+    private def parts(node: Any): (Seq[Identifier], Seq[Seq[Any]]) = node match {
+      case e: Expr =>
+        val (ids, vs, es, tps, flags, _) = deconstructor.deconstruct(e)
+        (ids, Seq(vs, es, tps, flags))
+      case tp: Type =>
+        val (ids, vs, es, tps, flags, _) = deconstructor.deconstruct(tp)
+        (ids, Seq(vs, es, tps, flags))
+      case f: Flag =>
+        val (ids, es, tps, _) = deconstructor.deconstruct(f)
+        (ids, Seq(es, tps))
+    }
+
+    // The fields of a node that are not subtrees, such as the value of a literal
+    private def leaves(node: Any): Seq[String] = node match {
+      case p: Product => p.productIterator.filter {
+        case _: Tree | _: Flag | _: Identifier | _: Iterable[?] => false
+        case _ => true
+      }.map(_.toString).toSeq
+      case _ => Seq.empty
+    }
+
+    private def compareSeqs[A](xs: Seq[A], ys: Seq[A])(cmp: (A, A) => Int): Int = {
+      val c = xs.lazyZip(ys).iterator.map(cmp(_, _)).find(_ != 0).getOrElse(0)
+      if (c != 0) c else xs.size compare ys.size
+    }
+
+    private def compareNodes(a: Any, b: Any): Int = if (a.asInstanceOf[AnyRef] eq b.asInstanceOf[AnyRef]) 0 else {
+      val byClass = a.getClass.getName compare b.getClass.getName
+      if (byClass != 0) byClass else {
+        val (ids1, children1) = parts(a)
+        val (ids2, children2) = parts(b)
+        val byIds = compareSeqs(ids1, ids2)(_ compare _)
+        if (byIds != 0) byIds else {
+          val byChildren = compareSeqs(children1, children2)(compareSeqs(_, _)(compareNodes))
+          if (byChildren != 0) byChildren else compareSeqs(leaves(a), leaves(b))(_ compare _)
+        }
+      }
+    }
+
+    def compare(a: Tree, b: Tree): Int = compareNodes(a, b)
+  }
+
   /** Operator Extractor to extract any Expression in a consistent way.
     *
     * You can match on any Inox Expr, and then get both a Seq[Expr] of
