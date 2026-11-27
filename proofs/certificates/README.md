@@ -124,11 +124,15 @@ rule of `unrolling.RuleKernel` builds. Two things are left to the reader:
   every rewrite, and don't judge which ones the checker can check: a step
   of a rule that the checker doesn't know is applied as it is given, and
   the certificate then holds over the simplified program only, which the
-  checker says with the rules. This is the case of an assumption or a
-  quantifier that is lifted from where the term may not evaluate it
-  (`lift-assumptions`, `lift-quantifiers`), and of the evaluation of a term
+  checker says with the rules. This is the case of the evaluation of a term
   that the generated evaluator gives no value to (it covers a fragment of
-  Inox, and doesn't compare functions). A step of a rule that the
+  Inox, and doesn't compare functions), and of the steps that a simplifier
+  can't tell are ones of `logic`, which the checker checks as such, and
+  reports when they are not: an assumption that is lifted out of a binder
+  (`lift-assumptions`, a step of `logic` out of a quantifier over sorts
+  that have values, whose body always evaluates the assumption), and what
+  a simplifier makes of a term without a rule of its own (`simplify`). A
+  step of a rule that the
   checker knows, and which doesn't hold, makes the certificate fail, and so
   does what a simplifier did without recording it (`unrecorded`). When the
   program compares functions (`--function-equality` is not `none`), a
@@ -143,7 +147,11 @@ rule of `unrolling.RuleKernel` builds. Two things are left to the reader:
     an equality that the simplifiers keep, as the check of the sources trusts
     too (the checker checks that a name is not a symbol of the original, that
     the operands are those of the equality, and that a quantifier that the
-    source assumes is where it must hold);
+    source assumes is where it must hold, as is the universal one whose
+    negation names an existential one). The source also names a call of an
+    uninterpreted function under the assumptions of its typing, and a
+    construction under the assumption of the invariant of its sort, which
+    the checker evaluates and reports when the evaluator gives it no value;
   - the theory encoders (sets, bags, maps, propositions) that run before the
     simplifier, whose output is the original that the steps start from;
   - the rules themselves, which the Lean checker doesn't prove yet (it skips

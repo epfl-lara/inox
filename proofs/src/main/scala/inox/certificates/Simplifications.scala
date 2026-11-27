@@ -386,7 +386,67 @@ object Simplifications {
     * binds its variables to the values of their terms, when all of them have one. */
   private final class Logic(program: Program, allFacts: List[SExpr]) {
     // the atoms are named apart from the terms, whose bound variables are named by `canonical` too
-    private def canonical(t: SExpr): SExpr = Simplifications.canonical(t, prefix = "^")
+    // sums and products are those of all their operands, however they nest
+    private def canonical(t: SExpr): SExpr = flat(Simplifications.canonical(t, prefix = "^"))
+
+    private def flat(t: SExpr): SExpr = t match {
+      case SList((op @ Atom("+" | "*")) :: es) if es.size > 1 =>
+        SList(op :: es.map(flat).flatMap {
+          case SList(`op` :: inner) if inner.size > 1 => inner
+          case e => List(e)
+        })
+      case SList(items) => SList(items.map(flat))
+      case a => a
+    }
+
+    /** The atom `t` with the values of the conditionals, bindings and assumptions that it always
+      * evaluates, in its operands and in theirs, or nothing when one of them has no value: the
+      * atom has none then. */
+    private def resolved(t: SExpr, rho: Map[SExpr, Value]): Option[SExpr] = {
+      var stuck = false
+      def operand(e: SExpr): SExpr = e match {
+        case SList(Atom("ite" | "let" | "assume") :: _) => eval(e, false, rho) match {
+          case Stuck => stuck = true; e
+          case Bool(b) => Atom(b.toString)
+          case Term(v) => v
+        }
+        case SList(Atom(k) :: _) if keywords(k) && k != "=" => e
+        case SList(SList(Atom(k) :: _) :: _) if quantifiers(k) || k == "let" => e
+        case SList(head :: es) => SList(head :: es.map(operand))
+        case _ => e
+      }
+      // Under a binder, the ones without its variables are their values where they have one. A
+      // quantifier over sorts that have values has no value when its body always evaluates one
+      // that has none.
+      def under(e: SExpr, bound: Set[String], always: Boolean): SExpr = e match {
+        case SList(Atom("ite" | "let" | "assume") :: _) if (free(e) & bound).isEmpty => eval(e, false, rho) match {
+          case Stuck => if (always) stuck = true; e
+          case Bool(b) => Atom(b.toString)
+          case Term(v) => v
+        }
+        case SList(List(q @ Atom("let"), SList(bindings), body)) =>
+          val values = bindings.map {
+            case SList(List(x, v)) => SList(List(x, under(v, bound, always)))
+            case other => fail(s"$other is not a binding")
+          }
+          SList(List(q, SList(values), under(body, bound ++ bindings.collect { case SList(Atom(x) :: _) => x }, always)))
+        case SList(List(q @ Atom(k), vars @ SList(vs), body)) if quantifiers(k) =>
+          val valued = (k == "forall" || k == "exists") && vs.forall {
+            case SList(List(_, sort)) => program.inhabited(sort)
+            case _ => false
+          }
+          SList(List(q, vars, under(body, bound ++ vs.collect { case SList(Atom(x) :: _) => x }, always && valued)))
+        case SList(items) => SList(items.zipWithIndex.map((item, i) => under(item, bound, always && evaluated(e, i))))
+        case _ => e
+      }
+      val result = t match {
+        case SList(List(Atom("forall" | "exists" | "lambda"), _, _)) => under(t, Set(), true)
+        case SList(Atom(k) :: _) if keywords(k) && k != "=" => t
+        case SList(head :: es) => SList(head :: es.map(operand))
+        case _ => t
+      }
+      if (stuck) None else Some(result)
+    }
 
     /** Only the facts that share symbols with the terms, through other facts or not, bear on them. */
     private def relevant(lhs: SExpr, rhs: SExpr): List[SExpr] = {
@@ -488,16 +548,21 @@ object Simplifications {
           case (x, Bool(b)) => x -> Atom(b.toString)
           case (x, Term(v)) => x -> v
         }.toMap), boolean, rho)
-      case _ =>
-        val (a, negated) = atom(t)
-        rho.get(a) match {
-          case None => throw Need(a, boolean)
-          case Some(Value.NoValue) => Stuck
-          case Some(Value.True) => Bool(!negated)
-          case Some(Value.False) => Bool(negated)
-          case Some(Value.Known) if boolean => throw Need(a, true)
-          case Some(Value.Known) => Term(known(t, rho))
-        }
+      case _ => resolved(t, rho) match {
+        case None => Stuck
+        case Some(t) =>
+          val (a, negated) = atom(t)
+          // a tester is a Boolean wherever it is
+          val asBoolean = boolean || Tester.unapply(a).nonEmpty
+          rho.get(a) match {
+            case None => throw Need(a, asBoolean)
+            case Some(Value.NoValue) => Stuck
+            case Some(Value.True) => Bool(!negated)
+            case Some(Value.False) => Bool(negated)
+            case Some(Value.Known) if asBoolean => throw Need(a, true)
+            case Some(Value.Known) => Term(known(t, rho))
+          }
+      }
     }
 
     /** `t` where each atom with a Boolean value, outside of binders that capture it, is that value. */
@@ -638,23 +703,85 @@ object Simplifications {
               x.headOption.forall(c => c.isDigit || c == '"' || c == '#'))
             fail(s"$x is not a name that the solver made for a subterm")
         val pairs: Map[SExpr, SExpr] = names.map {
-          case SList(List(n @ Atom(x), t)) => symbol(x); n -> t
-          case SList(List(n @ SList(List(Atom("not"), Atom(x))), t)) => symbol(x); n -> t
-          case SList(List(n @ SList(List(Atom("assume"), q, Atom("true"))), t)) if q == t =>
-            mustHold(source, n); n -> t
-          // the equality of a sort is an application of the symbol that the solver made for the
-          // equality of its type, to the operands as the source has them (see below)
-          case SList(List(n @ SList(List(SList(List(Atom("as"), Atom("@"), _)), Atom(x), _, _)), t @ SList(List(Atom("="), _, _)))) =>
-            symbol(x); n -> t
+          case SList(List(n, t)) => n -> t
           case other => fail(s"$other is not a name")
         }.toMap
         if (pairs.size != names.size) fail(s"the simplification of the expression of template $i names two subterms the same")
-        def named(t: SExpr): SExpr = pairs.getOrElse(t, t match {
-          case SList(items) => SList(items.map(named))
-          case a => a
-        })
-        for (case (n @ SList(List(SList(_), _, a, b)), t @ SList(List(Atom("="), ta, tb))) <- pairs)
-          if (named(a) != ta || named(b) != tb) fail(s"$n is not the equality $t")
+        // a named subterm may itself have names, of its own subterms
+        def named(t: SExpr, seen: Set[SExpr] = Set()): SExpr = pairs.get(t) match {
+          case Some(_) if seen(t) => fail(s"$t names itself")
+          case Some(s) => named(s, seen + t)
+          case None => t match {
+            case SList(items) => SList(items.map(named(_, seen)))
+            case a => a
+          }
+        }
+        def symbols(xs: List[SExpr]): Boolean = xs.nonEmpty && xs.forall { case Atom(x) => symbol(x); true; case _ => false }
+        /** The assumptions around a term, from the outside, and the term. */
+        def assumed(n: SExpr): (List[SExpr], SExpr) = n match {
+          case SList(List(Atom("assume"), p, b)) => val (ps, t) = assumed(b); (p :: ps, t)
+          case _ => (Nil, n)
+        }
+        def conjuncts(p: SExpr): List[SExpr] = p match {
+          case SList(Atom("and") :: ps) => ps.flatMap(conjuncts)
+          case _ => List(p)
+        }
+        for ((n, t) <- pairs) (n, t) match {
+          case (Atom(x), _) => symbol(x)
+          case (SList(List(Atom("not"), Atom(x))), _) => symbol(x)
+          // the instantiations of the conjuncts of a quantifier
+          case (SList(Atom("and") :: xs), _) if symbols(xs) =>
+          case (SList(List(Atom("not"), SList(Atom("and") :: xs))), _) if symbols(xs) =>
+          case (SList(List(Atom("assume"), q, Atom("true"))), _) if named(q) == t => mustHold(source, n)
+          // an existential quantifier, as the negation of the universal one that must hold
+          case (SList(List(Atom("not"), a @ SList(List(Atom("assume"), q, Atom("true"))))), SList(List(Atom("exists"), vars, body)))
+              if (named(q) match {
+                case SList(List(Atom("forall"), `vars`, SList(List(Atom("not"), `body`)))) => true
+                case SList(List(Atom("forall"), `vars`, b)) => body == SList(List(Atom("not"), b))
+                case _ => false
+              }) => mustHold(source, a)
+          // a quantifier over a conjunction that must hold, as the quantifiers of its conjuncts
+          case (SList(Atom("and") :: qs), SList(List(Atom("forall"), vars, SList(Atom("and") :: body))))
+              if qs.size == body.size && (qs zip body).forall {
+                case (SList(List(Atom("assume"), q, Atom("true"))), b) => named(q) == SList(List(Atom("forall"), vars, b))
+                case _ => false
+              } => mustHold(source, n)
+          // the equality of a sort is an application of the symbol that the solver made for the
+          // equality of its type, to the operands as the source has them
+          case (SList(List(SList(List(Atom("as"), Atom("@"), _)), Atom(x), a, b)), SList(List(Atom("="), ta, tb))) =>
+            symbol(x)
+            if (named(a) != ta || named(b) != tb) fail(s"$n is not the equality $t")
+          case _ => assumed(n) match {
+            // A construction under what its sort needs of it. The certificate doesn't have the
+            // invariants of sorts: the assumption is checked when it is closed and holds, and
+            // reported otherwise.
+            case (List(p), c) if named(c) == t && original.construction(t).nonEmpty =>
+              original.evaluation.same(named(p), Atom("true")) match {
+                case Some(true) =>
+                case Some(false) => fail(s"$t doesn't satisfy $p")
+                case None => unexplained += s"the expression of template $i has the construction $t under the assumption $p, which is not checked"
+              }
+            // A call of an uninterpreted function, as the application of the symbol that the
+            // solver made for the function, under the assumptions that the function and the
+            // result lie in their types. What the type of the result says of it is not checked.
+            case (ps, app) if ps.nonEmpty && ((app, t) match {
+              case (Atom(f), Applied(g, Nil)) => symbol(f); uninterpreted(g)
+              case (SList(SList(List(Atom("as"), Atom("@"), _)) :: Atom(f) :: args), Applied(g, targs)) =>
+                symbol(f); uninterpreted(g) && args.map(named(_)) == targs
+              case _ => false
+            }) =>
+              val f = app match { case Atom(f) => app; case SList(_ :: f :: _) => f; case _ => app }
+              val refinements = ps.flatMap(conjuncts).filter {
+                case SList(List(SList(List(Atom("as"), Atom(m), _)), Atom("\"free\""), x)) if uninterpreted(m) => x != f && x != app
+                case _ => true
+              }
+              if (refinements.nonEmpty)
+                unexplained += s"the expression of template $i has the call $t under the assumptions ${refinements.mkString(", ")} of its type, which are not checked"
+            case _ => fail(s"${SList(List(n, t))} is not a name")
+          }
+        }
+        def uninterpreted(g: String): Boolean =
+          !original.functions.contains(g) && !original.constructors.contains(g) && !original.selectors.contains(g) && !keywords(g)
         replayed(s"the expression of template $i", o, named(source), steps, original)
       case other => fail(s"$other is not a simplification")
     }
@@ -663,26 +790,44 @@ object Simplifications {
 
   /** Checks that `axiom` only occurs in the expression `t`, which holds, where it must hold for
     * `t` to: where evaluation reaches the occurrence, `t` only holds if the occurrence does. Then
-    * `t` holds wherever `t` with `q` for each occurrence `(assume q true)` does. */
+    * `t` with `q` for each occurrence `(assume q true)` holds wherever `t` does. */
   private def mustHold(t: SExpr, axiom: SExpr): Unit = {
-    def rec(t: SExpr, must: Boolean): Unit =
-      if (t == axiom) { if (!must) fail(s"$axiom is where it doesn't have to hold") }
+    // What the subterm is known of when an occurrence that evaluation reaches in it doesn't hold:
+    // that it doesn't hold (`Some(true)`), that it isn't false (`Some(false)`), or nothing.
+    def rec(t: SExpr, mode: Option[Boolean]): Unit =
+      if (t == axiom) { if (!mode.contains(true)) fail(s"$axiom is where it doesn't have to hold") }
       else t match {
-        case SList(Atom("and") :: es) => es.foreach(rec(_, must))
-        case SList(Atom("or" | "=>") :: es) if es.nonEmpty => es.init.foreach(rec(_, false)); rec(es.last, must)
-        case SList(List(Atom("ite"), c, a, b)) => rec(c, false); rec(a, must); rec(b, must)
+        case SList(List(Atom("not"), e)) => rec(e, mode.map(!_))
+        case SList(Atom("and") :: es) if es.nonEmpty => mode match {
+          case Some(false) => es.init.foreach(rec(_, None)); rec(es.last, mode)
+          case _ => es.foreach(rec(_, mode))
+        }
+        case SList(Atom("or") :: es) if es.nonEmpty => mode match {
+          case Some(true) => es.init.foreach(rec(_, None)); rec(es.last, mode)
+          case _ => es.foreach(rec(_, mode))
+        }
+        case SList(Atom("=>") :: es) if es.nonEmpty => mode match {
+          case Some(false) => es.init.foreach(rec(_, Some(true))); rec(es.last, mode)
+          case _ => es.init.foreach(rec(_, None)); rec(es.last, mode)
+        }
+        case SList(List(Atom("ite"), c, a, b)) => rec(c, None); rec(a, mode); rec(b, mode)
         // an assumption that doesn't hold leaves the expression without a value
-        case SList(List(Atom("assume"), p, b)) => rec(p, true); rec(b, must)
-        case SList(List(Atom("let"), bindings, body)) => rec(bindings, false); rec(body, must)
-        case SList(items) => items.foreach(rec(_, false))
+        case SList(List(Atom("assume"), p, b)) => rec(p, if (mode.contains(true)) mode else None); rec(b, mode)
+        case SList(List(Atom("let"), bindings, body)) => rec(bindings, None); rec(body, mode)
+        case SList(items) => items.foreach(rec(_, None))
         case _ =>
       }
-    rec(t, true)
+    rec(t, Some(true))
   }
 
   /** The rules that the checker knows (see [[rewrite]]). */
   private val rules = Set("logic", "unfold", "beta", "expand", "select", "eta", "bind", "lift", "merge", "unused",
     "prenex", "arith", "rename")
+
+  /** The rules of what may be a step of `logic`, and that a simplifier can't tell is one: an
+    * assumption that comes out of a binder, which is one where the binder has no value without
+    * it, and what a simplifier makes of a term without a rule of its own (`simplify`). */
+  private val attempted = Map("lift-assumptions" -> "logic", "simplify" -> "logic")
 
   /** Checks that `steps` rewrite `original` into `simplified`: the steps of the rules that the
     * checker knows, which hold, and the others, whose rules it returns. A step of a rule that it
@@ -715,6 +860,13 @@ object Simplifications {
           case Some(false) => fail(s"no evaluate step at ${deepest.mkString("(", " ", ")")} gives $subterm: ${at(term, deepest)} has another value")
           case None => unknown += rule
         }
+      }
+      else if (attempted.contains(rule)) {
+        // the step is checked when it is one of the rule, and is of a rule that is not known otherwise
+        if (target != current && deepest.inits.forall { pos =>
+          try { rewrite(attempted(rule), at(current, pos), at(target, pos), facts(current, pos), program); false }
+          catch { case _: Failure => true }
+        }) unknown += rule
       }
       else if (!rules(rule)) unknown += rule
       else if (target != current) {
@@ -901,13 +1053,15 @@ object Simplifications {
     case "prenex" => lhs match {
       case Binder("forall", names, decls, SList(Atom(op @ ("and" | "or" | "=>")) :: operands)) =>
         // The quantifiers that come out are operands that may: not the premise of an implication,
-        // where the quantifier would be an existential one, and over sorts that have values. The
-        // others stay, and so may any: the step is one for some of those that may come out.
+        // where the quantifier would be an existential one, and over sorts that have values when
+        // they are operands of a conjunction: a quantifier over a sort without values holds, as
+        // does the one that it comes out into, but the conjunction may not. The others stay, and
+        // so may any: the step is one for some of those that may come out.
         val candidates = operands.zipWithIndex.collect {
-          case (Binder("forall", _, ds, _), i) if !(op == "=>" && i < operands.size - 1) && ds.forall {
+          case (Binder("forall", _, ds, _), i) if !(op == "=>" && i < operands.size - 1) && (op != "and" || ds.forall {
             case SList(List(_, sort)) => program.inhabited(sort)
             case _ => false
-          } => i
+          }) => i
         }
         if (candidates.size > 12) fail(s"$lhs has too many quantifiers to lift")
         def lift(chosen: Set[Int]): SExpr = {

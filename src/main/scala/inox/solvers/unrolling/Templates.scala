@@ -432,7 +432,8 @@ trait Templates
       lazy val names = differences(expr, source(expr)).distinct
       Some(call match {
         case None => Expression(enc(expr), where, original.filter(_._1 != expr).map { (o, steps) =>
-          certificates.Source.Original(encoder(o), names.map((sub, name) => encoder(name) -> encoder(sub)),
+          val allNames = nestedDifferences(expr, source(expr)).distinct
+          certificates.Source.Original(encoder(o), allNames.map((sub, name) => encoder(name) -> encoder(sub)),
             steps.map((rule, term) => rule -> encoder(term)))
         })
         case Some(c) if definition && names.map(_._1).distinct.size == names.size && renamed(expr, names.toMap) == source(expr) =>
@@ -449,6 +450,29 @@ trait Templates
     case (Operator(bs, _), Operator(ss, recons)) if body.getClass == source.getClass && bs.size == ss.size && recons(bs) == body =>
       (bs zip ss).flatMap(differences(_, _))
     case _ => Seq(body -> source)
+  }
+
+  /** The [[differences]] of `body` and `source`, and those of the named subterms with what their
+    * names hold of them: the body of a quantifier that the source assumes, the arguments of an
+    * uninterpreted call that the source applies its free function to, and the fields of a
+    * construction that the source assumes the invariant of. */
+  private def nestedDifferences(body: Expr, source: Expr): Seq[(Expr, Expr)] = {
+    def assumed(s: Expr): Expr = s match {
+      case Assume(_, b) => assumed(b)
+      case _ => s
+    }
+    differences(body, source).flatMap { case (b, s) =>
+      val inner = (b, s) match {
+        case (_, Assume(q, BooleanLiteral(true))) => nestedDifferences(b, q).filter(_ != (b -> q))
+        case (UninterpretedCall(_, _, args, _), _: Assume) => assumed(s) match {
+          case Application(_, as) if as.size == args.size => (args zip as).flatMap(nestedDifferences(_, _))
+          case _ => Seq.empty
+        }
+        case (_: ADT, _: Assume) => nestedDifferences(b, assumed(s)).filter(_ != (b -> assumed(s)))
+        case _ => Seq.empty
+      }
+      (b -> s) +: inner
+    }
   }
 
   /** `body` where each outermost subterm that `names` names is its name. */
