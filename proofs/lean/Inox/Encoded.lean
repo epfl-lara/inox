@@ -143,6 +143,15 @@ inductive ParamKind (S : Sig) (Te : Ty) : Ty → Kind → Prop where
   | elem {a : Id} (h : Te = .TypeParameter a) : ParamKind S Te (.TypeParameter a) .elem
   | pure {t : Ty} (h : PureTy S.sorts S.ok [] t) : ParamKind S Te t (pureKind S.elemKind t)
 
+/-- Types that have values in any program: integers, booleans, elements and functions to
+these. -/
+inductive Inhab (Te : Ty) : Ty → Prop where
+  | int : Inhab Te .IntegerType
+  | bool : Inhab Te .BooleanType
+  | elem {a : Id} (h : Te = .TypeParameter a) : Inhab Te (.TypeParameter a)
+  | fn {ts : List Ty} {t : Ty} (h : t = .IntegerType ∨ t = .BooleanType ∨ t = Te) :
+      Inhab Te (.FunctionType ts t)
+
 inductive ParamsOk (S : Sig) (Te : Ty) : List Param → List Kind → Prop where
   | nil : ParamsOk S Te [] []
   | cons {x : Id} {t : Ty} {ps : List Param} {k : Kind} {ks : List Kind}
@@ -276,6 +285,11 @@ inductive Encodes (N : Names) (S : Sig) (Te : Ty) :
   | forall_ {Γ : Id → Option Kind} {u : Bool} {ps : List Param} {body body' : Expr}
       {ks : List Kind} (hk : ParamsOk S Te ps ks)
       (hb : Encodes N S Te (fun x => (((param_ids ps).zip ks).lookup x).or (Γ x)) body body'
+        .bool true) :
+      Encodes N S Te Γ (.Forall ps body) (.Forall ps body') .bool u
+  | forallUnused {Γ : Id → Option Kind} {u : Bool} {ps : List Param} {body body' : Expr}
+      (hps : ∀ p ∈ ps, Inhab Te (paramTy p))
+      (hb : Encodes N S Te (fun x => if x ∈ param_ids ps then none else Γ x) body body'
         .bool true) :
       Encodes N S Te Γ (.Forall ps body) (.Forall ps body') .bool u
   | uninterp {Γ : Id → Option Kind} {u : Bool} {f : Id} {ks : List Kind} {k : Kind}
@@ -940,6 +954,123 @@ theorem params_same (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) (hSo : S.Ok) {
       refine ⟨by rw [h1.1, e2], fun h => ?_⟩
       simp only [Bool.and_eq_true] at h
       exact .tupleCons (h1.2 h.1) (r2 h.2)
+
+theorem param_ids_length : ∀ (ps : List Param), (param_ids ps).length = ps.length
+  | [] => by simp [param_ids]
+  | .Param _ _ :: ps => by simp [param_ids, param_ids_length ps]
+
+theorem bind_len : ∀ (ids : List Id) (vs : List Value), ids.length = vs.length →
+    ∃ bs, bind_all ids vs = .Ok bs
+  | [], [], _ => ⟨[], by simp [bind_all]⟩
+  | x :: ids, v :: vs, h => by
+    obtain ⟨bs, hb⟩ := bind_len ids vs (by simpa using h)
+    exact ⟨.Binding x v :: bs, by simp [bind_all, hb]⟩
+  | [], _ :: _, h | _ :: _, [], h => by simp at h
+
+theorem lookup_other : ∀ {ids : List Id} {vs : List Value} {bs : List Binding},
+    bind_all ids vs = .Ok bs → ∀ (vars : List Binding) (x : Id), x ∉ ids →
+      lookup_var (append_env bs vars) x = lookup_var vars x
+  | [], [], bs, h, vars, x, _ => by simp [bind_all] at h; subst h; simp [append_env]
+  | y :: ids, v :: vs, bs, h, vars, x, hx => by
+    rw [bind_all] at h
+    split at h
+    · next bs1 h1 =>
+      cases h
+      have hxy : x ≠ y := fun e => hx (by simp [e])
+      simp only [append_env, lookup_var, hxy, dite_false]
+      exact lookup_other h1 vars x (fun e => hx (by simp [e]))
+    · cases h
+    · cases h
+  | [], _ :: _, _, h, _, _, _ | _ :: _, [], _, h, _, _, _ => by simp [bind_all] at h
+
+theorem pht_len (hO : O.Sound) (Q : Program) : ∀ (env : Env) (vs : List Value) (ps : List Param),
+    O.params_have_types Q env vs ps = true → vs.length = ps.length
+  | env, [], [], _ => rfl
+  | env, v :: vs, .Param x t :: ps, h => by
+    rw [hO.params_have_types] at h
+    simp only [Bool.and_eq_true] at h
+    simp [pht_len hO Q _ vs ps h.2]
+  | env, [], _ :: _, h => by rw [hO.params_have_types] at h; simp at h
+  | env, _ :: _, [], h => by rw [hO.params_have_types] at h; simp at h
+
+theorem ht_len (hO : O.Sound) (Q : Program) : ∀ (env : Env) (vs : List Value) (ts : List Ty),
+    O.have_types Q env vs ts = true → vs.length = ts.length
+  | env, [], [], _ => rfl
+  | env, v :: vs, t :: ts, h => by
+    rw [hO.have_types] at h
+    simp only [Bool.and_eq_true] at h
+    simp [ht_len hO Q _ vs ts h.2]
+  | env, [], _ :: _, h => by rw [hO.have_types] at h; simp at h
+  | env, _ :: _, [], h => by rw [hO.have_types] at h; simp at h
+
+/-- A value of a simple type, and a literal of it. -/
+def valOf : Ty → Value
+  | .BooleanType => .BoolV true
+  | _ => .IntV 0
+
+def litOf : Ty → Expr
+  | .BooleanType => .BooleanLiteral true
+  | _ => .IntegerLiteral 0
+
+theorem valOf_typed (hO : O.Sound) (Q : Program) {T0 : Ty} (hs : SimpleTy T0) :
+    O.has_type Q (.Env [] []) (valOf T0) T0 = true := by
+  cases T0 <;> simp [SimpleTy] at hs <;> rw [hO.has_type] <;> simp [valOf, env_types, lookup_type]
+
+theorem litOf_eval (Q : Program) (fuel : Int) (env : Env) (T : Ty) :
+    eval O Q fuel env (litOf T) = .Ok (valOf T) := by
+  cases T <;> simp [litOf, valOf, eval]
+
+theorem same_arity_map : ∀ (ts : List Ty), same_arity (ts.map (Param.Param "_")) ts = true
+  | [] => by simp [same_arity]
+  | t :: ts => by simp [same_arity, same_arity_map ts]
+
+open Classical in
+/-- Types of `Inhab` have values in any program. -/
+theorem inhab_typed (hO : O.Sound) {Te T0 : Ty} (hs : SimpleTy T0) {t : Ty} (h : Inhab Te t)
+    (Q : Program) (tys : List TypeBinding) (vars : List Binding) (hT : O.resolve tys Te = T0) :
+    ∃ v, O.has_type Q (.Env tys vars) v t = true := by
+  cases h with
+  | int => exact ⟨.IntV 0, by rw [hO.has_type]⟩
+  | bool => exact ⟨.BoolV true, by rw [hO.has_type]⟩
+  | @elem a h =>
+    subst h
+    exact ⟨valOf T0, by rw [has_type_simple hO Q hs _ tys vars _ hT]; exact valOf_typed hO Q hs⟩
+  | @fn ts t ht =>
+    have pick : ∃ T1, (∀ (Q : Program) (fuel : Int) (env : Env),
+        eval O Q fuel env (litOf T1) = .Ok (valOf T1)) ∧
+          O.has_type Q (.Env tys vars) (valOf T1) t = true := by
+      rcases ht with rfl | rfl | rfl
+      · exact ⟨.IntegerType, fun _ _ _ => litOf_eval _ _ _ _, by simp [valOf, hO.has_type]⟩
+      · exact ⟨.BooleanType, fun _ _ _ => litOf_eval _ _ _ _, by simp [valOf, hO.has_type]⟩
+      · exact ⟨T0, fun _ _ _ => litOf_eval _ _ _ _, by
+          rw [has_type_simple hO Q hs _ tys vars _ hT]; exact valOf_typed hO Q hs⟩
+    obtain ⟨T1, he, hty⟩ := pick
+    refine ⟨.ClosureV (ts.map (Param.Param "_")) (litOf T1) (.Env [] []), ?_⟩
+    rw [hO.has_type]
+    simp only [same_arity_map, Bool.true_and]
+    rw [hO.function_has_type]
+    refine decide_eq_true (fun vs => ?_)
+    cases hv : O.have_types Q (.Env tys vars) vs ts
+    · simp
+    · have hl := ht_len hO Q _ vs ts hv
+      obtain ⟨bs, hbs⟩ := bind_len (param_ids (ts.map (Param.Param "_"))) vs
+        (by rw [param_ids_length]; simp [hl])
+      simp only [Bool.not_true, Bool.false_or]
+      refine decide_eq_true ⟨1, valOf T1, ?_⟩
+      simp only [apply, hbs, he, hty]
+      simp
+
+theorem params_inhab (hO : O.Sound) {Te T0 : Ty} (hs : SimpleTy T0) (Q : Program)
+    (tys : List TypeBinding) (hT : O.resolve tys Te = T0) :
+    ∀ (ps : List Param), (∀ p ∈ ps, Inhab Te (paramTy p)) → ∀ (vars : List Binding),
+      ∃ vs, O.params_have_types Q (.Env tys vars) vs ps = true
+  | [], _, vars => ⟨[], by rw [hO.params_have_types]⟩
+  | .Param x t :: ps, h, vars => by
+    obtain ⟨v, hv⟩ := inhab_typed hO hs (h (.Param x t) (by simp)) Q tys vars hT
+    obtain ⟨vs, hvs⟩ := params_inhab hO hs Q tys hT ps (fun p hp => h p (by simp [hp]))
+      (.Binding x v :: vars)
+    have hv' : O.has_type Q (.Env tys vars) v t = true := by simpa [paramTy] using hv
+    exact ⟨v :: vs, by rw [hO.params_have_types]; simp [env_bind, hv', hvs]⟩
 
 /-- The bound on the fuel of an encoding without operations of bags, from those of its parts. -/
 local macro "bnd" hu:ident : tactic => `(tactic| first
@@ -1708,6 +1839,95 @@ theorem encodes_eval (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) (hSo : S.Ok)
             have h1 := hall vs
             simp only [hg', Bool.not_true, Bool.false_or, decide_eq_true_eq] at h1
             obtain ⟨w', m, bd, hR, e⟩ := inst vs ((g vs).2 hg') _ h1
+            cases hR
+            exact e f (by omega)
+          refine ⟨_, max fuel 0, fun _ => Int.le_refl _, .bool true, fun f hf => ?_⟩
+          simp only [eval]
+          rw [hO.forall_result]
+          rw [dite_eq_right_of_eq_false (eq_false (fun h => by
+            obtain ⟨vs, hvs⟩ := of_decide_eq_true h
+            simp only [Bool.and_eq_true, decide_eq_true_eq] at hvs
+            rw [hP vs hvs.1 f hf] at hvs
+            cases hvs.2))]
+          rw [dite_eq_right_of_eq_false (eq_false (fun h => by
+            obtain ⟨vs, hvs⟩ := of_decide_eq_true h
+            simp only [Bool.and_eq_true, decide_eq_true_eq] at hvs
+            rw [hP vs hvs.1 f hf] at hvs
+            cases hvs.2))]
+          rw [dite_eq_left_of_eq_true (eq_true (decide_eq_true (fun vs => by
+            cases h : O.params_have_types P (.Env tys' vars') vs ps
+            · simp
+            · simp [hP vs h f hf])))]
+        · cases hv
+
+  | @forallUnused Γ u ps body body' hps _ ihb =>
+    intro env env' hT hΓ fuel hfn v hv
+    cases env with
+    | Env tys vars =>
+    cases env' with
+    | Env tys' vars' =>
+    have r1 : O.resolve tys Te = T0 := by
+      have := hT.1
+      simp only [hO.resolve_all, env_types, List.cons.injEq] at this
+      exact this.1
+    have r2 : O.resolve tys' Te = T0 := by
+      have := hT.2
+      simp only [hO.resolve_all, env_types, List.cons.injEq] at this
+      exact this.1
+    obtain ⟨vsS, hvsS⟩ := params_inhab hO hB.simple Ps tys r1 ps hps vars
+    obtain ⟨vsP, hvsP⟩ := params_inhab hO hB.simple P tys' r2 ps hps vars'
+    have inst : ∀ vs vs', O.params_have_types P (.Env tys' vars') vs' ps = true → ∀ w,
+        instance_ O Ps fuel (.Env tys vars) ps vs body = .Ok w →
+        ∃ w' m, m ≤ max fuel 0 ∧ Rel O P N K E T0 S .bool w w' ∧
+          ∀ fuel', m ≤ fuel' →
+            instance_ O P fuel' (.Env tys' vars') ps vs' body' = .Ok w' := by
+      intro vs vs' hg w hw
+      obtain ⟨bs', hbs'⟩ := bind_len (param_ids ps) vs'
+        (by rw [param_ids_length, pht_len hO P _ vs' ps hg])
+      simp only [instance_] at hw ⊢
+      split at hw
+      · next bs hbs =>
+        obtain ⟨w', m, bd, hR, e⟩ := ihb (.Env tys (append_env bs vars))
+          (.Env tys' (append_env bs' vars')) (by simpa [env_types] using hT)
+          (fun x kx hx => by
+            simp only [env_vars]
+            simp only [] at hx
+            split at hx
+            · cases hx
+            · next hxn =>
+              obtain ⟨u1, u1', h1, h2, h3⟩ := hΓ x kx hx
+              exact ⟨u1, u1', by rw [lookup_other hbs vars x hxn]; exact h1,
+                by rw [lookup_other hbs' vars' x hxn]; exact h2, h3⟩)
+          fuel hfn w hw
+        exact ⟨w', m, bd rfl, hR, fun f hf => by rw [hbs']; exact e f hf⟩
+      · cases hw
+      · cases hw
+    simp only [eval] at hv
+    rw [hO.forall_result] at hv
+    split at hv
+    · next hex =>
+      cases hv
+      obtain ⟨vs, hvs⟩ := of_decide_eq_true hex
+      simp only [Bool.and_eq_true, decide_eq_true_eq] at hvs
+      obtain ⟨w', m, bd, hR, e⟩ := inst vs vsP hvsP _ hvs.2
+      cases hR
+      refine ⟨_, m, fun _ => bd, .bool false, fun f hf => ?_⟩
+      simp only [eval]
+      rw [hO.forall_result, dite_eq_left_of_eq_true (eq_true (decide_eq_true
+        ⟨vsP, by simp [hvsP, e f hf]⟩))]
+    · split at hv
+      · cases hv
+      · split at hv
+        · next hall =>
+          cases hv
+          have hall := of_decide_eq_true hall
+          have h1 := hall vsS
+          simp only [hvsS, Bool.not_true, Bool.false_or, decide_eq_true_eq] at h1
+          have hP : ∀ vs, O.params_have_types P (.Env tys' vars') vs ps = true → ∀ f,
+              max fuel 0 ≤ f →
+                instance_ O P f (.Env tys' vars') ps vs body' = .Ok (.BoolV true) := by
+            intro vs hg f hf
+            obtain ⟨w', m, bd, hR, e⟩ := inst vsS vs hg _ h1
             cases hR
             exact e f (by omega)
           refine ⟨_, max fuel 0, fun _ => Int.le_refl _, .bool true, fun f hf => ?_⟩

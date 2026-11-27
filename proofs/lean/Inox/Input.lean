@@ -80,6 +80,7 @@ def tyEq : Ty → Ty → Bool
   | .TypeParameter a, .TypeParameter b => a == b
   | .ADTType s as, .ADTType s' bs => s == s' && tysEq as bs
   | .RefinementType x t p, .RefinementType x' t' p' => x == x' && tyEq t t' && exprEq p p'
+  | .FunctionType ts t, .FunctionType ts' t' => tysEq ts ts' && tyEq t t'
   | _, _ => false
 def tysEq : List Ty → List Ty → Bool
   | [], [] => true
@@ -113,6 +114,9 @@ theorem tyEq_eq : ∀ {a b : Ty}, tyEq a b = true → a = b
   | .RefinementType x t p, .RefinementType x' t' p', h => by
     simp only [tyEq, Bool.and_eq_true, beq_iff_eq] at h
     rw [h.1.1, tyEq_eq h.1.2, exprEq_eq h.2]
+  | .FunctionType ts t, .FunctionType ts' t', h => by
+    simp only [tyEq, Bool.and_eq_true] at h
+    rw [tysEq_eq h.1, tyEq_eq h.2]
 theorem tysEq_eq : ∀ {a b : List Ty}, tysEq a b = true → a = b
   | [], [], _ => rfl
   | t :: ts, t' :: ts', h => by
@@ -274,6 +278,73 @@ theorem sigOk_sound {S : CSig} (h : sigOk S = true) : S.sig.Ok := by
       obtain ⟨rfl, h3⟩ := h2
       simp only [CSig.sig, hl, fieldsEq_eq h3]
     · cases h2
+
+/-- The equality of parameters. -/
+def paramsEq : List Param → List Param → Bool
+  | [], [] => true
+  | .Param x t :: ps, .Param x' t' :: ps' => x == x' && tyEq t t' && paramsEq ps ps'
+  | _, _ => false
+
+theorem paramsEq_eq : ∀ {a b : List Param}, paramsEq a b = true → a = b
+  | [], [], _ => rfl
+  | .Param x t :: ps, .Param x' t' :: ps', h => by
+    simp only [paramsEq, Bool.and_eq_true, beq_iff_eq] at h
+    rw [h.1.1, tyEq_eq h.1.2, paramsEq_eq h.2]
+
+/-- Whether a type is of `Inhab`. -/
+def inhabCheck (Te : Ty) : Ty → Bool
+  | .IntegerType | .BooleanType => true
+  | .TypeParameter a => match Te with
+    | .TypeParameter b => a == b
+    | _ => false
+  | .FunctionType _ t => match t with
+    | .IntegerType | .BooleanType => true
+    | t => tyEq t Te
+  | _ => false
+
+theorem inhabCheck_sound {Te : Ty} : ∀ {t : Ty}, inhabCheck Te t = true → Inhab Te t
+  | .IntegerType, _ => .int
+  | .BooleanType, _ => .bool
+  | .TypeParameter a, h => by
+    simp only [inhabCheck] at h
+    split at h
+    · next b =>
+      simp only [beq_iff_eq] at h
+      subst h
+      exact .elem rfl
+    · cases h
+  | .FunctionType ts t, h => by
+    simp only [inhabCheck] at h
+    split at h
+    · exact .fn (.inl rfl)
+    · exact .fn (.inr (.inl rfl))
+    · exact .fn (.inr (.inr (tyEq_eq h)))
+
+/-- The variables other than `ids`. -/
+def dropIds (ids : List Id) (Γ : List (Id × Kind)) : List (Id × Kind) :=
+  Γ.filter fun p => !ids.contains p.1
+
+theorem lookup_drop (ids : List Id) : ∀ (Γ : List (Id × Kind)) (x : Id),
+    (dropIds ids Γ).lookup x = if x ∈ ids then none else Γ.lookup x
+  | [], x => by simp [dropIds]
+  | (y, k) :: Γ, x => by
+    have ih := lookup_drop ids Γ x
+    simp only [dropIds] at ih ⊢
+    rw [List.filter_cons]
+    by_cases hy : y ∈ ids
+    · have hc : ids.contains y = true := by simpa using hy
+      simp only [hc, Bool.not_true, Bool.false_eq_true, ite_false, ih]
+      by_cases hx : x ∈ ids
+      · simp [hx]
+      · have hb : (x == y) = false := by simpa using (fun e : x = y => hx (e ▸ hy))
+        simp [hx, List.lookup, hb]
+    · have hc : ids.contains y = false := by simpa using hy
+      simp only [hc, Bool.not_false, ite_true]
+      by_cases hxy : x = y
+      · subst hxy
+        simp [List.lookup, hy]
+      · have hb : (x == y) = false := by simpa using hxy
+        simp only [List.lookup, hb, ih]
 
 /-- The kinds of the parameters of a quantifier, the same on both sides, of the type of
 elements `Te` or of `PureTy`. -/
@@ -485,7 +556,8 @@ def encodesCheck (N : Names) (S : CSig) (Te : Ty) (g : List (Id × Kind) → Exp
   | Γ, .Forall ps body, .Forall ps' body', .bool, _ =>
     (match paramsCheck S Te ps ps' with
       | some ks => encodesCheck N S Te g ((param_ids ps).zip ks ++ Γ) body body' .bool true
-      | none => false)
+      | none => paramsEq ps ps' && ps.all (fun p => inhabCheck Te (paramTy p)) &&
+          encodesCheck N S Te g (dropIds (param_ids ps) Γ) body body' .bool true)
   | _, _, _, _, _ => false
 termination_by _ e => sizeOf e
 decreasing_by
@@ -665,7 +737,13 @@ theorem encodesCheck_sound {N : Names} {S : CSig} {Te : Ty}
     have hb := ih h
     simp only [List.lookup_append] at hb
     exact .forall_ hok hb
-  · cases h
+  · next ih =>
+    simp only [Bool.and_eq_true, List.all_eq_true] at h
+    obtain ⟨⟨hp, hi⟩, hb⟩ := h
+    cases paramsEq_eq hp
+    have hb := ih hb
+    simp only [lookup_drop] at hb
+    exact .forallUnused (fun p hp => inhabCheck_sound (hi p hp)) hb
   · cases h
 
 /-! ## Reading the input -/
