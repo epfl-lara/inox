@@ -666,8 +666,9 @@ theorem call_fun {Q : Program} {f : Id} {tparams params : List Id} {body : Expr}
 theorem uninterp_inv (hO : O.Sound) {Q : Program} {f : Id} {params : List Id} {body : Expr}
     (h : InterpIn f params body Q) {fuel : Int} {env : Env} {es : List Expr} {v : Value}
     (hc : eval O Q fuel env (.UninterpretedCall f [] es) = .Ok v) :
-    ∃ vs, eval_list O Q fuel env es = .Ok vs ∧ 0 < fuel ∧ ∃ bs, bind_all params vs = .Ok bs ∧
-      eval O Q (fuel - 1) (Env.Env [] bs) body = .Ok v := by
+    ∃ vs, eval_list O Q fuel env es = .Ok vs ∧ 0 < fuel ∧
+      ∃ bs, bind_all params vs = .Ok bs ∧
+        eval O Q (fuel - 1) (Env.Env [] bs) body = .Ok v := by
   cases Q with
   | Program fns cs ss is eqs =>
   have h : lookup_interpretation is f [] = .Ok (.Interpretation f [] params body) := h

@@ -450,6 +450,8 @@ def kindOfSort (c : Ctx) : Nat → Sexp → Except String Kind
     | .expr [.atom "Bag", x] =>
       if x == .atom c.elem then .ok .bag else .error "a bag of other than elements"
     | .expr (.atom "Tuple" :: xs) => do pure (.tuple (← xs.mapM (kindOfSort c n)))
+    -- the kind of a refinement is that of its base
+    | .expr (.atom "!" :: base :: _) => kindOfSort c n base
     | .expr (.atom "->" :: xs) => do
       let ks ← xs.mapM (kindOfSort c n)
       match ks.reverse with
@@ -501,6 +503,7 @@ def readExpr (c : Ctx) : Nat → Sexp → Except String Expr
       else if a == "true" then .ok (.BooleanLiteral true)
       else if a == "false" then .ok (.BooleanLiteral false)
       else if c.table.kind a == "uninterpreted" then .ok (.UninterpretedCall (c.table.id a) [] [])
+      else if c.table.kind a == "function" then .ok (.FunctionInvocation (c.table.id a) [] [])
       else if a.contains '!' then .ok (.Variable a)
       else .error a
     | .expr [.atom "not", a] => do pure (.Not (← readExpr c n a))
@@ -539,11 +542,13 @@ def readExpr (c : Ctx) : Nat → Sexp → Except String Expr
       pure (.Tuple (← args.mapM (readExpr c n)))
     | .expr [.atom "lambda", .expr ps, b] => do
       let ps ← ps.mapM fun
+        | .expr [.atom x, .expr (.atom "!" :: _)] => .error s!"the refined parameter {x}"
         | .expr [.atom x, sort] => do pure (Param.Param x (kindTy c.elem (← kindOfSort c n sort)))
         | _ => .error "a parameter"
       pure (.Lambda ps (← readExpr c n b))
     | .expr [.atom "forall", .expr ps, b] => do
       let ps ← ps.mapM fun
+        | .expr [.atom x, .expr (.atom "!" :: _)] => .error s!"the refined parameter {x}"
         | .expr [.atom x, sort] => do pure (Param.Param x (kindTy c.elem (← kindOfSort c n sort)))
         | _ => .error "a parameter"
       pure (.Forall ps (← readExpr c n b))
@@ -582,7 +587,7 @@ partial def kindOf (S : CSig) (Γ : List (Id × Kind)) : Expr → Kind
   | .IsConstructor _ _ | .Forall _ _ => .bool
   | .FiniteBag _ _ | .BagAdd _ _ | .BagUnion _ _ | .BagDifference _ _
   | .BagIntersection _ _ => .bag
-  | .IfExpr _ a _ => kindOf S Γ a
+  | .IfExpr _ a b => match a with | .Error => kindOf S Γ b | _ => kindOf S Γ a
   | .Let x a b => kindOf S ((x, kindOf S Γ a) :: Γ) b
   | .Assume _ b => kindOf S Γ b
   | .Tuple es => .tuple (es.map (kindOf S Γ))
@@ -739,7 +744,8 @@ def defsCheck (N : Names) (S : CSig) (defs : List (Id × List Id × Expr × Expr
     | none => false
 
 def Coverage.none (n : Nat) (why : String) : Coverage :=
-  { names := namesOf ⟨[]⟩, sig := ⟨[], [], [], []⟩, defs := [], elem := .UnitType, vars := [],
+  { names := namesOf ⟨[]⟩, sig := ⟨[], [], [], []⟩, defs := [], elem := .UnitType,
+    vars := [],
     covered := [], constraints := n, first := some why }
 
 /-- What the checks give of a coverage. -/
@@ -786,7 +792,9 @@ def covers (certificate : Sexp) : Coverage :=
   let unints := definitions.filterMap fun
     | .expr [.atom "declare-fun", .atom f, .expr params, ret] =>
       let c : Ctx := ⟨tin, top, ints⟩
-      match params.mapM (fun p => (kindOfSort c 100 p).toOption), (kindOfSort c 100 ret).toOption
+      let sortOf : Sexp → Sexp := fun | .expr [.atom _, sort] => sort | sort => sort
+      match params.mapM (fun p => (kindOfSort c 100 (sortOf p)).toOption),
+        (kindOfSort c 100 ret).toOption
       with
       | some ks, some k => some (tin.id f, ks, k)
       | _, _ => none
