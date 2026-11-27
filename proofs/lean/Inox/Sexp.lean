@@ -77,4 +77,37 @@ partial def substitute (values : Std.HashMap String Sexp) (terms : List (String 
     | some value => value
     | none => .expr (items.map (substitute values terms))
 
+/-- The symbols of `e`. -/
+partial def symbols : Sexp → List String
+  | .atom a => [a]
+  | .expr items => items.flatMap symbols
+
+/-- The names that the binders of `e` bind, and all the symbols of a `match`, whose patterns
+bind names. -/
+partial def boundNames : Sexp → List String
+  | e@(.expr (.atom "match" :: _)) => symbols e
+  | .expr [.atom k, .expr decls, body] =>
+    if ["let", "forall", "exists", "lambda", "choose"].contains k then
+      decls.filterMap (fun d => match d with | .expr (.atom x :: _) => some x | _ => none) ++
+        decls.flatMap boundNames ++ boundNames body
+    else decls.flatMap boundNames ++ boundNames body
+  | .expr items => items.flatMap boundNames
+  | .atom _ => []
+
+/-- `e` with each `let` replaced by its body with the terms of its bindings for its variables,
+as in SMT-LIB, where terms always have a value. A `let` whose body binds a name of a symbol of
+its terms, which the substitution would capture, or one of its own variables, stays. -/
+partial def inlined : Sexp → Sexp
+  | .expr [.atom "let", .expr bindings, body] =>
+    let pairs := bindings.filterMap fun b => match b with
+      | .expr [.atom x, v] => some (x, inlined v)
+      | _ => none
+    let inner := inlined body
+    let names := pairs.map (·.1) ++ pairs.flatMap (fun (_, v) => symbols v)
+    if pairs.length != bindings.length || (boundNames inner).any names.contains then
+      .expr [.atom "let", .expr (pairs.map fun (x, v) => .expr [.atom x, v]), inner]
+    else substitute (Std.HashMap.ofList pairs) [] inner
+  | .expr items => .expr (items.map inlined)
+  | atom => atom
+
 end Inox

@@ -121,6 +121,38 @@ object Checker {
     case other => not(positive(other))
   }
 
+  private val binders = Set("let", "forall", "exists", "lambda", "choose")
+
+  /** The names that the binders in `e` bind, and all the symbols of a `match`, whose patterns
+    * bind names. */
+  private def bound(e: SExpr): Set[String] = e match {
+    case SList(Atom("match") :: _) => symbols(e)
+    case SList(List(Atom(k), SList(decls), body)) if binders(k) =>
+      decls.collect { case SList(Atom(x) :: _) => x }.toSet ++ decls.flatMap(bound) ++ bound(body)
+    case SList(items) => items.flatMap(bound).toSet
+    case _ => Set()
+  }
+  /** The symbols of `e`. */
+  private def symbols(e: SExpr): Set[String] = e match {
+    case Atom(x) => Set(x)
+    case SList(items) => items.flatMap(symbols).toSet
+  }
+
+  /** `e` with each `let` replaced by its body with the terms of its bindings for its variables,
+    * as in SMT-LIB, where terms always have a value. A `let` whose body binds a name of a symbol of
+    * its terms, which the substitution would capture, or one of its own variables, stays. */
+  def inlined(e: SExpr): SExpr = e match {
+    case SList(List(Atom("let"), SList(bindings), body)) =>
+      val pairs = bindings.collect { case SList(List(Atom(x), v)) => x -> inlined(v) }
+      val inner = inlined(body)
+      val names = pairs.map(_._1).toSet
+      if (pairs.size != bindings.size || (bound(inner) & (names ++ pairs.flatMap((_, v) => symbols(v)))).nonEmpty)
+        SList(List(Atom("let"), SList(pairs.map((x, v) => SList(List(Atom(x), v)))), inner))
+      else substitute(inner, pairs.map((x, v) => (Atom(x): SExpr) -> v).toMap)
+    case SList(items) => SList(items.map(inlined))
+    case atom => atom
+  }
+
   private def substitute(e: SExpr, subst: Map[SExpr, SExpr]): SExpr = subst.getOrElse(e, e match {
     case SList(items) => SList(items.map(substitute(_, subst)))
     case atom => atom
@@ -399,14 +431,15 @@ object Checker {
 
       // the proof refutes the script, where its definitions name terms
       val asserted = clauses.toSet
-      val normalAsserted = asserted.map(normal)
+      // the solver may inline the bindings of a term that it asserts
+      val normalAsserted = asserted.map(normal) ++ asserted.map(a => normal(inlined(a)))
       var definitions = Map[SExpr, SExpr]()
       for (step <- cpc) step match {
         case SList(List(Atom("define"), name: Atom, SList(Nil), term)) =>
           definitions += name -> substitute(term, definitions)
         case SList(List(Atom("assume"), _, formula)) =>
           val assumed = substitute(formula, definitions)
-          if (!asserted(assumed) && !normalAsserted(normal(assumed))) fail(s"the proof assumes $assumed, which the script doesn't assert")
+          if (!asserted(assumed) && !normalAsserted(normal(assumed)) && !normalAsserted(normal(inlined(assumed)))) fail(s"the proof assumes $assumed, which the script doesn't assert")
         case _ =>
       }
 

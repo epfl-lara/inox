@@ -297,8 +297,9 @@ class InoxMain extends MainHelpers {
 
     for {
       file <- getFilesOrExit(ctx)
-      (program, exprOpt, getProof) <- parse(ctx, file)
+      (program, exprOpt, getProof, queryCtx) <- parse(ctx, file)
     } {
+      val ctx = queryCtx
       import ctx.{given, _}
       import program._
 
@@ -367,27 +368,37 @@ class InoxMain extends MainHelpers {
     case Left(why) => "(error \"" + why.replace("\"", "\"\"") + "\")"
   }
 
-  /** The queries of `file`, with whether a `get-proof` follows each of them. */
-  protected def parse(ctx: Context, file: File): Seq[(InoxProgram, Option[Expr], Boolean)] = {
-    val quantifiers = ctx.options.findOptionOrDefault(ast.optQuantifiers)
+  /** The queries of `file`, with whether a `get-proof` follows each of them, and the context of
+    * each: the options of the command line, with those that the script sets before the query. */
+  protected def parse(ctx: Context, file: File): Seq[(InoxProgram, Option[Expr], Boolean, Context)] = {
     // the input formats only have booleans, so the propositions are inferred
-    parseFile(ctx, file).map { case (p, e, getProof) =>
+    parseFile(ctx, file).map { case (p, e, getProof, options) =>
+      val queryCtx = withScriptOptions(ctx, options)
+      val quantifiers = queryCtx.options.findOptionOrDefault(ast.optQuantifiers)
       val inference = transformers.PropositionInference(inox.trees)
       val symbols = inference.transform(p.symbols.withQuantifiers(quantifiers))
-      (InoxProgram(symbols), e.map(inference.transform(_)(using symbols)), getProof)
+      (InoxProgram(symbols), e.map(inference.transform(_)(using symbols)), getProof, queryCtx)
     }
   }
 
-  private def parseFile(ctx: Context, file: File): Seq[(InoxProgram, Option[Expr], Boolean)] =
+  /** `ctx` with the `set-option`s of a script that are options of Inox, such as
+    * `(set-option :function-equality extensional)`. The others, such as those of SMT-LIB, are
+    * ignored. */
+  private def withScriptOptions(ctx: Context, options: Map[String, String]): Context =
+    ctx.withOpts(options.toSeq.flatMap { case (name, value) =>
+      this.options.keys.find(_.name == name).map(_.parse(value)(using ctx.reporter))
+    }*)
+
+  private def parseFile(ctx: Context, file: File): Seq[(InoxProgram, Option[Expr], Boolean, Map[String, String])] =
     ctx.options.findOption(optFormat).getOrElse(if (file.getName.endsWith(".smt3")) SMTLIB3 else Tip) match {
       case SMTLIB3 =>
-        smtlib3.Parser(file).parseQueries.map(q => (q.program, Some(q.expr), q.getProof))
+        smtlib3.Parser(file).parseQueries.map(q => (q.program, Some(q.expr), q.getProof, q.options))
 
       case Tip =>
-        tip.Parser(file).parseQueries.map(q => (q.program, Some(q.expr), q.getProof))
+        tip.Parser(file).parseQueries.map(q => (q.program, Some(q.expr), q.getProof, q.options))
 
       case Binary(None) =>
-        Seq((InoxProgram(deserializeSymbols(ctx, file)), None, false))
+        Seq((InoxProgram(deserializeSymbols(ctx, file)), None, false, Map.empty))
 
       case Binary(Some(methodName)) =>
         val symbols = deserializeSymbols(ctx, file)
@@ -395,7 +406,8 @@ class InoxMain extends MainHelpers {
           (
             InoxProgram(symbols),
             symbols.functions.find(_._1.name == methodName).map(_._2.fullBody),
-            false
+            false,
+            Map.empty
           )
         )
 
