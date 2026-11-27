@@ -66,16 +66,36 @@ trait ADTManagers {
 
     def types: Set[Type] = declared.toSet
 
+    // The components of `deps` in an order that doesn't depend on the hashes of identifiers, as the order of
+    // `SCC.scc` does: each component comes after those that it depends on, and otherwise by the names of
+    // its types, as do the types of a component.
+    private def ordered(components: Seq[Set[Type]], deps: Map[Type, Set[Type]]): Seq[Seq[Type]] = {
+      val key: Type => String = _.asString(using PrinterOptions())
+      val sorted = components.map(_.toSeq.sortBy(key))
+      val componentOf = sorted.flatMap(c => c.map(_ -> c)).toMap
+      val dependencies = sorted.map(c => c -> (c.flatMap(deps.getOrElse(_, Set.empty)).map(componentOf).toSet - c)).toMap
+      val result = scala.collection.mutable.ArrayBuffer.empty[Seq[Type]]
+      val done = scala.collection.mutable.Set.empty[Seq[Type]]
+      var remaining = sorted
+      while (remaining.nonEmpty) {
+        val next = remaining.filter(c => dependencies(c).forall(done)).minBy(c => key(c.head))
+        result += next
+        done += next
+        remaining = remaining.filterNot(_ eq next)
+      }
+      result.toSeq
+    }
+
     def declareADTs(tpe: Type, declare: Seq[(Type, DataType)] => Unit): Unit = {
       val deps = typeDependencies(tpe)
       val transitiveDeps: Map[Type, Set[Type]] = utils.fixpoint { (map: Map[Type, Set[Type]]) =>
         map.map {  case (tpe, types) => tpe -> (types ++ types.flatMap(map.getOrElse(_, Set.empty))) }
       } (deps)
 
-      val sccs = SCC.scc(deps)
+      val sccs = ordered(SCC.scc(deps), deps)
 
       // check whether all types can be defined
-      for (scc <- sccs if scc.exists(tpe => (transitiveDeps(tpe) & scc).nonEmpty); tpe <- scc) tpe match {
+      for (scc <- sccs if scc.exists(tpe => (transitiveDeps(tpe) & scc.toSet).nonEmpty); tpe <- scc) tpe match {
         case t @ ((_: MapType) | (_: SetType) | (_: BagType)) =>
           unsupported(t, "Encountered ADT that can't be defined.\n" +
             "It has recursive references through non-structural types (such as arrays, maps, or sets): " +

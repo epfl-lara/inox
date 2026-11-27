@@ -2,8 +2,12 @@
 
 package inox.utils
 
-import scala.collection.mutable.{Map => MMap, Builder, Shrinkable}
+import scala.collection.mutable.{Map => MMap, LinkedHashMap, Builder, Shrinkable}
 
+/** A stack of mutable maps with a map-like API and methods to push and pop
+  *
+  * The entries are iterated in the order in which their keys were added, which doesn't depend on their hash
+  * codes (and so on the global numbering of identifiers). */
 class IncrementalMap[A, B] private(dflt: Option[B])
   extends IncrementalState
      with Iterable[(A,B)]
@@ -18,10 +22,10 @@ class IncrementalMap[A, B] private(dflt: Option[B])
     case None => map
   }
 
-  private var stack: List[MMap[A, B]] = List(withDefault(MMap()))
+  private var stack: List[MMap[A, B]] = List(withDefault(LinkedHashMap()))
 
   override def clear(): Unit = {
-    stack = List(withDefault(MMap()))
+    stack = List(withDefault(LinkedHashMap()))
   }
 
   override def reset(): Unit = {
@@ -29,7 +33,7 @@ class IncrementalMap[A, B] private(dflt: Option[B])
   }
 
   override def push(): Unit = {
-    stack ::= withDefault(MMap[A, B]() ++ stack.head)
+    stack ::= withDefault(LinkedHashMap[A, B]() ++ stack.head)
   }
 
   override def pop(): Unit = {
@@ -38,7 +42,7 @@ class IncrementalMap[A, B] private(dflt: Option[B])
 
   def withDefaultValue[B1 >: B](dflt: B1) = {
     val map = new IncrementalMap[A, B1](Some(dflt))
-    map.stack = stack.map(frame => map.withDefault(MMap[A, B1]() ++ frame))
+    map.stack = stack.map(frame => map.withDefault(LinkedHashMap[A, B1]() ++ frame))
     map
   }
 
