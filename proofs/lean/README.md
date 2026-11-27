@@ -1167,7 +1167,20 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   certificate gives. It doesn't check the steps. No theorem yet states that
   an encoded constraint has a solution whenever its constraint has one, and
   nothing relates the encoded constraints to the sources of the templates:
-  the theorem is about the sources.
+  the theorem is about the sources. For the encoder of bags,
+  [`Bags.lean`](Inox/Bags.lean) proves the parts of that theorem that are
+  about the datatype alone, over the semantics of `semantics.md`: a call of
+  the encoder's `get` evaluates to the multiplicity of the element
+  (`get_eval`), what the encoder makes of the empty bag, of an addition, a
+  union, a difference and an intersection encodes the bag that the semantics
+  gives for the operation (`enc_empty`, `enc_add`, `enc_union`,
+  `enc_difference`, `enc_intersection`), a multiplicity is the call of `get`
+  (`enc_get`), and the equality of the datatype, the encoder's `equals`, on
+  the encodings of two bags is the equality of the bags (`enc_equal`). They
+  assume that the program defines `get`, `equals` and the constructors as the
+  encoder does, which the checker checks for `get` and the constructors, and
+  that the elements have an equality that is an equivalence. They aren't yet
+  put together into a theorem about a whole constraint.
 - **The link between the proof and the script.** The checker checks that each
   assumption of the proof is the text of an assert of the script, up to how
   cvc5 prints testers (`(is C e)` for `((_ is C) e)`), once the terms that the

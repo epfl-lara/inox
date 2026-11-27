@@ -199,6 +199,195 @@ theorem get_eval_any {O : Oracle} (hO : O.Sound) {P : Program} {N : Names} (hN :
           hN.v1_v2, hN.v1_v2.symm, hN.op_left.symm, hN.op_right.symm, hN.left_right.symm, e1, e2,
           hO.value_eq, arith_plus, arith_minus, arith_le, arith_lt, combine, h0, h1, hle]
 
+/-! ## The equality of the encoder's datatype -/
+
+/-- The body of the encoder's `equals` on the parameters `b1` and `b2`. -/
+def equalsBody (N : Names) (b1 b2 : Id) : Expr :=
+  .Forall [.Param N.x (.TypeParameter N.T)]
+    (.Equals (.FunctionInvocation N.get [.TypeParameter N.T] [.Variable b1, .Variable N.x])
+      (.FunctionInvocation N.get [.TypeParameter N.T] [.Variable b2, .Variable N.x]))
+
+/-- The program defines `equals` as the encoder does. -/
+def HasEquals (N : Names) (eq b1 b2 : Id) : Program → Prop
+  | .Program fs _ _ _ _ =>
+    lookup_fun fs eq = .Ok (.FunDef eq [N.T] [b1, b2] (equalsBody N b1 b2))
+
+/-- The instance of the body of `equals` on an element compares its multiplicities. -/
+theorem equals_instance {O : Oracle} (hO : O.Sound) {P : Program} {N : Names} (hN : N.Distinct)
+    (hP : HasBags N P) {b1 b2 : Id} (h1x : b1 ≠ N.x) (h2x : b2 ≠ N.x) (h12 : b1 ≠ b2)
+    {a b w : Value} {d1 d2 : Nat} {m1 m2 : Int} (ha : Mult O P N a w d1 m1)
+    (hb : Mult O P N b w d2 m2) (fuel : Int) (tys : List TypeBinding) :
+    (instance_ O P fuel (Env.Env tys [.Binding b1 a, .Binding b2 b])
+        [.Param N.x (.TypeParameter N.T)] [w]
+        (.Equals (.FunctionInvocation N.get [.TypeParameter N.T] [.Variable b1, .Variable N.x])
+          (.FunctionInvocation N.get [.TypeParameter N.T] [.Variable b2, .Variable N.x]))
+        = .Ok (.BoolV (decide (m1 = m2))) ∨
+      instance_ O P fuel (Env.Env tys [.Binding b1 a, .Binding b2 b])
+        [.Param N.x (.TypeParameter N.T)] [w]
+        (.Equals (.FunctionInvocation N.get [.TypeParameter N.T] [.Variable b1, .Variable N.x])
+          (.FunctionInvocation N.get [.TypeParameter N.T] [.Variable b2, .Variable N.x]))
+        = .OutOfFuel) ∧
+    ((d1 : Int) < fuel → (d2 : Int) < fuel →
+      instance_ O P fuel (Env.Env tys [.Binding b1 a, .Binding b2 b])
+        [.Param N.x (.TypeParameter N.T)] [w]
+        (.Equals (.FunctionInvocation N.get [.TypeParameter N.T] [.Variable b1, .Variable N.x])
+          (.FunctionInvocation N.get [.TypeParameter N.T] [.Variable b2, .Variable N.x]))
+        = .Ok (.BoolV (decide (m1 = m2)))) := by
+  constructor
+  · rcases get_eval_any hO hN hP ha fuel [Ty.TypeParameter N.T] tys with e1 | e1 <;>
+      rcases get_eval_any hO hN hP hb fuel [Ty.TypeParameter N.T] tys with e2 | e2 <;>
+      simp [instance_, param_ids, bind_all, append_env, eval, eval_list, lookup_var, env_vars,
+        env_types, h1x, h2x, h12, h1x.symm, h2x.symm, h12.symm, e1, e2, hO.value_eq]
+  · intro f1 f2
+    have e1 := get_eval hO hN hP ha fuel [Ty.TypeParameter N.T] tys f1
+    have e2 := get_eval hO hN hP hb fuel [Ty.TypeParameter N.T] tys f2
+    simp [instance_, param_ids, bind_all, append_env, eval, eval_list, lookup_var, env_vars,
+      env_types, h1x, h2x, h12, h1x.symm, h2x.symm, h12.symm, e1, e2, hO.value_eq]
+
+open Classical in
+/-- The encoder's `equals` decides whether two values of its datatype give the same
+multiplicity to every element of `K`, the values of the type of the elements. -/
+theorem equals_eval {O : Oracle} (hO : O.Sound) {P : Program} {N : Names} (hN : N.Distinct)
+    (hP : HasBags N P) {eq b1 b2 : Id} (hE : HasEquals N eq b1 b2 P) (h1x : b1 ≠ N.x)
+    (h2x : b2 ≠ N.x) (h12 : b1 ≠ b2) {a b : Value} {tps : List Ty} {K : Value → Prop}
+    (hK : ∀ vs, O.params_have_types P
+        (Env.Env (bind_types [N.T] tps []) [.Binding b1 a, .Binding b2 b]) vs
+        [.Param N.x (.TypeParameter N.T)] = true ↔ ∃ v, vs = [v] ∧ K v)
+    {f g : Value → Int} {d1 d2 : Nat} (ha : ∀ w, K w → Mult O P N a w d1 (f w))
+    (hb : ∀ w, K w → Mult O P N b w d2 (g w)) :
+    (∀ fuel : Int,
+      call O P fuel eq tps [] [a, b] = .Ok (.BoolV (decide (∀ w, K w → f w = g w))) ∨
+        call O P fuel eq tps [] [a, b] = .OutOfFuel) ∧
+    call O P (max d1 d2 + 2) eq tps [] [a, b] =
+      .Ok (.BoolV (decide (∀ w, K w → f w = g w))) := by
+  have key : ∀ fuel : Int,
+      (O.forall_result P fuel (Env.Env (bind_types [N.T] tps []) [.Binding b1 a, .Binding b2 b])
+          [.Param N.x (.TypeParameter N.T)]
+          (.Equals
+            (.FunctionInvocation N.get [.TypeParameter N.T] [.Variable b1, .Variable N.x])
+            (.FunctionInvocation N.get [.TypeParameter N.T] [.Variable b2, .Variable N.x]))
+          = .Ok (.BoolV (decide (∀ w, K w → f w = g w))) ∨
+        O.forall_result P fuel (Env.Env (bind_types [N.T] tps []) [.Binding b1 a, .Binding b2 b])
+          [.Param N.x (.TypeParameter N.T)]
+          (.Equals
+            (.FunctionInvocation N.get [.TypeParameter N.T] [.Variable b1, .Variable N.x])
+            (.FunctionInvocation N.get [.TypeParameter N.T] [.Variable b2, .Variable N.x]))
+          = .OutOfFuel) ∧
+      ((d1 : Int) < fuel → (d2 : Int) < fuel →
+        O.forall_result P fuel (Env.Env (bind_types [N.T] tps []) [.Binding b1 a, .Binding b2 b])
+          [.Param N.x (.TypeParameter N.T)]
+          (.Equals
+            (.FunctionInvocation N.get [.TypeParameter N.T] [.Variable b1, .Variable N.x])
+            (.FunctionInvocation N.get [.TypeParameter N.T] [.Variable b2, .Variable N.x]))
+          = .Ok (.BoolV (decide (∀ w, K w → f w = g w)))) := by
+    intro fuel
+    have hI := fun w (hw : K w) => equals_instance hO hN hP h1x h2x h12 (ha w hw) (hb w hw) fuel
+      (bind_types [N.T] tps [])
+    rw [hO.forall_result]
+    by_cases c1 : ∃ vs, (O.params_have_types P
+        (Env.Env (bind_types [N.T] tps []) [.Binding b1 a, .Binding b2 b]) vs
+        [.Param N.x (.TypeParameter N.T)] && decide (instance_ O P fuel
+          (Env.Env (bind_types [N.T] tps []) [.Binding b1 a, .Binding b2 b])
+          [.Param N.x (.TypeParameter N.T)] vs
+          (.Equals
+            (.FunctionInvocation N.get [.TypeParameter N.T] [.Variable b1, .Variable N.x])
+            (.FunctionInvocation N.get [.TypeParameter N.T] [.Variable b2, .Variable N.x]))
+          = .Ok (.BoolV false))) = true
+    · rw [dite_eq_left_of_eq_true (eq_true (decide_eq_true c1))]
+      obtain ⟨vs, h⟩ := c1
+      simp only [Bool.and_eq_true, decide_eq_true_eq] at h
+      obtain ⟨v, rfl, hv⟩ := (hK vs).1 h.1
+      have hne : ¬ (∀ w, K w → f w = g w) := by
+        intro hall
+        rcases (hI v hv).1 with e | e
+        · rw [e] at h; simp [hall v hv] at h
+        · rw [e] at h; simp at h
+      simp [hne]
+    · rw [dite_eq_right_of_eq_false (eq_false (fun h => c1 (of_decide_eq_true h)))]
+      by_cases c2 : ∃ vs, (O.params_have_types P
+          (Env.Env (bind_types [N.T] tps []) [.Binding b1 a, .Binding b2 b]) vs
+          [.Param N.x (.TypeParameter N.T)] && decide (instance_ O P fuel
+            (Env.Env (bind_types [N.T] tps []) [.Binding b1 a, .Binding b2 b])
+            [.Param N.x (.TypeParameter N.T)] vs
+            (.Equals
+              (.FunctionInvocation N.get [.TypeParameter N.T] [.Variable b1, .Variable N.x])
+              (.FunctionInvocation N.get [.TypeParameter N.T] [.Variable b2, .Variable N.x]))
+            = .OutOfFuel)) = true
+      · rw [dite_eq_left_of_eq_true (eq_true (decide_eq_true c2))]
+        refine ⟨Or.inr rfl, fun hf1 hf2 => ?_⟩
+        obtain ⟨vs, h⟩ := c2
+        simp only [Bool.and_eq_true, decide_eq_true_eq] at h
+        obtain ⟨v, rfl, hv⟩ := (hK vs).1 h.1
+        rw [(hI v hv).2 hf1 hf2] at h
+        simp at h
+      · rw [dite_eq_right_of_eq_false (eq_false (fun h => c2 (of_decide_eq_true h)))]
+        have hall : ∀ w, K w → f w = g w := by
+          intro w hw
+          have hw' := (hK [w]).2 ⟨w, rfl, hw⟩
+          rcases (hI w hw).1 with e | e
+          · apply Classical.byContradiction
+            intro hne
+            exact c1 ⟨[w], by simp [hw', e, hne]⟩
+          · exact absurd ⟨[w], by simp [hw', e]⟩ c2
+        have c3 : ∀ vs, (!(O.params_have_types P
+            (Env.Env (bind_types [N.T] tps []) [.Binding b1 a, .Binding b2 b]) vs
+            [.Param N.x (.TypeParameter N.T)]) || decide (instance_ O P fuel
+              (Env.Env (bind_types [N.T] tps []) [.Binding b1 a, .Binding b2 b])
+              [.Param N.x (.TypeParameter N.T)] vs
+              (.Equals
+                (.FunctionInvocation N.get [.TypeParameter N.T] [.Variable b1, .Variable N.x])
+                (.FunctionInvocation N.get [.TypeParameter N.T] [.Variable b2, .Variable N.x]))
+              = .Ok (.BoolV true))) = true := by
+          intro vs
+          by_cases ht : O.params_have_types P
+              (Env.Env (bind_types [N.T] tps []) [.Binding b1 a, .Binding b2 b]) vs
+              [.Param N.x (.TypeParameter N.T)] = true
+          · obtain ⟨v, rfl, hv⟩ := (hK vs).1 ht
+            rcases (hI v hv).1 with e | e
+            · simp [e, hall v hv]
+            · exact absurd ⟨[v], by simp [ht, e]⟩ c2
+          · simp [ht]
+        rw [dite_eq_left_of_eq_true (eq_true (decide_eq_true c3)), decide_eq_true hall]
+        exact ⟨Or.inl rfl, fun _ _ => rfl⟩
+  cases P with
+  | Program fs cs ss is eqs =>
+  have hE' : lookup_fun fs eq = .Ok (.FunDef eq [N.T] [b1, b2] (equalsBody N b1 b2)) := hE
+  constructor
+  · intro fuel
+    by_cases hf : fuel ≤ 0
+    · right; rw [call, dite_eq_left_of_eq_true (eq_true hf)]
+    · rw [call, dite_eq_right_of_eq_false (eq_false hf)]
+      simp only [hE', bind_all, equalsBody, eval]
+      exact (key (fuel - 1)).1
+  · rw [call, dite_eq_right_of_eq_false (eq_false (by omega))]
+    simp only [hE', bind_all, equalsBody, eval]
+    exact (key _).2 (by omega) (by omega)
+
+open Classical in
+/-- The equality of the encoder's datatype is the equality of multiplicities. -/
+theorem adt_equal_eq {O : Oracle} (hO : O.Sound) {P : Program} {N : Names} (hN : N.Distinct)
+    (hP : HasBags N P) {eq b1 b2 : Id} (hE : HasEquals N eq b1 b2 P) (h1x : b1 ≠ N.x)
+    (h2x : b2 ≠ N.x) (h12 : b1 ≠ b2) {a b : Value} {tps : List Ty} {K : Value → Prop}
+    (hK : ∀ vs, O.params_have_types P
+        (Env.Env (bind_types [N.T] tps []) [.Binding b1 a, .Binding b2 b]) vs
+        [.Param N.x (.TypeParameter N.T)] = true ↔ ∃ v, vs = [v] ∧ K v)
+    {f g : Value → Int} {d1 d2 : Nat} (ha : ∀ w, K w → Mult O P N a w d1 (f w))
+    (hb : ∀ w, K w → Mult O P N b w d2 (g w)) :
+    O.adt_equal P eq tps a b = .Ok (decide (∀ w, K w → f w = g w)) := by
+  obtain ⟨hany, hd⟩ := equals_eval hO hN hP hE h1x h2x h12 hK ha hb
+  rw [hO.adt_equal]
+  by_cases hall : ∀ w, K w → f w = g w
+  · rw [decide_eq_true hall] at hany hd ⊢
+    rw [dite_eq_left_of_eq_true (eq_true (decide_eq_true ⟨_, decide_eq_true hd⟩))]
+  · rw [decide_eq_false hall] at hany hd ⊢
+    have h1 : ¬ ∃ fuel : Int,
+        decide (call O P fuel eq tps [] [a, b] = .Ok (.BoolV true)) = true := by
+      rintro ⟨fuel, h⟩
+      have h := of_decide_eq_true h
+      rcases hany fuel with e | e <;> rw [e] at h <;> simp at h
+    rw [dite_eq_right_of_eq_false (eq_false (fun h => h1 (of_decide_eq_true h))),
+      dite_eq_left_of_eq_true (eq_true (decide_eq_true ⟨_, decide_eq_true hd⟩))]
+
 /-! ## The bags of the semantics
 
 A bag of the semantics is a list of entries, which its operations build without two equal
@@ -415,6 +604,110 @@ theorem bag_merge_eq (hO : O.Sound) (hE : KeyEq O P K E) (op : BagOp) {ys : List
     simp only [bag_get_eq hO hE hys hx, bag_set_eq hE hacc hx, merge]
     exact bag_merge_eq hO hE op hys (canon_set hE hacc hx _) hrest
 
+/-! ### The equality of bags -/
+
+/-- Each entry of `xs` has its multiplicity in `ys`. -/
+def sub (E : Value → Value → Bool) : List BagEntry → List BagEntry → Bool
+  | [], _ => true
+  | .BagEntry x n :: rest, ys => decide (n = mult E ys x) && sub E rest ys
+
+theorem sub_bag_eq (hO : O.Sound) (hE : KeyEq O P K E) {ys : List BagEntry}
+    (hys : Canon E K ys) : ∀ {xs : List BagEntry}, Canon E K xs →
+    O.sub_bag P xs ys = .Ok (sub E xs ys)
+  | [], _ => by rw [hO.sub_bag]; rfl
+  | .BagEntry x n :: rest, ⟨hx, _, _, hrest⟩ => by
+    rw [hO.sub_bag]
+    simp only [bag_get_eq hO hE hys hx, sub]
+    by_cases h : n = mult E ys x
+    · simp [h, sub_bag_eq hO hE hys hrest]
+    · simp [h]
+
+theorem sub_iff {ys : List BagEntry} : ∀ {xs : List BagEntry},
+    sub E xs ys = true ↔ ∀ x n, BagEntry.BagEntry x n ∈ xs → n = mult E ys x
+  | [] => by simp [sub]
+  | .BagEntry x n :: rest => by
+    simp only [sub, Bool.and_eq_true, decide_eq_true_eq, sub_iff (xs := rest), List.mem_cons]
+    constructor
+    · rintro ⟨h1, h2⟩ y m (h | h)
+      · cases h; exact h1
+      · exact h2 y m h
+    · exact fun h => ⟨h x n (Or.inl rfl), fun y m hm => h y m (Or.inr hm)⟩
+
+theorem canon_key : ∀ {xs : List BagEntry}, Canon E K xs →
+    ∀ {x : Value} {n : Int}, BagEntry.BagEntry x n ∈ xs → K x
+  | .BagEntry y m :: rest, ⟨hy, _, _, hrest⟩, x, n, h => by
+    rcases List.mem_cons.1 h with h | h
+    · cases h; exact hy
+    · exact canon_key hrest h
+
+theorem canon_pos : ∀ {xs : List BagEntry}, Canon E K xs →
+    ∀ {x : Value} {n : Int}, BagEntry.BagEntry x n ∈ xs → 0 < n
+  | .BagEntry y m :: rest, ⟨_, hm, _, hrest⟩, x, n, h => by
+    rcases List.mem_cons.1 h with h | h
+    · cases h; exact hm
+    · exact canon_pos hrest h
+
+/-- An element with a multiplicity has an entry. -/
+theorem mult_entry : ∀ {xs : List BagEntry} {w : Value}, mult E xs w ≠ 0 →
+    ∃ x n, BagEntry.BagEntry x n ∈ xs ∧ E x w = true ∧ n = mult E xs w
+  | [], _, h => absurd rfl h
+  | .BagEntry y m :: rest, w, h => by
+    by_cases c : E y w = true
+    · exact ⟨y, m, List.mem_cons_self, c, by simp [mult, c]⟩
+    · have hm : mult E (.BagEntry y m :: rest) w = mult E rest w := by simp [mult, c]
+      obtain ⟨x, n, hmem, hx, hn⟩ := mult_entry (xs := rest) (w := w) (hm ▸ h)
+      exact ⟨x, n, List.mem_cons_of_mem _ hmem, hx, hm ▸ hn⟩
+
+/-- The key of an entry has the multiplicity of the entry. -/
+theorem mult_mem (hE : KeyEq O P K E) : ∀ {xs : List BagEntry}, Canon E K xs →
+    ∀ {x : Value} {n : Int}, BagEntry.BagEntry x n ∈ xs → mult E xs x = n
+  | .BagEntry y m :: rest, ⟨hy, hm, h0, hrest⟩, x, n, h => by
+    rcases List.mem_cons.1 h with h | h
+    · cases h; simp [mult, hE.refl _ hy]
+    · have hx := canon_key hrest h
+      have ih := mult_mem hE hrest h
+      by_cases c : E y x = true
+      · have := mult_congr hE hrest hy hx c
+        have hc := canon_pos hrest h
+        omega
+      · simp [mult, c, ih]
+
+open Classical in
+/-- Two bags are equal when every element has the same multiplicity in both. -/
+theorem bag_value_eq (hO : O.Sound) (hE : KeyEq O P K E) {xs ys : List BagEntry}
+    (hxs : Canon E K xs) (hys : Canon E K ys) (t u : Ty) :
+    O.value_eq P (.BagV t xs) (.BagV u ys) =
+      .Ok (decide (∀ w, K w → mult E xs w = mult E ys w)) := by
+  have half : ∀ {xs ys : List BagEntry}, Canon E K xs → Canon E K ys →
+      sub E xs ys = true → ∀ w, K w → mult E xs w ≠ 0 → mult E xs w = mult E ys w := by
+    intro xs ys hxs hys hsub w hw hne
+    obtain ⟨x, n, hmem, hx, hn⟩ := mult_entry hne
+    rw [← hn, sub_iff.1 hsub x n hmem]
+    exact mult_congr hE hys (canon_key hxs hmem) hw hx
+  rw [hO.value_eq]
+  simp only [sub_bag_eq hO hE hys hxs, sub_bag_eq hO hE hxs hys]
+  by_cases h : ∀ w, K w → mult E xs w = mult E ys w
+  · have h1 : sub E xs ys = true :=
+      sub_iff.2 fun x n hmem => by
+        rw [← h x (canon_key hxs hmem), mult_mem hE hxs hmem]
+    have h2 : sub E ys xs = true :=
+      sub_iff.2 fun x n hmem => by
+        rw [h x (canon_key hys hmem), mult_mem hE hys hmem]
+    simp [h1, h2, decide_eq_true h]
+  · rw [decide_eq_false h]
+    by_cases h1 : sub E xs ys = true
+    · by_cases h2 : sub E ys xs = true
+      · exfalso
+        apply h
+        intro w hw
+        by_cases c1 : mult E xs w = 0
+        · by_cases c2 : mult E ys w = 0
+          · omega
+          · exact (half hys hxs h2 w hw c2).symm
+        · exact half hxs hys h1 w hw c1
+      · simp [h1, h2]
+    · simp [h1]
+
 end Entries
 
 /-! ## The encoding of a bag -/
@@ -522,6 +815,24 @@ theorem enc_intersection (hE : KeyEq O P K E) {xs ys : List BagEntry} (hxs : Can
       by_cases c4 : 0 < p - q <;>
       simp [bag_combine, Semantics.min, combine, mult, c1, c2, c3, c4] <;> omega
   rw [e]; exact this
+
+open Classical in
+/-- The equality of the encoder's datatype on the encodings of two bags is the equality of
+the bags. -/
+theorem enc_equal {O : Oracle} (hO : O.Sound) {P : Program} {N : Names} (hN : N.Distinct)
+    (hP : HasBags N P) {eq b1 b2 : Id} (hQ : HasEquals N eq b1 b2 P) (h1x : b1 ≠ N.x)
+    (h2x : b2 ≠ N.x) (h12 : b1 ≠ b2) {K : Value → Prop} {E : Value → Value → Bool}
+    (hE : KeyEq O P K E) {a b : Value} {tps : List Ty}
+    (hK : ∀ vs, O.params_have_types P
+        (Env.Env (bind_types [N.T] tps []) [.Binding b1 a, .Binding b2 b]) vs
+        [.Param N.x (.TypeParameter N.T)] = true ↔ ∃ v, vs = [v] ∧ K v)
+    {xs ys : List BagEntry} (hxs : Canon E K xs) (hys : Canon E K ys)
+    (ha : Enc O P N K E xs a) (hb : Enc O P N K E ys b) (t u : Ty) :
+    O.adt_equal P eq tps a b = O.value_eq P (.BagV t xs) (.BagV u ys) := by
+  obtain ⟨d1, h1⟩ := ha
+  obtain ⟨d2, h2⟩ := hb
+  rw [bag_value_eq hO hE hxs hys]
+  exact adt_equal_eq hO hN hP hQ h1x h2x h12 hK h1 h2
 
 end Encoding
 
