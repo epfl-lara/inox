@@ -75,13 +75,13 @@ trait SolverFacades { self: Templates =>
     def nextRound(): Seq[LambdaPair] = self.nextRound()
 
     /** @see [[WitnessTemplates.lambdaComparison]] */
-    def comparison(p: LambdaPair): (Encoded, Seq[Encoded], Clauses) = self.lambdaComparison(p)
+    def comparison(p: LambdaPair): (Seq[Encoded], Seq[Encoded], Clauses) = self.lambdaComparison(p)
 
     /** @see [[WitnessTemplates.lambdaCaptures]] */
     def captures(p: LambdaPair): Seq[(Encoded, Type)] = self.lambdaCaptures(p)
 
     /** @see [[WitnessTemplates.fixCaptures]] */
-    def fixCaptures(values: Seq[(Encoded, Expr)]): (Encoded, Clauses) = self.fixCaptures(values)
+    def fixCaptures(p: LambdaPair, values: Seq[(Encoded, Expr)]): (Encoded, Clauses) = self.fixCaptures(p, values)
 
     /** @see [[WitnessTemplates.markEqualLambdas]] */
     def markEqual(p: LambdaPair): Unit = self.markEqualLambdas(p)

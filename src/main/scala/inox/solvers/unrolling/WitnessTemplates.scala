@@ -102,17 +102,17 @@ trait WitnessTemplates { self: Templates =>
     apart
   }
 
-  /** The comparison of the bodies of the lambdas of `p`, as the literal under which their bodies
+  /** The comparison of the bodies of the lambdas of `p`, as the literals under which their bodies
     * differ on the returned arguments, with the clauses that instantiate it the first time (see
-    * [[Templates.instantiateComparison]]). A check under the literal that is unsatisfiable shows
+    * [[Templates.instantiateComparison]]). A check under the literals that is unsatisfiable shows
     * that they agree on every input, and a model of it gives an input on which they differ. */
-  protected def lambdaComparison(p: LambdaPair): (Encoded, Seq[Encoded], Clauses) =
+  protected def lambdaComparison(p: LambdaPair): (Seq[Encoded], Seq[Encoded], Clauses) =
     lambdaComparisons.get(p) match {
-      case Some((literal, ws)) => (literal, ws, Seq.empty)
+      case Some((literals, ws)) => (literals, ws, Seq.empty)
       case None =>
-        val (literal, ws, clauses) = newLambdas(instantiateComparison(p.cond, p.t1, p.t2))
-        lambdaComparisons += p -> (literal, ws)
-        (literal, ws, clauses)
+        val (literals, ws, clauses) = newLambdas(instantiateComparison(p.cond, p.t1, p.t2))
+        lambdaComparisons += p -> (literals, ws)
+        (literals, ws, clauses)
     }
 
   /** Runs `instantiation`, and records the lambdas that it creates, which aren't probed in the
@@ -129,12 +129,13 @@ trait WitnessTemplates { self: Templates =>
   protected def lambdaCaptures(p: LambdaPair): Seq[(Encoded, Type)] =
     (p.t1.closures ++ p.t2.closures).map((v, e) => e -> v.getType).distinct
 
-  /** A fresh literal under which the captured values have the given `values`, which only the
-    * comparisons of lambdas in a model assume. */
-  protected def fixCaptures(values: Seq[(Encoded, Expr)]): (Encoded, Clauses) = {
+  /** A fresh literal under which, with the condition of `p`, the captured values have the given
+    * `values`, which only the comparisons of the lambdas of `p` in a model assume (with that
+    * condition, see [[lambdaComparison]]). */
+  protected def fixCaptures(p: LambdaPair, values: Seq[(Encoded, Expr)]): (Encoded, Clauses) = {
     val literal = encodeSymbol(Variable.fresh("b_fix", BooleanType(), true))
     val fixed = mkAnd(values.map((c, v) => mkEquals(c, mkEncoder(Map.empty)(v)))*)
-    (literal, Rule.Hypothesis(literal, trueT, fixed).clauses)
+    (literal, Rule.Hypothesis(literal, p.cond, fixed).clauses)
   }
 
   /** Records that the lambdas of `p` agree on every input wherever both are defined, so that the
@@ -288,7 +289,7 @@ trait WitnessTemplates { self: Templates =>
     private[WitnessTemplates] val apartLambdas = new IncrementalSet[LambdaPair]
 
     /** The comparisons of the bodies of pairs of lambdas, as their literal and arguments (see [[lambdaComparison]]). */
-    private[WitnessTemplates] val lambdaComparisons = new IncrementalMap[LambdaPair, (Encoded, Seq[Encoded])]
+    private[WitnessTemplates] val lambdaComparisons = new IncrementalMap[LambdaPair, (Seq[Encoded], Seq[Encoded])]
 
     /** The pairs of lambdas that agree on every input. */
     private[WitnessTemplates] val equalLambdas = new IncrementalSet[LambdaPair]
