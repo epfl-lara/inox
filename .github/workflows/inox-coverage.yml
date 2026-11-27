@@ -25,13 +25,6 @@ jobs:
         include:
           - runners: {name: Linux, os: Linux, labels: ['ubuntu-latest']}
             java-version: 21
-    env:
-      # solver versions to test against
-      INSTALL_SOLVERS: 1
-      Z3_VER: 5.4.1
-      CVC4_VER: 1.8
-      CVC5_VER: 1.4.2
-      BITWUZLA_VER: 0.8.2
     steps:
     - name: Checkout
       uses: actions/checkout@v7
@@ -73,11 +66,6 @@ jobs:
         sbt-args: coverage update Test/update IntegrationTest/update
     - name: Install solvers
       uses: ./.github/actions/install-solvers
-      with:
-        z3: ${{ env.Z3_VER }}
-        cvc4: ${{ env.CVC4_VER }}
-        cvc5: ${{ env.CVC5_VER }}
-        bitwuzla: ${{ env.BITWUZLA_VER }}
     - name: Test solver availability
       run: cvc5 --version && z3 --version && cvc4 --version && bitwuzla --version
     # Unit and integration tests run in separate sbt invocations (the native Z3

@@ -1,0 +1,31 @@
+{
+  "z3": {
+    "version": "5.4.1",
+    "platforms": {
+      "linux-x86_64": {"url":"https://github.com/Z3Prover/z3/releases/download/z3-5.4.1/z3-5.4.1-x64-glibc-2.39.zip","sha256":"b548bac48ef2452b4e09ea2945cf4b011d5f43fcf39e4799df268ee7e0769d85","member":"z3-5.4.1-x64-glibc-2.39/bin/z3"},
+      "macos-arm64": {"url":"https://github.com/Z3Prover/z3/releases/download/z3-5.4.1/z3-5.4.1-arm64-osx-13.3.zip","sha256":"a4a878121e81dfc297d027dd0b51dc4f08feb4296d6ecace42bfbc87a29d6d58","member":"z3-5.4.1-arm64-osx-13.3/bin/z3"}
+    }
+  },
+  "cvc5": {
+    "version": "1.4.2",
+    "ethosCommit": "08e4aa40c4f8a6e00833f10e8d8985777e424027",
+    "platforms": {
+      "linux-x86_64": {"url":"https://github.com/cvc5/cvc5/releases/download/cvc5-1.4.2/cvc5-Linux-x86_64-static.zip","sha256":"7eb18f8c814c36a46c5a7d003983e9cfbc4b0a9828d6dd596239291bd4cc61d8","member":"cvc5-Linux-x86_64-static/bin/cvc5"},
+      "macos-arm64": {"url":"https://github.com/cvc5/cvc5/releases/download/cvc5-1.4.2/cvc5-macOS-arm64-static.zip","sha256":"24397f7d022e755876ca836193d4c5f9c1d4326f0f6c01f7d7fc1ddd6bc5096c","member":"cvc5-macOS-arm64-static/bin/cvc5"}
+    }
+  },
+  "cvc4": {
+    "version": "1.8",
+    "platforms": {
+      "linux-x86_64": {"url":"https://github.com/CVC4/CVC4-archived/releases/download/1.8/cvc4-1.8-x86_64-linux-opt","sha256":"d38a79cf984592785eda41ec888d94ca107ac1f13058740238041e28c8472e51","member":null},
+      "macos-arm64": {"url":"https://github.com/CVC4/CVC4-archived/releases/download/1.8/cvc4-1.8-macos-opt","sha256":"b8a0b8714dd947aa46182402d9caba27d3d696041e17704884bc3d8510066527","member":null}
+    }
+  },
+  "bitwuzla": {
+    "version": "0.8.2",
+    "platforms": {
+      "linux-x86_64": {"url":"https://github.com/bitwuzla/bitwuzla/releases/download/0.8.2/Bitwuzla-Linux-x86_64-static.zip","sha256":"aa09f2b45f96695f9f755e8371c1b362915a870cc0f3bc3585ed7e236e088b7b","member":"Bitwuzla-Linux-x86_64-static/bin/bitwuzla"},
+      "macos-arm64": {"url":"https://github.com/bitwuzla/bitwuzla/releases/download/0.8.2/Bitwuzla-macOS-arm64-static.zip","sha256":"c6934038655eb025ddd231dbcefb5be93005fb5d92f522584fa47fa7e2dab5a2","member":"Bitwuzla-macOS-arm64-static/bin/bitwuzla"}
+    }
+  }
+}
