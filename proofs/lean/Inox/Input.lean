@@ -49,6 +49,15 @@ theorem tpsCheck_eq {Te : Ty} {p : Bool} {tps : List Ty} (h : tpsCheck Te p tps 
   | true, [t], h => simp [sameTy_eq (show sameTy t Te = true from h)]
   | false, [], _ => rfl
 
+/-- The kind `k` is that of the elements of bags (`BagKind`). -/
+def bagKindCheck (κ k : Kind) : Bool := kindEq k .elem || (kindEq k .int && kindEq κ .int)
+
+theorem bagKindCheck_sound {κ k : Kind} (h : bagKindCheck κ k = true) : BagKind κ k := by
+  simp only [bagKindCheck, Bool.or_eq_true, Bool.and_eq_true] at h
+  rcases h with h | ⟨h1, h2⟩
+  · exact .inl (kindEq_eq h)
+  · exact .inr ⟨kindEq_eq h1, kindEq_eq h2⟩
+
 theorem lookup_cons (x y : Id) (kx : Kind) (Γ : List (Id × Kind)) :
     ((x, kx) :: Γ).lookup y = if y = x then some kx else Γ.lookup y := by
   by_cases h : y = x
@@ -507,7 +516,8 @@ def encodesCheck (N : Names) (S : CSig) (Te : Ty) (g : List (Id × Kind) → Exp
   | Γ, .BagAdd b e,
       .ADT c [t] [.IntegerLiteral op, b', .ADT c2 [t2] [e', .IntegerLiteral one]], .bag, false =>
     c == N.node && sameTy t Te && op == 0 && c2 == N.elem && sameTy t2 Te && one == 1 &&
-      encodesCheck N S Te g Γ b b' .bag false && encodesCheck N S Te g Γ e e' .elem false
+      encodesCheck N S Te g Γ b b' .bag false && bagKindCheck S.elemKind (g Γ e) &&
+        encodesCheck N S Te g Γ e e' (g Γ e) false
   | Γ, .BagUnion a b, .ADT c [t] [.IntegerLiteral op, a', b'], .bag, false =>
     c == N.node && sameTy t Te && op == 0 &&
       encodesCheck N S Te g Γ a a' .bag false && encodesCheck N S Te g Γ b b' .bag false
@@ -518,8 +528,8 @@ def encodesCheck (N : Names) (S : CSig) (Te : Ty) (g : List (Id × Kind) → Exp
     c == N.node && sameTy t Te && op == 2 &&
       encodesCheck N S Te g Γ a a' .bag false && encodesCheck N S Te g Γ b b' .bag false
   | Γ, .MultiplicityInBag e b, .FunctionInvocation f [t] [b', e'], .int, false =>
-    f == N.get && sameTy t Te && encodesCheck N S Te g Γ e e' .elem false &&
-      encodesCheck N S Te g Γ b b' .bag false
+    f == N.get && sameTy t Te && bagKindCheck S.elemKind (g Γ e) &&
+      encodesCheck N S Te g Γ e e' (g Γ e) false && encodesCheck N S Te g Γ b b' .bag false
   | _, .Tuple [], .Tuple [], .tuple [], _ => true
   | Γ, .Tuple (e :: es), .Tuple (e' :: es'), .tuple (k :: ks), u =>
     encodesCheck N S Te g Γ e e' k u &&
@@ -572,6 +582,17 @@ def encodesCheck (N : Names) (S : CSig) (Te : Ty) (g : List (Id × Kind) → Exp
       | some ks => encodesCheck N S Te g ((param_ids ps).zip ks ++ Γ) body body' .bool true
       | none => paramsEq ps ps' && ps.all (fun p => inhabCheck Te (paramTy p)) &&
           encodesCheck N S Te g (dropIds (param_ids ps) Γ) body body' .bool true)
+  | _, .FiniteSet [] t, .FiniteSet [] t', .set k, _ => sameTy t Te && sameTy t' Te && setKind k
+  | Γ, .SetAdd a e, .SetAdd a' e', .set k, u =>
+    encodesCheck N S Te g Γ a a' (.set k) u && encodesCheck N S Te g Γ e e' k u
+  | Γ, .ElementOfSet e a, .ElementOfSet e' a', .bool, u =>
+    encodesCheck N S Te g Γ e e' (g Γ e) u && encodesCheck N S Te g Γ a a' (.set (g Γ e)) u
+  | Γ, .SetUnion a b, .SetUnion a' b', .set k, u =>
+    encodesCheck N S Te g Γ a a' (.set k) u && encodesCheck N S Te g Γ b b' (.set k) u
+  | Γ, .SetIntersection a b, .SetIntersection a' b', .set k, u =>
+    encodesCheck N S Te g Γ a a' (.set k) u && encodesCheck N S Te g Γ b b' (.set k) u
+  | Γ, .SetDifference a b, .SetDifference a' b', .set k, u =>
+    encodesCheck N S Te g Γ a a' (.set k) u && encodesCheck N S Te g Γ b b' (.set k) u
   | _, _, _, _, _ => false
 termination_by _ e => sizeOf e
 decreasing_by
@@ -648,10 +669,10 @@ theorem encodesCheck_sound {N : Names} {S : CSig} {Te : Ty}
     exact .empty _
   · next ihb ihe =>
     simp only [Bool.and_eq_true, beq_iff_eq] at h
-    obtain ⟨⟨⟨⟨⟨⟨⟨rfl, ht⟩, rfl⟩, rfl⟩, ht2⟩, rfl⟩, hb⟩, he⟩ := h
+    obtain ⟨⟨⟨⟨⟨⟨⟨⟨rfl, ht⟩, rfl⟩, rfl⟩, ht2⟩, rfl⟩, hb⟩, hk⟩, he⟩ := h
     cases sameTy_eq ht
     cases sameTy_eq ht2
-    exact .add (ihb hb) (ihe he)
+    exact .add (bagKindCheck_sound hk) (ihb hb) (ihe he)
   · next iha ihb =>
     simp only [Bool.and_eq_true, beq_iff_eq] at h
     obtain ⟨⟨⟨⟨rfl, ht⟩, rfl⟩, ha⟩, hb⟩ := h
@@ -669,9 +690,9 @@ theorem encodesCheck_sound {N : Names} {S : CSig} {Te : Ty}
     exact .intersection (iha ha) (ihb hb)
   · next ihe ihb =>
     simp only [Bool.and_eq_true, beq_iff_eq] at h
-    obtain ⟨⟨⟨rfl, ht⟩, he⟩, hb⟩ := h
+    obtain ⟨⟨⟨⟨rfl, ht⟩, hk⟩, he⟩, hb⟩ := h
     cases sameTy_eq ht
-    exact .mult (ihe he) (ihb hb)
+    exact .mult (bagKindCheck_sound hk) (ihe he) (ihb hb)
   · exact .tupleNil
   · next iha ihb =>
     simp only [Bool.and_eq_true] at h
@@ -761,6 +782,26 @@ theorem encodesCheck_sound {N : Names} {S : CSig} {Te : Ty}
     have hb := ih hb
     simp only [lookup_drop] at hb
     exact .forallUnused (fun p hp => inhabCheck_sound (hi p hp)) hb
+  · simp only [Bool.and_eq_true] at h
+    obtain ⟨⟨h1, h2⟩, h3⟩ := h
+    cases sameTy_eq h1
+    cases sameTy_eq h2
+    exact .setEmpty h3
+  · next iha ihe =>
+    simp only [Bool.and_eq_true] at h
+    exact .setAdd (iha h.1) (ihe h.2)
+  · next ihe iha =>
+    simp only [Bool.and_eq_true] at h
+    exact .member (ihe h.1) (iha h.2)
+  · next iha ihb =>
+    simp only [Bool.and_eq_true] at h
+    exact .setUnion (iha h.1) (ihb h.2)
+  · next iha ihb =>
+    simp only [Bool.and_eq_true] at h
+    exact .setInter (iha h.1) (ihb h.2)
+  · next iha ihb =>
+    simp only [Bool.and_eq_true] at h
+    exact .setDiff (iha h.1) (ihb h.2)
   · cases h
 
 /-! ## Reading the input -/
@@ -815,6 +856,9 @@ def kindOfSort (c : Ctx) : Nat → Sexp → Except String Kind
       else .error s!"the sort {a}"
     | .expr [.atom "Bag", x] =>
       if x == .atom c.elem then .ok .bag else .error "a bag of other than elements"
+    | .expr [.atom "Set", x] => do
+      let k ← kindOfSort c n x
+      if setKind k then pure (.set k) else .error "a set of other than elements"
     | .expr (.atom "Tuple" :: xs) => do pure (.tuple (← xs.mapM (kindOfSort c n)))
     -- the kind of a refinement is that of its base
     | .expr (.atom "!" :: base :: _) => kindOfSort c n base
@@ -845,6 +889,7 @@ def kindTy (elem : Id) : Kind → Ty
   | .adt s => .ADTType s [.TypeParameter elem]
   | .tuple ks => .TupleType (kindTys elem ks)
   | .fn ks k => .FunctionType (kindTys elem ks) (kindTy elem k)
+  | .set k => .SetType (kindTy elem k)
 def kindTys (elem : Id) : List Kind → List Ty
   | [] => []
   | k :: ks => kindTy elem k :: kindTys elem ks
@@ -858,6 +903,7 @@ partial def tyKind : Ty → Kind
   | .ADTType s _ => .adt s
   | .TupleType ts => .tuple (ts.map tyKind)
   | .FunctionType ts t => .fn (ts.map tyKind) (tyKind t)
+  | .SetType t => .set (tyKind t)
   | _ => .elem
 
 /-- The predicate of a refinement, of `PureExpr`. -/
@@ -933,6 +979,15 @@ def readExpr (c : Ctx) : Nat → Sexp → Except String Expr
       pure (.Let x (← readExpr c n a) (← readExpr c n b))
     | .expr [.atom "assume", p, b] => do pure (.Assume (← readExpr c n p) (← readExpr c n b))
     | .expr [.atom "as", .atom "bag.empty", t] => pure (.FiniteBag [] (readTy t))
+    | .expr [.atom "as", .atom "emptyset", t] => pure (.FiniteSet [] (readTy t))
+    | .expr [.atom "insert", a, e] => do pure (.SetAdd (← readExpr c n a) (← readExpr c n e))
+    | .expr [.atom "member", e, a] => do
+      pure (.ElementOfSet (← readExpr c n e) (← readExpr c n a))
+    | .expr [.atom "union", a, b] => do pure (.SetUnion (← readExpr c n a) (← readExpr c n b))
+    | .expr [.atom "intersection", a, b] => do
+      pure (.SetIntersection (← readExpr c n a) (← readExpr c n b))
+    | .expr [.atom "setminus", a, b] => do
+      pure (.SetDifference (← readExpr c n a) (← readExpr c n b))
     | .expr [.atom "bag.insert", b, e] => do
       pure (.BagAdd (← readExpr c n b) (← readExpr c n e))
     | .expr [.atom "bag.union", a, b] => do
@@ -1009,7 +1064,9 @@ partial def kindOf (S : CSig) (Γ : List (Id × Kind)) : Expr → Kind
   | .Variable x => (Γ.lookup x).getD .int
   | .BooleanLiteral _ | .LessThan _ _ | .GreaterThan _ _ | .LessEquals _ _
   | .GreaterEquals _ _ | .Equals _ _ | .Not _ | .And _ | .Or _ | .Implies _ _
-  | .IsConstructor _ _ | .Forall _ _ => .bool
+  | .IsConstructor _ _ | .Forall _ _ | .ElementOfSet _ _ => .bool
+  | .FiniteSet _ t => .set (tyKind t)
+  | .SetAdd a _ | .SetUnion a _ | .SetIntersection a _ | .SetDifference a _ => kindOf S Γ a
   | .FiniteBag _ _ | .BagAdd _ _ | .BagUnion _ _ | .BagDifference _ _
   | .BagIntersection _ _ => .bag
   | .IfExpr _ a b => match a with | .Error => kindOf S Γ b | _ => kindOf S Γ a

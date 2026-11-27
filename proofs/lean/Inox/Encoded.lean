@@ -18,8 +18,8 @@ namespace Inox.Encoded
 open Inox.Semantics Inox.Bags Inox.Typing
 
 /-- The kinds of values: elements of bags, which are the same in both programs, integers,
-booleans, bags of elements, values of a sort of the program, tuples and functions, from the
-kinds of their arguments to the kind of their result. -/
+booleans, bags of elements, values of a sort of the program, tuples, functions, from the
+kinds of their arguments to the kind of their result, and sets, which the encoders keep. -/
 inductive Kind where
   | elem
   | int
@@ -28,6 +28,7 @@ inductive Kind where
   | adt (s : Id)
   | tuple (ks : List Kind)
   | fn (ks : List Kind) (k : Kind)
+  | set (k : Kind)
 
 mutual
 /-- Whether two kinds are the same. -/
@@ -39,6 +40,7 @@ def kindEq : Kind → Kind → Bool
   | .adt s, .adt t => s == t
   | .tuple ks, .tuple ls => kindsEq ks ls
   | .fn ks k, .fn ls l => kindsEq ks ls && kindEq k l
+  | .set k, .set l => kindEq k l
   | _, _ => false
 def kindsEq : List Kind → List Kind → Bool
   | [], [] => true
@@ -57,6 +59,11 @@ theorem kindEq_eq : ∀ {a b : Kind}, kindEq a b = true → a = b
   | .fn ks k, .fn ls l, h => by
     simp only [kindEq, Bool.and_eq_true] at h
     rw [kindsEq_eq h.1, kindEq_eq h.2]
+  | .set k, .set l, h => by simp only [kindEq] at h; rw [kindEq_eq h]
+  | .set _, .elem, h | .set _, .int, h | .set _, .bool, h | .set _, .bag, h
+  | .set _, .adt _, h | .set _, .tuple _, h | .set _, .fn _ _, h
+  | .elem, .set _, h | .int, .set _, h | .bool, .set _, h | .bag, .set _, h
+  | .adt _, .set _, h | .tuple _, .set _, h | .fn _ _, .set _, h
   | .elem, .fn _ _, h | .int, .fn _ _, h | .bool, .fn _ _, h | .bag, .fn _ _, h
   | .adt _, .fn _ _, h | .tuple _, .fn _ _, h
   | .fn _ _, .elem, h | .fn _ _, .int, h | .fn _ _, .bool, h | .fn _ _, .bag, h
@@ -76,6 +83,14 @@ theorem kindsEq_eq : ∀ {a b : List Kind}, kindsEq a b = true → a = b
     rw [kindEq_eq h.1, kindsEq_eq h.2]
   | [], _ :: _, h | _ :: _, [], h => by simp [kindsEq] at h
 end
+
+/-- The kinds of the elements of bags: `elem`, or integers where the elements are integers. -/
+def BagKind (κ : Kind) (k : Kind) : Prop := k = .elem ∨ (k = .int ∧ κ = .int)
+
+/-- The kinds of the elements of sets: values that are the same in both programs. -/
+def setKind : Kind → Bool
+  | .elem | .int | .bool => true
+  | _ => false
 
 /-- The signature of a program: the sort of each constructor with the names and the kinds of
 its fields, and the type parameters of each function, the type of elements in its body, the
@@ -223,8 +238,8 @@ inductive Encodes (N : Names) (S : Sig) (Te : Ty) :
       Encodes N S Te Γ (.Assume p b) (.Assume p' b') k u
   | empty {Γ : Id → Option Kind} (base : Ty) :
       Encodes N S Te Γ (.FiniteBag [] base) (.ADT N.leaf [Te] []) .bag false
-  | add {Γ : Id → Option Kind} {b b' e e' : Expr} (hb : Encodes N S Te Γ b b' .bag false)
-      (he : Encodes N S Te Γ e e' .elem false) :
+  | add {Γ : Id → Option Kind} {b b' e e' : Expr} {k : Kind} (hk : BagKind S.elemKind k)
+      (hb : Encodes N S Te Γ b b' .bag false) (he : Encodes N S Te Γ e e' k false) :
       Encodes N S Te Γ (.BagAdd b e)
         (.ADT N.node [Te] [.IntegerLiteral 0, b', .ADT N.elem [Te] [e', .IntegerLiteral 1]])
         .bag false
@@ -239,8 +254,8 @@ inductive Encodes (N : Names) (S : Sig) (Te : Ty) :
       (ha : Encodes N S Te Γ a a' .bag false) (hb : Encodes N S Te Γ b b' .bag false) :
       Encodes N S Te Γ (.BagIntersection a b)
         (.ADT N.node [Te] [.IntegerLiteral 2, a', b']) .bag false
-  | mult {Γ : Id → Option Kind} {e e' b b' : Expr} (he : Encodes N S Te Γ e e' .elem false)
-      (hb : Encodes N S Te Γ b b' .bag false) :
+  | mult {Γ : Id → Option Kind} {e e' b b' : Expr} {k : Kind} (hk : BagKind S.elemKind k)
+      (he : Encodes N S Te Γ e e' k false) (hb : Encodes N S Te Γ b b' .bag false) :
       Encodes N S Te Γ (.MultiplicityInBag e b) (.FunctionInvocation N.get [Te] [b', e'])
         .int false
   | tupleNil {Γ : Id → Option Kind} {u : Bool} :
@@ -299,6 +314,23 @@ inductive Encodes (N : Names) (S : Sig) (Te : Ty) :
       Encodes N S Te Γ (.UninterpretedCall f (if p then [Te] else []) es)
         (.UninterpretedCall f (if p then [Te] else []) es') k u
   | error {Γ : Id → Option Kind} {u : Bool} (k : Kind) : Encodes N S Te Γ .Error .Error k u
+  | setEmpty {Γ : Id → Option Kind} {u : Bool} {k : Kind} (hk : setKind k = true) :
+      Encodes N S Te Γ (.FiniteSet [] Te) (.FiniteSet [] Te) (.set k) u
+  | setAdd {Γ : Id → Option Kind} {u : Bool} {k : Kind} {a a' e e' : Expr}
+      (ha : Encodes N S Te Γ a a' (.set k) u) (he : Encodes N S Te Γ e e' k u) :
+      Encodes N S Te Γ (.SetAdd a e) (.SetAdd a' e') (.set k) u
+  | member {Γ : Id → Option Kind} {u : Bool} {k : Kind} {e e' a a' : Expr}
+      (he : Encodes N S Te Γ e e' k u) (ha : Encodes N S Te Γ a a' (.set k) u) :
+      Encodes N S Te Γ (.ElementOfSet e a) (.ElementOfSet e' a') .bool u
+  | setUnion {Γ : Id → Option Kind} {u : Bool} {k : Kind} {a a' b b' : Expr}
+      (ha : Encodes N S Te Γ a a' (.set k) u) (hb : Encodes N S Te Γ b b' (.set k) u) :
+      Encodes N S Te Γ (.SetUnion a b) (.SetUnion a' b') (.set k) u
+  | setInter {Γ : Id → Option Kind} {u : Bool} {k : Kind} {a a' b b' : Expr}
+      (ha : Encodes N S Te Γ a a' (.set k) u) (hb : Encodes N S Te Γ b b' (.set k) u) :
+      Encodes N S Te Γ (.SetIntersection a b) (.SetIntersection a' b') (.set k) u
+  | setDiff {Γ : Id → Option Kind} {u : Bool} {k : Kind} {a a' b b' : Expr}
+      (ha : Encodes N S Te Γ a a' (.set k) u) (hb : Encodes N S Te Γ b b' (.set k) u) :
+      Encodes N S Te Γ (.SetDifference a b) (.SetDifference a' b') (.set k) u
 
 /-- The value `v` of the input and the value `v'` of the encoded program are of the kind `k`
 and the same, up to the bags in them, which `v'` has the encodings of. Functions are the same
@@ -332,6 +364,9 @@ inductive Rel (O : Oracle) (P : Program) (N : Names) (K : Value → Prop)
       (hv' : (Γ0.map Prod.fst).map (lookup_var vars') = vs'.map Result.Ok) :
       Rel O P N K E T0 S (.fn ks k) (.ClosureV ps body (.Env tys vars))
         (.ClosureV ps' body' (.Env tys' vars'))
+  | set {k : Kind} (t : Ty) (xs : List Value) (hk : setKind k = true)
+      (h : ∀ x ∈ xs, Rel O P N K E T0 S k x x) :
+      Rel O P N K E T0 S (.set k) (.SetV t xs) (.SetV t xs)
 
 /-- The names of parameters. -/
 def paramNames : List Param → List Id
@@ -369,6 +404,7 @@ structure Base (O : Oracle) (Ps P : Program) (N : Names) (K : Value → Prop)
   ctor : ∀ c s fs, S.ctors c = some (s, fs) → CtorIn c s fs P
   simple : SimpleTy T0
   elemsS : ∀ v, O.has_type Ps (.Env [] []) v T0 = true ↔ K v
+  ints : S.elemKind = .int → T0 = .IntegerType
   sortsS : SortsIn S.sorts Ps
   sortsP : SortsIn S.sorts P
 
@@ -384,6 +420,126 @@ theorem sort_equality_ctor {c s : Id} {fs : List (Id × Kind)} {Q : Program}
   obtain ⟨params, tps, hc, _, hs⟩ := h
   simp [sort_equality, hc, hs]
 
+/-- Elements of sets are equal in the input when they are in the encoded program. -/
+theorem elem_value_eq (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) {k : Kind}
+    (hk : setKind k = true) {a b : Value} (ha : Rel O P N K E T0 S k a a)
+    (hb : Rel O P N K E T0 S k b b) : O.value_eq Ps a b = O.value_eq P a b := by
+  cases k <;> simp [setKind] at hk
+  · cases ha with
+    | elem _ hv => cases hb with
+      | elem _ hw => rw [hB.keyS.eq _ _ hv hw, hB.key.eq _ _ hv hw]
+  · cases ha; cases hb; simp only [hB.sound.value_eq]
+  · cases ha; cases hb; simp only [hB.sound.value_eq]
+
+theorem rel_set_elem {k : Kind} (hk : setKind k = true) {v v' : Value}
+    (h : Rel O P N K E T0 S k v v') : v' = v := by
+  cases h <;> simp_all [setKind]
+
+theorem set_contains_same (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) {k : Kind}
+    (hk : setKind k = true) {v : Value} (hv : Rel O P N K E T0 S k v v) :
+    ∀ {xs : List Value}, (∀ x ∈ xs, Rel O P N K E T0 S k x x) →
+      O.set_contains Ps xs v = O.set_contains P xs v
+  | [], _ => by rw [hB.sound.set_contains, hB.sound.set_contains (P := P)]
+  | x :: xs, h => by
+    rw [hB.sound.set_contains, hB.sound.set_contains (P := P)]
+    simp only []
+    rw [elem_value_eq hB hk (h x (List.mem_cons_self ..)) hv,
+      set_contains_same hB hk hv (fun y hy => h y (List.mem_cons_of_mem _ hy))]
+
+theorem set_insert_same (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) {k : Kind}
+    (hk : setKind k = true) {v : Value} (hv : Rel O P N K E T0 S k v v) {xs : List Value}
+    (h : ∀ x ∈ xs, Rel O P N K E T0 S k x x) :
+    set_insert O Ps xs v = set_insert O P xs v := by
+  simp only [set_insert, set_contains_same hB hk hv h]
+
+theorem set_insert_rel {Q : Program} {k : Kind} {v : Value} (hv : Rel O P N K E T0 S k v v)
+    {xs ys : List Value} (h : ∀ x ∈ xs, Rel O P N K E T0 S k x x)
+    (hi : set_insert O Q xs v = .Ok ys) : ∀ y ∈ ys, Rel O P N K E T0 S k y y := by
+  simp only [set_insert] at hi
+  split at hi
+  · split at hi
+    · cases hi; exact h
+    · cases hi
+      intro y hy
+      cases List.mem_cons.1 hy with
+      | inl e => subst e; exact hv
+      | inr e => exact h y e
+  · cases hi
+  · cases hi
+
+theorem set_insert_all_same (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) {k : Kind}
+    (hk : setKind k = true) :
+    ∀ {vs xs : List Value}, (∀ x ∈ xs, Rel O P N K E T0 S k x x) →
+      (∀ x ∈ vs, Rel O P N K E T0 S k x x) →
+      set_insert_all O Ps xs vs = set_insert_all O P xs vs
+  | [], _, _, _ => by simp only [set_insert_all]
+  | v :: vs, xs, h, hvs => by
+    have hv := hvs v (List.mem_cons_self ..)
+    simp only [set_insert_all, set_insert_same hB hk hv h]
+    split
+    · next ys hys =>
+      exact set_insert_all_same hB hk (set_insert_rel hv h hys)
+        (fun y hy => hvs y (List.mem_cons_of_mem _ hy))
+    · rfl
+    · rfl
+
+theorem set_insert_all_rel {Q : Program} {k : Kind} :
+    ∀ {vs xs zs : List Value}, (∀ x ∈ xs, Rel O P N K E T0 S k x x) →
+      (∀ x ∈ vs, Rel O P N K E T0 S k x x) → set_insert_all O Q xs vs = .Ok zs →
+      ∀ z ∈ zs, Rel O P N K E T0 S k z z
+  | [], xs, zs, h, _, hi => by simp only [set_insert_all] at hi; cases hi; exact h
+  | v :: vs, xs, zs, h, hvs, hi => by
+    have hv := hvs v (List.mem_cons_self ..)
+    simp only [set_insert_all] at hi
+    split at hi
+    · next ys hys =>
+      exact set_insert_all_rel (set_insert_rel hv h hys)
+        (fun y hy => hvs y (List.mem_cons_of_mem _ hy)) hi
+    · cases hi
+    · cases hi
+
+theorem set_filter_same (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) {k : Kind}
+    (hk : setKind k = true) {ys : List Value} (hys : ∀ y ∈ ys, Rel O P N K E T0 S k y y)
+    (keep : Bool) :
+    ∀ {xs : List Value}, (∀ x ∈ xs, Rel O P N K E T0 S k x x) →
+      set_filter O Ps xs ys keep = set_filter O P xs ys keep
+  | [], _ => by simp only [set_filter]
+  | x :: xs, h => by
+    simp only [set_filter, set_contains_same hB hk (h x (List.mem_cons_self ..)) hys,
+      set_filter_same hB hk hys keep (fun y hy => h y (List.mem_cons_of_mem _ hy))]
+
+theorem set_filter_rel {Q : Program} {k : Kind} {ys : List Value} {keep : Bool} :
+    ∀ {xs zs : List Value}, (∀ x ∈ xs, Rel O P N K E T0 S k x x) →
+      set_filter O Q xs ys keep = .Ok zs → ∀ z ∈ zs, Rel O P N K E T0 S k z z
+  | [], zs, _, hf => by simp only [set_filter] at hf; cases hf; simp
+  | x :: xs, zs, h, hf => by
+    simp only [set_filter] at hf
+    split at hf
+    · split at hf
+      · next ws hws =>
+        have ih := set_filter_rel (fun y hy => h y (List.mem_cons_of_mem _ hy)) hws
+        split at hf
+        · cases hf
+          intro z hz
+          cases List.mem_cons.1 hz with
+          | inl e => subst e; exact h _ (List.mem_cons_self ..)
+          | inr e => exact ih z e
+        · cases hf; exact ih
+      · cases hf
+      · cases hf
+    · cases hf
+    · cases hf
+
+theorem subset_same (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) {k : Kind}
+    (hk : setKind k = true) {ys : List Value} (hys : ∀ y ∈ ys, Rel O P N K E T0 S k y y) :
+    ∀ {xs : List Value}, (∀ x ∈ xs, Rel O P N K E T0 S k x x) →
+      O.subset Ps xs ys = O.subset P xs ys
+  | [], _ => by rw [hB.sound.subset, hB.sound.subset (P := P)]
+  | x :: xs, h => by
+    rw [hB.sound.subset, hB.sound.subset (P := P)]
+    simp only [set_contains_same hB hk (h x (List.mem_cons_self ..)) hys,
+      subset_same hB hk hys (fun y hy => h y (List.mem_cons_of_mem _ hy))]
+
 /-- Values without functions in them that relate are equal in the input when they are in the
 encoded program. -/
 theorem rel_value_eq (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) {A : Id → Bool}
@@ -394,6 +550,12 @@ theorem rel_value_eq (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) {A : Id → B
   intro k a a' h
   induction h with
   | closure _ _ _ _ _ _ _ => intro hk; simp [foKind] at hk
+  | set t xs hk hxs _ =>
+    intro _ b b' hb
+    cases hb with
+    | set u ys _ hys =>
+      rw [hB.sound.value_eq, hB.sound.value_eq (P := P)]
+      simp only [subset_same hB hk hys hxs, subset_same hB hk hxs hys]
   | elem v hv =>
     intro hk b b' hb
     cases hb with
@@ -647,6 +809,30 @@ section Evaluation
 variable {O : Oracle} {Ps P : Program} {N : Names} {K : Value → Prop}
   {E : Value → Value → Bool}
   {T0 : Ty} {S : Sig} {inv bi eq b1 b2 : Id}
+
+theorem rel_bagKind (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) {k : Kind}
+    (hk : BagKind S.elemKind k) {v v' : Value} (h : Rel O P N K E T0 S k v v') :
+    v = v' ∧ K v := by
+  rcases hk with rfl | ⟨rfl, hκ⟩
+  · cases h with
+    | elem _ hv => exact ⟨rfl, hv⟩
+  · cases h with
+    | int n =>
+      have h0 := hB.ints hκ
+      subst h0
+      exact ⟨rfl, (hB.elemsS _).1 (by rw [hB.sound.has_type])⟩
+
+theorem eval_set_ok {Q : Program} {fuel : Int} {env : Env} {e : Expr} {b : Value}
+    (h : eval_set O Q fuel env e = .Ok b) :
+    eval O Q fuel env e = .Ok b ∧ ∃ t xs, b = .SetV t xs := by
+  rw [eval_set] at h
+  split at h
+  · next v hv =>
+    split at h
+    · next t xs => cases h; exact ⟨hv, t, xs, rfl⟩
+    · cases h
+  · cases h
+  · cases h
 
 theorem eval_tuple_inv {Q : Program} {fuel : Int} {env : Env} {es : List Expr}
     {vs : List Value} (h : eval O Q fuel env (.Tuple es) = .Ok (.TupleV vs)) :
@@ -1443,7 +1629,7 @@ theorem encodes_eval (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) (hSo : S.Ok)
       .bag _ [] N.leaf [] trivial (enc_empty _)
       (Or.inr (Or.inr rfl)), fun f hf => ?_⟩
     simp only [eval, eval_list, construct_leaf hB.names hB.sort (show 0 < f by omega), hT]
-  | add _ _ ihb ihe =>
+  | add hek _ _ ihb ihe =>
     intro env env' hT hΓ fuel hfn v hv
     simp only [eval] at hv
     split at hv
@@ -1455,8 +1641,7 @@ theorem encodes_eval (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) (hSo : S.Ok)
         obtain ⟨ve', n2, bd2, hR2, e2⟩ := ihe env env' hT hΓ fuel hfn ve he
         cases hR1 with
         | bag t xs c args hxs henc hc =>
-        cases hR2 with
-        | elem _ hk =>
+        obtain ⟨rfl, hk⟩ := rel_bagKind hB hek hR2
         simp only [bag_entries, bag_get_eq hO hB.keyS hxs hk, bag_set_eq hB.keyS hxs hk,
           bag_with] at hv
         cases hv
@@ -1553,7 +1738,7 @@ theorem encodes_eval (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) (hSo : S.Ok)
       · cases hv
     · cases hv
     · cases hv
-  | mult _ _ ihe ihb =>
+  | mult hek _ _ ihe ihb =>
     intro env env' hT hΓ fuel hfn v hv
     simp only [eval] at hv
     split at hv
@@ -1565,8 +1750,7 @@ theorem encodes_eval (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) (hSo : S.Ok)
         obtain ⟨ve', n2, bd2, hR2, e2⟩ := ihe env env' hT hΓ fuel hfn ve he
         cases hR1 with
         | bag t xs c args hxs henc hc =>
-        cases hR2 with
-        | elem _ hk =>
+        obtain ⟨rfl, hk⟩ := rel_bagKind hB hek hR2
         obtain ⟨d, hd⟩ := henc
         simp only [bag_entries, bag_get_eq hO hB.keyS hxs hk] at hv
         cases hv
@@ -1984,6 +2168,162 @@ theorem encodes_eval (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) (hSo : S.Ok)
     intro env env' hT hΓ fuel hfn v hv
     simp only [eval] at hv
     cases hv
+  | setUnion _ _ iha ihb =>
+    intro env env' hT hΓ fuel hfn v hv
+    simp only [eval] at hv
+    split at hv
+    · next va ha =>
+      split at hv
+      · next vb hb =>
+        obtain ⟨ha, _⟩ := eval_set_ok ha
+        obtain ⟨hb, _⟩ := eval_set_ok hb
+        obtain ⟨_, n1, bd1, hR1, e1⟩ := iha env env' hT hΓ fuel hfn va ha
+        obtain ⟨_, n2, bd2, hR2, e2⟩ := ihb env env' hT hΓ fuel hfn vb hb
+        cases hR1 with
+        | set t xs hk hxs =>
+        cases hR2 with
+        | set t2 ys _ hys =>
+        simp only [set_elems, set_with] at hv
+        split at hv
+        · next zs hzs =>
+          cases hv
+          rw [set_insert_all_same hB hk hxs hys] at hzs
+          exact ⟨_, max n1 n2, fun hu => by bnd hu,
+            .set t zs hk (set_insert_all_rel hxs hys hzs), fun f hf => by
+              simp only [eval, eval_set, e1 f (by omega), e2 f (by omega), set_elems, hzs,
+                set_with]⟩
+        · cases hv
+        · cases hv
+      · cases hv
+      · cases hv
+    · cases hv
+    · cases hv
+  | setInter _ _ iha ihb =>
+    intro env env' hT hΓ fuel hfn v hv
+    simp only [eval] at hv
+    split at hv
+    · next va ha =>
+      split at hv
+      · next vb hb =>
+        obtain ⟨ha, _⟩ := eval_set_ok ha
+        obtain ⟨hb, _⟩ := eval_set_ok hb
+        obtain ⟨_, n1, bd1, hR1, e1⟩ := iha env env' hT hΓ fuel hfn va ha
+        obtain ⟨_, n2, bd2, hR2, e2⟩ := ihb env env' hT hΓ fuel hfn vb hb
+        cases hR1 with
+        | set t xs hk hxs =>
+        cases hR2 with
+        | set t2 ys _ hys =>
+        simp only [set_elems, set_with] at hv
+        split at hv
+        · next zs hzs =>
+          cases hv
+          rw [set_filter_same hB hk hys true hxs] at hzs
+          exact ⟨_, max n1 n2, fun hu => by bnd hu,
+            .set t zs hk (set_filter_rel hxs hzs), fun f hf => by
+              simp only [eval, eval_set, e1 f (by omega), e2 f (by omega), set_elems, hzs,
+                set_with]⟩
+        · cases hv
+        · cases hv
+      · cases hv
+      · cases hv
+    · cases hv
+    · cases hv
+  | setDiff _ _ iha ihb =>
+    intro env env' hT hΓ fuel hfn v hv
+    simp only [eval] at hv
+    split at hv
+    · next va ha =>
+      split at hv
+      · next vb hb =>
+        obtain ⟨ha, _⟩ := eval_set_ok ha
+        obtain ⟨hb, _⟩ := eval_set_ok hb
+        obtain ⟨_, n1, bd1, hR1, e1⟩ := iha env env' hT hΓ fuel hfn va ha
+        obtain ⟨_, n2, bd2, hR2, e2⟩ := ihb env env' hT hΓ fuel hfn vb hb
+        cases hR1 with
+        | set t xs hk hxs =>
+        cases hR2 with
+        | set t2 ys _ hys =>
+        simp only [set_elems, set_with] at hv
+        split at hv
+        · next zs hzs =>
+          cases hv
+          rw [set_filter_same hB hk hys false hxs] at hzs
+          exact ⟨_, max n1 n2, fun hu => by bnd hu,
+            .set t zs hk (set_filter_rel hxs hzs), fun f hf => by
+              simp only [eval, eval_set, e1 f (by omega), e2 f (by omega), set_elems, hzs,
+                set_with]⟩
+        · cases hv
+        · cases hv
+      · cases hv
+      · cases hv
+    · cases hv
+    · cases hv
+  | @setEmpty Γ u k hk =>
+    intro env env' hT hΓ fuel hfn v hv
+    simp only [eval, eval_list, set_insert_all] at hv
+    cases hv
+    have h1 := hT.1
+    have h2 := hT.2
+    simp only [hO.resolve_all, List.cons.injEq, and_true] at h1 h2
+    rw [h1]
+    exact ⟨_, 0, fun hu => by bnd hu, .set T0 [] hk (by simp), fun f hf => by
+      simp only [eval, eval_list, set_insert_all, h2]⟩
+  | setAdd _ _ iha ihe =>
+    intro env env' hT hΓ fuel hfn v hv
+    simp only [eval] at hv
+    split at hv
+    · next va ha =>
+      split at hv
+      · next ve he =>
+        obtain ⟨ha, _⟩ := eval_set_ok ha
+        obtain ⟨_, n1, bd1, hR1, e1⟩ := iha env env' hT hΓ fuel hfn va ha
+        obtain ⟨ve', n2, bd2, hR2, e2⟩ := ihe env env' hT hΓ fuel hfn ve he
+        cases hR1 with
+        | set t xs hk hxs =>
+        have hR2' : ve' = ve := rel_set_elem hk hR2
+        subst hR2'
+        simp only [set_elems, set_with] at hv
+        split at hv
+        · next zs hzs =>
+          cases hv
+          rw [set_insert_same hB hk hR2 hxs] at hzs
+          exact ⟨_, max n1 n2, fun hu => by bnd hu,
+            .set t zs hk (set_insert_rel hR2 hxs hzs), fun f hf => by
+              simp only [eval, eval_set, e1 f (by omega), e2 f (by omega), set_elems, hzs,
+                set_with]⟩
+        · cases hv
+        · cases hv
+      · cases hv
+      · cases hv
+    · cases hv
+    · cases hv
+  | member _ _ ihe iha =>
+    intro env env' hT hΓ fuel hfn v hv
+    simp only [eval] at hv
+    split at hv
+    · next ve he =>
+      split at hv
+      · next va ha =>
+        obtain ⟨ha, _⟩ := eval_set_ok ha
+        obtain ⟨ve', n2, bd2, hR2, e2⟩ := ihe env env' hT hΓ fuel hfn ve he
+        obtain ⟨_, n1, bd1, hR1, e1⟩ := iha env env' hT hΓ fuel hfn va ha
+        cases hR1 with
+        | set t xs hk hxs =>
+        have hR2' : ve' = ve := rel_set_elem hk hR2
+        subst hR2'
+        simp only [set_elems] at hv
+        split at hv
+        · next b hb =>
+          cases hv
+          rw [set_contains_same hB hk hR2 hxs] at hb
+          exact ⟨_, max n1 n2, fun hu => by bnd hu, .bool b, fun f hf => by
+            simp only [eval, eval_set, e1 f (by omega), e2 f (by omega), set_elems, hb]⟩
+        · cases hv
+        · cases hv
+      · cases hv
+      · cases hv
+    · cases hv
+    · cases hv
 
 end Evaluation
 
