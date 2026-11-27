@@ -24,7 +24,9 @@ class SimplificationsSuite extends AnyFunSuite {
       |(define-fun inv ((r Pos)) Bool (positive (pv r)))
       |(declare-datatypes ((Box 0)) (((box (get (-> Int Bool))))))
       |(define-fun single ((a Int)) Box (box (lambda ((z Int)) (= z a))))
-      |(define-fun both ((b Box) (c Box)) Box (box (lambda ((z Int)) (or (@ (get b) z) (@ (get c) z)))))""".stripMargin)
+      |(define-fun both ((b Box) (c Box)) Box (box (lambda ((z Int)) (or (@ (get b) z) (@ (get c) z)))))
+      |(declare-datatypes ((Counted 0)) (((counted (fn (-> Int Bool)) (count Int)))))
+      |(datatype-invariant k Counted (> (count k) 0))""".stripMargin)
 
   /** Checks that `steps` rewrite `original` into the expression `simplified`. */
   def check(original: String, simplified: String, steps: String, equality: String = "none"): Either[String, List[String]] =
@@ -399,9 +401,26 @@ class SimplificationsSuite extends AnyFunSuite {
     reported("(= u (single x))", "(= u (box (lambda ((z Int)) (= z x))))", "(steps (evaluate (2) (box (lambda ((z Int)) (= z x)))))")
   }
 
-  test("An evaluation to a function is only a refinement, which is reported under a lambda when functions are compared") {
+  test("An evaluation to a function under a lambda gives the same value when functions are compared") {
     val one = "(lambda ((z Int)) (= z 1))"
     holds("(= u (single 1))", s"(= u (box $one))", s"(steps (evaluate (2) (box $one)))", equality = "extensional")
-    reported("(lambda ((w Int)) (single 1))", s"(lambda ((w Int)) (box $one))", s"(steps (evaluate (2) (box $one)))", equality = "extensional")
+    holds("(lambda ((w Int)) (single 1))", s"(lambda ((w Int)) (box $one))", s"(steps (evaluate (2) (box $one)))", equality = "extensional")
+    // a selection out of a construction whose invariant may not hold only refines the term
+    holds(s"(= u (fn (counted $one 0)))", s"(= u $one)", s"(steps (evaluate (2) $one))", equality = "extensional")
+    reported(s"(lambda ((w Int)) (fn (counted $one 0)))", s"(lambda ((w Int)) $one)", s"(steps (evaluate (2) $one))", equality = "extensional")
+  }
+
+  test("Closures that differ on an input are not equal, nor members of a set of such closures") {
+    val (one, two) = ("(lambda ((z Int)) (= z 1))", "(lambda ((z Int)) (= z 2))")
+    holds(s"(= $one $two)", "false", "(steps (evaluate () false))", equality = "extensional")
+    holds(s"(= (get (single 1)) (get (single 2)))", "false", "(steps (evaluate () false))", equality = "extensional")
+    holds(s"(member $one (insert (as emptyset (-> Int Bool)) $two (get (single 3))))", "false", "(steps (evaluate () false))", equality = "extensional")
+    // closures that agree on every input, or that the inputs don't tell apart, are not known to differ
+    reported(s"(= $one (lambda ((y Int)) (= 1 y)))", "false", "(steps (evaluate () false))", equality = "extensional")
+    reported("(= (lambda ((z Int)) (= z 7)) (lambda ((z Int)) (= z 8)))", "false", "(steps (evaluate () false))", equality = "extensional")
+    reported(s"(member $one (insert (as emptyset (-> Int Bool)) $two $one))", "false", "(steps (evaluate () false))", equality = "extensional")
+    // nor are closures over other sorts, or a set that is not written with insertions
+    reported("(= (lambda ((l List)) true) (lambda ((l List)) false))", "false", "(steps (evaluate () false))", equality = "extensional")
+    reported(s"(member $one (union (as emptyset (-> Int Bool)) (insert (as emptyset (-> Int Bool)) $two)))", "false", "(steps (evaluate () false))", equality = "extensional")
   }
 }

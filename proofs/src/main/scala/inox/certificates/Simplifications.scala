@@ -694,8 +694,13 @@ object Simplifications {
     * A call is the body of its function with the values of its arguments for its parameters, a
     * `let` is its body with the values of its bindings, a conditional is its branch, and a
     * selection of a construction of values is its field, under lambdas too. Each of these has the
-    * value of the term, wherever the term has one. */
-  private final class Reduction(program: Program) {
+    * value of the term, wherever the term has one, and the same value as the term when `exact`,
+    * where a selection is only reduced out of a construction of a sort without an invariant.
+    *
+    * It also tells closures apart under extensional equality: two closures differ when the
+    * evaluator gives them different values on some input, of parameters that are integers or
+    * Booleans (sorts without refinements). */
+  private final class Reduction(program: Program, exact: Boolean = false) {
     private var fuel = 2000
 
     private def literal(t: SExpr): Boolean = t match {
@@ -713,7 +718,8 @@ object Simplifications {
     /** `t` where the selections of constructions of values are their fields. */
     private def selected(t: SExpr): SExpr = t match {
       case SList(items) => SList(items.map(selected)) match {
-        case Applied(sel, List(c)) if value(c) && program.construction(c).exists((cons, _) => program.selectors.get(sel).exists(_._1 == cons)) =>
+        case Applied(sel, List(c)) if value(c) && program.construction(c).exists((cons, _) =>
+            program.selectors.get(sel).exists(_._1 == cons) && !(exact && program.datatypeOf.get(cons).exists(program.invariants.contains))) =>
           program.construction(c).get._2(program.selectors(sel)._2)
         case r => r
       }
@@ -756,6 +762,46 @@ object Simplifications {
       try value(b) && reduce(a).exists(alpha(_, b))
       // a term that is not closed, whose variables a substitution would capture, or that nests
       // deeper than the stack
+      catch { case _: Failure | _: StackOverflowError => false }
+
+    /** The inputs that tell closures apart: integers and Booleans. */
+    private def inputs(sort: SExpr): Option[List[SExpr]] = sort match {
+      case Atom("Int") => Some(List(Atom("0"), Atom("1"), app("-", Atom("1")), Atom("2")))
+      case Atom("Bool") => Some(List(Atom("true"), Atom("false")))
+      case _ => None
+    }
+
+    /** Whether the closed terms `a` and `b` are closures that differ on some input, where the
+      * evaluator gives both a value. */
+    private def differ(a: SExpr, b: SExpr): Boolean = (reduce(a), reduce(b)) match {
+      case (Some(Binder("lambda", xs, ds, f)), Some(Binder("lambda", ys, _, g))) if xs.size == ys.size =>
+        val domains = ds.map {
+          case SList(List(_, sort)) => inputs(sort)
+          case _ => None
+        }
+        domains.forall(_.nonEmpty) && {
+          val combinations = domains.flatten.foldRight(List(List.empty[SExpr]))((vs, rest) => for (v <- vs; r <- rest) yield v :: r)
+          combinations.take(64).exists(vs =>
+            program.evaluation.same(subst(f, xs.zip(vs).toMap), subst(g, ys.zip(vs).toMap)).contains(false))
+        }
+      case _ => false
+    }
+
+    /** The elements of the closed term `s` of a set, when it is written with insertions. */
+    private def elements(s: SExpr): Option[List[SExpr]] = s match {
+      case SList(List(Atom("as"), Atom("emptyset"), _)) => Some(Nil)
+      case SList(Atom("insert") :: set :: es) if es.nonEmpty => elements(set).map(_ ++ es)
+      case _ => None
+    }
+
+    /** Whether the closed term `a` is false, as an equality of closures that differ, or as the
+      * membership of a closure in a set of closures that each differ from it. */
+    def refutes(a: SExpr): Boolean =
+      try a match {
+        case SList(List(Atom("="), x, y)) => differ(x, y)
+        case SList(List(Atom("member"), x, set)) => elements(set).exists(_.forall(differ(x, _)))
+        case _ => false
+      }
       catch { case _: Failure | _: StackOverflowError => false }
   }
 
@@ -1006,8 +1052,11 @@ object Simplifications {
           case Some(false) => fail(s"no evaluate step at ${deepest.mkString("(", " ", ")")} gives $subterm: ${at(term, deepest)} has another value")
           // the value of a function is the lambda that the term reduces to
           case None =>
-            // a reduction only refines the term, as its selections may drop what has no value
-            if (exact || !deepest.inits.exists(pos => new Reduction(program).gives(at(term, pos), at(rewritten, pos)))) unknown += rule
+            // or the equality of closures that differ is false
+            if (!deepest.inits.exists { pos =>
+              val reduction = new Reduction(program, exact)
+              reduction.gives(at(term, pos), at(rewritten, pos)) || (at(rewritten, pos) == Atom("false") && reduction.refutes(at(term, pos)))
+            }) unknown += rule
         }
       }
       else if (attempted.contains(rule)) {

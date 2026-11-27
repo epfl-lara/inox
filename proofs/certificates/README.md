@@ -129,7 +129,9 @@ rule of `unrolling.RuleKernel` builds. Two things are left to the reader:
   Inox, and doesn't compare functions) and that doesn't reduce to the value
   either (the checker reduces calls, bindings, conditionals and selections
   to literals, lambdas and constructions, which is how it checks the values
-  of functions), and of the steps that a simplifier
+  of functions, and takes an equality of closures, or the membership of a
+  closure in a set of closures, to be false where the evaluator gives the
+  closures different values on an integer or Boolean input), and of the steps that a simplifier
   can't tell are ones of `logic`, which the checker checks as such, and
   reports when they are not: an assumption that is lifted out of a binder
   (`lift-assumptions`, a step of `logic` out of a quantifier over sorts
@@ -146,7 +148,8 @@ rule of `unrolling.RuleKernel` builds. Two things are left to the reader:
   `logic` checks both directions, `select` and `arith` drop no operand that
   may have no value (nor `select` a construction of a sort with an
   invariant), `prenex` lifts out of the last operand only and over
-  sorts that have values, and an evaluation is not checked by reduction.
+  sorts that have values, and a reduction selects no field out of a
+  construction of a sort with an invariant.
   Where they are compared intensionally, a step may change a lambda that the
   program compares as written: the checker doesn't check the steps, and says
   so. What remains trusted:
