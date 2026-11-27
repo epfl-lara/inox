@@ -1157,6 +1157,14 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   checker only checks the clauses that it covers against the lowered source
   (`unfoldB`, and the clauses of instances, given the meanings of their
   symbols).
+- **The input and the encoders.** The checker checks that each encoded
+  constraint of the certificate's input is what the encoders that the
+  certificate names make of its constraint, as the Scala checker does
+  ([`Encoders.lean`](Inox/Encoders.lean), a port of
+  [`Encoders.scala`](../src/main/scala/inox/certificates/Encoders.scala)). No
+  theorem yet states that an encoded constraint has a solution whenever its
+  constraint has one, and nothing relates the encoded constraints to the
+  sources of the templates: the theorem is about the sources.
 - **The link between the proof and the script.** The checker checks that each
   assumption of the proof is the text of an assert of the script, up to how
   cvc5 prints testers (`(is C e)` for `((_ is C) e)`), once the terms that the
