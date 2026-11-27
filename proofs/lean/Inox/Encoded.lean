@@ -26,6 +26,46 @@ inductive Kind where
   | adt (s : Id)
   | tuple (ks : List Kind)
 
+mutual
+/-- Whether two kinds are the same. -/
+def kindEq : Kind → Kind → Bool
+  | .elem, .elem => true
+  | .int, .int => true
+  | .bool, .bool => true
+  | .bag, .bag => true
+  | .adt s, .adt t => s == t
+  | .tuple ks, .tuple ls => kindsEq ks ls
+  | _, _ => false
+def kindsEq : List Kind → List Kind → Bool
+  | [], [] => true
+  | k :: ks, l :: ls => kindEq k l && kindsEq ks ls
+  | _, _ => false
+end
+
+mutual
+theorem kindEq_eq : ∀ {a b : Kind}, kindEq a b = true → a = b
+  | .elem, .elem, _ => rfl
+  | .int, .int, _ => rfl
+  | .bool, .bool, _ => rfl
+  | .bag, .bag, _ => rfl
+  | .adt s, .adt t, h => by simp only [kindEq, beq_iff_eq] at h; rw [h]
+  | .tuple ks, .tuple ls, h => by simp only [kindEq] at h; rw [kindsEq_eq h]
+  | .elem, .int, h | .elem, .bool, h | .elem, .bag, h | .elem, .adt _, h | .elem, .tuple _, h
+  | .int, .elem, h | .int, .bool, h | .int, .bag, h | .int, .adt _, h | .int, .tuple _, h
+  | .bool, .elem, h | .bool, .int, h | .bool, .bag, h | .bool, .adt _, h | .bool, .tuple _, h
+  | .bag, .elem, h | .bag, .int, h | .bag, .bool, h | .bag, .adt _, h | .bag, .tuple _, h
+  | .adt _, .elem, h | .adt _, .int, h | .adt _, .bool, h | .adt _, .bag, h
+  | .adt _, .tuple _, h
+  | .tuple _, .elem, h | .tuple _, .int, h | .tuple _, .bool, h | .tuple _, .bag, h
+  | .tuple _, .adt _, h => by simp [kindEq] at h
+theorem kindsEq_eq : ∀ {a b : List Kind}, kindsEq a b = true → a = b
+  | [], [], _ => rfl
+  | k :: ks, l :: ls, h => by
+    simp only [kindsEq, Bool.and_eq_true] at h
+    rw [kindEq_eq h.1, kindsEq_eq h.2]
+  | [], _ :: _, h | _ :: _, [], h => by simp [kindsEq] at h
+end
+
 /-- The signature of a program: the sort of each constructor with the names and the kinds of
 its fields, and the type parameters of each function, the type of elements in its body, the
 kinds of its parameters and the kind of its result. -/

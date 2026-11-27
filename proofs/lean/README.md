@@ -1179,28 +1179,40 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   the encodings of two bags is the equality of the bags (`enc_equal`). They
   assume that the program defines `get`, `equals` and the constructors as the
   encoder does, which the checker checks for `get` and the constructors, and
-  that the elements have an equality that is an equivalence. `encodes_eval`
-  puts them together for expressions: when an expression of integers, of
-  elements and of bags of them (variables, literals, sums, differences,
-  comparisons, connectives, conditionals, lets, the bag operations above,
-  multiplicities and equalities) evaluates to a value, what the encoder makes
-  of it evaluates, with enough fuel, to the same value or to the encoding of
-  the bag. It assumes the invariant of the datatype as the encoder defines
-  it, and doesn't cover bag literals with elements, bags of bags, nor the
-  other expressions of a constraint yet. [`Input.lean`](Inox/Input.lean)
-  reads the constraints of a certificate's input and their encoded terms as
-  expressions of the semantics, for these expressions only, and
-  `covers_encoded` states the theorem for them: where the constraints that
-  are read all evaluate to `true` in a program, so do their encoded terms in
-  a program that defines the encoder's datatype as the encoder does, on
-  values of the free variables that are the same, or a bag and its encoding,
-  when both programs have the same equality on the elements.
+  that the elements have an equality that is an equivalence.
+  [`Encoded.lean`](Inox/Encoded.lean) puts them together for programs. The
+  values of the input relate to those of the encoded program by their kinds
+  (`Rel`): elements, integers and booleans are the same, a bag relates to its
+  encoding, and values of the sorts of the program and tuples relate field by
+  field. `encodes_eval` proves, by induction on the fuel, that when an
+  expression evaluates to a value in the program of the input, what the
+  encoder makes of it evaluates, with enough fuel, to a value that relates to
+  it in the encoded program. It covers variables, literals, sums,
+  differences, comparisons, equalities, connectives, conditionals, lets,
+  assumptions, the bag operations above, multiplicities, tuples, the
+  constructors, selectors and testers of the sorts of the program, and calls
+  of its functions, whose bodies in the encoded program are what the encoder
+  makes of their bodies in the input (`Funs`). It assumes the invariant of
+  the datatype as the encoder defines it, sorts of the program without
+  invariants nor equalities, one type of elements, which the type parameters
+  of functions and sorts are instantiated with, and doesn't cover bag
+  literals with elements, bags of bags, lambdas, quantifiers nor the other
+  theories yet. [`Input.lean`](Inox/Input.lean) reads the definitions and
+  the constraints of a certificate's input and what the encoders make of
+  them as expressions of the semantics, decides whether each encoded
+  expression is what the encoder makes of its expression (`encodesCheck`,
+  proven sound), and `covers_encoded` states the theorem for a certificate:
+  where the constraints that are covered all evaluate to `true` in a program
+  that has the functions of the input, so do their encoded terms in a
+  program that has their bodies after the encoders and defines the encoder's
+  datatype as the encoder does, on values of the free variables that relate.
   `inox-solution --input` says how many constraints of each certificate that
   covers, and what the first of the others has that isn't read. On the
-  corpus it covers none of the 36 constraints: 22 call functions of the
-  program or build its datatypes, 17 have quantifiers and 5 have lambdas,
-  and the two with bags have calls and datatypes too. Nor is
-  this theorem joined to `no_solution_of_reached` yet, whose program has
+  corpus it covers 1 of the 36 constraints, that of
+  `bags/split-preserves-content`, with its two recursive functions: 17 of
+  the others have quantifiers, 5 have lambdas, and the rest have sets, maps,
+  bitvectors, reals or sorts whose type arguments are not the elements. Nor
+  is this theorem joined to `no_solution_of_reached` yet, whose program has
   neither sorts with type parameters nor sorts with an equality.
 - **The link between the proof and the script.** The checker checks that each
   assumption of the proof is the text of an assert of the script, up to how

@@ -1,27 +1,28 @@
 /- Copyright 2009-2026 EPFL, Lausanne -/
 import Inox.Sexp
-import Inox.Bags
+import Inox.Encoded
 
 /-!
 # The input of a certificate in the semantics
 
-The `input` section of a certificate holds each constraint that the solver was given with the
-term that the encoders make of it. This module reads both as expressions of the semantics
+The `input` section of a certificate holds the definitions of the program that the solver was
+given and each constraint with the term that the encoders make of it, and the body of each
+function after the encoders. This module reads them as expressions of the semantics
 (`readExpr`), for the expressions that the theorem on the encoder of bags covers
-(`Inox.Bags.Encodes`), decides whether the second is what the encoder makes of the first
-(`encodesCheck`), and states what that gives (`input_encoded`): where the constraints of the
-input all evaluate to `true`, so do their encoded terms, in a program that defines the
-datatype of the encoder as the encoder does and on values of the free variables that relate.
+(`Inox.Encoded.Encodes`), decides whether an encoded expression is what the encoder makes of
+its expression (`encodesCheck`), and states what that gives for a certificate
+(`covers_encoded`): where its constraints all evaluate to `true` in a program that has the
+functions of the input, so do their encoded terms in a program that has their bodies after the
+encoders and that defines the datatype of the encoder as the encoder does, on values of the
+free variables that relate.
 
-`covers` says of a certificate how many of its constraints the theorem covers, and what the
-first of the others has that isn't read. It reads nothing else than variables, literals,
-sums, differences, comparisons, connectives, conditionals, lets, equalities and the operations
-of bags, so it tells which expressions the theorem has to cover next.
+`covers` says of a certificate which of its constraints the theorem covers, and what the first
+of the others has that isn't read.
 -/
 
 namespace Inox.Input
 
-open Inox.Semantics Inox.Bags Logos
+open Inox.Semantics Inox.Bags Inox.Encoded Logos
 
 /-- The types of elements that are read: `Int` and type parameters. -/
 def sameTy : Ty → Ty → Bool
@@ -42,69 +43,152 @@ theorem lookup_cons (x y : Id) (kx : Kind) (Γ : List (Id × Kind)) :
   · have hb : (y == x) = false := by simpa using h
     simp [List.lookup, h, hb]
 
-/-- Whether `e'` is what the encoder of bags makes of `e`, an expression of the kind `k`. -/
-def encodesCheck (N : Names) (Te : Ty) : List (Id × Kind) → Expr → Expr → Kind → Bool
-  | Γ, .Variable x, .Variable y, k => x == y && Γ.lookup x == some k
+theorem mem_of_lookup {β : Type} : ∀ {l : List (Id × β)} {c : Id} {v : β},
+    l.lookup c = some v → (c, v) ∈ l
+  | [], _, _, h => by simp at h
+  | (d, w) :: l, c, v, h => by
+    by_cases hcd : c = d
+    · subst hcd
+      simp [List.lookup] at h
+      simp [h]
+    · have hb : (c == d) = false := by simpa using hcd
+      simp only [List.lookup, hb] at h
+      exact List.mem_cons_of_mem _ (mem_of_lookup h)
+
+/-- A signature as the checks compute with it. -/
+structure CSig where
+  ctors : List (Id × Id × List (Id × Kind))
+  funs : List (Id × List Id × Ty × List Kind × Kind)
+
+def CSig.sig (S : CSig) : Sig where
+  ctors c := S.ctors.lookup c
+  funs f := S.funs.lookup f
+
+/-- Every constructor of the sort `s` that has the field `sel` has it of the kind `k`. -/
+def selOk (S : CSig) (s sel : Id) (k : Kind) : Bool :=
+  S.ctors.all fun (_, s2, fs) => s2 != s ||
+    match fieldKind fs sel with
+    | none => true
+    | some k' => kindEq k' k
+
+theorem selOk_sound {S : CSig} {s sel : Id} {k : Kind} (h : selOk S s sel k = true) :
+    ∀ c fs, S.sig.ctors c = some (s, fs) → ∀ k', fieldKind fs sel = some k' → k' = k := by
+  intro c fs hc k' hk'
+  have hmem : (c, s, fs) ∈ S.ctors := mem_of_lookup hc
+  have := List.all_eq_true.1 h _ hmem
+  simp [hk'] at this
+  exact kindEq_eq this
+
+theorem sizeOf_string_pos (c : String) : 0 < sizeOf c := by
+  cases c; simp +arith
+
+/-- Whether `e'` is what the encoder of bags makes of `e`, an expression of the kind `k`.
+`g` gives the kinds of subexpressions where the check needs one: the check holds for any `g`,
+and accepts more with one that gives the right kinds. -/
+def encodesCheck (N : Names) (S : CSig) (Te : Ty) (g : List (Id × Kind) → Expr → Kind) :
+    List (Id × Kind) → Expr → Expr → Kind → Bool
+  | Γ, .Variable x, .Variable y, k =>
+    x == y && (match Γ.lookup x with | some k' => kindEq k' k | none => false)
   | _, .IntegerLiteral n, .IntegerLiteral m, .int => n == m
   | _, .BooleanLiteral b, .BooleanLiteral c, .bool => b == c
   | Γ, .Plus a b, .Plus a' b', .int =>
-    encodesCheck N Te Γ a a' .int && encodesCheck N Te Γ b b' .int
+    encodesCheck N S Te g Γ a a' .int && encodesCheck N S Te g Γ b b' .int
   | Γ, .Minus a b, .Minus a' b', .int =>
-    encodesCheck N Te Γ a a' .int && encodesCheck N Te Γ b b' .int
+    encodesCheck N S Te g Γ a a' .int && encodesCheck N S Te g Γ b b' .int
   | Γ, .LessThan a b, .LessThan a' b', .bool =>
-    encodesCheck N Te Γ a a' .int && encodesCheck N Te Γ b b' .int
+    encodesCheck N S Te g Γ a a' .int && encodesCheck N S Te g Γ b b' .int
   | Γ, .GreaterThan a b, .GreaterThan a' b', .bool =>
-    encodesCheck N Te Γ a a' .int && encodesCheck N Te Γ b b' .int
+    encodesCheck N S Te g Γ a a' .int && encodesCheck N S Te g Γ b b' .int
   | Γ, .LessEquals a b, .LessEquals a' b', .bool =>
-    encodesCheck N Te Γ a a' .int && encodesCheck N Te Γ b b' .int
+    encodesCheck N S Te g Γ a a' .int && encodesCheck N S Te g Γ b b' .int
   | Γ, .GreaterEquals a b, .GreaterEquals a' b', .bool =>
-    encodesCheck N Te Γ a a' .int && encodesCheck N Te Γ b b' .int
+    encodesCheck N S Te g Γ a a' .int && encodesCheck N S Te g Γ b b' .int
+  | Γ, .Equals a b, .Equals a' b', .bool =>
+    encodesCheck N S Te g Γ a a' (g Γ a) && encodesCheck N S Te g Γ b b' (g Γ a)
+  | Γ, .Not a, .Not a', .bool => encodesCheck N S Te g Γ a a' .bool
+  | _, .And [], .And [], .bool => true
+  | Γ, .And (a :: as), .And (a' :: as'), .bool =>
+    encodesCheck N S Te g Γ a a' .bool && encodesCheck N S Te g Γ (.And as) (.And as') .bool
+  | _, .Or [], .Or [], .bool => true
+  | Γ, .Or (a :: as), .Or (a' :: as'), .bool =>
+    encodesCheck N S Te g Γ a a' .bool && encodesCheck N S Te g Γ (.Or as) (.Or as') .bool
+  | Γ, .Implies a b, .Implies a' b', .bool =>
+    encodesCheck N S Te g Γ a a' .bool && encodesCheck N S Te g Γ b b' .bool
+  | Γ, .IfExpr c a b, .IfExpr c' a' b', k =>
+    encodesCheck N S Te g Γ c c' .bool && encodesCheck N S Te g Γ a a' k &&
+      encodesCheck N S Te g Γ b b' k
+  | Γ, .Let x a b, .Let y a' b', k =>
+    x == y && encodesCheck N S Te g Γ a a' (g Γ a) &&
+      encodesCheck N S Te g ((x, g Γ a) :: Γ) b b' k
+  | Γ, .Assume p b, .Assume p' b', k =>
+    encodesCheck N S Te g Γ p p' .bool && encodesCheck N S Te g Γ b b' k
   | _, .FiniteBag [] _, .ADT c [t] [], .bag => c == N.leaf && sameTy t Te
   | Γ, .BagAdd b e,
       .ADT c [t] [.IntegerLiteral op, b', .ADT c2 [t2] [e', .IntegerLiteral one]], .bag =>
     c == N.node && sameTy t Te && op == 0 && c2 == N.elem && sameTy t2 Te && one == 1 &&
-      encodesCheck N Te Γ b b' .bag && encodesCheck N Te Γ e e' .elem
+      encodesCheck N S Te g Γ b b' .bag && encodesCheck N S Te g Γ e e' .elem
   | Γ, .BagUnion a b, .ADT c [t] [.IntegerLiteral op, a', b'], .bag =>
     c == N.node && sameTy t Te && op == 0 &&
-      encodesCheck N Te Γ a a' .bag && encodesCheck N Te Γ b b' .bag
+      encodesCheck N S Te g Γ a a' .bag && encodesCheck N S Te g Γ b b' .bag
   | Γ, .BagDifference a b, .ADT c [t] [.IntegerLiteral op, a', b'], .bag =>
     c == N.node && sameTy t Te && op == 1 &&
-      encodesCheck N Te Γ a a' .bag && encodesCheck N Te Γ b b' .bag
+      encodesCheck N S Te g Γ a a' .bag && encodesCheck N S Te g Γ b b' .bag
   | Γ, .BagIntersection a b, .ADT c [t] [.IntegerLiteral op, a', b'], .bag =>
     c == N.node && sameTy t Te && op == 2 &&
-      encodesCheck N Te Γ a a' .bag && encodesCheck N Te Γ b b' .bag
-  | Γ, .MultiplicityInBag e b, .FunctionInvocation g [t] [b', e'], .int =>
-    g == N.get && sameTy t Te && encodesCheck N Te Γ e e' .elem && encodesCheck N Te Γ b b' .bag
-  | Γ, .Equals a b, .Equals a' b', .bool =>
-    (encodesCheck N Te Γ a a' .bag && encodesCheck N Te Γ b b' .bag) ||
-      (encodesCheck N Te Γ a a' .int && encodesCheck N Te Γ b b' .int)
-  | Γ, .Not a, .Not a', .bool => encodesCheck N Te Γ a a' .bool
-  | _, .And [], .And [], .bool => true
-  | Γ, .And (a :: as), .And (a' :: as'), .bool =>
-    encodesCheck N Te Γ a a' .bool && encodesCheck N Te Γ (.And as) (.And as') .bool
-  | _, .Or [], .Or [], .bool => true
-  | Γ, .Or (a :: as), .Or (a' :: as'), .bool =>
-    encodesCheck N Te Γ a a' .bool && encodesCheck N Te Γ (.Or as) (.Or as') .bool
-  | Γ, .Implies a b, .Implies a' b', .bool =>
-    encodesCheck N Te Γ a a' .bool && encodesCheck N Te Γ b b' .bool
-  | Γ, .IfExpr c a b, .IfExpr c' a' b', k =>
-    encodesCheck N Te Γ c c' .bool && encodesCheck N Te Γ a a' k && encodesCheck N Te Γ b b' k
-  | Γ, .Let x a b, .Let y a' b', k =>
-    x == y &&
-      ((encodesCheck N Te Γ a a' .elem && encodesCheck N Te ((x, .elem) :: Γ) b b' k) ||
-        (encodesCheck N Te Γ a a' .int && encodesCheck N Te ((x, .int) :: Γ) b b' k) ||
-        (encodesCheck N Te Γ a a' .bool && encodesCheck N Te ((x, .bool) :: Γ) b b' k) ||
-        (encodesCheck N Te Γ a a' .bag && encodesCheck N Te ((x, .bag) :: Γ) b b' k))
+      encodesCheck N S Te g Γ a a' .bag && encodesCheck N S Te g Γ b b' .bag
+  | Γ, .MultiplicityInBag e b, .FunctionInvocation f [t] [b', e'], .int =>
+    f == N.get && sameTy t Te && encodesCheck N S Te g Γ e e' .elem &&
+      encodesCheck N S Te g Γ b b' .bag
+  | _, .Tuple [], .Tuple [], .tuple [] => true
+  | Γ, .Tuple (e :: es), .Tuple (e' :: es'), .tuple (k :: ks) =>
+    encodesCheck N S Te g Γ e e' k &&
+      encodesCheck N S Te g Γ (.Tuple es) (.Tuple es') (.tuple ks)
+  | Γ, .TupleSelect t i, .TupleSelect t' j, k =>
+    i == j && (match g Γ t with
+      | .tuple ks =>
+        (match nthKind ks i with | some k' => kindEq k' k | none => false) &&
+          encodesCheck N S Te g Γ t t' (.tuple ks)
+      | _ => false)
+  | Γ, .ADT c _ es, .ADT c' _ es', .adt s =>
+    c == c' && (match S.ctors.lookup c with
+      | some (s2, fs) =>
+        s == s2 && encodesCheck N S Te g Γ (.Tuple es) (.Tuple es') (.tuple (fs.map Prod.snd))
+      | none => false)
+  | Γ, .ADTSelector e sel, .ADTSelector e' sel', k =>
+    sel == sel' && (match g Γ e with
+      | .adt s => selOk S s sel k && encodesCheck N S Te g Γ e e' (.adt s)
+      | _ => false)
+  | Γ, .IsConstructor e c, .IsConstructor e' c', .bool =>
+    c == c' && (match g Γ e with
+      | .adt s => encodesCheck N S Te g Γ e e' (.adt s)
+      | _ => false)
+  | Γ, .FunctionInvocation f _ es, .FunctionInvocation f' tps' es', k =>
+    f == f' && (match S.funs.lookup f, tps' with
+      | some ([A], .TypeParameter B, ks, k2), [t] =>
+        A == B && sameTy t Te && kindEq k2 k &&
+          encodesCheck N S Te g Γ (.Tuple es) (.Tuple es') (.tuple ks)
+      | some ([], _, ks, k2), [] =>
+        kindEq k2 k && encodesCheck N S Te g Γ (.Tuple es) (.Tuple es') (.tuple ks)
+      | _, _ => false)
   | _, _, _, _ => false
 termination_by _ e => sizeOf e
-decreasing_by all_goals (simp_wf; try omega)
+decreasing_by
+  all_goals simp_wf
+  all_goals first
+    | omega
+    | (have := sizeOf_string_pos c; omega)
+    | (have := sizeOf_string_pos f; omega)
 
-theorem encodesCheck_sound {N : Names} {Γ : List (Id × Kind)} {Te : Ty} {e e' : Expr} {k : Kind} :
-    encodesCheck N Te Γ e e' k = true → Encodes N Te (fun x => Γ.lookup x) e e' k := by
-  fun_induction encodesCheck N Te Γ e e' k <;> intro h
+theorem encodesCheck_sound {N : Names} {S : CSig} {Te : Ty}
+    {g : List (Id × Kind) → Expr → Kind} {Γ : List (Id × Kind)} {e e' : Expr} {k : Kind} :
+    encodesCheck N S Te g Γ e e' k = true →
+      Encodes N S.sig Te (fun x => Γ.lookup x) e e' k := by
+  fun_induction encodesCheck N S Te g Γ e e' k <;> intro h
   · simp only [Bool.and_eq_true, beq_iff_eq] at h
     obtain ⟨rfl, hk⟩ := h
-    exact .var _ _ hk
+    split at hk
+    · next k' hl => cases kindEq_eq hk; exact .var _ _ hl
+    · cases hk
   · simp only [beq_iff_eq] at h
     subst h
     exact .int _
@@ -129,6 +213,32 @@ theorem encodesCheck_sound {N : Names} {Γ : List (Id × Kind)} {Te : Ty} {e e' 
   · next iha ihb =>
     simp only [Bool.and_eq_true] at h
     exact .ge (iha h.1) (ihb h.2)
+  · next iha ihb =>
+    simp only [Bool.and_eq_true] at h
+    exact .eq (iha h.1) (ihb h.2)
+  · next iha => exact .not (iha h)
+  · exact .andNil
+  · next iha ihb =>
+    simp only [Bool.and_eq_true] at h
+    exact .andCons (iha h.1) (ihb h.2)
+  · exact .orNil
+  · next iha ihb =>
+    simp only [Bool.and_eq_true] at h
+    exact .orCons (iha h.1) (ihb h.2)
+  · next iha ihb =>
+    simp only [Bool.and_eq_true] at h
+    exact .implies (iha h.1) (ihb h.2)
+  · next ihc iha ihb =>
+    simp only [Bool.and_eq_true] at h
+    exact .ite (ihc h.1.1) (iha h.1.2) (ihb h.2)
+  · next iha ihb =>
+    simp only [Bool.and_eq_true, beq_iff_eq] at h
+    obtain ⟨⟨rfl, ha⟩, hb⟩ := h
+    simp only [lookup_cons] at ihb
+    exact .let_ _ (iha ha) (ihb hb)
+  · next iha ihb =>
+    simp only [Bool.and_eq_true] at h
+    exact .assume (iha h.1) (ihb h.2)
   · simp only [Bool.and_eq_true, beq_iff_eq] at h
     obtain ⟨rfl, ht⟩ := h
     cases sameTy_eq ht
@@ -159,76 +269,122 @@ theorem encodesCheck_sound {N : Names} {Γ : List (Id × Kind)} {Te : Ty} {e e' 
     obtain ⟨⟨⟨rfl, ht⟩, he⟩, hb⟩ := h
     cases sameTy_eq ht
     exact .mult (ihe he) (ihb hb)
-  · next iha ihb iha' ihb' =>
-    simp only [Bool.and_eq_true, Bool.or_eq_true] at h
-    rcases h with ⟨ha, hb⟩ | ⟨ha, hb⟩
-    · exact .eqBag (iha ha) (ihb hb)
-    · exact .eqInt (iha' ha) (ihb' hb)
-  · next iha => exact .not (iha h)
-  · exact .andNil
-  · next iha ihr =>
-    simp only [Bool.and_eq_true] at h
-    exact .andCons (iha h.1) (ihr h.2)
-  · exact .orNil
-  · next iha ihr =>
-    simp only [Bool.and_eq_true] at h
-    exact .orCons (iha h.1) (ihr h.2)
+  · exact .tupleNil
   · next iha ihb =>
     simp only [Bool.and_eq_true] at h
-    exact .implies (iha h.1) (ihb h.2)
-  · next ihc iha ihb =>
-    simp only [Bool.and_eq_true] at h
-    exact .ite (ihc h.1.1) (iha h.1.2) (ihb h.2)
-  · next a1 b1 a2 b2 a3 b3 a4 b4 =>
-    simp only [Bool.and_eq_true, Bool.or_eq_true, beq_iff_eq] at h
+    exact .tupleCons (iha h.1) (ihb h.2)
+  · next ih =>
+    simp only [Bool.and_eq_true, beq_iff_eq] at h
     obtain ⟨rfl, h⟩ := h
-    simp only [lookup_cons] at b1 b2 b3 b4
-    rcases h with ((⟨ha, hb⟩ | ⟨ha, hb⟩) | ⟨ha, hb⟩) | ⟨ha, hb⟩
-    · exact .let_ _ (a1 ha) (b1 hb)
-    · exact .let_ _ (a2 ha) (b2 hb)
-    · exact .let_ _ (a3 ha) (b3 hb)
-    · exact .let_ _ (a4 ha) (b4 hb)
+    split at h
+    · next ks hg =>
+      simp only [Bool.and_eq_true] at h
+      obtain ⟨hk, ht⟩ := h
+      split at hk
+      · next k' hn => cases kindEq_eq hk; exact .tupleSelect _ (ih ks ht) hn
+      · cases hk
+    · cases h
+  · next ih =>
+    simp only [Bool.and_eq_true, beq_iff_eq] at h
+    obtain ⟨rfl, h⟩ := h
+    split at h
+    · next s2 fs hl =>
+      simp only [Bool.and_eq_true, beq_iff_eq] at h
+      obtain ⟨rfl, ha⟩ := h
+      exact .adt _ _ hl (ih fs ha)
+    · cases h
+  · next ih =>
+    simp only [Bool.and_eq_true, beq_iff_eq] at h
+    obtain ⟨rfl, h⟩ := h
+    split at h
+    · next s hg =>
+      simp only [Bool.and_eq_true] at h
+      exact .sel _ (ih s h.2) (selOk_sound h.1)
+    · cases h
+  · next ih =>
+    simp only [Bool.and_eq_true, beq_iff_eq] at h
+    obtain ⟨rfl, h⟩ := h
+    split at h
+    · next s hg => exact .isCtor _ (ih s h)
+    · cases h
+  · next ih =>
+    simp only [Bool.and_eq_true, beq_iff_eq] at h
+    obtain ⟨rfl, h⟩ := h
+    split at h
+    · next A B ks k2 t hl =>
+      simp only [Bool.and_eq_true, beq_iff_eq] at h
+      obtain ⟨⟨⟨rfl, ht⟩, hk⟩, ha⟩ := h
+      cases sameTy_eq ht
+      cases kindEq_eq hk
+      exact .callPoly _ hl (ih ks ha)
+    · next Tf ks k2 hl =>
+      simp only [Bool.and_eq_true] at h
+      cases kindEq_eq h.1
+      exact .callMono _ hl (ih ks h.2)
+    · cases h
   · cases h
-
-/-- Where the constraints of the input all evaluate to `true` in the program `Ps` of the input,
-so do their encoded terms in the encoded program `P`: it defines the datatype of the encoder,
-its `get`, its invariant and its equality as the encoder does, the values of the free variables
-are the same in both, or a bag and its encoding (`hΓ`), and both programs have the same
-equality on the elements. -/
-theorem input_encoded {O : Oracle} (hO : O.Sound) {P : Program} {N : Names} (hN : N.Distinct)
-    (hP : HasBags N P) {inv bi eq b1 b2 : Id} (hS : HasSort N inv bi eq P)
-    (hQ : HasEquals N eq b1 b2 P) (h1x : b1 ≠ N.x) (h2x : b2 ≠ N.x) (h12 : b1 ≠ b2)
-    {K : Value → Prop} {E : Value → Value → Bool} (hE : KeyEq O P K E) {Ps : Program}
-    (hEs : KeyEq O Ps K E) {T0 Te : Ty}
-    (hK : ∀ bs vs, O.params_have_types P (Env.Env (bind_types [N.T] [T0] []) bs) vs
-        [.Param N.x (.TypeParameter N.T)] = true ↔ ∃ v, vs = [v] ∧ K v)
-    {env env' : Env} (hT : O.resolve_all (env_types env') [Te] = [T0])
-    {Γ : List (Id × Kind)}
-    (hΓ : ∀ x k, Γ.lookup x = some k → ∃ v v', lookup_var (env_vars env) x = .Ok v ∧
-      lookup_var (env_vars env') x = .Ok v' ∧ Rel O P N K E T0 k v v')
-    {cs : List (Expr × Expr)} (hc : ∀ p ∈ cs, encodesCheck N Te Γ p.1 p.2 .bool = true)
-    (hsol : ∀ p ∈ cs, ∃ n, eval O Ps n env p.1 = .Ok (.BoolV true)) :
-    ∀ p ∈ cs, ∃ n, eval O P n env' p.2 = .Ok (.BoolV true) := by
-  intro p hp
-  obtain ⟨n, hn⟩ := hsol p hp
-  obtain ⟨_, m, ⟨rfl, _⟩, hm⟩ := encodes_eval hO hN hP hS hQ h1x h2x h12 hE hEs hK
-    (encodesCheck_sound (hc p hp)) env env' hT hΓ n _ hn
-  exact ⟨m, hm m (Int.le_refl m)⟩
 
 /-! ## Reading the input -/
 
-/-- A symbol without its number. -/
-def base (a : String) : String := String.ofList (a.toList.takeWhile (· != '!'))
+instance : Inhabited Kind := ⟨.int⟩
 
-/-- The type of the elements that `s` reads as. -/
-def readTy : Sexp → Except String Ty
-  | .atom "Int" => .ok .IntegerType
-  | .atom a => if a.contains '!' then .ok (.TypeParameter a) else .error a
-  | .expr (.atom a :: _) => .error a
-  | _ => .error "a type"
+/-- The text of a string literal, up to a `[`. -/
+def described (d : String) : String :=
+  String.ofList (((d.toList.drop 1).dropLast).takeWhile (· != '['))
+
+/-- A table of symbols: each symbol with its kind and what it is described with. -/
+structure Table where
+  rows : List (String × String × List String)
+
+def Table.of (symbols : List Sexp) : Table :=
+  ⟨symbols.filterMap fun
+    | .expr (.atom a :: .atom kind :: rest) =>
+      some (a, kind, rest.filterMap fun | .atom d => some (described d) | _ => none)
+    | _ => none⟩
+
+def Table.kind (t : Table) (a : String) : String := ((t.rows.lookup a).map (·.1)).getD ""
+
+/-- The identifier of a constructor, a sort or a function, and the symbol itself otherwise. -/
+def Table.id (t : Table) (a : String) : Id :=
+  match t.rows.lookup a with
+  | some (kind, d :: _) => if kind == "variable" then a else d
+  | _ => a
+
+/-- The name of the field of a selector: its constructor and its index. -/
+def Table.field (t : Table) (a : String) : Id :=
+  match t.rows.lookup a with
+  | some (_, c :: rest) => c ++ "." ++ rest.getLast!
+  | _ => a
+
+/-- What an expression is read with: the table of its symbols and the sort of the elements. -/
+structure Ctx where
+  table : Table
+  elem : String
+
+/-- The kind of a sort of the input. -/
+def kindOfSort (c : Ctx) : Nat → Sexp → Except String Kind
+  | 0, _ => .error "a sort too deep"
+  | n + 1, s =>
+    match s with
+    | .atom "Int" => .ok .int
+    | .atom "Bool" => .ok .bool
+    | .atom a => if a == c.elem then .ok .elem else .error s!"the sort {a}"
+    | .expr [.atom "Bag", x] =>
+      if x == .atom c.elem then .ok .bag else .error "a bag of other than elements"
+    | .expr (.atom "Tuple" :: xs) => do pure (.tuple (← xs.mapM (kindOfSort c n)))
+    | .expr (.atom a :: xs) =>
+      if c.table.kind a == "sort" && xs.all (· == .atom c.elem) then .ok (.adt (c.table.id a))
+      else .error s!"the sort {a}"
+    | _ => .error "a sort"
+
+/-- The type that a sort is read as, where the checks compare types: `Int` and the atoms. -/
+def readTy : Sexp → Ty
+  | .atom "Int" => .IntegerType
+  | .atom a => .TypeParameter a
+  | _ => .UnitType
 
 /-- The expression that `s` reads as, or what it has that isn't read. -/
-def readExpr : Nat → Sexp → Except String Expr
+def readExpr (c : Ctx) : Nat → Sexp → Except String Expr
   | 0, _ => .error "a term too deep"
   | n + 1, s =>
     match s with
@@ -238,166 +394,348 @@ def readExpr : Nat → Sexp → Except String Expr
       else if a == "false" then .ok (.BooleanLiteral false)
       else if a.contains '!' then .ok (.Variable a)
       else .error a
-    | .expr [.atom "not", a] => do pure (.Not (← readExpr n a))
-    | .expr [.atom "+", a, b] => do pure (.Plus (← readExpr n a) (← readExpr n b))
-    | .expr [.atom "-", a, b] => do pure (.Minus (← readExpr n a) (← readExpr n b))
-    | .expr [.atom "<", a, b] => do pure (.LessThan (← readExpr n a) (← readExpr n b))
-    | .expr [.atom ">", a, b] => do pure (.GreaterThan (← readExpr n a) (← readExpr n b))
-    | .expr [.atom "<=", a, b] => do pure (.LessEquals (← readExpr n a) (← readExpr n b))
-    | .expr [.atom ">=", a, b] => do pure (.GreaterEquals (← readExpr n a) (← readExpr n b))
-    | .expr (.atom "and" :: as) => do pure (.And (← as.mapM (readExpr n)))
-    | .expr (.atom "or" :: as) => do pure (.Or (← as.mapM (readExpr n)))
-    | .expr [.atom "=>", a, b] => do pure (.Implies (← readExpr n a) (← readExpr n b))
-    | .expr [.atom "ite", c, a, b] => do
-      pure (.IfExpr (← readExpr n c) (← readExpr n a) (← readExpr n b))
+    | .expr [.atom "not", a] => do pure (.Not (← readExpr c n a))
+    | .expr [.atom "+", a, b] => do pure (.Plus (← readExpr c n a) (← readExpr c n b))
+    | .expr [.atom "-", a, b] => do pure (.Minus (← readExpr c n a) (← readExpr c n b))
+    | .expr [.atom "<", a, b] => do pure (.LessThan (← readExpr c n a) (← readExpr c n b))
+    | .expr [.atom ">", a, b] => do pure (.GreaterThan (← readExpr c n a) (← readExpr c n b))
+    | .expr [.atom "<=", a, b] => do pure (.LessEquals (← readExpr c n a) (← readExpr c n b))
+    | .expr [.atom ">=", a, b] => do
+      pure (.GreaterEquals (← readExpr c n a) (← readExpr c n b))
+    | .expr [.atom "=", a, b] => do pure (.Equals (← readExpr c n a) (← readExpr c n b))
+    | .expr (.atom "and" :: as) => do pure (.And (← as.mapM (readExpr c n)))
+    | .expr (.atom "or" :: as) => do pure (.Or (← as.mapM (readExpr c n)))
+    | .expr [.atom "=>", a, b] => do pure (.Implies (← readExpr c n a) (← readExpr c n b))
+    | .expr [.atom "ite", i, a, b] => do
+      pure (.IfExpr (← readExpr c n i) (← readExpr c n a) (← readExpr c n b))
     | .expr [.atom "let", .expr [.expr [.atom x, a]], b] => do
-      pure (.Let x (← readExpr n a) (← readExpr n b))
-    | .expr [.atom "=", a, b] => do pure (.Equals (← readExpr n a) (← readExpr n b))
-    | .expr [.atom "as", .atom "bag.empty", t] => do pure (.FiniteBag [] (← readTy t))
-    | .expr [.atom "bag.insert", b, e] => do pure (.BagAdd (← readExpr n b) (← readExpr n e))
-    | .expr [.atom "bag.union", a, b] => do pure (.BagUnion (← readExpr n a) (← readExpr n b))
+      pure (.Let x (← readExpr c n a) (← readExpr c n b))
+    | .expr [.atom "assume", p, b] => do pure (.Assume (← readExpr c n p) (← readExpr c n b))
+    | .expr [.atom "as", .atom "bag.empty", t] => pure (.FiniteBag [] (readTy t))
+    | .expr [.atom "bag.insert", b, e] => do
+      pure (.BagAdd (← readExpr c n b) (← readExpr c n e))
+    | .expr [.atom "bag.union", a, b] => do
+      pure (.BagUnion (← readExpr c n a) (← readExpr c n b))
     | .expr [.atom "bag.difference", a, b] => do
-      pure (.BagDifference (← readExpr n a) (← readExpr n b))
+      pure (.BagDifference (← readExpr c n a) (← readExpr c n b))
     | .expr [.atom "bag.intersection", a, b] => do
-      pure (.BagIntersection (← readExpr n a) (← readExpr n b))
+      pure (.BagIntersection (← readExpr c n a) (← readExpr c n b))
     | .expr [.atom "bag.multiplicity", e, b] => do
-      pure (.MultiplicityInBag (← readExpr n e) (← readExpr n b))
-    | .expr [.atom "as", .atom c, .expr [.atom _, t]] => do pure (.ADT c [← readTy t] [])
-    | .expr (.expr [.atom "as", .atom c, .expr [.atom _, t]] :: args) => do
-      pure (.ADT c [← readTy t] (← args.mapM (readExpr n)))
-    | .expr (.expr [.atom "as", .atom f, .expr [t]] :: args) => do
-      pure (.FunctionInvocation f [← readTy t] (← args.mapM (readExpr n)))
+      pure (.MultiplicityInBag (← readExpr c n e) (← readExpr c n b))
+    | .expr [.expr [.atom "as", .expr [.atom "_", .atom "is", .atom k], _], e] => do
+      pure (.IsConstructor (← readExpr c n e) (c.table.id k))
+    | .expr [.expr [.atom "as", .expr [.atom "_", .atom "tuple.select", .atom i], _], e] => do
+      pure (.TupleSelect (← readExpr c n e) (i.toNat! + 1))
+    | .expr (.expr [.atom "as", .atom "tuple", _] :: args) => do
+      pure (.Tuple (← args.mapM (readExpr c n)))
+    | .expr [.atom "as", .atom k, .expr (.atom _ :: ts)] =>
+      if c.table.kind k == "constructor" then pure (.ADT (c.table.id k) (ts.map readTy) [])
+      else .error (c.table.kind k ++ " " ++ k)
+    | .expr (.expr [.atom "as", .atom k, .expr ts] :: args) => do
+      let args ← args.mapM (readExpr c n)
+      match c.table.kind k, args with
+      | "constructor", _ => pure (.ADT (c.table.id k) ((ts.drop 1).map readTy) args)
+      | "selector", [e] => pure (.ADTSelector e (c.table.field k))
+      | "function", _ => pure (.FunctionInvocation (c.table.id k) (ts.map readTy) args)
+      | kind, _ => .error (kind ++ " " ++ k)
     | .expr (.atom a :: _) => .error a
-    | .expr (.expr [.atom "as", .atom a, _] :: _) => .error (base a)
+    | .expr (.expr [.atom "as", .atom a, _] :: _) => .error a
     | .expr (.expr [.atom "as", .expr (.atom "_" :: .atom a :: _), _] :: _) => .error a
     | _ => .error "a term"
 
-/-- The kinds that the free variables of `e`, of the kind `k`, have to have. An equality is of
-bags when a side is an operation of bags, and of integers otherwise. -/
-partial def kinds : Expr → Kind → List (Id × Kind)
-  | .Variable x, k => [(x, k)]
-  | .Plus a b, _ | .Minus a b, _ | .LessThan a b, _ | .GreaterThan a b, _ | .LessEquals a b, _
-  | .GreaterEquals a b, _ => kinds a .int ++ kinds b .int
-  | .BagAdd b e, _ => kinds b .bag ++ kinds e .elem
-  | .BagUnion a b, _ | .BagDifference a b, _ | .BagIntersection a b, _ =>
-    kinds a .bag ++ kinds b .bag
-  | .MultiplicityInBag e b, _ => kinds e .elem ++ kinds b .bag
-  | .Equals a b, _ =>
-    let isBag : Expr → Bool
-      | .FiniteBag _ _ | .BagAdd _ _ | .BagUnion _ _ | .BagDifference _ _
-      | .BagIntersection _ _ => true
-      | _ => false
-    let k := if isBag a || isBag b then Kind.bag else Kind.int
-    kinds a k ++ kinds b k
-  | .Not a, _ => kinds a .bool
-  | .And as, _ | .Or as, _ => as.flatMap (kinds · .bool)
-  | .Implies a b, _ => kinds a .bool ++ kinds b .bool
-  | .IfExpr c a b, k => kinds c .bool ++ kinds a k ++ kinds b k
-  | .Let x a b, k =>
-    let body := kinds b k
-    kinds a ((body.lookup x).getD .int) ++ body.filter (·.1 != x)
-  | _, _ => []
+/-- The kind of a field of some constructor of the sort `s`. -/
+def fieldOf (S : CSig) (s sel : Id) : Option Kind :=
+  S.ctors.findSome? fun (_, s2, fs) => if s2 == s then fieldKind fs sel else none
 
-/-- The atoms of `s`. -/
-def atoms : Nat → Sexp → List String
-  | 0, _ => []
-  | _ + 1, .atom a => [a]
-  | n + 1, .expr l => l.flatMap (atoms n)
+/-- The kind that an expression of the input has, where it is of the fragment. -/
+partial def kindOf (S : CSig) (Γ : List (Id × Kind)) : Expr → Kind
+  | .Variable x => (Γ.lookup x).getD .int
+  | .BooleanLiteral _ | .LessThan _ _ | .GreaterThan _ _ | .LessEquals _ _
+  | .GreaterEquals _ _ | .Equals _ _ | .Not _ | .And _ | .Or _ | .Implies _ _
+  | .IsConstructor _ _ => .bool
+  | .FiniteBag _ _ | .BagAdd _ _ | .BagUnion _ _ | .BagDifference _ _
+  | .BagIntersection _ _ => .bag
+  | .IfExpr _ a _ => kindOf S Γ a
+  | .Let x a b => kindOf S ((x, kindOf S Γ a) :: Γ) b
+  | .Assume _ b => kindOf S Γ b
+  | .Tuple es => .tuple (es.map (kindOf S Γ))
+  | .TupleSelect t i =>
+    match kindOf S Γ t with
+    | .tuple ks => (nthKind ks i).getD .int
+    | _ => .int
+  | .ADT c _ _ => .adt (((S.ctors.lookup c).map (·.1)).getD "")
+  | .ADTSelector e sel =>
+    match kindOf S Γ e with
+    | .adt s => (fieldOf S s sel).getD .int
+    | _ => .int
+  | .FunctionInvocation f _ _ => ((S.funs.lookup f).map (·.2.2.2)).getD .int
+  | _ => .int
 
-/-- The names of the encoder in the encoded terms: the symbols `Node`, `Elem`, `Leaf` and
-`get`, whatever their numbers. The other names are not in the terms of constraints. -/
-def namesOf (encoded : List Sexp) : Names :=
-  let all := encoded.flatMap (atoms 1000)
-  let find (name : String) := (all.find? fun a => base a == name).getD name
-  { bag := "Bag", node := find "Node", elem := find "Elem", leaf := find "Leaf", op := "op",
-    left := "left", right := "right", key := "key", value := "value", get := find "get",
-    T := "T", b := "b", x := "x", v1 := "v1", v2 := "v2" }
-
-/-- The constraints of the `input` section of a certificate, each with its encoded term. -/
-def constraintsOf (certificate : Sexp) : List (Sexp × Sexp) :=
+/-- The sections of a certificate of the given name. -/
+def sectionOf (certificate : Sexp) (name : String) : List Sexp :=
   match certificate with
   | .expr sections => sections.flatMap fun
-    | .expr (.atom "input" :: input) => input.filterMap fun
-      | .expr (.atom "constraint" :: i :: .expr [.atom "encoded", e] :: _) => some (i, e)
-      | _ => none
+    | .expr (.atom a :: rest) => if a == name then rest else []
     | _ => []
   | _ => []
 
-/-- The type of the elements of the bags of an encoded expression: that of its first value of
-the encoder's datatype or call of `get`. -/
-partial def elemTy : Expr → Option Ty
-  | .ADT _ [t] _ => some t
-  | .FunctionInvocation _ [t] _ => some t
-  | .Not a => elemTy a
-  | .Equals a b | .Plus a b | .Minus a b | .LessThan a b | .GreaterThan a b | .LessEquals a b
-  | .GreaterEquals a b | .Implies a b | .Let _ a b => (elemTy a).orElse fun _ => elemTy b
-  | .And as | .Or as => as.findSome? elemTy
-  | .IfExpr c a b => (elemTy c).orElse fun _ => (elemTy a).orElse fun _ => elemTy b
-  | _ => none
+/-- The constructors that the declarations of datatypes of the input give, with their sort
+and the names and the kinds of their fields. -/
+def ctorsOf (t : Table) (definitions : List Sexp) :
+    List (Id × Id × List (Id × Kind)) :=
+  definitions.flatMap fun
+    | .expr [.atom "declare-datatypes", .expr [.expr [.atom sort, _]], .expr [decl]] =>
+      let (elem, ctors) := match decl with
+        | .expr [.atom "par", .expr [.atom a], .expr ctors] => (a, ctors)
+        | .expr ctors => ("", ctors)
+        | _ => ("", [])
+      ctors.filterMap fun
+        | .expr (.atom k :: fields) =>
+          let fs := fields.mapM fun
+            | .expr [.atom f, sort] =>
+              match kindOfSort ⟨t, elem⟩ 100 sort with
+              | .ok kind => some (t.field f, kind)
+              | .error _ => none
+            | _ => none
+          fs.map fun fs => (t.id k, t.id sort, fs)
+        | _ => none
+    | _ => []
 
-/-- What `input_encoded` is about for a certificate: the names of the encoder, the kinds of
-the free variables, the type of the elements, and the constraints that are read and that the
-check accepts. It also gives the number of constraints, and what the first that isn't covered
-has that isn't read. -/
+/-- A function of the input as it is read: its name, its type parameters, the type of the
+elements in its body, the kinds of its parameters and of its result, its parameters and its
+body. -/
+structure Fun where
+  name : Id
+  tparams : List Id
+  elem : Ty
+  kinds : List Kind
+  kind : Kind
+  params : List Id
+  body : Sexp
+  ctx : Ctx
+
+/-- The entry of a function in a signature. -/
+def Fun.entry (f : Fun) : Id × List Id × Ty × List Kind × Kind :=
+  (f.name, f.tparams, f.elem, f.kinds, f.kind)
+
+/-- The functions that the definitions of the input give, where their sorts have kinds. -/
+def funsOf (t : Table) (top : String) (definitions : List Sexp) : List Fun :=
+  definitions.filterMap fun d =>
+    let read (tparams : List String) (elem : String) (f : String) (params : List Sexp)
+        (ret body : Sexp) : Option Fun :=
+      let c : Ctx := ⟨t, elem⟩
+      match params.mapM fun
+        | .expr [.atom p, sort] => (kindOfSort c 100 sort).toOption.map fun k => (p, k)
+        | _ => none, (kindOfSort c 100 ret).toOption with
+      | some ps, some k =>
+        some ⟨t.id f, tparams, .TypeParameter elem, ps.map (·.2), k, ps.map (·.1), body, c⟩
+      | _, _ => none
+    match d with
+    | .expr [.atom def_, .expr [.atom "par", .expr [.atom a],
+        .expr [.atom f, .expr params, ret, body]]] =>
+      if def_ == "define-fun" || def_ == "define-fun-rec" then read [a] a f params ret body
+      else none
+    | .expr [.atom def_, .atom f, .expr params, ret, body] =>
+      if def_ == "define-fun" || def_ == "define-fun-rec" then read [] top f params ret body
+      else none
+    | _ => none
+
+/-- The body of each function after the encoders, as the `function` lines of the input give
+it, by the symbol of the function. -/
+def encodedBodies (input : List Sexp) : List (String × Sexp) :=
+  input.filterMap fun
+    | .expr (.atom "function" :: head :: .expr [.atom "encoded", body] :: _) =>
+      let name := match head with
+        | .expr (.expr [.atom "as", .atom f, _] :: _) => some f
+        | .expr [.atom "as", .atom f, _] => some f
+        | .expr (.atom f :: _) => some f
+        | .atom f => some f
+        | _ => none
+      name.map fun f => (f, body)
+    | _ => none
+
+/-- The first sort of a free variable of the input that is a symbol without a declaration:
+the type parameter that the elements are of. -/
+def elemOf (symbols : List Sexp) : String :=
+  let rec atoms : Nat → Sexp → List String
+    | 0, _ => []
+    | _ + 1, .atom a => [a]
+    | n + 1, .expr l => l.flatMap (atoms n)
+  let t := Table.of symbols
+  let sorts := symbols.flatMap fun
+    | .expr [.atom _, .atom "variable", _, _, sort] => atoms 100 sort
+    | _ => []
+  (sorts.find? fun a => a.contains '!' && t.kind a == "").getD ""
+
+/-- The names of the encoder: the identifiers of its constructors and of `get` in the table
+of the encoded program. The other names are not in the terms that are checked. -/
+def namesOf (t : Table) : Names :=
+  let find (kind name : String) :=
+    ((t.rows.find? fun (_, k, ds) => k == kind &&
+      (ds.head?.map fun d => String.ofList (d.toList.takeWhile (· != '$'))) == some name).bind
+        fun (_, _, ds) => ds.head?).getD name
+  { bag := "Bag", node := find "constructor" "Node", elem := find "constructor" "Elem",
+    leaf := find "constructor" "Leaf", op := "op", left := "left", right := "right",
+    key := "key", value := "value", get := find "function" "get", T := "T", b := "b",
+    x := "x", v1 := "v1", v2 := "v2" }
+
+/-- What `covers_encoded` is about for a certificate: the names of the encoder, the signature
+of the input, its functions with their bodies in the input and after the encoders, the type
+of the elements and the kinds of the free variables of the constraints, and the constraints
+that are read and that the check accepts, with their encoded terms. It also gives the number
+of constraints, and what the first that isn't covered has that isn't read. -/
 structure Coverage where
   names : Names
-  vars : List (Id × Kind)
+  sig : CSig
+  defs : List (Id × List Id × Expr × Expr)
   elem : Ty
+  vars : List (Id × Kind)
   covered : List (Expr × Expr)
   constraints : Nat
   first : Option String
 
+/-- Whether the body after the encoders of each function of the signature is what the
+encoder makes of its body in the input. -/
+def defsCheck (N : Names) (S : CSig) (defs : List (Id × List Id × Expr × Expr)) : Bool :=
+  S.funs.all fun (f, _, Tf, ks, k) =>
+    match defs.lookup f with
+    | some (params, body, body') =>
+      encodesCheck N S Tf (kindOf S) (params.zip ks) body body' k
+    | none => false
+
+def Coverage.none (n : Nat) (why : String) : Coverage :=
+  { names := namesOf ⟨[]⟩, sig := ⟨[], []⟩, defs := [], elem := .UnitType, vars := [],
+    covered := [], constraints := n, first := some why }
+
+/-- What the checks give of a coverage. -/
+def Coverage.Ok (C : Coverage) : Prop :=
+  defsCheck C.names C.sig C.defs = true ∧
+    ∀ p ∈ C.covered,
+      encodesCheck C.names C.sig C.elem (kindOf C.sig) C.vars p.1 p.2 .bool = true
+
+/-- The coverage of the constraints among `pairs` that the check accepts, where the functions
+are checked. -/
+def gate (N : Names) (S : CSig) (defs : List (Id × List Id × Expr × Expr)) (Te : Ty)
+    (Γ : List (Id × Kind)) (pairs : List (Expr × Expr)) (n : Nat) (first : Option String) :
+    Coverage :=
+  if defsCheck N S defs then
+    { names := N, sig := S, defs := defs, elem := Te, vars := Γ,
+      covered := pairs.filter fun p => encodesCheck N S Te (kindOf S) Γ p.1 p.2 .bool,
+      constraints := n, first := first }
+  else Coverage.none n "its functions are not checked"
+
+theorem gate_ok (N : Names) (S : CSig) (defs : List (Id × List Id × Expr × Expr)) (Te : Ty)
+    (Γ : List (Id × Kind)) (pairs : List (Expr × Expr)) (n : Nat) (first : Option String) :
+    (gate N S defs Te Γ pairs n first).Ok := by
+  unfold gate
+  split
+  · next h => exact ⟨h, fun p hp => (List.mem_filter.1 hp).2⟩
+  · exact ⟨by simp [Coverage.none, defsCheck], fun p hp => by simp [Coverage.none] at hp⟩
+
 def covers (certificate : Sexp) : Coverage :=
-  let cs := constraintsOf certificate
-  let N := namesOf (cs.map (·.2))
-  let read := cs.map fun (i, e) => do
-    let i ← readExpr 1000 i
-    let e ← readExpr 1000 e
-    pure (i, e)
-  let pairs := read.filterMap fun r => r.toOption
-  let Γ := (pairs.flatMap fun p => kinds p.1 .bool).eraseDups
-  let Te := (pairs.findSome? fun p => elemTy p.2).getD .IntegerType
-  let checked := read.map fun
-    | .error what => Except.error s!"`{what}` is not read"
-    | .ok p => if encodesCheck N Te Γ p.1 p.2 .bool then .ok p
+  let input := sectionOf certificate "input"
+  let symbols := input.flatMap fun | .expr (.atom "symbols" :: rows) => rows | _ => []
+  let definitions := input.flatMap fun | .expr (.atom "definitions" :: ds) => ds | _ => []
+  let constraints := input.filterMap fun
+    | .expr (.atom "constraint" :: i :: .expr [.atom "encoded", e] :: _) => some (i, e)
+    | _ => none
+  let tin := Table.of symbols
+  let tout := Table.of (sectionOf certificate "source-symbols")
+  let top := elemOf symbols
+  let N := namesOf tout
+  let ctors := ctorsOf tin definitions
+  let bodies := encodedBodies input
+  -- the functions whose bodies are read on both sides
+  let read := (funsOf tin top definitions).filterMap fun f =>
+    let symbol := (tin.rows.find? fun (_, k, ds) => k == "function" && ds.head? == some f.name)
+    match symbol.bind fun (a, _, _) => bodies.lookup a, readExpr f.ctx 1000 f.body with
+    | some body', .ok body =>
+      match readExpr ⟨tout, f.ctx.elem⟩ 1000 body' with
+      | .ok body' => some (f, body, body')
+      | .error _ => none
+    | _, _ => none
+  -- those whose encoded bodies are what the encoder makes of them, given the others
+  let rec keep : Nat → List (Fun × Expr × Expr) → List (Fun × Expr × Expr)
+    | 0, fs => fs
+    | n + 1, fs =>
+      let S : CSig := ⟨ctors, fs.map fun (f, _, _) => f.entry⟩
+      let kept := fs.filter fun (f, body, body') =>
+        encodesCheck N S f.elem (kindOf S) (f.params.zip f.kinds) body body' f.kind
+      if kept.length == fs.length then fs else keep n kept
+  let funs := keep read.length read
+  let S : CSig := ⟨ctors, funs.map fun (f, _, _) => f.entry⟩
+  let defs := funs.map fun (f, body, body') => (f.name, f.params, body, body')
+  let cin : Ctx := ⟨tin, top⟩
+  let Γ := symbols.filterMap fun
+    | .expr [.atom x, .atom "variable", _, _, sort] =>
+      (kindOfSort cin 100 sort).toOption.map fun k => (x, k)
+    | _ => none
+  let Te := Ty.TypeParameter top
+  let checked := constraints.map fun (i, e) =>
+    match readExpr cin 1000 i, readExpr ⟨tout, top⟩ 1000 e with
+    | .error what, _ => Except.error s!"`{what}` is not read"
+    | _, .error what => Except.error s!"`{what}` is not read in its encoded term"
+    | .ok i, .ok e =>
+      if encodesCheck N S Te (kindOf S) Γ i e .bool then .ok (i, e)
       else .error "it is read, and its encoded term is not what the theorem expects"
-  { names := N, vars := Γ, elem := Te, covered := checked.filterMap fun r => r.toOption,
-    constraints := cs.length,
-    first := checked.findSome? fun | .error why => some why | .ok _ => none }
+  gate N S defs Te Γ (checked.filterMap fun r => r.toOption) constraints.length
+    (checked.findSome? fun | .error why => some why | .ok _ => none)
 
-theorem covers_check (certificate : Sexp) :
-    ∀ p ∈ (covers certificate).covered,
-      encodesCheck (covers certificate).names (covers certificate).elem (covers certificate).vars
-        p.1 p.2 .bool = true := by
+theorem covers_ok (certificate : Sexp) : (covers certificate).Ok := by
+  unfold covers
+  exact gate_ok _ _ _ _ _ _ _ _
+
+/-- Where the constraints of the input that are covered all evaluate to `true` in the program
+`Ps` of the input, so do their encoded terms in the encoded program `P`: `P` defines the
+datatype of the encoder as the encoder does, both programs have the constructors that are
+read and each function that is read, with its body in the input for `Ps` and its body after
+the encoders for `P` (`hdefs`), and the values of the free variables relate (`hΓ`). -/
+theorem Coverage.encoded {C : Coverage} (hC : C.Ok) {O : Oracle} {Ps P : Program}
+    {K : Value → Prop} {E : Value → Value → Bool} {T0 : Ty} {inv bi eq b1 b2 : Id}
+    (hB : Base O Ps P C.names K E T0 C.sig.sig inv bi eq b1 b2)
+    (hdefs : ∀ f tparams Tf ks k params body body',
+      C.sig.funs.lookup f = some (tparams, Tf, ks, k) →
+      C.defs.lookup f = some (params, body, body') →
+        FunIn f tparams params body Ps ∧ FunIn f tparams params body' P ∧
+          (tparams = [] → O.resolve_all [] [Tf] = [T0]))
+    {env env' : Env} (hT : O.resolve_all (env_types env') [C.elem] = [T0])
+    (hΓ : ∀ x k, C.vars.lookup x = some k → ∃ v v', lookup_var (env_vars env) x = .Ok v ∧
+      lookup_var (env_vars env') x = .Ok v' ∧ Rel O P C.names K E T0 C.sig.sig k v v')
+    (hsol : ∀ p ∈ C.covered, ∃ n, eval O Ps n env p.1 = .Ok (.BoolV true)) :
+    ∀ p ∈ C.covered, ∃ n, eval O P n env' p.2 = .Ok (.BoolV true) := by
+  have hF : Funs O Ps P C.names T0 C.sig.sig := by
+    intro f tparams Tf ks k hf
+    have hall := List.all_eq_true.1 hC.1 _ (mem_of_lookup hf)
+    simp only [] at hall
+    split at hall
+    · next params body body' hd =>
+      obtain ⟨h1, h2, h3⟩ := hdefs f tparams Tf ks k params body body' hf hd
+      exact ⟨params, body, body', h1, h2, encodesCheck_sound hall, h3⟩
+    · cases hall
   intro p hp
-  simp only [covers, List.mem_filterMap, List.mem_map] at hp
-  obtain ⟨r, ⟨q, _, rfl⟩, hr⟩ := hp
-  split at hr
-  · cases hr
-  · next p' _ =>
-    split at hr
-    · next hc => cases hr; exact hc
-    · cases hr
+  obtain ⟨n, hn⟩ := hsol p hp
+  obtain ⟨v', m, hR, hm⟩ := encodes_eval hB hF n.toNat (encodesCheck_sound (hC.2 p hp))
+    env env' hT hΓ n (Int.self_le_toNat n) _ hn
+  cases hR
+  exact ⟨m, hm m (Int.le_refl m)⟩
 
-/-- `input_encoded` for the constraints of a certificate that `covers` gives. -/
-theorem covers_encoded (certificate : Sexp) {O : Oracle} (hO : O.Sound) {P : Program}
-    (hN : (covers certificate).names.Distinct) (hP : HasBags (covers certificate).names P)
-    {inv bi eq b1 b2 : Id} (hS : HasSort (covers certificate).names inv bi eq P)
-    (hQ : HasEquals (covers certificate).names eq b1 b2 P)
-    (h1x : b1 ≠ (covers certificate).names.x) (h2x : b2 ≠ (covers certificate).names.x)
-    (h12 : b1 ≠ b2) {K : Value → Prop} {E : Value → Value → Bool} (hE : KeyEq O P K E)
-    {Ps : Program} (hEs : KeyEq O Ps K E) {T0 : Ty}
-    (hK : ∀ bs vs, O.params_have_types P
-        (Env.Env (bind_types [(covers certificate).names.T] [T0] []) bs) vs
-        [.Param (covers certificate).names.x (.TypeParameter (covers certificate).names.T)] =
-          true ↔ ∃ v, vs = [v] ∧ K v)
+/-- `Coverage.encoded` for the constraints of a certificate that `covers` gives. -/
+theorem covers_encoded (certificate : Sexp) {O : Oracle} {Ps P : Program}
+    {K : Value → Prop} {E : Value → Value → Bool} {T0 : Ty} {inv bi eq b1 b2 : Id}
+    (hB : Base O Ps P (covers certificate).names K E T0 (covers certificate).sig.sig
+      inv bi eq b1 b2)
+    (hdefs : ∀ f tparams Tf ks k params body body',
+      (covers certificate).sig.funs.lookup f = some (tparams, Tf, ks, k) →
+      (covers certificate).defs.lookup f = some (params, body, body') →
+        FunIn f tparams params body Ps ∧ FunIn f tparams params body' P ∧
+          (tparams = [] → O.resolve_all [] [Tf] = [T0]))
     {env env' : Env} (hT : O.resolve_all (env_types env') [(covers certificate).elem] = [T0])
     (hΓ : ∀ x k, (covers certificate).vars.lookup x = some k → ∃ v v',
       lookup_var (env_vars env) x = .Ok v ∧ lookup_var (env_vars env') x = .Ok v' ∧
-        Rel O P (covers certificate).names K E T0 k v v')
+        Rel O P (covers certificate).names K E T0 (covers certificate).sig.sig k v v')
     (hsol : ∀ p ∈ (covers certificate).covered,
       ∃ n, eval O Ps n env p.1 = .Ok (.BoolV true)) :
     ∀ p ∈ (covers certificate).covered, ∃ n, eval O P n env' p.2 = .Ok (.BoolV true) :=
-  input_encoded hO hN hP hS hQ h1x h2x h12 hE hEs hK hT hΓ (covers_check certificate) hsol
+  Coverage.encoded (covers_ok certificate) hB hdefs hT hΓ hsol
 
 end Inox.Input
