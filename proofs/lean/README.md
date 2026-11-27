@@ -1252,11 +1252,15 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   extensionally. [`Joined.lean`](Inox/Joined.lean) joins
   `no_solution_of_reached` to the input.
   [`Simplified.lean`](Inox/Simplified.lean) checks the steps that the
-  certificate records of the simplification of each constraint, of the rule
-  `logic` so far (three-valued propositional reasoning over the atoms of the
-  subterm that a step rewrites, under the facts of the path to it), and proves
-  that what the steps rewrite a constraint into refines it: wherever the
-  constraint has a value, what it becomes has the same (`stepsApply_refines`).
+  certificate records of the simplification of each constraint, for the rules
+  `logic` (three-valued propositional reasoning over the atoms of the subterm
+  that a step rewrites, under the facts of the path to it, once the variables
+  of its lets are their values), `select` (the selection of a field of a
+  construction is the argument of the field), `bind` (a let of a subterm that
+  the term always evaluates, to a variable that it doesn't mention) and
+  `expand` (a variable is the value of its let), and proves that what the steps
+  rewrite a constraint into refines it: wherever the constraint has a value,
+  what it becomes has the same (`stepsApply_refines`).
   [`Lowered.lean`](Inox/Lowered.lean) relates an expression of the input to
   what Logos reads of its lowering, whose symbols have other names, whose
   errors are assumptions that fail and whose sums and products of two integers
@@ -1269,12 +1273,13 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   first-order inputs without type parameters, over integers, booleans, reals
   and datatypes without invariants, whose constructors, testers and selectors
   have other names in the reading of Logos, with lets, which the lowering
-  inlines or drops, where each step of a constraint is one of `logic`: on the
-  corpus, the 3 certificates of `error-is-infeasible`, the 1st, 2nd and 5th of
-  `lets-and-assumptions-around-partial-terms` and the first of
+  inlines or drops, where each step of a constraint is of these rules: on the
+  corpus, the 3 certificates of `error-is-infeasible`, the 1st, 2nd, 3rd and
+  5th of `lets-and-assumptions-around-partial-terms`, the 1st and 5th of
+  `ground-terms-that-evaluate`, and the first of
   `real-division-by-zero-is-infeasible`, `arithmetic-over-partial-operands` and
-  `ground-terms-that-evaluate`, as `inox-solution --input` says. The encoders
-  aren't in this theorem yet.
+  `selections-of-constructions-with-partial-fields`, as `inox-solution --input`
+  says. The encoders aren't in this theorem yet.
 - **The link between the proof and the script.** The checker checks that each
   assumption of the proof is the text of an assert of the script, up to how
   cvc5 prints testers (`(is C e)` for `((_ is C) e)`), once the terms that the

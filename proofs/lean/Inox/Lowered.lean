@@ -1256,6 +1256,7 @@ def exprEq : Nat → Expr → Expr → Bool
     | .Tuple es, .Tuple es' => all es es'
     | .FunctionInvocation f [] es, .FunctionInvocation g [] es' => f == g && all es es'
     | .ADT c [] es, .ADT c' [] es' => c == c' && all es es'
+    | .Let x a b, .Let y a' b' => x == y && exprEq n a a' && exprEq n b b'
     | _, _ => false
 
 theorem list_eq_of_all {r : Expr → Expr → Bool} (hr : ∀ a b, r a b = true → a = b) :
@@ -1278,6 +1279,7 @@ theorem exprEq_eq : ∀ n e e', exprEq n e e' = true → e = e'
       first
       | rfl
       | (obtain ⟨⟨h1, h2⟩, h3⟩ := h; rw [ih _ _ h1, ih _ _ h2, ih _ _ h3])
+      | (obtain ⟨⟨rfl, h1⟩, h2⟩ := h; rw [ih _ _ h1, ih _ _ h2])
       | (obtain ⟨rfl, h1, h2⟩ := h; rw [list_eq_of_all ih (by simpa using h1) h2])
       | (obtain ⟨h1, h2⟩ := h; rw [list_eq_of_all ih (by simpa using h1) h2])
       | (obtain ⟨rfl, h1⟩ := h; rw [ih _ _ h1])

@@ -76,7 +76,7 @@ def InputRead.program (R : InputRead) : Program :=
 /-- What the constraint `q` is after the steps of its simplification, if they hold. -/
 def InputRead.finalOf (R : InputRead) (q : Expr) : Expr :=
   match R.simps.find? (fun p => exprEq 1000 p.1 q) with
-  | some (_, ss) => (stepsApply ss q).getD q
+  | some (_, ss) => (stepsApply R.ctors ss q).getD q
   | none => q
 
 /-- The constraints after their simplifications. -/
@@ -87,9 +87,11 @@ theorem finalOf_refines {O : Oracle} (R : InputRead) (q : Expr) :
   unfold InputRead.finalOf
   split
   · next ss _ =>
-    cases h : stepsApply ss q with
+    cases h : stepsApply R.ctors ss q with
     | none => exact Inox.Simplified.refines_refl
-    | some e => simpa [h] using stepsApply_refines ss q e h
+    | some e =>
+      simp only [Option.getD_some]
+      exact stepsApply_refines (P := R.program) ⟨_, _, _, _, rfl⟩ ss q e h
   · exact Inox.Simplified.refines_refl
 
 /-- The expression that a source expression of the simplifications assumes the typing of its
@@ -118,8 +120,10 @@ def readSteps (c : Ctx) (k : Nat) (steps : List Sexp) : Option (List Step) :=
       pure ⟨rule, p.drop k, e⟩
     | _ => none
 
-/-- The source expressions of the simplifications without names, with their steps. -/
-def readSimps (c : Ctx) (certificate : Sexp) : List (Expr × List Step) :=
+/-- The source expressions of the simplifications without names, with their steps, whose
+symbols are those of the sources. -/
+def readSimps (certificate : Sexp) : List (Expr × List Step) :=
+  let c : Ctx := ⟨Table.of (sectionOf certificate "source-symbols"), "Int", true, []⟩
   (sectionOf certificate "simplifications").filterMap fun
     | .expr [.atom "expression", _, original, .expr [.atom "names"], .expr (.atom "steps" :: ss)] =>
       let (k, body) := untyped 100 original
@@ -174,7 +178,7 @@ def readInput (certificate : Sexp) : Except String InputRead := do
       sorts := sorts.map fun (s, _, _) => .Sort s [] none none
       extEq := !(sectionOf certificate "simplifications").contains
         (.expr [.atom "function-equality", .atom "none"])
-      simps := readSimps c certificate }
+      simps := readSimps certificate }
 
 /-! ## Matching the names -/
 
