@@ -153,14 +153,16 @@ trait QuantificationTemplates { self: Templates =>
       val unfolded = scala.collection.mutable.Set[(Identifier, Seq[Expr])]()
       def unfold(fi: FunctionInvocation): Unit = {
         val tfd = fi.tfd
-        exprOps.preTraversal {
+        val result = tfd.applied(tfd.params.map(_.toVariable))
+        // the refinements of the return type say of the result what a postcondition in the body would
+        for (e <- tfd.fullBody +: typeOps.refinements(tfd.returnType, result)._2) exprOps.preTraversal {
           case call: FunctionInvocation if quantified(call.args) && variables(call.args) =>
             seen += call
             if (unfolded.add(call.id -> call.args)) unfold(call)
           case e @ QuantificationMatcher(c, args) if quantified(args) && variables(args) &&
             exprOps.variablesOf(c).forall(subst.contains) => seen += e
           case _ =>
-        } (tfd.withParamSubst(fi.args, tfd.fullBody))
+        } (tfd.withParamSubst(fi.args, e))
       }
       unfold(root)
       seen.toSeq

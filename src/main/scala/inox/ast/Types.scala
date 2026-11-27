@@ -504,6 +504,21 @@ trait Types { self: Trees =>
       case NAryType(tpes, _) => tpes.flatMap(variablesOf).toSet
     }
 
+    /** The type that `tpe` refines, with what its refinements say of `value`, from the innermost
+      * refinement to the outermost one. */
+    def refinements(tpe: Type, value: Expr): (Type, Seq[Expr]) = tpe match {
+      case RefinementType(vd, pred) =>
+        val (base, preds) = refinements(vd.tpe, value)
+        (base, preds :+ exprOps.replaceFromSymbols(Map(vd -> value), pred))
+      case _ => (tpe, Seq.empty)
+    }
+
+    /** The type that `tpe` refines (see [[refinements]]). */
+    def stripRefinements(tpe: Type): Type = tpe match {
+      case RefinementType(vd, _) => stripRefinements(vd.tpe)
+      case _ => tpe
+    }
+
     class TypeSimplifier(using symbols: Symbols) extends ConcreteSelfTreeTransformer {
       override def transform(tpe: Type): Type = tpe match {
         case (_: PiType | _: SigmaType | _: FunctionType) => tpe.getType

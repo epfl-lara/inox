@@ -165,7 +165,7 @@ trait TemplateGenerator { self: Templates =>
       case uc @ UninterpretedCall(id, tps, args, _) if uninterpretedFunctions.contains(id -> tps) =>
         val f = uninterpretedFunctions(id -> tps)._1
         val (app, resTpe) = uninterpretedApplication(uc, f, args)
-        val (baseTpe, preds) = refinements(resTpe, app)
+        val (baseTpe, preds) = typeOps.refinements(resTpe, app)
         Some(Assume(freeTyping(f.tpe, f), Assume(andJoin(freeTyping(baseTpe, app) +: preds), app)))
       // a construction needs the sort's invariant (see the case of [[ADT]] in [[mkExprClauses]])
       case adt: ADT if guard(adt).isDefined => constructionInvariant(adt).map(Assume(_, adt))
@@ -184,14 +184,6 @@ trait TemplateGenerator { self: Templates =>
       case FunctionType(_, to) => to
       case tpe => throw new IllegalArgumentException(s"Uninterpreted call with type $tpe: $uc")
     })
-  }
-
-  /** The type that `tpe` refines, with what its refinements say of `value`. */
-  private def refinements(tpe: Type, value: Expr): (Type, Seq[Expr]) = tpe match {
-    case RefinementType(vd, pred) =>
-      val (base, preds) = refinements(vd.tpe, value)
-      (base, preds :+ exprOps.replaceFromSymbols(Map(vd -> value), pred))
-    case _ => (tpe, Seq.empty)
   }
 
   private def guard(expr: Expr): Option[Expr] =
@@ -687,7 +679,7 @@ trait TemplateGenerator { self: Templates =>
 
         // The refinements of the result are assumed under the path, and the type that they refine
         // is the type of the result
-        val (baseTpe, preds) = refinements(resTpe, newExpr)
+        val (baseTpe, preds) = typeOps.refinements(resTpe, newExpr)
 
         val (tpeExpr, tmplClauses) = mkTypeClauses(pathVar, baseTpe, newExpr, localSubst)(using FreeGenerator)
         storeGuarded(pathVar, tpeExpr)

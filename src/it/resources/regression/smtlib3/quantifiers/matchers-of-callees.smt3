@@ -59,3 +59,19 @@
 (set-info :status unsat)
 (check-sat)
 (pop 1)
+
+; a lookup in the refinement of the return type of a function, which says what a postcondition
+; in its body would
+(declare-datatypes ((List 1)) ((par (A) ((Nil) (Cons (head A) (tail (List A)))))))
+(define-fun-rec content ((l (List Int))) (Set Int)
+  (ite ((_ is Cons) l) (insert (content (tail l)) (head l)) (as emptyset Int)))
+(define-fun-rec contains ((l (List Int)) (x Int)) (! Bool :var r :restrict (= r (member x (content l))))
+  (ite ((_ is Cons) l) (or (= (head l) x) (contains (tail l) x)) false))
+(declare-const l (List Int))
+(push 1)
+(assert (forall ((a Int)) (=> (contains l a) (> a 0))))
+(assert (member c (content l)))
+(assert (not (> c 0)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
