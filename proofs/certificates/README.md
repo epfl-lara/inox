@@ -139,8 +139,17 @@ rule of `unrolling.RuleKernel` builds. Two things are left to the reader:
   checker knows, and which doesn't hold, makes the certificate fail, and so
   does what a simplifier did without recording it (`unrecorded`). When the
   program compares functions (`--function-equality` is not `none`), a
-  refinement under a lambda or in a function body is not enough: the
-  checker doesn't check the steps, and says so. What remains trusted:
+  refinement under a lambda or in a function body is not enough, as it may
+  make two functions equal. Where functions are compared extensionally, the
+  steps under a lambda, and those of a function body, must then preserve the
+  value of the subterm exactly, which the checker checks of each rule:
+  `logic` checks both directions, `select` and `arith` drop no operand that
+  may have no value (nor `select` a construction of a sort with an
+  invariant), `prenex` lifts out of the last operand only and over
+  sorts that have values, and an evaluation is not checked by reduction.
+  Where they are compared intensionally, a step may change a lambda that the
+  program compares as written: the checker doesn't check the steps, and says
+  so. What remains trusted:
   - that the originals are the program and the query that the solver was
     given: the certificate states them, and nothing compares them with an
     input;

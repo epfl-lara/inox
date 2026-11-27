@@ -73,11 +73,39 @@ class SimplificationsSuite extends AnyFunSuite {
     refused("(ite p r (and p q))", "(ite p r q)", "(steps (logic (3) q))")
   }
 
-  test("Steps are not checked when functions are compared") {
+  test("Steps under a lambda preserve the values exactly when functions are compared extensionally") {
+    // dropping an assumption refines the lambda, which may then equal other functions
     val original = "(lambda ((x Int)) (assume (> x 0) (> x 1)))"
     val simplified = "(lambda ((x Int)) (> x 1))"
     holds(original, simplified, "(steps (logic (2) (> x 1)))")
-    reported(original, simplified, "(steps (logic (2) (> x 1)))", equality = "extensional")
+    refused(original, simplified, "(steps (logic (2) (> x 1)))", equality = "extensional")
+    // and the steps are not checked under intensional equality
+    reported(original, simplified, "(steps (logic (2) (> x 1)))", equality = "intensional")
+    // an equivalence is checked
+    holds("(lambda ((x Int)) (and (> x 0) true))", "(lambda ((x Int)) (> x 0))", "(steps (logic (2) (> x 0)))", equality = "extensional")
+    holds("(lambda ((x Int)) (f x))", "(lambda ((x Int)) (let ((y x)) (and (> y 0) true)))",
+      "(steps (unfold (2) (let ((y x)) (and (> y 0) true))))", equality = "extensional")
+    // a call has no value where its argument has none
+    holds("(lambda ((x Int)) (let ((y (+ 1 x))) (loop y)))", "(lambda ((x Int)) (loop (+ 1 x)))",
+      "(steps (logic (2) (loop (+ 1 x))))", equality = "extensional")
+    // outside of a lambda, the steps refine
+    holds("(and (assume (> x 0) (> x 1)) (= h (lambda ((z Int)) z)))", "(and (> x 1) (= h (lambda ((z Int)) z)))",
+      "(steps (logic (1) (> x 1)))", equality = "extensional")
+  }
+
+  test("Rules that drop what may have no value only refine") {
+    def exact(original: String, simplified: String, step: String) =
+      refused(s"(lambda ((z Int)) $original)", s"(lambda ((z Int)) $simplified)", s"(steps ($step (2) $simplified))", equality = "extensional")
+    def same(original: String, simplified: String, step: String) =
+      holds(s"(lambda ((z Int)) $original)", s"(lambda ((z Int)) $simplified)", s"(steps ($step (2) $simplified))", equality = "extensional")
+    exact("(head (Cons z (tail l)))", "z", "select")
+    same("(head (Cons z l))", "z", "select")
+    exact("(- (+ z (len l)) (len l))", "z", "arith")
+    same("(- (+ z y) y)", "z", "arith")
+    // a quantifier over a sort that may have no values, and out of an operand before the last
+    exact("(forall ((x Int)) (or (> x z) (forall ((y T)) p)))", "(forall ((x Int) (y T)) (or (> x z) p))", "prenex")
+    exact("(forall ((x Int)) (and (forall ((y Int)) (> y z)) p))", "(forall ((x Int) (y Int)) (and (> y z) p))", "prenex")
+    same("(forall ((x Int)) (and p (forall ((y Int)) (> y z))))", "(forall ((x Int) (y Int)) (and p (> y z)))", "prenex")
   }
 
   test("A variable expands to the value of its let") {
@@ -183,14 +211,16 @@ class SimplificationsSuite extends AnyFunSuite {
     assert(named("(and p q)", "(and p (assume q true))", "((assume q true) r)").isLeft)
   }
 
-  test("The steps of the body of a function are not checked when functions are compared") {
+  test("The steps of the body of a function preserve its values exactly when functions are compared") {
     def body(equality: String) =
       try Right(Simplifications.check(
         List(term(s"(function-equality $equality)"), term("(function f (assume (> y 1) (and (> y 0) true)) (steps (logic () (and (> y 0) true))))")),
         definitions, _ => None))
       catch { case e: Failure => Left(e.getMessage) }
     assert(body("none") == Right(Nil))
-    assert(body("extensional").exists(_.size == 1))
+    // the assumption that is dropped may not hold
+    assert(body("extensional").isLeft)
+    assert(body("intensional").exists(_.size == 1))
   }
 
   test("What a simplifier makes of a term without a rule is checked where it is a step of logic") {
@@ -367,5 +397,11 @@ class SimplificationsSuite extends AnyFunSuite {
     reported("(= u (single 1))", "(= u (single (+ 0 1)))", "(steps (evaluate (2) (single (+ 0 1))))")
     // and a term with variables doesn't reduce
     reported("(= u (single x))", "(= u (box (lambda ((z Int)) (= z x))))", "(steps (evaluate (2) (box (lambda ((z Int)) (= z x)))))")
+  }
+
+  test("An evaluation to a function is only a refinement, which is reported under a lambda when functions are compared") {
+    val one = "(lambda ((z Int)) (= z 1))"
+    holds("(= u (single 1))", s"(= u (box $one))", s"(steps (evaluate (2) (box $one)))", equality = "extensional")
+    reported("(lambda ((w Int)) (single 1))", s"(lambda ((w Int)) (box $one))", s"(steps (evaluate (2) (box $one)))", equality = "extensional")
   }
 }
