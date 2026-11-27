@@ -260,6 +260,8 @@ object Simplifications {
     val selectors = scala.collection.mutable.Map[String, (String, Int)]()
     /** The datatypes, by name: their parameters, and the sorts of the fields of each constructor. */
     val datatypes = scala.collection.mutable.Map[String, (List[String], List[List[SExpr]])]()
+    /** The uninterpreted functions and the constants that the program declares. */
+    val declared = scala.collection.mutable.Set[String]()
 
     private def params(ps: List[SExpr]) = ps.map { case SList(Atom(x) :: _) => x; case other => fail(s"$other is not a parameter") }
     private def datatype(cs: List[SExpr]): Unit = {
@@ -288,6 +290,8 @@ object Simplifications {
         case _ =>
       }
       case SList(List(Atom("declare-datatype"), Atom(d), SList(cs))) => datatype(cs); declare(d, Nil, cs)
+      case SList(Atom("declare-fun" | "declare-const") :: Atom(f) :: _) => declared += f
+      case SList(List(Atom("declare-fun" | "declare-const"), SList(List(Atom("par"), _, SList(Atom(f) :: _))))) => declared += f
       case _ =>
     }
 
@@ -436,6 +440,8 @@ object Simplifications {
             case _ => false
           }
           SList(List(q, vars, under(body, bound ++ vs.collect { case SList(Atom(x) :: _) => x }, always && valued)))
+        // not under the binders that are not told apart here
+        case SList(Atom(k) :: _) if quantifiers(k) || k == "let" || k == "match" => e
         case SList(items) => SList(items.zipWithIndex.map((item, i) => under(item, bound, always && evaluated(e, i))))
         case _ => e
       }
@@ -765,14 +771,14 @@ object Simplifications {
             // solver made for the function, under the assumptions that the function and the
             // result lie in their types. What the type of the result says of it is not checked.
             case (ps, app) if ps.nonEmpty && ((app, t) match {
-              case (Atom(f), Applied(g, Nil)) => symbol(f); uninterpreted(g)
+              case (Atom(f), Applied(g, Nil)) => symbol(f); original.declared(g)
               case (SList(SList(List(Atom("as"), Atom("@"), _)) :: Atom(f) :: args), Applied(g, targs)) =>
-                symbol(f); uninterpreted(g) && args.map(named(_)) == targs
+                symbol(f); original.declared(g) && args.map(named(_)) == targs
               case _ => false
             }) =>
               val f = app match { case Atom(f) => app; case SList(_ :: f :: _) => f; case _ => app }
               val refinements = ps.flatMap(conjuncts).filter {
-                case SList(List(SList(List(Atom("as"), Atom(m), _)), Atom("\"free\""), x)) if uninterpreted(m) => x != f && x != app
+                case SList(List(SList(List(Atom("as"), Atom(m), _)), Atom("\"free\""), x)) if marker(m) => x != f && x != app
                 case _ => true
               }
               if (refinements.nonEmpty)
@@ -780,8 +786,9 @@ object Simplifications {
             case _ => fail(s"${SList(List(n, t))} is not a name")
           }
         }
-        def uninterpreted(g: String): Boolean =
-          !original.functions.contains(g) && !original.constructors.contains(g) && !original.selectors.contains(g) && !keywords(g)
+        // a marker of the sources is an uninterpreted function that the program doesn't declare
+        def marker(m: String): Boolean =
+          !original.declared(m) && !original.functions.contains(m) && !original.constructors.contains(m) && !original.selectors.contains(m) && !keywords(m)
         replayed(s"the expression of template $i", o, named(source), steps, original)
       case other => fail(s"$other is not a simplification")
     }
@@ -790,10 +797,11 @@ object Simplifications {
 
   /** Checks that `axiom` only occurs in the expression `t`, which holds, where it must hold for
     * `t` to: where evaluation reaches the occurrence, `t` only holds if the occurrence does. Then
-    * `t` with `q` for each occurrence `(assume q true)` holds wherever `t` does. */
+    * `t` holds wherever `t` with `q` for each occurrence `(assume q true)` does. */
   private def mustHold(t: SExpr, axiom: SExpr): Unit = {
-    // What the subterm is known of when an occurrence that evaluation reaches in it doesn't hold:
-    // that it doesn't hold (`Some(true)`), that it isn't false (`Some(false)`), or nothing.
+    // What the subterm, with `q` for the occurrences, is known of when a `q` that evaluation
+    // reaches in it doesn't hold: that it doesn't hold either (`Some(true)`), that it isn't false
+    // (`Some(false)`), or nothing.
     def rec(t: SExpr, mode: Option[Boolean]): Unit =
       if (t == axiom) { if (!mode.contains(true)) fail(s"$axiom is where it doesn't have to hold") }
       else t match {
