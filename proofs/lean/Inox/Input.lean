@@ -59,10 +59,12 @@ theorem mem_of_lookup {β : Type} : ∀ {l : List (Id × β)} {c : Id} {v : β},
 structure CSig where
   ctors : List (Id × Id × List (Id × Kind))
   funs : List (Id × List Id × Ty × List Kind × Kind)
+  flat : List Id
 
 def CSig.sig (S : CSig) : Sig where
   ctors c := S.ctors.lookup c
   funs f := S.funs.lookup f
+  flat f := S.flat.contains f
 
 /-- Every constructor of the sort `s` that has the field `sel` has it of the kind `k`. -/
 def selOk (S : CSig) (s sel : Id) (k : Kind) : Bool :=
@@ -109,101 +111,106 @@ theorem keep_sound {Γ : List (Id × Kind)} : ∀ p ∈ keep Γ, Γ.lookup p.1 =
 `g` gives the kinds of subexpressions where the check needs one: the check holds for any `g`,
 and accepts more with one that gives the right kinds. -/
 def encodesCheck (N : Names) (S : CSig) (Te : Ty) (g : List (Id × Kind) → Expr → Kind) :
-    List (Id × Kind) → Expr → Expr → Kind → Bool
-  | Γ, .Variable x, .Variable y, k =>
+    List (Id × Kind) → Expr → Expr → Kind → Bool → Bool
+  | Γ, .Variable x, .Variable y, k, _ =>
     x == y && (match Γ.lookup x with | some k' => kindEq k' k | none => false)
-  | _, .IntegerLiteral n, .IntegerLiteral m, .int => n == m
-  | _, .BooleanLiteral b, .BooleanLiteral c, .bool => b == c
-  | Γ, .Plus a b, .Plus a' b', .int =>
-    encodesCheck N S Te g Γ a a' .int && encodesCheck N S Te g Γ b b' .int
-  | Γ, .Minus a b, .Minus a' b', .int =>
-    encodesCheck N S Te g Γ a a' .int && encodesCheck N S Te g Γ b b' .int
-  | Γ, .LessThan a b, .LessThan a' b', .bool =>
-    encodesCheck N S Te g Γ a a' .int && encodesCheck N S Te g Γ b b' .int
-  | Γ, .GreaterThan a b, .GreaterThan a' b', .bool =>
-    encodesCheck N S Te g Γ a a' .int && encodesCheck N S Te g Γ b b' .int
-  | Γ, .LessEquals a b, .LessEquals a' b', .bool =>
-    encodesCheck N S Te g Γ a a' .int && encodesCheck N S Te g Γ b b' .int
-  | Γ, .GreaterEquals a b, .GreaterEquals a' b', .bool =>
-    encodesCheck N S Te g Γ a a' .int && encodesCheck N S Te g Γ b b' .int
-  | Γ, .Equals a b, .Equals a' b', .bool =>
-    foKind (g Γ a) && foSig S && encodesCheck N S Te g Γ a a' (g Γ a) &&
-      encodesCheck N S Te g Γ b b' (g Γ a)
-  | Γ, .Not a, .Not a', .bool => encodesCheck N S Te g Γ a a' .bool
-  | _, .And [], .And [], .bool => true
-  | Γ, .And (a :: as), .And (a' :: as'), .bool =>
-    encodesCheck N S Te g Γ a a' .bool && encodesCheck N S Te g Γ (.And as) (.And as') .bool
-  | _, .Or [], .Or [], .bool => true
-  | Γ, .Or (a :: as), .Or (a' :: as'), .bool =>
-    encodesCheck N S Te g Γ a a' .bool && encodesCheck N S Te g Γ (.Or as) (.Or as') .bool
-  | Γ, .Implies a b, .Implies a' b', .bool =>
-    encodesCheck N S Te g Γ a a' .bool && encodesCheck N S Te g Γ b b' .bool
-  | Γ, .IfExpr c a b, .IfExpr c' a' b', k =>
-    encodesCheck N S Te g Γ c c' .bool && encodesCheck N S Te g Γ a a' k &&
-      encodesCheck N S Te g Γ b b' k
-  | Γ, .Let x a b, .Let y a' b', k =>
-    x == y && encodesCheck N S Te g Γ a a' (g Γ a) &&
-      encodesCheck N S Te g ((x, g Γ a) :: Γ) b b' k
-  | Γ, .Assume p b, .Assume p' b', k =>
-    encodesCheck N S Te g Γ p p' .bool && encodesCheck N S Te g Γ b b' k
-  | _, .FiniteBag [] _, .ADT c [t] [], .bag => c == N.leaf && sameTy t Te
+  | _, .IntegerLiteral n, .IntegerLiteral m, .int, _ => n == m
+  | _, .BooleanLiteral b, .BooleanLiteral c, .bool, _ => b == c
+  | Γ, .Plus a b, .Plus a' b', .int, u =>
+    encodesCheck N S Te g Γ a a' .int u && encodesCheck N S Te g Γ b b' .int u
+  | Γ, .Minus a b, .Minus a' b', .int, u =>
+    encodesCheck N S Te g Γ a a' .int u && encodesCheck N S Te g Γ b b' .int u
+  | Γ, .LessThan a b, .LessThan a' b', .bool, u =>
+    encodesCheck N S Te g Γ a a' .int u && encodesCheck N S Te g Γ b b' .int u
+  | Γ, .GreaterThan a b, .GreaterThan a' b', .bool, u =>
+    encodesCheck N S Te g Γ a a' .int u && encodesCheck N S Te g Γ b b' .int u
+  | Γ, .LessEquals a b, .LessEquals a' b', .bool, u =>
+    encodesCheck N S Te g Γ a a' .int u && encodesCheck N S Te g Γ b b' .int u
+  | Γ, .GreaterEquals a b, .GreaterEquals a' b', .bool, u =>
+    encodesCheck N S Te g Γ a a' .int u && encodesCheck N S Te g Γ b b' .int u
+  | Γ, .Equals a b, .Equals a' b', .bool, u =>
+    foKind (g Γ a) && foSig S && encodesCheck N S Te g Γ a a' (g Γ a) u &&
+      encodesCheck N S Te g Γ b b' (g Γ a) u
+  | Γ, .Not a, .Not a', .bool, u => encodesCheck N S Te g Γ a a' .bool u
+  | _, .And [], .And [], .bool, _ => true
+  | Γ, .And (a :: as), .And (a' :: as'), .bool, u =>
+    encodesCheck N S Te g Γ a a' .bool u && encodesCheck N S Te g Γ (.And as) (.And as') .bool u
+  | _, .Or [], .Or [], .bool, _ => true
+  | Γ, .Or (a :: as), .Or (a' :: as'), .bool, u =>
+    encodesCheck N S Te g Γ a a' .bool u && encodesCheck N S Te g Γ (.Or as) (.Or as') .bool u
+  | Γ, .Implies a b, .Implies a' b', .bool, u =>
+    encodesCheck N S Te g Γ a a' .bool u && encodesCheck N S Te g Γ b b' .bool u
+  | Γ, .IfExpr c a b, .IfExpr c' a' b', k, u =>
+    encodesCheck N S Te g Γ c c' .bool u && encodesCheck N S Te g Γ a a' k u &&
+      encodesCheck N S Te g Γ b b' k u
+  | Γ, .Let x a b, .Let y a' b', k, u =>
+    x == y && encodesCheck N S Te g Γ a a' (g Γ a) u &&
+      encodesCheck N S Te g ((x, g Γ a) :: Γ) b b' k u
+  | Γ, .Assume p b, .Assume p' b', k, u =>
+    encodesCheck N S Te g Γ p p' .bool u && encodesCheck N S Te g Γ b b' k u
+  | _, .FiniteBag [] _, .ADT c [t] [], .bag, false => c == N.leaf && sameTy t Te
   | Γ, .BagAdd b e,
-      .ADT c [t] [.IntegerLiteral op, b', .ADT c2 [t2] [e', .IntegerLiteral one]], .bag =>
+      .ADT c [t] [.IntegerLiteral op, b', .ADT c2 [t2] [e', .IntegerLiteral one]], .bag, false =>
     c == N.node && sameTy t Te && op == 0 && c2 == N.elem && sameTy t2 Te && one == 1 &&
-      encodesCheck N S Te g Γ b b' .bag && encodesCheck N S Te g Γ e e' .elem
-  | Γ, .BagUnion a b, .ADT c [t] [.IntegerLiteral op, a', b'], .bag =>
+      encodesCheck N S Te g Γ b b' .bag false && encodesCheck N S Te g Γ e e' .elem false
+  | Γ, .BagUnion a b, .ADT c [t] [.IntegerLiteral op, a', b'], .bag, false =>
     c == N.node && sameTy t Te && op == 0 &&
-      encodesCheck N S Te g Γ a a' .bag && encodesCheck N S Te g Γ b b' .bag
-  | Γ, .BagDifference a b, .ADT c [t] [.IntegerLiteral op, a', b'], .bag =>
+      encodesCheck N S Te g Γ a a' .bag false && encodesCheck N S Te g Γ b b' .bag false
+  | Γ, .BagDifference a b, .ADT c [t] [.IntegerLiteral op, a', b'], .bag, false =>
     c == N.node && sameTy t Te && op == 1 &&
-      encodesCheck N S Te g Γ a a' .bag && encodesCheck N S Te g Γ b b' .bag
-  | Γ, .BagIntersection a b, .ADT c [t] [.IntegerLiteral op, a', b'], .bag =>
+      encodesCheck N S Te g Γ a a' .bag false && encodesCheck N S Te g Γ b b' .bag false
+  | Γ, .BagIntersection a b, .ADT c [t] [.IntegerLiteral op, a', b'], .bag, false =>
     c == N.node && sameTy t Te && op == 2 &&
-      encodesCheck N S Te g Γ a a' .bag && encodesCheck N S Te g Γ b b' .bag
-  | Γ, .MultiplicityInBag e b, .FunctionInvocation f [t] [b', e'], .int =>
-    f == N.get && sameTy t Te && encodesCheck N S Te g Γ e e' .elem &&
-      encodesCheck N S Te g Γ b b' .bag
-  | _, .Tuple [], .Tuple [], .tuple [] => true
-  | Γ, .Tuple (e :: es), .Tuple (e' :: es'), .tuple (k :: ks) =>
-    encodesCheck N S Te g Γ e e' k &&
-      encodesCheck N S Te g Γ (.Tuple es) (.Tuple es') (.tuple ks)
-  | Γ, .TupleSelect t i, .TupleSelect t' j, k =>
+      encodesCheck N S Te g Γ a a' .bag false && encodesCheck N S Te g Γ b b' .bag false
+  | Γ, .MultiplicityInBag e b, .FunctionInvocation f [t] [b', e'], .int, false =>
+    f == N.get && sameTy t Te && encodesCheck N S Te g Γ e e' .elem false &&
+      encodesCheck N S Te g Γ b b' .bag false
+  | _, .Tuple [], .Tuple [], .tuple [], _ => true
+  | Γ, .Tuple (e :: es), .Tuple (e' :: es'), .tuple (k :: ks), u =>
+    encodesCheck N S Te g Γ e e' k u &&
+      encodesCheck N S Te g Γ (.Tuple es) (.Tuple es') (.tuple ks) u
+  | Γ, .TupleSelect t i, .TupleSelect t' j, k, u =>
     i == j && (match g Γ t with
       | .tuple ks =>
         (match nthKind ks i with | some k' => kindEq k' k | none => false) &&
-          encodesCheck N S Te g Γ t t' (.tuple ks)
+          encodesCheck N S Te g Γ t t' (.tuple ks) u
       | _ => false)
-  | Γ, .ADT c _ es, .ADT c' _ es', .adt s =>
+  | Γ, .ADT c _ es, .ADT c' _ es', .adt s, u =>
     c == c' && (match S.ctors.lookup c with
       | some (s2, fs) =>
-        s == s2 && encodesCheck N S Te g Γ (.Tuple es) (.Tuple es') (.tuple (fs.map Prod.snd))
+        s == s2 && encodesCheck N S Te g Γ (.Tuple es) (.Tuple es') (.tuple (fs.map Prod.snd)) u
       | none => false)
-  | Γ, .ADTSelector e sel, .ADTSelector e' sel', k =>
+  | Γ, .ADTSelector e sel, .ADTSelector e' sel', k, u =>
     sel == sel' && (match g Γ e with
-      | .adt s => selOk S s sel k && encodesCheck N S Te g Γ e e' (.adt s)
+      | .adt s => selOk S s sel k && encodesCheck N S Te g Γ e e' (.adt s) u
       | _ => false)
-  | Γ, .IsConstructor e c, .IsConstructor e' c', .bool =>
+  | Γ, .IsConstructor e c, .IsConstructor e' c', .bool, u =>
     c == c' && (match g Γ e with
-      | .adt s => encodesCheck N S Te g Γ e e' (.adt s)
+      | .adt s => encodesCheck N S Te g Γ e e' (.adt s) u
       | _ => false)
-  | Γ, .FunctionInvocation f _ es, .FunctionInvocation f' tps' es', k =>
-    f == f' && (match S.funs.lookup f, tps' with
+  | Γ, .FunctionInvocation f _ es, .FunctionInvocation f' tps' es', k, u =>
+    (!u || S.flat.contains f) && f == f' && (match S.funs.lookup f, tps' with
       | some ([A], .TypeParameter B, ks, k2), [t] =>
         A == B && sameTy t Te && kindEq k2 k &&
-          encodesCheck N S Te g Γ (.Tuple es) (.Tuple es') (.tuple ks)
+          encodesCheck N S Te g Γ (.Tuple es) (.Tuple es') (.tuple ks) u
       | some ([], _, ks, k2), [] =>
-        kindEq k2 k && encodesCheck N S Te g Γ (.Tuple es) (.Tuple es') (.tuple ks)
+        kindEq k2 k && encodesCheck N S Te g Γ (.Tuple es) (.Tuple es') (.tuple ks) u
       | _, _ => false)
-  | Γ, .Lambda ps body, .Lambda ps' body', .fn ks k =>
+  | Γ, .Lambda ps body, .Lambda ps' body', .fn ks k, u =>
     decide (param_ids ps = param_ids ps') &&
-      encodesCheck N S Te g ((param_ids ps).zip ks ++ keep Γ) body body' k
-  | Γ, .Application callee es, .Application callee' es', k =>
+      encodesCheck N S Te g ((param_ids ps).zip ks ++ keep Γ) body body' k true
+  | Γ, .Application callee es, .Application callee' es', k, u =>
     (match g Γ callee with
       | .fn ks k2 =>
-        kindEq k2 k && encodesCheck N S Te g Γ callee callee' (.fn ks k2) &&
-          encodesCheck N S Te g Γ (.Tuple es) (.Tuple es') (.tuple ks)
+        kindEq k2 k && encodesCheck N S Te g Γ callee callee' (.fn ks k2) u &&
+          encodesCheck N S Te g Γ (.Tuple es) (.Tuple es') (.tuple ks) u
       | _ => false)
-  | _, _, _, _ => false
+  | Γ, .Forall ps body, .Forall ps' body', .bool, _ =>
+    (match paramKinds ps, paramKinds ps' with
+      | some ks, some ks' => kindsEq ks ks' && decide (param_ids ps = param_ids ps') &&
+          encodesCheck N S Te g ((param_ids ps).zip ks ++ Γ) body body' .bool true
+      | _, _ => false)
+  | _, _, _, _, _ => false
 termination_by _ e => sizeOf e
 decreasing_by
   all_goals simp_wf
@@ -214,10 +221,10 @@ decreasing_by
     | (have := sizeOf_expr_pos callee; omega)
 
 theorem encodesCheck_sound {N : Names} {S : CSig} {Te : Ty}
-    {g : List (Id × Kind) → Expr → Kind} {Γ : List (Id × Kind)} {e e' : Expr} {k : Kind} :
-    encodesCheck N S Te g Γ e e' k = true →
-      Encodes N S.sig Te (fun x => Γ.lookup x) e e' k := by
-  fun_induction encodesCheck N S Te g Γ e e' k <;> intro h
+    {g : List (Id × Kind) → Expr → Kind} {Γ : List (Id × Kind)} {e e' : Expr} {k : Kind}
+    {u : Bool} : encodesCheck N S Te g Γ e e' k u = true →
+      Encodes N S.sig Te (fun x => Γ.lookup x) e e' k u := by
+  fun_induction encodesCheck N S Te g Γ e e' k u <;> intro h
   · simp only [Bool.and_eq_true, beq_iff_eq] at h
     obtain ⟨rfl, hk⟩ := h
     split at hk
@@ -343,18 +350,18 @@ theorem encodesCheck_sound {N : Names} {S : CSig} {Te : Ty}
     · cases h
   · next ih =>
     simp only [Bool.and_eq_true, beq_iff_eq] at h
-    obtain ⟨rfl, h⟩ := h
+    obtain ⟨⟨hu, rfl⟩, h⟩ := h
     split at h
     · next A B ks k2 t hl =>
       simp only [Bool.and_eq_true, beq_iff_eq] at h
       obtain ⟨⟨⟨rfl, ht⟩, hk⟩, ha⟩ := h
       cases sameTy_eq ht
       cases kindEq_eq hk
-      exact .callPoly _ hl (ih ks ha)
+      exact .callPoly _ hl (fun h1 => by subst h1; simpa [CSig.sig] using hu) (ih ks ha)
     · next Tf ks k2 hl =>
       simp only [Bool.and_eq_true] at h
       cases kindEq_eq h.1
-      exact .callMono _ hl (ih ks h.2)
+      exact .callMono _ hl (fun h1 => by subst h1; simpa [CSig.sig] using hu) (ih ks h.2)
     · cases h
   · next ih =>
     simp only [Bool.and_eq_true, decide_eq_true_eq] at h
@@ -363,6 +370,14 @@ theorem encodesCheck_sound {N : Names} {S : CSig} {Te : Ty}
     simp only [Bool.and_eq_true] at h
     cases kindEq_eq h.1.1
     exact .app (ihf h.1.2) (iha h.2)
+  · cases h
+  · next ih =>
+    simp only [Bool.and_eq_true, decide_eq_true_eq] at h
+    obtain ⟨⟨hks, hp⟩, hb⟩ := h
+    cases kindsEq_eq hks
+    have hb := ih hb
+    simp only [List.lookup_append] at hb
+    exact .forall_ (by assumption) (by assumption) hp hb
   · cases h
   · cases h
 
@@ -505,6 +520,11 @@ def readExpr (c : Ctx) : Nat → Sexp → Except String Expr
         | .expr [.atom x, sort] => do pure (Param.Param x (kindTy c.elem (← kindOfSort c n sort)))
         | _ => .error "a parameter"
       pure (.Lambda ps (← readExpr c n b))
+    | .expr [.atom "forall", .expr ps, b] => do
+      let ps ← ps.mapM fun
+        | .expr [.atom x, sort] => do pure (Param.Param x (kindTy c.elem (← kindOfSort c n sort)))
+        | _ => .error "a parameter"
+      pure (.Forall ps (← readExpr c n b))
     | .expr (.expr [.atom "as", .atom "@", _] :: f :: args) => do
       pure (.Application (← readExpr c n f) (← args.mapM (readExpr c n)))
     | .expr [.atom "as", .atom k, .expr (.atom _ :: ts)] =>
@@ -517,7 +537,10 @@ def readExpr (c : Ctx) : Nat → Sexp → Except String Expr
       | "selector", [e] => pure (.ADTSelector e (c.table.field k))
       | "function", _ => pure (.FunctionInvocation (c.table.id k) (ts.map readTy) args)
       | kind, _ => .error (kind ++ " " ++ k)
-    | .expr (.atom a :: _) => .error a
+    | .expr (.atom k :: args) =>
+      if c.table.kind k == "function" then do
+        pure (.FunctionInvocation (c.table.id k) [] (← args.mapM (readExpr c n)))
+      else .error k
     | .expr (.expr [.atom "as", .atom a, _] :: _) => .error a
     | .expr (.expr [.atom "as", .expr (.atom "_" :: .atom a :: _), _] :: _) => .error a
     | _ => .error "a term"
@@ -531,7 +554,7 @@ partial def kindOf (S : CSig) (Γ : List (Id × Kind)) : Expr → Kind
   | .Variable x => (Γ.lookup x).getD .int
   | .BooleanLiteral _ | .LessThan _ _ | .GreaterThan _ _ | .LessEquals _ _
   | .GreaterEquals _ _ | .Equals _ _ | .Not _ | .And _ | .Or _ | .Implies _ _
-  | .IsConstructor _ _ => .bool
+  | .IsConstructor _ _ | .Forall _ _ => .bool
   | .FiniteBag _ _ | .BagAdd _ _ | .BagUnion _ _ | .BagDifference _ _
   | .BagIntersection _ _ => .bag
   | .IfExpr _ a _ => kindOf S Γ a
@@ -686,18 +709,18 @@ def defsCheck (N : Names) (S : CSig) (defs : List (Id × List Id × Expr × Expr
   S.funs.all fun (f, _, Tf, ks, k) =>
     match defs.lookup f with
     | some (params, body, body') =>
-      encodesCheck N S Tf (kindOf S) (params.zip ks) body body' k
+      encodesCheck N S Tf (kindOf S) (params.zip ks) body body' k (S.flat.contains f)
     | none => false
 
 def Coverage.none (n : Nat) (why : String) : Coverage :=
-  { names := namesOf ⟨[]⟩, sig := ⟨[], []⟩, defs := [], elem := .UnitType, vars := [],
+  { names := namesOf ⟨[]⟩, sig := ⟨[], [], []⟩, defs := [], elem := .UnitType, vars := [],
     covered := [], constraints := n, first := some why }
 
 /-- What the checks give of a coverage. -/
 def Coverage.Ok (C : Coverage) : Prop :=
   defsCheck C.names C.sig C.defs = true ∧
     ∀ p ∈ C.covered,
-      encodesCheck C.names C.sig C.elem (kindOf C.sig) C.vars p.1 p.2 .bool = true
+      encodesCheck C.names C.sig C.elem (kindOf C.sig) C.vars p.1 p.2 .bool false = true
 
 /-- The coverage of the constraints among `pairs` that the check accepts, where the functions
 are checked. -/
@@ -706,7 +729,7 @@ def gate (N : Names) (S : CSig) (defs : List (Id × List Id × Expr × Expr)) (T
     Coverage :=
   if defsCheck N S defs then
     { names := N, sig := S, defs := defs, elem := Te, vars := Γ,
-      covered := pairs.filter fun p => encodesCheck N S Te (kindOf S) Γ p.1 p.2 .bool,
+      covered := pairs.filter fun p => encodesCheck N S Te (kindOf S) Γ p.1 p.2 .bool false,
       constraints := n, first := first }
   else Coverage.none n "its functions are not checked"
 
@@ -744,12 +767,21 @@ def covers (certificate : Sexp) : Coverage :=
   let rec keep : Nat → List (Fun × Expr × Expr) → List (Fun × Expr × Expr)
     | 0, fs => fs
     | n + 1, fs =>
-      let S : CSig := ⟨ctors, fs.map fun (f, _, _) => f.entry⟩
+      let S : CSig := ⟨ctors, fs.map (fun (f, _, _) => f.entry), []⟩
       let kept := fs.filter fun (f, body, body') =>
-        encodesCheck N S f.elem (kindOf S) (f.params.zip f.kinds) body body' f.kind
+        encodesCheck N S f.elem (kindOf S) (f.params.zip f.kinds) body body' f.kind false
       if kept.length == fs.length then fs else keep n kept
   let funs := keep read.length read
-  let S : CSig := ⟨ctors, funs.map fun (f, _, _) => f.entry⟩
+  -- those whose bodies have no operations of bags, given the others
+  let rec flat : Nat → List Id → List Id
+    | 0, fs => fs
+    | n + 1, fs =>
+      let S : CSig := ⟨ctors, funs.map (fun (f, _, _) => f.entry), fs⟩
+      let kept := fs.filter fun name => funs.any fun (f, body, body') => f.name == name &&
+        encodesCheck N S f.elem (kindOf S) (f.params.zip f.kinds) body body' f.kind true
+      if kept.length == fs.length then fs else flat n kept
+  let S : CSig := ⟨ctors, funs.map (fun (f, _, _) => f.entry),
+    flat (funs.length + 1) (funs.map fun (f, _, _) => f.name)⟩
   let defs := funs.map fun (f, body, body') => (f.name, f.params, body, body')
   let cin : Ctx := ⟨tin, top⟩
   let Γ := symbols.filterMap fun
@@ -762,7 +794,7 @@ def covers (certificate : Sexp) : Coverage :=
     | .error what, _ => Except.error s!"`{what}` is not read"
     | _, .error what => Except.error s!"`{what}` is not read in its encoded term"
     | .ok i, .ok e =>
-      if encodesCheck N S Te (kindOf S) Γ i e .bool then .ok (i, e)
+      if encodesCheck N S Te (kindOf S) Γ i e .bool false then .ok (i, e)
       else .error "it is read, and its encoded term is not what the theorem expects"
   gate N S defs Te Γ (checked.filterMap fun r => r.toOption) constraints.length
     (checked.findSome? fun | .error why => some why | .ok _ => none)
@@ -800,7 +832,7 @@ theorem Coverage.encoded {C : Coverage} (hC : C.Ok) {O : Oracle} {Ps P : Program
     · cases hall
   intro p hp
   obtain ⟨n, hn⟩ := hsol p hp
-  obtain ⟨v', m, hR, hm⟩ := encodes_eval hB hF n.toNat (encodesCheck_sound (hC.2 p hp))
+  obtain ⟨v', m, _, hR, hm⟩ := encodes_eval hB hF n.toNat (encodesCheck_sound (hC.2 p hp))
     env env' hT hΓ n (Int.self_le_toNat n) _ hn
   cases hR
   exact ⟨m, hm m (Int.le_refl m)⟩

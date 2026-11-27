@@ -1194,14 +1194,18 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   assumptions, the bag operations above, multiplicities, tuples, the
   constructors, selectors and testers of the sorts of the program, calls of
   its functions, whose bodies in the encoded program are what the encoder
-  makes of their bodies in the input (`Funs`), lambdas and applications. An
-  equality is covered where its operands have no functions in them. It
+  makes of their bodies in the input (`Funs`), lambdas and applications, and
+  quantifiers over integers and booleans. An equality is covered where its
+  operands have no functions in them. A quantifier holds when all of its
+  instances hold with the same fuel, so the theorem also bounds the fuel of
+  an encoding that has no operations of bags by the fuel of its expression,
+  and covers quantifiers, lambdas and functions whose bodies are of these. It
   assumes the invariant of
   the datatype as the encoder defines it, sorts of the program without
   invariants nor equalities, one type of elements, which the type parameters
   of functions and sorts are instantiated with, and doesn't cover bag
-  literals with elements, bags of bags, quantifiers nor the other theories
-  yet. [`Input.lean`](Inox/Input.lean) reads the definitions and
+  literals with elements, bags of bags, quantifiers over other values nor
+  the other theories yet. [`Input.lean`](Inox/Input.lean) reads the definitions and
   the constraints of a certificate's input and what the encoders make of
   them as expressions of the semantics, decides whether each encoded
   expression is what the encoder makes of its expression (`encodesCheck`,
@@ -1212,10 +1216,11 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   datatype as the encoder does, on values of the free variables that relate.
   `inox-solution --input` says how many constraints of each certificate that
   covers, and what the first of the others has that isn't read. On the
-  corpus it covers 2 of the 36 constraints, among which that of
-  `bags/split-preserves-content`, with its two recursive functions: 17 of
-  the others have quantifiers, and the rest have sets, maps, bitvectors,
-  reals or sorts whose type arguments are not the elements. Nor
+  corpus it covers 6 of the 36 constraints, among which that of
+  `bags/split-preserves-content`, with its two recursive functions, and three
+  with quantifiers: the others have quantifiers over elements or datatypes,
+  sets, maps, bitvectors, reals, or sorts whose type arguments are not the
+  elements. Nor
   is this theorem joined to `no_solution_of_reached` yet, whose program has
   neither sorts with type parameters nor sorts with an equality.
 - **The link between the proof and the script.** The checker checks that each
