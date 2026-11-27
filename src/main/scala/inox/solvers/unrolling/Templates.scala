@@ -421,7 +421,8 @@ trait Templates
     * [[TemplateGenerator.sourceExpr]]). It is the function with its body when replacing the
     * named subterms doesn't give the template's term for the body. */
   private[unrolling] def templateSource(clauses: TemplateClauses, bindings: Map[Variable, Encoded], call: Option[Expr], expr: Expr,
-                                        meanings: Seq[(Expr, Expr)] = Seq(), definition: Boolean = false): Option[Source] =
+                                        meanings: Seq[(Expr, Expr)] = Seq(), definition: Boolean = false,
+                                        original: Option[(Expr, Seq[(String, Expr)])] = None): Option[Source] =
     if (!loggingRules) None else {
       import certificates.Source._
       val encoder = mkEncoder(bindings)
@@ -430,7 +431,10 @@ trait Templates
       val where = (clauses.meanings ++ meanings).map((l, r) => enc(l) -> enc(r)).distinct
       lazy val names = differences(expr, source(expr)).distinct
       Some(call match {
-        case None => Expression(enc(expr), where)
+        case None => Expression(enc(expr), where, original.filter(_._1 != expr).map { (o, steps) =>
+          certificates.Source.Original(encoder(o), names.map((sub, name) => encoder(name) -> encoder(sub)),
+            steps.map((rule, term) => rule -> encoder(term)))
+        })
         case Some(c) if definition && names.map(_._1).distinct.size == names.size && renamed(expr, names.toMap) == source(expr) =>
           Definition(enc(c), names.map((original, name) => encoder(name) -> encoder(original)), where)
         case Some(c) => Function(enc(c), enc(expr), where)
@@ -875,7 +879,8 @@ trait Templates
       optApp: Option[(Encoded, FunctionType)] = None,
       partial: Boolean = false,
       source: Option[(Option[Expr], Expr)] = None,
-      definition: Boolean = false
+      definition: Boolean = false,
+      original: Option[(Expr, Seq[(String, Expr)])] = None
     ): (TemplateContents, () => String) = {
 
       val encoding = Template.encode(
@@ -892,7 +897,7 @@ trait Templates
           val sameLambdas = tmplClauses.lambdas.groupBy(_.lambda).values.toSeq.flatMap { ts =>
             ts.init.filter(_.ids._1 != ts.last.ids._1).map(t => (t.ids._1: Expr) -> (ts.last.ids._1: Expr))
           }
-          templateSource(tmplClauses, symbols(pathVar, arguments, tmplClauses, substMap), call, expr, sameLambdas, definition)
+          templateSource(tmplClauses, symbols(pathVar, arguments, tmplClauses, substMap), call, expr, sameLambdas, definition, original)
         }
       )
 
@@ -1082,21 +1087,21 @@ trait Templates
   }
 
   /** The clauses of the expression that `gen` gives, with the expression that they are the
-    * clauses of if it is the source of a template, under a fresh start blocker, which `root` gives
-    * the clauses of. */
+    * clauses of if it is the source of a template, and the expression before the solver
+    * simplified it if it did, under a fresh start blocker, which `root` gives the clauses of. */
   private def instantiate(
     bindings: Map[Variable, Encoded],
-    gen: (Variable, Encoded) => (TemplateClauses, Option[Expr]),
+    gen: (Variable, Encoded) => (TemplateClauses, Option[Expr], Option[(Expr, Seq[(String, Expr)])]),
     exempt: App => Boolean = _ => false,
     root: Encoded => Clauses = Rule.Root(_).clauses
   ): Clauses = {
     val start = Variable.fresh("start", BooleanType(), true)
     val encodedStart = encodeSymbol(start)
 
-    val (tmplClauses, source) = gen(start, encodedStart)
+    val (tmplClauses, source, original) = gen(start, encodedStart)
 
     val (contents, _) = Template.contents(start -> encodedStart, bindings.toSeq, tmplClauses,
-      source = source.map(None -> _))
+      source = source.map(None -> _), original = original)
     val instance =
       Rule.Instance(contents.instantiation(encodedStart, Map.empty[Encoded, Arg]), InstanceOf.Expression(exempt)).clauses
     val allClauses = root(encodedStart) ++ instance
@@ -1115,7 +1120,7 @@ trait Templates
       declared += v -> bindings(v)
       instantiate(bindings, { (start, encodedStart) =>
         (mkClauses1(start, v.tpe, v, bindings + (start -> encodedStart))(using FreeGenerator),
-          Some(freeTyping(v.tpe, v)))
+          Some(freeTyping(v.tpe, v)), None)
       })
     }
   }
@@ -1172,7 +1177,7 @@ trait Templates
         (w, e) => Assume(freeTyping(w.tpe, w), e)
       }
 
-      (tpeClauses.foldLeft(tmplClauses)(_ ++ _), Some(source))
+      (tpeClauses.foldLeft(tmplClauses)(_ ++ _), Some(source), None)
     }, isWitnessApp, root)
 
     clauses ++ newFailureDefinitions()
@@ -1180,7 +1185,10 @@ trait Templates
 
   protected def instantiateExpr(expr: Expr, bindings: Map[Variable, Encoded]): Clauses = {
     instantiate(bindings, { (start, encodedStart) =>
-      val instExpr = timers.solvers.simplify.run { simplifyFormula(expr) }
+      // with the steps of the simplification, when certificates need them
+      val (instExpr, steps) = timers.solvers.simplify.run {
+        if (loggingRules) simplifyFormulaRecorded(expr) else (simplifyFormula(expr), Seq())
+      }
 
       val tmplClauses = mkClauses0(start, instExpr, bindings + (start -> encodedStart), polarity = Some(true))
       val typed = bindings.filterNot(declared `contains` _).toSeq
@@ -1189,9 +1197,11 @@ trait Templates
         mkClauses1(start, v.tpe, v, bindings + (start -> encodedStart))(using FreeGenerator)
       }
       // the formula holds of values that lie in their types
-      val source = typed.foldRight(instExpr) { case ((v, _), e) => Assume(freeTyping(v.tpe, v), e) }
+      def typedExpr(e: Expr) = typed.foldRight(e) { case ((v, _), e) => Assume(freeTyping(v.tpe, v), e) }
 
-      (tpeClauses.foldLeft(tmplClauses)(_ ++ _), Some(source))
+      // with the formula before it was simplified, which certificates relate it to
+      (tpeClauses.foldLeft(tmplClauses)(_ ++ _), Some(typedExpr(instExpr)),
+        Some(typedExpr(expr) -> steps.map((rule, term) => rule -> typedExpr(term))))
     })
   }
 }

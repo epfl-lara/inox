@@ -83,7 +83,7 @@ class CertificateSuite extends AnyFunSuite {
         assert(scriptRefs.exists(_.isInstanceOf[Ref.Variable]), scriptRefs)
         assert(certificate.proof.cpc.flatMap(refs).nonEmpty, text)
         assert(certificate.proof.asserts.size == certificate.rules.flatMap(_.asserts).toSet.size + certificate.assumptions.query.size + certificate.assumptions.complete.size, text)
-        assert(text.startsWith("(inox-certificate 4\n(script\n(set-logic ALL)\n"), text)
+        assert(text.startsWith("(inox-certificate 5\n(script\n(set-logic ALL)\n"), text)
         assert(text.contains("\n(templates\n(script\n"), text)
         // the templates of the query and of the function that it unfolds have their sources
         assert(certificate.templates.head.source.isInstanceOf[Source.Expression[?]] && text.contains(") (expression ("), text)

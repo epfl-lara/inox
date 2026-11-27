@@ -332,7 +332,7 @@ def checkRule (clauses : Array Sexp) (templates : Array Template) (sources : Arr
   | other => fail s!"{text other} is not a rule"
 
 /-- The version of the format that the checker checks. -/
-def version : String := "4"
+def version : String := "5"
 
 /-- Checks `certificate`, and says why when it doesn't hold. -/
 def check (certificate : Sexp) : Check Checked := do
@@ -345,6 +345,9 @@ def check (certificate : Sexp) : Check Checked := do
       .expr (.atom "solver-symbols" :: solverSymbols),
       .expr (.atom "source-definitions" :: sourceDefinitions),
       .expr (.atom "source-symbols" :: sourceSymbols),
+      -- The simplification steps relate the sources to the original program. The Scala checker
+      -- replays them; this checker doesn't yet, so its result holds over the simplified program.
+      .expr (.atom "simplifications" :: _),
       .expr (.atom "cpc" :: cpc)] =>
     if v != version then fail s!"the certificate has version {v}, and the checker checks version {version}"
     let clauses := assertsOf script

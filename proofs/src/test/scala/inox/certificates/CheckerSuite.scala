@@ -16,7 +16,7 @@ class CheckerSuite extends AnyFunSuite {
   // A template with the parameters `s` and `p` and its own symbol `c`, instantiated once under
   // the root blocker, a definition, an implication between blockers and an assumption.
   val certificate: String =
-    """(inox-certificate 4
+    """(inox-certificate 5
       |(script
       |(declare-const start Bool)
       |(declare-const b Bool)
@@ -54,6 +54,9 @@ class CheckerSuite extends AnyFunSuite {
       |)
       |(source-symbols
       |(p variable "p$2" "BigInt" Int)
+      |)
+      |(simplifications
+      |(function-equality none)
       |)
       |(cpc
       |(assume @p1 start)
@@ -97,7 +100,7 @@ class CheckerSuite extends AnyFunSuite {
   }
 
   test("A certificate of another version is refused") {
-    assert(refused(changed("(inox-certificate 4", "(inox-certificate 2")).contains("version 2"))
+    assert(refused(changed("(inox-certificate 5", "(inox-certificate 2")).contains("version 2"))
   }
 
   test("An assert that no rule names is refused") {
@@ -192,6 +195,7 @@ class CheckerSuite extends AnyFunSuite {
     }
     for ((certificate, n) <- found.zipWithIndex) {
       val checked = check(certificate)
+      if (!checked.original) info(s"certificate ${n + 1} is over the simplified program: ${checked.unexplained.head.take(300)}")
       for (dir <- cpcDir) {
         Files.createDirectories(dir)
         val name = file.replace('/', '_') + s".${n + 1}.cpc"

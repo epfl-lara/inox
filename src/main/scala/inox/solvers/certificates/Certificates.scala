@@ -56,6 +56,18 @@ object Certificates {
       * printer's syntax. */
     def declarations: Seq[SExpr]
 
+    /** Gives the printer the steps of the simplification of the body of each function into the
+      * body that it is defined with (see [[define]]): the rule of each step and the body after
+      * it. */
+    def defineSteps(steps: Identifier => Seq[(String, E)]): Unit = ()
+
+    /** The body of each function that the printer defined, before the solver simplified it (the
+      * body of the function in the solver's program), by the symbol of the function, and the
+      * steps of its simplification (see [[defineSteps]]): terms over the parameters of the
+      * definition, as the definition prints them. Printing them may define more functions, whose
+      * original bodies are printed too. */
+    def originals: Seq[(SExpr, SExpr, Seq[(String, SExpr)])] = Seq()
+
     /** The sort, as the printer of the sources prints it, of the type that a symbol stands for
       * when the symbol of the session that stands for an expression depends on its type: the
       * function type of an application, the type of a constructor, selector or tester, or of a
@@ -114,6 +126,9 @@ object Certificates {
     * (source-symbols
     * (<symbol of the sources> <kind> "<identifier, type or index>" ... [<sort>])
     * ...)
+    * (simplifications
+    * <the original bodies and expressions that the solver simplified, and the steps that rewrite them>
+    * )
     * (cpc
     * <the solver's CPC proof that the script has no model>
     * ))
@@ -148,7 +163,8 @@ object Certificates {
     * The proof's assumptions are the script's asserts. Given the templates, a checker checks that
     * each rule is an instance of its kind, that its clauses are the asserts it names, that every
     * assert is named, and the proof (see `proofs/certificates`). */
-  def certificate[E](proof: ScriptProof, refutation: Refutation[E], printer: Printer[E]): Either[String, Certificate] = {
+  def certificate[E](proof: ScriptProof, refutation: Refutation[E], printer: Printer[E],
+                     functionEquality: String = "none"): Either[String, Certificate] = {
     val Refutation(clauses, assumptions, templates, rules) = refutation
     val asserts = proof.asserts.size
     val ruled = rules.flatMap(_.clauses).toSet
@@ -190,7 +206,9 @@ object Certificates {
         Rule(r.kind, r.arguments.map(a => Argument(a.name, a.terms.map(_ => it.next()))), instance, names(r.clauses))
       }
       val (complete, query) = (clauses.size until asserts).partition(i => assumptions(i - clauses.size).complete)
-      val certificate = Certificate(proof, declarations ++ sessionDeclarations ++ templateAsserts, templateSeq, ruleSeq, Assumptions(query, complete))
+      val simplifications = simplified(sourceSeq, printer, functionEquality)
+      val certificate = Certificate(proof, declarations ++ sessionDeclarations ++ templateAsserts, templateSeq, ruleSeq,
+        Assumptions(query, complete), simplifications = simplifications)
       // the sorts of the symbols, which may declare more datatypes in the printer, whose
       // declarations are then those of the sources: of the symbols of the session that depend on a
       // type, and of the variables and uninterpreted functions of the sources and definitions
@@ -203,6 +221,57 @@ object Certificates {
       case e: Throwable if !e.isInstanceOf[VirtualMachineError] =>
         Left(s"the certificate's terms or sources can't be printed in SMT-LIB (${e.getMessage})")
     }
+  }
+
+  /** The simplifications of a certificate whose templates have the sources `sources`, printed by
+    * `printer`: for each function whose body the solver simplified, and for each expression
+    * source that it simplified, the original and the steps that rewrite it into what the
+    * certificate has, which the simplifiers recorded (see `transformers.TransformationRecorder`):
+    * {{{
+    * (function-equality <none, intensional or extensional>)
+    * (function <symbol> <original body> <steps>)
+    * (expression <template index> <original> (names (<name> <subterm>) ...) <steps>)
+    * }}}
+    * where `<steps>` is `(steps (<rule> <position> <subterm>) ...)`, the rule of each step, the
+    * position of the subterm that it rewrites and what the subterm becomes. The rules are the
+    * names that the simplifiers give to what they do: the checker checks those that it knows,
+    * and reports the others. The body of a function is that of its definition, over the
+    * parameters of the definition, and the simplified expression is that of the source, where
+    * each name is the subterm that it names. The first entry is how the program compares
+    * functions: the checker only checks steps when it doesn't (see `proofs/certificates`). */
+  private def simplified[E](sources: Seq[Source[SExpr]], printer: Printer[E], functionEquality: String): Seq[SExpr] = {
+    // A step is recorded as the whole term after it. The certificate only has what the step
+    // rewrites: the position of the smallest subterm outside of which the term is the one before
+    // the step, and that subterm after the step.
+    def steps(original: SExpr, recorded: Seq[(String, SExpr)]): SExpr = {
+      var current = original
+      SList(Atom("steps") +: recorded.flatMap { (rule, term) =>
+        if (term == current) None else {
+          val position = difference(current, term)
+          val subterm = position.foldLeft(term) { case (SList(items), i) => items(i); case (t, _) => t }
+          current = term
+          Some(SList(Seq(Atom(rule), SList(position.map(i => Atom(i.toString))), subterm)))
+        }
+      })
+    }
+    def difference(a: SExpr, b: SExpr): List[Int] = (a, b) match {
+      case (SList(xs), SList(ys)) if xs.size == ys.size =>
+        xs.indices.filter(i => xs(i) != ys(i)).toList match {
+          case List(i) => i :: difference(xs(i), ys(i))
+          case _ => Nil
+        }
+      case _ => Nil
+    }
+    val functions = printer.originals.collect {
+      case (f, original, recorded) if recorded.exists(_._2 != original) =>
+        SList(Seq(Atom("function"), f, original, steps(original, recorded)))
+    }
+    val expressions = sources.zipWithIndex.collect {
+      case (Source.Expression(expr, _, Some(Source.Original(original, names, recorded))), i) =>
+        val names_ = SList(Atom("names") +: names.map((n, t) => SList(Seq(n, t))))
+        SList(Seq(Atom("expression"), Atom(i.toString), original, names_, steps(original, recorded)))
+    }
+    SList(Seq(Atom("function-equality"), Atom(functionEquality))) +: (functions ++ expressions)
   }
 
   /** The CPC proof that cvc5 answers to `(get-proof)`, or why it isn't one that checkers accept. */

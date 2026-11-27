@@ -27,6 +27,8 @@ trait FunctionTemplates { self: Templates =>
     val templates: MutableMap[TypedFunDef, FunctionTemplate] = MutableMap.empty
     /** The body of each function that certificates define it with (see [[definitionBody]]). */
     val bodies: MutableMap[Identifier, Expr] = MutableMap.empty
+    /** The steps of the simplification of each of the [[bodies]] (see [[definitionSteps]]). */
+    val steps: MutableMap[Identifier, Seq[(String, Expr)]] = MutableMap.empty
     /** The template of the interpretation of each uninterpreted function (see [[InterpretedTemplate]]). */
     val interpreted: MutableMap[Interpreted, FunctionTemplate] = MutableMap.empty
     /** The rank function of each function, and its encoding (see [[rankClauses]]). */
@@ -59,7 +61,19 @@ trait FunctionTemplates { self: Templates =>
     * type parameters: its simplified body, which its templates unfold at their type arguments
     * when the rules are logged, so that the body of every instance is an instance of it. */
   private[unrolling] def definitionBody(id: Identifier): Expr = functionCaches.bodies.getOrElseUpdate(id,
-    timers.solvers.simplify.run { simplifyFormula(getFunction(id).fullBody) })
+    timers.solvers.simplify.run {
+      val (body, steps) = simplifyFormulaRecorded(getFunction(id).fullBody)
+      functionCaches.steps(id) = steps
+      body
+    })
+
+  /** The steps of the simplification of the body of the function `id` into its [[definition]], in
+    * the solver's terms: the rule of each step and the body after it. */
+  def definitionSteps(id: Identifier): Seq[(String, Encoded)] = {
+    definitionBody(id)
+    val encoder = mkEncoder(Map.empty)
+    functionCaches.steps(id).map((rule, body) => rule -> encoder(body))
+  }
 
   /** The definition of the function `id` in the solver's terms (see [[definitionBody]]). */
   def definition(id: Identifier): Encoded = mkEncoder(Map.empty)(definitionBody(id))

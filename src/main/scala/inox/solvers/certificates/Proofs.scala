@@ -174,7 +174,7 @@ sealed abstract class Source[+E] {
   def map[F](f: E => F): Source[F] = {
     def pairs(ps: Seq[(E, E)]) = ps.map((l, r) => f(l) -> f(r))
     this match {
-      case Expression(e, w) => Expression(f(e), pairs(w))
+      case Expression(e, w, o) => { val expr = f(e); val where = pairs(w); Expression(expr, where, o.map(_.map(f))) }
       case Function(c, b, w) => { val call = f(c); Function(call, f(b), pairs(w)) }
       case Definition(c, ns, w) => { val call = f(c); Definition(call, pairs(ns), pairs(w)) }
     }
@@ -190,7 +190,7 @@ sealed abstract class Source[+E] {
     def pairs(name: String, ps: Seq[(E, E)]) =
       if (ps.isEmpty) "" else ps.map((l, r) => s"($l $r)").mkString(s" ($name ", " ", ")")
     this match {
-      case Expression(e, w) => s"(expression $e${pairs("where", w)})"
+      case Expression(e, w, _) => s"(expression $e${pairs("where", w)})"
       case Function(c, b, w) => s"(function $c $b${pairs("where", w)})"
       case Definition(c, ns, w) => s"(definition $c${pairs("names", ns)}${pairs("where", w)})"
     }
@@ -198,8 +198,23 @@ sealed abstract class Source[+E] {
 }
 
 object Source {
-  /** An expression that holds, whose clauses the template's are. */
-  final case class Expression[+E](expr: E, where: Seq[(E, E)] = Seq()) extends Source[E]
+  /** An expression that holds, whose clauses the template's are, and when the solver simplified
+    * it, the expression before it did (see [[Original]]). The original doesn't print with the
+    * source: the certificate's simplifications have it (see [[Certificates.certificate]]). */
+  final case class Expression[+E](expr: E, where: Seq[(E, E)] = Seq(), original: Option[Original[E]] = None) extends Source[E]
+
+  /** The expression `term` that the solver simplified into the expression of a source, where the
+    * expression of the source names subterms of the simplified expression: each subterm that is
+    * the right of a pair of `names` is the left of that pair in the source (as in a
+    * [[Definition]]). */
+  final case class Original[+E](term: E, names: Seq[(E, E)] = Seq(),
+                                steps: Seq[(String, E)] = Seq()) {
+    def map[F](f: E => F): Original[F] = {
+      val t = f(term)
+      val ns = names.map((l, r) => { val fl = f(l); fl -> f(r) })
+      Original(t, ns, steps.map((rule, term) => rule -> f(term)))
+    }
+  }
 
   /** A function, a lambda or an evaluated call: the `call`, and the `body` that is its value. */
   final case class Function[+E](call: E, body: E, where: Seq[(E, E)] = Seq()) extends Source[E]
@@ -236,7 +251,8 @@ final case class Assumptions(query: Seq[Int], complete: Seq[Int])
   * clauses `templateScript` declares and asserts (see [[Certificates.certificate]]). */
 final case class Certificate(proof: ScriptProof, templateScript: Seq[SExpr], templates: Seq[Template],
                              rules: Seq[Rule], assumptions: Assumptions, sourceDefinitions: Seq[SExpr] = Seq(),
-                             solverSorts: Map[Ref, SExpr] = Map(), sourceSorts: Map[Ref, SExpr] = Map()) extends Proof {
+                             solverSorts: Map[Ref, SExpr] = Map(), sourceSorts: Map[Ref, SExpr] = Map(),
+                             simplifications: Seq[SExpr] = Seq()) extends Proof {
   /** What the symbols of the solver's session stand for, by their text and in its order. */
   def solverSymbols: Seq[(String, Ref)] =
     (proof.script ++ templateScript ++ proof.cpc).flatMap(_.symbols).map(s => s.text -> s.ref).distinct.sortBy(_._1)
@@ -245,7 +261,7 @@ final case class Certificate(proof: ScriptProof, templateScript: Seq[SExpr], tem
     * those of the printer that printed them, and the variables of the session. */
   def sourceSymbols: Seq[(String, Ref)] =
     (templates.flatMap(_.source.terms) ++
-      sourceDefinitions ++ sourceSorts.values).flatMap(_.symbols).map(s => s.text -> s.ref).distinct.sortBy(_._1)
+      sourceDefinitions ++ sourceSorts.values ++ simplifications).flatMap(_.symbols).map(s => s.text -> s.ref).distinct.sortBy(_._1)
 
   override def toString: String = {
     def ints(is: Seq[Int]) = is.map(" " + _).mkString
@@ -271,13 +287,14 @@ final case class Certificate(proof: ScriptProof, templateScript: Seq[SExpr], tem
       "(solver-symbols\n" + symbolLines(solverSymbols, solverSorts).map(_ + "\n").mkString + ")\n" +
       Proof.block("source-definitions", sourceDefinitions) + "\n" +
       "(source-symbols\n" + symbolLines(sourceSymbols, sourceSorts).map(_ + "\n").mkString + ")\n" +
+      Proof.block("simplifications", simplifications) + "\n" +
       Proof.block("cpc", proof.cpc) + ")"
   }
 }
 
 object Certificate {
   /** The version of the format that certificates print in, which changes with it. */
-  val version = 4
+  val version = 5
 }
 
 object Proof {

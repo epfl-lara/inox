@@ -167,7 +167,9 @@ abstract class AbstractUnrollingSolver private
           case Some(printer) =>
             val templateSeq = contents.map(c => TemplateClauses(c.pathVar._2 +: c.args, c.clauses, c.source.get))
             printer.define(templates.definition)
-            certificates.Certificates.certificate(proof, Refutation(clauses, assumed, templateSeq, ruleSeq), printer)
+            printer.defineSteps(templates.definitionSteps)
+            certificates.Certificates.certificate(proof, Refutation(clauses, assumed, templateSeq, ruleSeq), printer,
+              functionEquality.toString.toLowerCase)
           case None => Left("the underlying solver's session doesn't print the solver's terms")
         }
       }

@@ -91,7 +91,56 @@ rule of `unrolling.RuleKernel` builds. Two things are left to the reader:
   lambdas, `tuple.unit`, bags, string operations and floating points, which
   no source of the corpus uses.
 
-  Nothing yet relates the sources to the input query and its functions.
+  The `simplifications` section relates the sources to the input query and
+  its functions. Before generating templates, the solver simplifies each
+  formula (inlining, path simplification, let and quantifier simplification).
+  For each function whose source body differs from its original definition,
+  and for each source expression that differs from the formula it was made
+  from, the section holds the original term and the steps that rewrite it
+  into the source. [`Simplifications.scala`](../src/main/scala/inox/certificates/Simplifications.scala)
+  replays them. The steps are not found by comparing the two terms: the
+  simplifiers record each rewrite as they apply it. A step is
+  `(<rule> <position> <subterm>)`: the rule, the position of the smallest
+  subterm outside of which the step leaves the term as it is, and what that
+  subterm becomes. The checker checks the rule at the position, or at a
+  subterm around it. A step may only refine the subterm: wherever the
+  original has a value, the rewritten term has the same value.
+  The rules are three-valued propositional reasoning over the atoms of the
+  term, under the facts of the path to it (`logic`), unfolding a function
+  call (`unfold`), beta reduction (`beta`), replacing a variable by the
+  value of its let (`expand`), selecting a field of a construction or an
+  element of a tuple (`select`), a construction of the fields of a term
+  (`eta`), binding a subterm that is always evaluated (`bind`), lifting a
+  let or an assumption out of an operand that is always evaluated (`lift`),
+  merging quantifiers (`merge`), dropping the unused variables of a
+  quantifier over inhabited sorts (`unused`), lifting the quantifiers of
+  the operands of a connective (`prenex`), polynomial arithmetic
+  (`arith`), and renaming bound variables (`rename`). The simplifiers name
+  every rewrite, and don't judge which ones the checker can check: a step
+  of a rule that the checker doesn't know is applied as it is given, and
+  the certificate then holds over the simplified program only, which the
+  checker says with the rules. This is the case of the evaluation of ground
+  terms beyond the constants of the program (`evaluate`), of the inlining
+  of the equality function of a sort (`inline-equality`), of an assumption
+  or a quantifier that is lifted from where the term may not evaluate it
+  (`lift-assumptions`, `lift-quantifiers`). A step of a rule that the
+  checker knows, and which doesn't hold, makes the certificate fail, and so
+  does what a simplifier did without recording it (`unrecorded`). When the
+  program compares functions (`--function-equality` is not `none`), a
+  refinement under a lambda or in a function body is not enough: the
+  checker doesn't check the steps, and says so. What remains trusted:
+  - that the originals are the program and the query that the solver was
+    given: the certificate states them, and nothing compares them with an
+    input;
+  - the names of the sources: the symbol of a lambda or of the instantiations
+    of a quantifier stands for the subterm that the section gives for it, as
+    the check of the sources trusts too (the checker checks that a name is
+    not a symbol of the original, and that a quantifier that the source
+    assumes is where it must hold);
+  - the theory encoders (sets, bags, maps, propositions) that run before the
+    simplifier, whose output is the original that the steps start from;
+  - the rules themselves, which the Lean checker doesn't prove yet (it skips
+    the section, and its result holds over the simplified program).
 - **The side conditions of the rules.** The checker checks the shape of each
   rule, and that the symbols that `Define`, `Hypothesis` and `Root` introduce
   are introduced once. It doesn't check what a rule states about the program,
@@ -100,4 +149,4 @@ rule of `unrolling.RuleKernel` builds. Two things are left to the reader:
   conjunction that refutations may assume (it checks that it is a literal).
 
 The second needs the trace from the input to the sources, which the
-certificate doesn't hold yet.
+`simplifications` section starts to hold.
