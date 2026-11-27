@@ -1208,19 +1208,23 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   functions to integers, errors, and calls of uninterpreted functions without
   type arguments or at the elements, whose interpretations in the encoded
   program are what the encoder makes of their interpretations in the input. An
-  equality is covered whatever the kind of its operands: as the input has no
-  equality on functions, an equality that evaluates there compares no
-  functions. A quantifier holds when all of its instances hold with the same
-  fuel, so the theorem also bounds the fuel of an encoding that has no
-  operations of bags by the fuel of its expression, and covers quantifiers,
-  lambdas and functions whose bodies are of these. It assumes the invariant of
-  the datatype as the encoder defines it, sorts of the program without
-  invariants nor equalities, an input without equality on functions, one type
-  of elements, which the type parameters of functions and of sorts with one
-  type parameter are instantiated with and that is of integers, booleans or a
-  type parameter (integers where the input has no type parameter), in the input
-  as in the encoded program, and doesn't cover bag literals with elements, bags
-  of bags, quantifiers over other values nor the other theories yet.
+  equality is covered whatever the kind of its operands when the certificate
+  says that the solver compares no functions (`function-equality` is `none`):
+  the input then has no equality on functions, so an equality that evaluates
+  there compares none. Otherwise, as when functions are compared extensionally,
+  an equality is covered when its operands are of a kind without functions,
+  which those of sorts with type parameters are not taken to be. A quantifier
+  holds when all of its instances hold with the same fuel, so the theorem also
+  bounds the fuel of an encoding that has no operations of bags by the fuel of
+  its expression, and covers quantifiers, lambdas and functions whose bodies
+  are of these. It assumes the invariant of the datatype as the encoder defines
+  it, sorts of the program without invariants nor equalities, an input without
+  equality on functions when the certificate says so, one type of elements,
+  which the type parameters of functions and of sorts with one type parameter
+  are instantiated with and that is of integers, booleans or a type parameter
+  (integers where the input has no type parameter), in the input as in the
+  encoded program, and doesn't cover bag literals with elements, bags of bags,
+  quantifiers over other values nor the other theories yet.
   [`Input.lean`](Inox/Input.lean) reads the definitions and the constraints of
   a certificate's input and what the encoders make of them as expressions of
   the semantics, decides whether each encoded expression is what the encoder

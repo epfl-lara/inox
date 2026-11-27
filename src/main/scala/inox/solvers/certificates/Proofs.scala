@@ -257,9 +257,11 @@ final case class Constraint(input: SExpr, encoded: SExpr, steps: Seq[(String, SE
   * were asserted, the sorts of the variables and uninterpreted functions of the input, and for
   * each function that the sources define, the call of the function on its parameters (as the
   * `input` of a [[Constraint]]), its body after the encoders and the steps of its
-  * simplification, as sources. */
+  * simplification, as sources, and how the solver compares functions (see
+  * [[unrolling.optFunctionEquality]]). */
 final case class Input(encoders: Seq[String], definitions: Seq[SExpr], constraints: Seq[Constraint],
-                       sorts: Map[Ref, SExpr] = Map(), functions: Seq[Constraint] = Seq()) {
+                       sorts: Map[Ref, SExpr] = Map(), functions: Seq[Constraint] = Seq(),
+                       functionEquality: String = "none") {
   /** What the symbols of the input stand for, by their text and in its order: those of the
     * printer that printed it, and the variables of the session. */
   def symbols: Seq[(String, Ref)] =
@@ -311,7 +313,8 @@ final case class Certificate(proof: ScriptProof, templateScript: Seq[SExpr], tem
       "(source-symbols\n" + symbolLines(sourceSymbols, sourceSorts).map(_ + "\n").mkString + ")\n" +
       Proof.block("simplifications", simplifications) + "\n" +
       input.map { in =>
-        "(input\n(encoders" + in.encoders.map(" " + string(_)).mkString + ")\n" + Proof.block("definitions", in.definitions) + "\n" +
+        "(input\n(encoders" + in.encoders.map(" " + string(_)).mkString + ")\n" +
+          s"(function-equality ${string(in.functionEquality)})\n" + Proof.block("definitions", in.definitions) + "\n" +
           in.constraints.map { c =>
             s"(constraint ${c.input} (encoded ${c.encoded}) (simplified${c.steps.map((rule, e) => s" ($rule $e)").mkString}))\n"
           }.mkString +

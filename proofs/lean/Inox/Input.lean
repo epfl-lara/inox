@@ -104,6 +104,7 @@ structure CSig where
   flat : List Id
   sorts : List (Id × List Id × List (Id × List Param))
   elemKind : Kind
+  extEq : Bool
 
 def CSig.sig (S : CSig) : Sig where
   ctors c := S.ctors.lookup c
@@ -112,6 +113,7 @@ def CSig.sig (S : CSig) : Sig where
   flat f := S.flat.contains f
   sorts s := S.sorts.lookup s
   elemKind := S.elemKind
+  extEq := S.extEq
 
 mutual
 /-- The equality of types of `PureTy`. -/
@@ -491,6 +493,30 @@ theorem sizeOf_string_pos (c : String) : 0 < sizeOf c := by
 theorem sizeOf_expr_pos (e : Expr) : 0 < sizeOf e := by
   cases e <;> simp +arith
 
+/-- Whether no constructor of the sorts `A` has a function in its fields. -/
+def foSig (S : CSig) (A : List Id) : Bool :=
+  S.ctors.all fun (_, s, fs) => !A.contains s || foKinds A.contains (fs.map Prod.snd)
+
+theorem foSig_sound {S : CSig} {A : List Id} (h : foSig S A = true) :
+    S.sig.fo A.contains := by
+  intro c s fs hc hs
+  have hmem : (c, s, fs) ∈ S.ctors := mem_of_lookup hc
+  have h := List.all_eq_true.1 h _ hmem
+  simp only [Bool.or_eq_true, Bool.not_eq_true'] at h
+  rw [hs] at h
+  simpa using h
+
+/-- The sorts that have no functions in them, removing those that do until none is left. -/
+def foSorts (S : CSig) : List Id :=
+  go (S.ctors.length + 1) (S.ctors.map (·.2.1))
+where
+  go : Nat → List Id → List Id
+    | 0, A => A
+    | n + 1, A =>
+      let A' := A.filter fun s =>
+        S.ctors.all fun (_, s', fs) => s' != s || foKinds A.contains (fs.map Prod.snd)
+      if A'.length == A.length then A else go n A'
+
 /-- The variables that a function keeps: those that have the kind that they are listed with. -/
 def keep (Γ : List (Id × Kind)) : List (Id × Kind) :=
   Γ.filter fun p => match Γ.lookup p.1 with | some k => kindEq k p.2 | none => false
@@ -524,7 +550,8 @@ def encodesCheck (N : Names) (S : CSig) (Te : Ty) (g : List (Id × Kind) → Exp
   | Γ, .GreaterEquals a b, .GreaterEquals a' b', .bool, u =>
     encodesCheck N S Te g Γ a a' .int u && encodesCheck N S Te g Γ b b' .int u
   | Γ, .Equals a b, .Equals a' b', .bool, u =>
-    encodesCheck N S Te g Γ a a' (g Γ a) u && encodesCheck N S Te g Γ b b' (g Γ a) u
+    (!S.extEq || foKind (foSorts S).contains (g Γ a) && foSig S (foSorts S)) &&
+      encodesCheck N S Te g Γ a a' (g Γ a) u && encodesCheck N S Te g Γ b b' (g Γ a) u
   | Γ, .Not a, .Not a', .bool, u => encodesCheck N S Te g Γ a a' .bool u
   | _, .And [], .And [], .bool, _ => true
   | Γ, .And (a :: as), .And (a' :: as'), .bool, u =>
@@ -692,8 +719,12 @@ theorem encodesCheck_sound {N : Names} {S : CSig} {Te : Ty}
     simp only [Bool.and_eq_true] at h
     exact .ge (iha h.1) (ihb h.2)
   · next iha ihb =>
-    simp only [Bool.and_eq_true] at h
-    exact .eq (iha h.1) (ihb h.2)
+    simp only [Bool.and_eq_true, Bool.or_eq_true, Bool.not_eq_true'] at h
+    obtain ⟨⟨h0, h1⟩, h2⟩ := h
+    rcases h0 with hx | ⟨hk, hs⟩
+    · exact .eq (A := fun _ => true) (fun h' => by simp [CSig.sig, hx] at h')
+        (.inl (by simpa [CSig.sig] using hx)) (iha h1) (ihb h2)
+    · exact .eq (fun _ => foSig_sound hs) (.inr hk) (iha h1) (ihb h2)
   · next iha => exact .not (iha h)
   · exact .andNil
   · next iha ihb =>
@@ -1411,7 +1442,7 @@ def defsCheck (N : Names) (S : CSig) (defs : List (Id × List Id × Expr × Expr
     | none => false
 
 def Coverage.none (n : Nat) (why : String) : Coverage :=
-  { names := namesOf ⟨[]⟩, sig := ⟨[], [], [], [], [], .int⟩, defs := [], elem := .UnitType,
+  { names := namesOf ⟨[]⟩, sig := ⟨[], [], [], [], [], .int, true⟩, defs := [], elem := .UnitType,
     vars := [],
     covered := [], constraints := n, first := some why }
 
@@ -1448,6 +1479,8 @@ def coversAt (certificate : Sexp) (top : String) : Coverage :=
   let input := sectionOf certificate "input"
   let symbols := input.flatMap fun | .expr (.atom "symbols" :: rows) => rows | _ => []
   let definitions := input.flatMap fun | .expr (.atom "definitions" :: ds) => ds | _ => []
+  -- whether the input may compare functions: unless the certificate says that it doesn't
+  let extEq := !input.contains (.expr [.atom "function-equality", .atom "\"none\""])
   let constraints := input.filterMap fun
     | .expr (.atom "constraint" :: i :: .expr [.atom "encoded", e] :: _) => some (i, e)
     | _ => none
@@ -1462,7 +1495,7 @@ def coversAt (certificate : Sexp) (top : String) : Coverage :=
       List (Id × List Id × List (Id × List Param))
     | 0, ss => ss
     | n + 1, ss =>
-      let kept := ss.filter (sortOk ⟨ctors, [], [], [], ss, κ⟩)
+      let kept := ss.filter (sortOk ⟨ctors, [], [], [], ss, κ, true⟩)
       if kept.length == ss.length then ss else okSorts n kept
   let sorts := okSorts (definitions.length + 1) (sortsOf tin ints top definitions)
   let bodies := encodedBodies input
@@ -1495,7 +1528,7 @@ def coversAt (certificate : Sexp) (top : String) : Coverage :=
       List (Fun × Expr × Expr) × List Id
     | 0, fs, flat => (fs, flat)
     | n + 1, fs, flat =>
-      let S : CSig := ⟨ctors, fs.map (fun (f, _, _) => f.entry), unints, flat, sorts, κ⟩
+      let S : CSig := ⟨ctors, fs.map (fun (f, _, _) => f.entry), unints, flat, sorts, κ, extEq⟩
       let check (u : Bool) : Fun × Expr × Expr → Bool := fun (f, body, body') =>
         encodesCheck N S f.elem (kindOf S) (f.params.zip f.kinds) body body' f.kind u
       let flat' := unints.map (·.1) ++ (fs.filter (check true)).map (·.1.name)
@@ -1504,7 +1537,7 @@ def coversAt (certificate : Sexp) (top : String) : Coverage :=
       else keep n kept flat'
   let (funs, flat) := keep (2 * read.length + 2) read
     (unints.map (·.1) ++ read.map fun (f, _, _) => f.name)
-  let S : CSig := ⟨ctors, funs.map (fun (f, _, _) => f.entry), unints, flat, sorts, κ⟩
+  let S : CSig := ⟨ctors, funs.map (fun (f, _, _) => f.entry), unints, flat, sorts, κ, extEq⟩
   let defs := funs.map fun (f, body, body') => (f.name, f.params, body, body')
   let cin : Ctx := ⟨tin, top, ints, []⟩
   let Γ := symbols.filterMap fun

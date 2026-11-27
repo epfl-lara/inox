@@ -52,6 +52,9 @@ object Encoders {
     * and functions that it checked: none when the certificate has no input. */
   def check(input: List[SExpr], sourceDefinitions: Seq[SExpr], sourceSymbols: Seq[SExpr]): Int = input match {
     case Nil => 0
+    // how the solver compares functions changes nothing of what the encoders make
+    case (encoders @ SList(Atom("encoders") :: _)) :: SList(List(Atom("function-equality"), _)) :: rest =>
+      check(encoders :: rest, sourceDefinitions, sourceSymbols)
     case SList(Atom("encoders") :: names) :: SList(Atom("definitions") :: definitions) :: rest if rest.nonEmpty =>
       val (lines, symbols) = (rest.init, rest.last match {
         case SList(Atom("symbols") :: lines) => lines.map(entry)

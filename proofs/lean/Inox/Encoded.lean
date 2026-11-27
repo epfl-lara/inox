@@ -138,6 +138,25 @@ structure Sig where
   flat : Id → Bool
   sorts : Sorts
   elemKind : Kind
+  /-- Whether the input may compare functions, extensionally. -/
+  extEq : Bool
+
+mutual
+/-- Whether a kind has no functions in it, given the sorts `A` that have none. -/
+def foKind (A : Id → Bool) : Kind → Bool
+  | .fn _ _ | .app _ _ | .param _ => false
+  | .tuple ks => foKinds A ks
+  | .adt s => A s
+  | _ => true
+def foKinds (A : Id → Bool) : List Kind → Bool
+  | [] => true
+  | k :: ks => foKind A k && foKinds A ks
+end
+
+/-- The sorts `A` have no functions in them: no constructor of theirs has a function in its
+fields. -/
+def Sig.fo (S : Sig) (A : Id → Bool) : Prop :=
+  ∀ c s fs, S.ctors c = some (s, fs) → A s = true → foKinds A (fs.map Prod.snd) = true
 
 /-- The kind of the component `i` of a tuple, counted from 1. -/
 def nthKind : List Kind → Int → Option Kind
@@ -228,7 +247,8 @@ inductive Encodes (N : Names) (S : Sig) (Te : Ty) :
   | ge {Γ : Id → Option Kind} {u : Bool} {a a' b b' : Expr}
       (ha : Encodes N S Te Γ a a' .int u) (hb : Encodes N S Te Γ b b' .int u) :
       Encodes N S Te Γ (.GreaterEquals a b) (.GreaterEquals a' b') .bool u
-  | eq {Γ : Id → Option Kind} {u : Bool} {a a' b b' : Expr} {k : Kind}
+  | eq {Γ : Id → Option Kind} {u : Bool} {a a' b b' : Expr} {k : Kind} {A : Id → Bool}
+      (hS : S.extEq = true → S.fo A) (hk : S.extEq = false ∨ foKind A k = true)
       (ha : Encodes N S Te Γ a a' k u) (hb : Encodes N S Te Γ b b' k u) :
       Encodes N S Te Γ (.Equals a b) (.Equals a' b') .bool u
   | not {Γ : Id → Option Kind} {u : Bool} {a a' : Expr} (ha : Encodes N S Te Γ a a' .bool u) :
@@ -452,7 +472,7 @@ def FunIn (f : Id) (tparams params : List Id) (body : Expr) : Program → Prop
 /-- What the theorems assume of the program `Ps` of the input and of the encoded program `P`,
 other than of their functions: `P` defines the datatype of the encoder as the encoder does,
 both have the same equality on the elements and the constructors of the signature, and `Ps`
-has no equality on functions. -/
+has no equality on functions unless the signature says that it may (`extEq`). -/
 structure Base (O : Oracle) (Ps P : Program) (N : Names) (K : Value → Prop)
     (E : Value → Value → Bool) (T0 : Ty) (S : Sig) (inv bi eq b1 b2 : Id) : Prop where
   sound : O.Sound
@@ -472,7 +492,7 @@ structure Base (O : Oracle) (Ps P : Program) (N : Names) (K : Value → Prop)
   simple : SimpleTy T0
   elemsS : ∀ v, O.has_type Ps (.Env [] []) v T0 = true ↔ K v
   ints : S.elemKind = .int → T0 = .IntegerType
-  noFunEq : ∃ fns cs ss is, Ps = .Program fns cs ss is .NoFunctionEquality
+  noFunEq : S.extEq = false → ∃ fns cs ss is, Ps = .Program fns cs ss is .NoFunctionEquality
   sortsS : SortsIn S.sorts Ps
   sortsP : SortsIn S.sorts P
 
@@ -720,33 +740,36 @@ theorem closed_resolve (hO : O.Sound) {Te t : Ty} (hc : ClosedTy Te t) {tys tys'
   · rw [hO.resolve, hO.resolve]
 
 /-- Values that relate are equal in the encoded program when they are in the input, which
-compares no functions. -/
-theorem rel_value_eq (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) :
+compares no functions unless `S.extEq`, and then values of kinds without functions. -/
+theorem rel_value_eq (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) {A : Id → Bool}
+    (hS : S.extEq = true → S.fo A) :
     ∀ {k : Kind} {a a' : Value}, Rel O P N K E T0 S k a a' →
-      ∀ {b b' : Value}, Rel O P N K E T0 S k b b' → ∀ {r : Bool},
-        O.value_eq Ps a b = .Ok r → O.value_eq P a' b' = .Ok r := by
+      S.extEq = false ∨ foKind A k = true → ∀ {b b' : Value}, Rel O P N K E T0 S k b b' →
+        ∀ {r : Bool}, O.value_eq Ps a b = .Ok r → O.value_eq P a' b' = .Ok r := by
   intro k a a' h
   induction h with
   | closure _ _ _ _ _ _ _ =>
-    intro b b' _ r he
-    obtain ⟨fns, cs, ss, is, hP⟩ := hB.noFunEq
-    subst hP
-    rw [hB.sound.value_eq] at he
-    cases he
+    intro hfo b b' _ r he
+    rcases hfo with hx | hk
+    · obtain ⟨fns, cs, ss, is, hP⟩ := hB.noFunEq hx
+      subst hP
+      rw [hB.sound.value_eq] at he
+      cases he
+    · simp [foKind] at hk
   | prim v hv =>
-    intro b b' hb r he
+    intro hfo b b' hb r he
     cases hb with
     | prim _ hw =>
       rw [← he, hB.sound.value_eq, hB.sound.value_eq (P := Ps)]
       cases v <;> simp_all [IsPrim]
   | set t xs hk hxs _ =>
-    intro b b' hb r he
+    intro hfo b b' hb r he
     cases hb with
     | set u ys _ hys =>
       rw [← he, hB.sound.value_eq, hB.sound.value_eq (P := Ps)]
       simp only [subset_same hB hk hys hxs, subset_same hB hk hxs hys]
   | map kt vt xs d hk hv hks hws hd _ _ _ =>
-    intro b b' hb r he
+    intro hfo b b' hb r he
     cases hb with
     | map kt2 vt2 ys e _ _ hks2 hws2 he2 =>
       rw [← he, hB.sound.value_eq, hB.sound.value_eq (P := Ps)]
@@ -754,21 +777,21 @@ theorem rel_value_eq (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) :
         same_entries_same hB hk hv hks hws hks2 hws2 hd he2 hks,
         same_entries_same hB hk hv hks hws hks2 hws2 hd he2 hks2]
   | elem v hv =>
-    intro b b' hb r he
+    intro hfo b b' hb r he
     cases hb with
     | elem _ hw => rw [← he, hB.keyS.eq _ _ hv hw, hB.key.eq _ _ hv hw]
   | int n =>
-    intro b b' hb r he
+    intro hfo b b' hb r he
     cases hb
     rw [← he]
     simp only [hB.sound.value_eq]
   | bool n =>
-    intro b b' hb r he
+    intro hfo b b' hb r he
     cases hb
     rw [← he]
     simp only [hB.sound.value_eq]
   | bag t xs c args hxs henc hc =>
-    intro b b' hb r he
+    intro hfo b b' hb r he
     cases hb with
     | bag u ys c2 args2 hys henc2 hc2 =>
       have heq := enc_equal hB.sound hB.names hB.bags hB.equals hB.h1x hB.h2x hB.h12 hB.key
@@ -777,12 +800,12 @@ theorem rel_value_eq (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) :
       rw [← he, bag_value_eq hB.sound hB.keyS hxs hys, hB.sound.value_eq]
       simp only [sort_equality_bag hB.bags hB.sort hc, heq]
   | tupleNil =>
-    intro b b' hb r he
+    intro hfo b b' hb r he
     cases hb
     rw [← he]
     simp only [hB.sound.value_eq, hB.sound.values_eq]
   | tupleCons h hr ih ihr =>
-    intro b b' hb r he
+    intro hfo b b' hb r he
     cases hb with
     | @tupleCons _ _ w w' ws ws' h2 hr2 =>
       rw [hB.sound.value_eq] at he
@@ -793,12 +816,15 @@ theorem rel_value_eq (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) :
       simp only [] at he ⊢
       split at he
       · next same h1 =>
-        rw [ih h2 h1]
+        rw [ih (hfo.imp id fun h => by
+          simp only [foKind, foKinds, Bool.and_eq_true] at h; exact h.1) h2 h1]
         simp only []
         split at he
         · next hs =>
           rw [dite_cond_eq_true (eq_true hs)]
-          have e2 := @ihr _ _ hr2 r (by rw [hB.sound.value_eq]; exact he)
+          have e2 := @ihr (hfo.imp id fun h => by
+            simp only [foKind, foKinds, Bool.and_eq_true] at h; simpa [foKind] using h.2) _ _ hr2
+            r (by rw [hB.sound.value_eq]; exact he)
           rw [hB.sound.value_eq] at e2
           exact e2
         · next hs =>
@@ -807,7 +833,7 @@ theorem rel_value_eq (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) :
       · cases he
       · cases he
   | @adt c s fs tps tps' vs vs' h hr ih =>
-    intro b b' hb r he
+    intro hfo b b' hb r he
     cases hb with
     | @adt d _ fs2 _ _ ws ws' h2 hr2 =>
       rw [hB.sound.value_eq] at he
@@ -820,13 +846,22 @@ theorem rel_value_eq (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) :
         simp only [Option.some.injEq, Prod.mk.injEq] at hfs
         obtain ⟨_, rfl⟩ := hfs
         simp only [dite_true] at he ⊢
-        have e := @ih _ _ hr2 r (by rw [hB.sound.value_eq]; exact he)
+        have hk' : S.extEq = false ∨ foKind A (.tuple (fs.map Prod.snd)) = true := by
+          cases hx : S.extEq
+          · exact .inl rfl
+          · refine .inr ?_
+            have hs : A s = true := by
+              rcases hfo with h' | h'
+              · rw [hx] at h'; cases h'
+              · simpa [foKind] using h'
+            simpa [foKind] using hS hx _ _ _ h hs
+        have e := @ih hk' _ _ hr2 r (by rw [hB.sound.value_eq]; exact he)
         rw [hB.sound.value_eq] at e
         exact e
       · simp only [hcd, dite_false] at he ⊢
         exact he
   | @app c s fs ks tps tps' vs vs' h hr ih =>
-    intro b b' hb r he
+    intro hfo b b' hb r he
     cases hb with
     | @app d _ fs2 _ _ _ ws ws' h2 hr2 =>
       rw [hB.sound.value_eq] at he
@@ -839,7 +874,11 @@ theorem rel_value_eq (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) :
         simp only [Option.some.injEq, Prod.mk.injEq] at hfs
         obtain ⟨_, rfl⟩ := hfs
         simp only [dite_true] at he ⊢
-        have e := @ih _ _ hr2 r (by rw [hB.sound.value_eq]; exact he)
+        have hk' : S.extEq = false := by
+          rcases hfo with h' | h'
+          · exact h'
+          · simp [foKind] at h'
+        have e := @ih (.inl hk') _ _ hr2 r (by rw [hB.sound.value_eq]; exact he)
         rw [hB.sound.value_eq] at e
         exact e
       · simp only [hcd, dite_false] at he ⊢
@@ -1741,7 +1780,7 @@ theorem encodes_eval (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) (hSo : S.Ok)
       · cases hv
     · cases hv
     · cases hv
-  | eq _ _ iha ihb =>
+  | eq hS hk _ _ iha ihb =>
     intro env env' hT hΓ fuel hfn v hv
     simp only [eval] at hv
     split at hv
@@ -1753,7 +1792,7 @@ theorem encodes_eval (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) (hSo : S.Ok)
         split at hv
         · next same hsame =>
           cases hv
-          have hsame := rel_value_eq hB hR1 hR2 hsame
+          have hsame := rel_value_eq hB hS hR1 hk hR2 hsame
           exact ⟨_, max n1 n2, fun hu => by bnd hu, .bool _, fun f hf => by
             simp only [eval, e1 f (by omega), e2 f (by omega), hsame]⟩
         · cases hv

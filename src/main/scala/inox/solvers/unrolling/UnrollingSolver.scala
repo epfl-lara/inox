@@ -2144,7 +2144,7 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
         () => templates.simplifiedBodies.map { (id, steps) =>
           val fd = targetProgram.symbols.getFunction(id)
           (fd.typed(using targetProgram.symbols).applied(fd.params.map(_.toVariable)), fd.fullBody, steps)
-        })
+        }, functionEquality.toString.toLowerCase)
     }
 
   override val templates = new TemplatesImpl(targetProgram, context)

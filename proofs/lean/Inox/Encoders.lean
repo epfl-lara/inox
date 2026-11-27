@@ -361,6 +361,8 @@ functions that it checked: none when the certificate has no input. -/
 def check (input sourceDefinitions sourceSymbols : List Sexp) : Lower Nat :=
   match input with
   | [] => pure 0
+  | .expr (.atom "encoders" :: names) :: .expr [.atom "function-equality", _] ::
+      .expr (.atom "definitions" :: definitions) :: rest
   | .expr (.atom "encoders" :: names) :: .expr (.atom "definitions" :: definitions) :: rest => do
     let (lines, symbols) ← match rest.getLast? with
       | some (.expr (.atom "symbols" :: lines)) => pure (rest.dropLast, lines)
