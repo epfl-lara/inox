@@ -31,7 +31,9 @@ src/it/resources/regression/smtlib3/type-unrolling/cache-inductive-adt-inside-an
 src/it/resources/regression/smtlib3/type-unrolling/cache-tree-inside-and-outside-of-a-quantifier-domain.smt3
 src/it/resources/regression/smtlib3/simplifications/arithmetic-over-partial-operands.smt3
 src/it/resources/regression/smtlib3/simplifications/constructions-under-invariants.smt3
+src/it/resources/regression/smtlib3/simplifications/functions-in-sets-and-fields-extensional.smt3
 src/it/resources/regression/smtlib3/simplifications/ground-terms-that-evaluate.smt3
+src/it/resources/regression/smtlib3/simplifications/lambdas-with-partial-bodies-extensional.smt3
 src/it/resources/regression/smtlib3/simplifications/lets-and-assumptions-around-partial-terms.smt3
 src/it/resources/regression/smtlib3/simplifications/quantifiers-in-connectives-over-partial-bodies.smt3
 src/it/resources/regression/smtlib3/simplifications/selections-of-constructions-with-partial-fields.smt3
