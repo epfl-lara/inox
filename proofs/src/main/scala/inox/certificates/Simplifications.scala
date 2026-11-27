@@ -621,7 +621,7 @@ object Simplifications {
 
     /** Whether the values of the testers in `rho` are consistent: a value is of one constructor of
       * its datatype, and a construction is of its constructor. */
-    private def consistent(rho: Map[SExpr, Value]): Boolean = {
+    private def consistent(rho: Map[SExpr, Value]): Boolean = strict(rho) && {
       val testers = rho.toList.collect { case (Tester(c, e), v) if program.constructors.contains(c) => (e, c, v) }
       testers.groupBy(_._1).forall { (subject, ts) =>
         val stuck = ts.exists(_._3 == Value.NoValue)
@@ -642,6 +642,14 @@ object Simplifications {
           })
         }
       }
+    }
+
+    /** Whether the applications in `rho` that have a value have one for each of their operands:
+      * applications, which evaluate their operands, have no value when one of them has none. */
+    private def strict(rho: Map[SExpr, Value]): Boolean = rho.forall {
+      case (SList(Atom(k) :: _), _) if keywords(k) && k != "=" => true
+      case (SList(_ :: es), v) if v != Value.NoValue => es.forall(e => !rho.get(atom(e)._1).contains(Value.NoValue))
+      case _ => true
     }
 
     /** Checks the refinement, and says how the terms differ otherwise. */
@@ -758,21 +766,28 @@ object Simplifications {
     * simplified expressions are `expressions`, by template. */
   def check(simplifications0: List[SExpr], definitions: List[SExpr], expressions: Int => Option[SExpr]): List[String] = {
     // The steps refine terms, which is not enough under a lambda, nor in the body of a function
-    // that a lambda may call, when the program compares functions: no steps are checked then.
-    val (refining, simplifications) = simplifications0 match {
-      case SList(List(Atom("function-equality"), Atom(mode))) :: rest => (mode == "none", rest)
+    // that a lambda may call, when the program compares functions: two closures are equal under
+    // extensional equality when they have the same values where either has one, so that the
+    // steps there must preserve the values exactly. The steps are not checked under intensional
+    // equality, which the semantics doesn't have.
+    val (mode, simplifications) = simplifications0 match {
+      case SList(List(Atom("function-equality"), Atom(mode))) :: rest => (mode, rest)
       case _ => fail("the simplifications don't say how the program compares functions")
     }
+    val (refining, extensional) = (mode == "none", mode == "extensional")
     val unexplained = List.newBuilder[String]
     // Replays the steps of the simplification of `what`, and reports those that are not checked:
-    // all of them when the program compares functions, and the ones of rules that the checker
-    // doesn't know, which name what a simplifier did that no rule tells.
-    def replayed(what: String, original: SExpr, simplified: SExpr, steps: SExpr, program: Program): Unit = steps match {
-      case SList(List(Atom("steps"))) => replay(original, simplified, steps, program)
-      case _ if !refining =>
-        unexplained += s"the steps of the simplification of $what are not checked: the program compares functions"
+    // all of them when the program compares functions intensionally, and the ones of rules that
+    // the checker doesn't know, which name what a simplifier did that no rule tells. The steps of
+    // a function body are equivalences when the program compares functions, and so are the ones
+    // under a lambda.
+    def replayed(what: String, original: SExpr, simplified: SExpr, steps: SExpr, program: Program, body: Boolean): Unit = steps match {
+      case SList(List(Atom("steps"))) => replay(original, simplified, steps, program, Equivalence.Refinement)
+      case _ if !refining && !extensional =>
+        unexplained += s"the steps of the simplification of $what are not checked: the program compares functions intensionally"
       case _ =>
-        val unknown = try replay(original, simplified, steps, program)
+        val equivalence = if (refining) Equivalence.Refinement else if (body) Equivalence.Everywhere else Equivalence.UnderLambdas
+        val unknown = try replay(original, simplified, steps, program, equivalence)
           catch { case e: Failure => fail(s"the simplification of $what doesn't hold: ${e.getMessage}") }
         if (unknown.nonEmpty)
           unexplained += s"the simplification of $what has steps of rules that the checker doesn't know: ${unknown.mkString(", ")}"
@@ -794,7 +809,7 @@ object Simplifications {
 
     for (entry <- simplifications) entry match {
       case SList(List(Atom("function"), Atom(f), o, steps)) =>
-        replayed(f, o, simplified(f).body, steps, original)
+        replayed(f, o, simplified(f).body, steps, original, body = true)
       case SList(List(Atom("expression"), Atom(i), o, SList(Atom("names") :: names), steps)) =>
         val index = if (i.nonEmpty && i.forall(_.isDigit)) i.toIntOption.getOrElse(fail(s"$i is not the index of a template"))
           else fail(s"$i is not the index of a template")
@@ -901,7 +916,7 @@ object Simplifications {
         // a marker of the sources is an uninterpreted function that the program doesn't declare
         def marker(m: String): Boolean =
           !original.declared(m) && !original.functions.contains(m) && !original.constructors.contains(m) && !original.selectors.contains(m) && !keywords(m)
-        replayed(s"the expression of template $i", o, named(source), steps, original)
+        replayed(s"the expression of template $i", o, named(source), steps, original, body = false)
       case other => fail(s"$other is not a simplification")
     }
     unexplained.result()
@@ -949,11 +964,14 @@ object Simplifications {
     * it, and what a simplifier makes of a term without a rule of its own (`simplify`). */
   private val attempted = Map("lift-assumptions" -> "logic", "simplify" -> "logic")
 
+  /** Where the steps must preserve the values of terms exactly, and not only refine them. */
+  private enum Equivalence { case Refinement, UnderLambdas, Everywhere }
+
   /** Checks that `steps` rewrite `original` into `simplified`: the steps of the rules that the
     * checker knows, which hold, and the others, whose rules it returns. A step of a rule that it
     * doesn't know is what a simplifier did that no rule tells: it is taken as it is given, except
     * for what the simplifier didn't name (`unrecorded`). */
-  private def replay(original: SExpr, simplified: SExpr, steps: SExpr, program: Program): List[String] = {
+  private def replay(original: SExpr, simplified: SExpr, steps: SExpr, program: Program, equivalence: Equivalence): List[String] = {
     val unknown = List.newBuilder[String]
     val list = steps match {
       case SList(Atom("steps") :: list) => list
@@ -968,6 +986,14 @@ object Simplifications {
       }
       val (current, rewritten) = (canonical(term), replace(term, deepest, subterm))
       val target = canonical(rewritten)
+      val exact = equivalence match {
+        case Equivalence.Refinement => false
+        case Equivalence.Everywhere => true
+        case Equivalence.UnderLambdas => deepest.inits.toList.tail.exists(pos => at(term, pos) match {
+          case SList(Atom("lambda") :: _) => true
+          case _ => false
+        })
+      }
       // what a simplifier did without naming it is not a simplification that is known of at all
       if (rule == "unrecorded") fail(s"the step at ${deepest.mkString("(", " ", ")")} that gives $subterm was not recorded by a simplifier")
       else if (rule == "evaluate") {
@@ -980,13 +1006,14 @@ object Simplifications {
           case Some(false) => fail(s"no evaluate step at ${deepest.mkString("(", " ", ")")} gives $subterm: ${at(term, deepest)} has another value")
           // the value of a function is the lambda that the term reduces to
           case None =>
-            if (!deepest.inits.exists(pos => new Reduction(program).gives(at(term, pos), at(rewritten, pos)))) unknown += rule
+            // a reduction only refines the term, as its selections may drop what has no value
+            if (exact || !deepest.inits.exists(pos => new Reduction(program).gives(at(term, pos), at(rewritten, pos)))) unknown += rule
         }
       }
       else if (attempted.contains(rule)) {
         // the step is checked when it is one of the rule, and is of a rule that is not known otherwise
         if (target != current && deepest.inits.forall { pos =>
-          try { rewrite(attempted(rule), at(current, pos), at(target, pos), facts(current, pos), program); false }
+          try { rewrite(attempted(rule), at(current, pos), at(target, pos), facts(current, pos), program, exact); false }
           catch { case _: Failure => true }
         }) unknown += rule
       }
@@ -995,7 +1022,7 @@ object Simplifications {
         // The rule rewrites the subterm at the position, outside of which the terms are the
         // same, or one around it. The facts of these positions are the same in the two terms.
         val failures = deepest.inits.map { pos =>
-          try { rewrite(rule, at(current, pos), at(target, pos), facts(current, pos), program); None }
+          try { rewrite(rule, at(current, pos), at(target, pos), facts(current, pos), program, exact); None }
           catch { case e: Failure => Some(e.getMessage) }
         }
         val reasons = failures.takeWhile(_.nonEmpty).flatten.toList
@@ -1056,6 +1083,13 @@ object Simplifications {
     }
   }
 
+  /** Whether `t` always has a value: a literal, or a symbol that is not a function nor a
+    * constructor of the program (a variable or a constant). */
+  private def total(t: SExpr, program: Program): Boolean = literal(t).nonEmpty || (t match {
+    case Atom(x) => !program.functions.contains(x) && !program.constructors.contains(x)
+    case _ => false
+  })
+
   /** The literal that `t` is, as a text that literals of the same sort only share when they are
     * the same value: a Boolean, a string without escapes, or the bits of a bit-vector. */
   private def literal(t: SExpr): Option[String] = t match {
@@ -1070,9 +1104,11 @@ object Simplifications {
   }
 
   /** Checks that the rule `rule` rewrites `lhs` into `rhs` under `facts`, and fails otherwise. */
-  private def rewrite(rule: String, lhs: SExpr, rhs: SExpr, facts: Facts, program: Program): Unit = rule match {
+  private def rewrite(rule: String, lhs: SExpr, rhs: SExpr, facts: Facts, program: Program, exact: Boolean): Unit = rule match {
     case "logic" =>
       new Logic(program, facts.conditions).check(lhs, rhs).foreach(why => fail(s"$lhs is not $rhs by logic: $why"))
+      // and the other way around, where the values must be the same
+      if (exact) new Logic(program, facts.conditions).check(rhs, lhs).foreach(why => fail(s"$rhs may have a value where $lhs has none: $why"))
 
     case "rename" => same(lhs, rhs)
 
@@ -1109,10 +1145,16 @@ object Simplifications {
       case Applied(sel, List(e)) if program.selectors.contains(sel) =>
         val (cons, index) = program.selectors(sel)
         program.construction(e) match {
-          case Some((`cons`, fields)) if index < fields.size => same(fields(index), rhs)
+          case Some((`cons`, fields)) if index < fields.size =>
+            same(fields(index), rhs)
+            // the other fields, and the invariant of the construction, may have no value
+            if (exact && (fields.patch(index, Nil, 1).exists(!total(_, program)) || program.datatypeOf.get(cons).exists(program.invariants.contains)))
+              fail(s"$lhs may have no value where $rhs has one")
           case _ => fail(s"$lhs doesn't select a field of a construction of $cons")
         }
-      case TupleSelect(index, Applied("tuple", elements)) if index < elements.size => same(elements(index), rhs)
+      case TupleSelect(index, Applied("tuple", elements)) if index < elements.size =>
+        same(elements(index), rhs)
+        if (exact && elements.patch(index, Nil, 1).exists(!total(_, program))) fail(s"$lhs may have no value where $rhs has one")
       case _ => fail(s"$lhs is not a selector of a construction")
     }
 
@@ -1182,7 +1224,8 @@ object Simplifications {
         // does the one that it comes out into, but the conjunction may not. The others stay, and
         // so may any: the step is one for some of those that may come out.
         val candidates = operands.zipWithIndex.collect {
-          case (Binder("forall", _, ds, _), i) if !((op == "=>" || op == "or") && i < operands.size - 1) && (op != "and" || ds.forall {
+          // where the values must be the same, only the last operand, over sorts that have values
+          case (Binder("forall", _, ds, _), i) if !((exact || op == "=>" || op == "or") && i < operands.size - 1) && ((op != "and" && !exact) || ds.forall {
             case SList(List(_, sort)) => program.inhabited(sort)
             case _ => false
           }) => i
@@ -1218,6 +1261,15 @@ object Simplifications {
         if (l != r) fail(s"$lhs and $rhs are not the same polynomial")
         val evaluated = strict(lhs).map(canonical(_).toString).toSet
         for (k <- r.keys; x <- k if !evaluated(x)) fail(s"$x of $rhs is not evaluated whenever $lhs has a value")
+    }
+    // what the term evaluates that may have no value, the result evaluates too
+    if (rule == "arith" && exact) {
+      def leaves(t: SExpr): List[SExpr] = t match {
+        case SList(Atom("+" | "-" | "*" | "=") :: es) => es.flatMap(leaves)
+        case _ => List(t)
+      }
+      for (l <- leaves(lhs) if !total(l, program) && !strict(rhs).exists(alpha(_, l)))
+        fail(s"$l of $lhs may have no value, and $rhs doesn't evaluate it")
     }
 
     case "eta" => lhs match {
