@@ -25,6 +25,11 @@ The rules that are checked here:
 - `bind`, a let of a subterm that the term always evaluates, to a variable that it doesn't
   mention.
 - `expand`, a variable is the value of its let.
+- `arith`, a product with a factor `0` is `0`, a sum with an operand `0`, a difference with a
+  right operand `0` and a product with a factor `1` are the other operand, and an equality of an
+  expression with itself is `true` where its value is of a primitive type, which the equality of
+  the semantics compares by identity (`value_eq_refl`): a literal, an arithmetic operation, an
+  equality, or a free variable of the input (a fact `prim`).
 -/
 
 namespace Inox.Simplified
@@ -32,16 +37,23 @@ namespace Inox.Simplified
 open Inox.Semantics
 open Inox.Lowered (exprEq exprEq_eq)
 
-/-- A fact that holds where evaluation reaches a position: an expression is `true`, or the
-variable `x` has the value of the expression `v`, that of its let. -/
+/-- A fact that holds where evaluation reaches a position: an expression is `true`, the
+variable `x` has the value of the expression `v`, that of its let, or the variable `x` has a
+value of a primitive type, as a free variable of the input does. -/
 inductive Fact where
   | holds (e : Expr)
   | binds (x : Id) (v : Expr)
+  | prim (x : Id)
 
 /-- The expression of a fact that an expression is `true`. -/
 def Fact.expr? : Fact → Option Expr
   | .holds e => some e
-  | .binds _ _ => none
+  | _ => none
+
+/-- A value of a primitive type, which the equality of the semantics compares by identity. -/
+def primValue : Value → Bool
+  | .IntV _ | .BoolV _ | .UnitV | .CharV _ | .RealV _ _ | .StringV _ | .BVV _ _ _ => true
+  | _ => false
 
 section
 variable (O : Oracle) (P : Program)
@@ -50,6 +62,7 @@ variable (O : Oracle) (P : Program)
 def Fact.Holds (fuel : Int) (env : Env) : Fact → Prop
   | .holds e => eval O P fuel env e = .Ok (.BoolV true)
   | .binds x v => ∃ w, lookup_var (env_vars env) x = .Ok w ∧ eval O P fuel env v = .Ok w
+  | .prim x => ∃ w, lookup_var (env_vars env) x = .Ok w ∧ primValue w = true
 
 /-- `t'` refines `t` under the facts `Fs`: in every environment where the facts hold, wherever
 `t` has a value, `t'` has the same value with the same fuel. -/
@@ -464,6 +477,7 @@ theorem logicCheck_refines {Gs : List Fact} {t t' : Expr}
     cases g with
     | holds e => cases he; exact hGs _ hg
     | binds _ _ => cases he
+    | prim _ => cases he
   unfold logicCheck at h
   simp only [Bool.and_eq_true, List.all_eq_true] at h
   obtain ⟨⟨hshape, hall⟩, hvals⟩ := h
@@ -1563,7 +1577,7 @@ def expandCheck (Fs : List Fact) (t t' : Expr) : Bool :=
   match t with
   | .Variable x => Fs.any fun
     | .binds y v => y == x && exprEq 1000 v t'
-    | .holds _ => false
+    | _ => false
   | _ => false
 
 section
@@ -1879,6 +1893,7 @@ theorem expandCheck_refines {Fs : List Fact} {t t' : Expr} (h : expandCheck Fs t
     obtain ⟨f, hf, hm⟩ := List.any_eq_true.mp h
     cases f with
     | holds _ => simp at hm
+    | prim _ => simp at hm
     | binds y w =>
       simp only [Bool.and_eq_true, beq_iff_eq] at hm
       obtain ⟨rfl, he⟩ := hm
@@ -1886,6 +1901,215 @@ theorem expandCheck_refines {Fs : List Fact} {t t' : Expr} (h : expandCheck Fs t
       rw [← exprEq_eq _ _ _ he, hw]
       simp only [eval, hu] at hv
       rw [hv]
+  · cases h
+
+end
+
+/-! ## Arithmetic -/
+
+/-- `e` is the integer literal `i`. -/
+def isInt : Expr → Int → Bool
+  | .IntegerLiteral j, i => j == i
+  | _, _ => false
+
+/-- `e` is the literal `true`. -/
+def isTrue : Expr → Bool
+  | .BooleanLiteral b => b
+  | _ => false
+
+/-- The value of `e`, if it has one, is of a primitive type, under the facts `Fs`. -/
+def primShaped (Fs : List Fact) : Expr → Bool
+  | .IntegerLiteral _ | .BooleanLiteral _ | .StringLiteral _ | .BVLiteral _ _ _ | .CharLiteral _
+  | .UnitLiteral | .Equals _ _ | .Plus _ _ | .Minus _ _ | .Times _ _ => true
+  | .Variable x => Fs.any fun
+    | .prim y => y == x
+    | _ => false
+  | _ => false
+
+/-- `arith`: a product with a factor `0` is `0`, a sum with an operand `0`, a difference with a
+right operand `0` and a product with a factor `1` are their other operand, and an equality of an
+expression of a primitive type with itself is `true`. -/
+def arithCheck (Fs : List Fact) (t t' : Expr) : Bool :=
+  match t with
+  | .Times a b => (isInt t' 0 && (isInt a 0 || isInt b 0)) ||
+      (isInt a 1 && exprEq 1000 b t') || (isInt b 1 && exprEq 1000 a t')
+  | .Plus a b => (isInt a 0 && exprEq 1000 b t') || (isInt b 0 && exprEq 1000 a t')
+  | .Minus a b => isInt b 0 && exprEq 1000 a t'
+  | .Equals a b => isTrue t' && exprEq 1000 a b && primShaped Fs a
+  | _ => false
+
+theorem isInt_eq {e : Expr} {i : Int} (h : isInt e i = true) : e = .IntegerLiteral i := by
+  unfold isInt at h
+  split at h
+  · simp only [beq_iff_eq] at h; rw [h]
+  · cases h
+
+theorem isTrue_eq {e : Expr} (h : isTrue e = true) : e = .BooleanLiteral true := by
+  unfold isTrue at h
+  split at h
+  · rw [h]
+  · cases h
+
+theorem value_eq_refl {O : Oracle} (hO : O.Sound) (P : Program) {v : Value}
+    (h : primValue v = true) : O.value_eq P v v = .Ok true := by
+  rw [hO.value_eq]
+  cases v <;> simp_all [primValue]
+
+theorem real_prim {n d : Int} {v : Value} (h : real n d = .Ok v) : primValue v = true := by
+  unfold real at h
+  split at h
+  · cases h
+  · cases h; rfl
+
+section
+variable {O : Oracle} {P : Program}
+
+theorem eval_plus_ok {fuel : Int} {env : Env} {a b : Expr} {v : Value}
+    (h : eval O P fuel env (.Plus a b) = .Ok v) :
+    ∃ x y, eval O P fuel env a = .Ok x ∧ eval O P fuel env b = .Ok y ∧ arith_plus x y = .Ok v := by
+  rw [eval] at h
+  split at h
+  · next x hx =>
+    split at h
+    · next y hy => exact ⟨x, y, hx, hy, h⟩
+    · cases h
+    · cases h
+  · cases h
+  · cases h
+
+theorem eval_minus_ok {fuel : Int} {env : Env} {a b : Expr} {v : Value}
+    (h : eval O P fuel env (.Minus a b) = .Ok v) :
+    ∃ x y, eval O P fuel env a = .Ok x ∧ eval O P fuel env b = .Ok y ∧ arith_minus x y = .Ok v := by
+  rw [eval] at h
+  split at h
+  · next x hx =>
+    split at h
+    · next y hy => exact ⟨x, y, hx, hy, h⟩
+    · cases h
+    · cases h
+  · cases h
+  · cases h
+
+theorem eval_times_ok {fuel : Int} {env : Env} {a b : Expr} {v : Value}
+    (h : eval O P fuel env (.Times a b) = .Ok v) :
+    ∃ x y, eval O P fuel env a = .Ok x ∧ eval O P fuel env b = .Ok y ∧ arith_times x y = .Ok v := by
+  rw [eval] at h
+  split at h
+  · next x hx =>
+    split at h
+    · next y hy => exact ⟨x, y, hx, hy, h⟩
+    · cases h
+    · cases h
+  · cases h
+  · cases h
+
+theorem eval_equals_ok {fuel : Int} {env : Env} {a b : Expr} {v : Value}
+    (h : eval O P fuel env (.Equals a b) = .Ok v) :
+    ∃ x y s, eval O P fuel env a = .Ok x ∧ eval O P fuel env b = .Ok y ∧
+      O.value_eq P x y = .Ok s ∧ v = .BoolV s := by
+  rw [eval] at h
+  split at h
+  · next x hx =>
+    split at h
+    · next y hy =>
+      split at h
+      · next s hs => cases h; exact ⟨x, y, s, hx, hy, hs, rfl⟩
+      · cases h
+      · cases h
+    · cases h
+    · cases h
+  · cases h
+  · cases h
+
+theorem eval_int {fuel : Int} {env : Env} {i : Int} {v : Value}
+    (h : eval O P fuel env (.IntegerLiteral i) = .Ok v) : v = .IntV i := by
+  rw [eval] at h; cases h; rfl
+
+theorem arith_prim {x y v : Value} {f : Value → Value → Result Value}
+    (hf : f = arith_plus ∨ f = arith_minus ∨ f = arith_times) (h : f x y = .Ok v) :
+    primValue v = true := by
+  rcases hf with rfl | rfl | rfl
+  all_goals
+    cases x <;> cases y <;> simp only [arith_plus, arith_minus, arith_times] at h <;>
+      first
+      | (cases h; rfl)
+      | exact real_prim h
+      | (split at h <;> cases h; rfl)
+      | cases h
+
+theorem primShaped_prim {Fs : List Fact} {fuel : Int} {env : Env} {a : Expr} {v : Value}
+    (hs : primShaped Fs a = true) (hF : ∀ f ∈ Fs, f.Holds O P fuel env)
+    (hv : eval O P fuel env a = .Ok v) : primValue v = true := by
+  cases a
+  case Variable x =>
+    obtain ⟨f, hf, hm⟩ := List.any_eq_true.mp hs
+    cases f with
+    | prim y =>
+      simp only [beq_iff_eq] at hm
+      subst hm
+      obtain ⟨w, hw, hp⟩ := hF _ hf
+      rw [eval] at hv
+      rw [hv] at hw; cases hw; exact hp
+    | _ => simp at hm
+  case Equals => obtain ⟨x, y, s, -, -, -, rfl⟩ := eval_equals_ok hv; rfl
+  case Plus => obtain ⟨x, y, -, -, h⟩ := eval_plus_ok hv; exact arith_prim (.inl rfl) h
+  case Minus => obtain ⟨x, y, -, -, h⟩ := eval_minus_ok hv; exact arith_prim (.inr (.inl rfl)) h
+  case Times => obtain ⟨x, y, -, -, h⟩ := eval_times_ok hv; exact arith_prim (.inr (.inr rfl)) h
+  all_goals first
+    | (rw [eval] at hv; cases hv; rfl)
+    | simp [primShaped] at hs
+
+theorem arithCheck_refines (hO : O.Sound) {Fs : List Fact} {t t' : Expr}
+    (h : arithCheck Fs t t' = true) : Refines O P Fs t t' := by
+  intro fuel env v hF hv
+  unfold arithCheck at h
+  split at h
+  · next a b =>
+    obtain ⟨x, y, hx, hy, hxy⟩ := eval_times_ok hv
+    simp only [Bool.or_eq_true, Bool.and_eq_true] at h
+    rcases h with (⟨h0, h | h⟩ | ⟨h1, he⟩) | ⟨h1, he⟩
+    · rw [isInt_eq h0]; rw [isInt_eq h] at hx; rw [eval_int hx] at hxy
+      cases y <;> simp [arith_times] at hxy
+      subst hxy; simp [eval]
+    · rw [isInt_eq h0]; rw [isInt_eq h] at hy; rw [eval_int hy] at hxy
+      cases x <;> simp [arith_times] at hxy
+      · subst hxy; simp [eval]
+      all_goals (split at hxy <;> cases hxy)
+    · rw [← exprEq_eq _ _ _ he, hy]; rw [isInt_eq h1] at hx; rw [eval_int hx] at hxy
+      cases y <;> simp [arith_times] at hxy
+      rw [← hxy]
+    · rw [← exprEq_eq _ _ _ he, hx]; rw [isInt_eq h1] at hy; rw [eval_int hy] at hxy
+      cases x <;> simp [arith_times] at hxy
+      · rw [← hxy]
+      all_goals (split at hxy <;> cases hxy)
+  · next a b =>
+    obtain ⟨x, y, hx, hy, hxy⟩ := eval_plus_ok hv
+    simp only [Bool.or_eq_true, Bool.and_eq_true] at h
+    rcases h with ⟨h0, he⟩ | ⟨h0, he⟩
+    · rw [← exprEq_eq _ _ _ he, hy]; rw [isInt_eq h0] at hx; rw [eval_int hx] at hxy
+      cases y <;> simp [arith_plus] at hxy
+      rw [← hxy]
+    · rw [← exprEq_eq _ _ _ he, hx]; rw [isInt_eq h0] at hy; rw [eval_int hy] at hxy
+      cases x <;> simp [arith_plus] at hxy
+      · rw [← hxy]
+      all_goals (split at hxy <;> cases hxy)
+  · next a b =>
+    obtain ⟨x, y, hx, hy, hxy⟩ := eval_minus_ok hv
+    simp only [Bool.and_eq_true] at h
+    obtain ⟨h0, he⟩ := h
+    rw [← exprEq_eq _ _ _ he, hx]; rw [isInt_eq h0] at hy; rw [eval_int hy] at hxy
+    cases x <;> simp [arith_minus] at hxy
+    · rw [← hxy]
+    all_goals (split at hxy <;> cases hxy)
+  · next a b =>
+    obtain ⟨x, y, s, hx, hy, hs, rfl⟩ := eval_equals_ok hv
+    simp only [Bool.and_eq_true] at h
+    obtain ⟨⟨ht, he⟩, hp⟩ := h
+    rw [← exprEq_eq _ _ _ he, hx] at hy
+    cases hy
+    rw [value_eq_refl hO P (primShaped_prim hp hF hx)] at hs
+    cases hs
+    rw [isTrue_eq ht]; simp [eval]
   · cases h
 
 end
@@ -1909,9 +2133,10 @@ def ruleCheck (cs : List Constructor) : String → List Fact → Expr → Expr �
   | "select", _, t, t' => selectCheck cs t t'
   | "bind", _, t, t' => bindCheck t t'
   | "expand", Fs, t, t' => expandCheck Fs t t'
+  | "arith", Fs, t, t' => arithCheck Fs t t'
   | _, _, _, _ => false
 
-theorem ruleCheck_refines {O : Oracle} {P : Program} {cs : List Constructor}
+theorem ruleCheck_refines {O : Oracle} {P : Program} {cs : List Constructor} (hO : O.Sound)
     (hP : ∃ fs ss is eqm, P = .Program fs cs ss is eqm) {rule : String} {Fs : List Fact}
     {t t' : Expr} (h : ruleCheck cs rule Fs t t' = true) : Refines O P Fs t t' := by
   unfold ruleCheck at h
@@ -1924,29 +2149,30 @@ theorem ruleCheck_refines {O : Oracle} {P : Program} {cs : List Constructor}
   · exact selectCheck_refines hP h
   · exact bindCheck_refines h
   · exact expandCheck_refines h
+  · exact arithCheck_refines hO h
   · cases h
 
 /-- `e` after the steps `ss`, if each of them holds, in a program whose constructors are
-`cs`. -/
-def stepsApply (cs : List Constructor) : List Step → Expr → Option Expr
+`cs`, where the facts `Fs` hold. -/
+def stepsApply (cs : List Constructor) (Fs : List Fact) : List Step → Expr → Option Expr
   | [], e => some e
   | s :: ss, e =>
-    (rewriteAt (fun Fs t => if ruleCheck cs s.rule Fs t s.result then some s.result else none) []
-      s.pos e).bind (stepsApply cs ss)
+    (rewriteAt (fun Fs t => if ruleCheck cs s.rule Fs t s.result then some s.result else none) Fs
+      s.pos e).bind (stepsApply cs Fs ss)
 
 /-- The steps that hold refine the expression that they start from. -/
-theorem stepsApply_refines {O : Oracle} {P : Program} {cs : List Constructor}
-    (hP : ∃ fs ss is eqm, P = .Program fs cs ss is eqm) :
-    ∀ (ss : List Step) (e e' : Expr), stepsApply cs ss e = some e' → Refines O P [] e e'
+theorem stepsApply_refines {O : Oracle} {P : Program} {cs : List Constructor} (hO : O.Sound)
+    (hP : ∃ fs ss is eqm, P = .Program fs cs ss is eqm) (Fs : List Fact) :
+    ∀ (ss : List Step) (e e' : Expr), stepsApply cs Fs ss e = some e' → Refines O P Fs e e'
   | [], e, e', h => by simp [stepsApply] at h; subst h; exact refines_refl
   | s :: ss, e, e', h => by
     simp only [stepsApply, Option.bind_eq_some_iff] at h
     obtain ⟨e1, h1, h2⟩ := h
-    refine refines_trans (rewriteAt_refines ?_ [] s.pos e e1 h1)
-      (stepsApply_refines hP ss e1 e' h2)
+    refine refines_trans (rewriteAt_refines ?_ Fs s.pos e e1 h1)
+      (stepsApply_refines hO hP Fs ss e1 e' h2)
     intro Fs t t' ht
     split at ht
-    · next hc => cases ht; exact ruleCheck_refines hP hc
+    · next hc => cases ht; exact ruleCheck_refines hO hP hc
     · cases ht
 
 end Inox.Simplified

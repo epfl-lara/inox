@@ -23,7 +23,7 @@ invariants, and its variables are integers, booleans or reals.
 namespace Inox.Joined
 
 open Inox.Semantics Inox.Bridge Inox.Lowered Logos
-open Inox.Simplified (Step stepsApply stepsApply_refines Refines)
+open Inox.Simplified (Fact Step stepsApply stepsApply_refines Refines primValue)
 open Inox.Input (sectionOf Table Ctx funsOf readExpr)
 open Inox.Encoded (FunIn IsPrim)
 
@@ -73,25 +73,28 @@ def InputRead.program (R : InputRead) : Program :=
   .Program R.funs R.ctors R.sorts []
     (if R.extEq then .ExtensionalEquality else .NoFunctionEquality)
 
+/-- The facts that hold of the variables of the input: they have values of primitive types. -/
+def InputRead.facts (R : InputRead) : List Fact := R.vars.map fun p => .prim p.1
+
 /-- What the constraint `q` is after the steps of its simplification, if they hold. -/
 def InputRead.finalOf (R : InputRead) (q : Expr) : Expr :=
   match R.simps.find? (fun p => exprEq 1000 p.1 q) with
-  | some (_, ss) => (stepsApply R.ctors ss q).getD q
+  | some (_, ss) => (stepsApply R.ctors R.facts ss q).getD q
   | none => q
 
 /-- The constraints after their simplifications. -/
 def InputRead.final (R : InputRead) : List Expr := R.query.map R.finalOf
 
-theorem finalOf_refines {O : Oracle} (R : InputRead) (q : Expr) :
-    Refines O R.program [] q (R.finalOf q) := by
+theorem finalOf_refines {O : Oracle} (hO : O.Sound) (R : InputRead) (q : Expr) :
+    Refines O R.program R.facts q (R.finalOf q) := by
   unfold InputRead.finalOf
   split
   · next ss _ =>
-    cases h : stepsApply R.ctors ss q with
+    cases h : stepsApply R.ctors R.facts ss q with
     | none => exact Inox.Simplified.refines_refl
     | some e =>
       simp only [Option.getD_some]
-      exact stepsApply_refines (P := R.program) ⟨_, _, _, _, rfl⟩ ss q e h
+      exact stepsApply_refines (P := R.program) hO ⟨_, _, _, _, rfl⟩ R.facts ss q e h
   · exact Inox.Simplified.refines_refl
 
 /-- The expression that a source expression of the simplifications assumes the typing of its
@@ -373,6 +376,29 @@ theorem hasV_prim {D : List Data} {T : Ty} (hT : isPrimTy T = true) {v : Value}
     (h : HasV [] v T) : HasV D v T := by
   cases T <;> simp [isPrimTy] at hT <;> cases v <;> exact h
 
+theorem primValue_of_hasV {T : Ty} (hT : isPrimTy T = true) {v : Value} (h : HasV [] v T) :
+    primValue v = true := by
+  cases T <;> simp [isPrimTy] at hT <;> cases v <;> simp [HasV] at h <;> rfl
+
+/-- A key of a list of pairs has a value in it, the first of the key. -/
+theorem lookup_of_mem {α β : Type} [BEq α] [LawfulBEq α] :
+    ∀ {l : List (α × β)} {p : α × β}, p ∈ l → ∃ b, l.lookup p.1 = some b ∧ (p.1, b) ∈ l
+  | (a, b) :: l, p, h => by
+    by_cases hp : p.1 = a
+    · refine ⟨b, ?_, ?_⟩
+      · simp [List.lookup, hp]
+      · rw [hp]; exact List.mem_cons_self
+    · have h' : p ∈ l := by
+        rcases List.mem_cons.mp h with h | h
+        · exact absurd (by rw [h]) hp
+        · exact h
+      obtain ⟨b', hb, hm⟩ := lookup_of_mem h'
+      refine ⟨b', ?_, List.mem_cons_of_mem _ hm⟩
+      simp only [List.lookup]
+      split
+      · next he => exact absurd (beq_iff_eq.mp he) hp
+      · exact hb
+
 theorem has_of_hasV {D : List Data} {T : Ty} (hT : isPrimTy T = true) {v : Value}
     (h : HasV D v T) : Has (kindOfTy T) v := by
   cases T <;> simp [isPrimTy] at hT <;> cases v <;> simp [HasV] at h
@@ -517,7 +543,13 @@ theorem no_input_solution {O : Oracle} (sound : LogosSound) (hO : O.Sound)
   obtain ⟨q, hqq⟩ := mem_zip_right hlen hq'
   obtain ⟨q0, hq0, hfq⟩ := List.mem_map.mp (List.of_mem_zip hqq).1
   obtain ⟨n, hn0⟩ := hsol q0 hq0
-  have hn := finalOf_refines (O := O) R q0 n _ _ (by simp) hn0
+  have hfacts : ∀ f ∈ R.facts, f.Holds O R.program n (Env.Env [] bs) := by
+    intro f hf
+    obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hf
+    obtain ⟨T, hT, hTm⟩ := lookup_of_mem hp
+    obtain ⟨v, hv1, hv2⟩ := bind_lookup R.vars vs bs hbs hvs p.1 T hT
+    exact ⟨v, hv1, primValue_of_hasV (hprim (p.1, T) hTm) hv2⟩
+  have hn := finalOf_refines hO R q0 n _ _ hfacts hn0
   rw [hfq] at hn
   have hl := (lowers_sound _ 1000).1 _ _ _ _ (hq (q, q') hqq)
   obtain ⟨_, v', m, rv, hm⟩ := lowers_eval hO hF hC n.toNat hl _ _ hEnv n (Int.self_le_toNat n) _ hn
