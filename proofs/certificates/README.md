@@ -9,7 +9,8 @@ This directory checks certificates apart from the solver, in two steps.
    what Inox printed and checks the rules of each certificate: each rule is an
    instance of its kind and builds the asserts that it names, every assert of
    the script is named by a rule or is an assumption, each fresh symbol is
-   introduced once, and the proof only assumes asserts of the script. It shares
+   introduced once, and the proof only assumes asserts of the script (where
+   the solver may have inlined their bindings). It shares
    no code with the solver. With `--cpc <dir>`, it writes the CPC proof of each
    certificate that holds to `<dir>`.
 

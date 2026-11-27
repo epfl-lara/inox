@@ -149,6 +149,15 @@ class CheckerSuite extends AnyFunSuite {
     assert(refused(changed("(define @t1 () (> x 0))", "(define @t1 () (> x 1))")).contains("the proof assumes"))
   }
 
+  test("A proof may assume an assertion with its bindings inlined, unless they would be captured") {
+    def inlined(text: String): String = Checker.inlined(parse(text).head).toString
+    assert(inlined("(=> start (let ((y (+ x 1))) (> y 0)))") == "(=> start (> (+ x 1) 0))")
+    assert(inlined("(let ((y 1)) (let ((z (+ y 1))) (= z y)))") == "(= (+ 1 1) 1)")
+    // a binder of the body would capture a symbol of a binding, or rebinds its variable
+    assert(inlined("(let ((y x)) (forall ((x Int)) (> y x)))") == "(let ((y x)) (forall ((x Int)) (> y x)))")
+    assert(inlined("(let ((y 1)) (exists ((y Int)) (> y 0)))") == "(let ((y 1)) (exists ((y Int)) (> y 0)))")
+  }
+
   /** Inox's command line, which exits by throwing. */
   private class Exit extends Exception
   private class Main extends InoxMain {
