@@ -1418,6 +1418,12 @@ abstract class AbstractUnrollingSolver private
     private def witnessEqualities: Map[Encoded, Int] =
       if (witnessLevel > 0) templates.witnesses.equalities else Map.empty
 
+    /** The literals that keep apart the lambdas that earlier models made equal, which the model
+      * checks assume along with the equalities (see [[WitnessTemplates.lambdaDistinctions]]). An
+      * unsatisfiable check under them is handled as one under the equalities: the decisions are
+      * made on a check without either. */
+    private def lambdaDistinctions: Set[Encoded] = templates.witnesses.distinctions
+
     /* The equalities between functions without distinguishing inputs that appear in the unsat core
      * of `res`, or all of them if the solver gave no core. Cores aren't necessarily reported as
      * literals, so they are compared modulo negation. */
@@ -1481,7 +1487,10 @@ abstract class AbstractUnrollingSolver private
       reporter.debug(" - Running search...")
 
       val equalities = witnessEqualities
-      val getModel = !templates.quantifiers.requiresFiniteRangeCheck || checkModels || templates.quantifiers.hasAxioms || config.withModel
+      val distinctions = lambdaDistinctions
+      // the model must show which lambdas it makes equal (see [[validate]])
+      val getModel = !templates.quantifiers.requiresFiniteRangeCheck || checkModels || templates.quantifiers.hasAxioms ||
+        config.withModel || templates.witnesses.hasLambdaPairs
       val getAssumptions = (unrollAssumptions && templates.unfolding.canUnroll) || config.withUnsatAssumptions
 
       // the check without equalities doesn't ask for unsat assumptions for them, so that it can
@@ -1496,7 +1505,7 @@ abstract class AbstractUnrollingSolver private
           )
         }
 
-      val resWithEqualities = check(equalities.keys)
+      val resWithEqualities = check(equalities.keys ++ distinctions)
 
       reporter.debug(" - Finished search with blocked literals")
 
@@ -1504,7 +1513,7 @@ abstract class AbstractUnrollingSolver private
       // comes from a check without them
       val next: Either[CheckState, Response] = resWithEqualities match {
         case Abort() => Right(resWithEqualities)
-        case _: Unsatisfiable if equalities.nonEmpty =>
+        case _: Unsatisfiable if equalities.nonEmpty || distinctions.nonEmpty =>
           blamedEqualities(coreEqualities(resWithEqualities, equalities), equalities, check(Seq.empty))
         case _ => Right(resWithEqualities)
       }
@@ -1560,6 +1569,7 @@ abstract class AbstractUnrollingSolver private
 
       // the model must have distinguishing inputs as well (see [[modelCheck]])
       val equalities = witnessEqualities
+      val distinctions = lambdaDistinctions
 
       val next: Either[CheckState, Response] =
         context.timers.solvers.unrolling.check.run {
@@ -1573,9 +1583,9 @@ abstract class AbstractUnrollingSolver private
               equalities.toSet
             )
           }
-          val res = check(equalities.keys)
+          val res = check(equalities.keys ++ distinctions)
           val next = res match {
-            case _: Unsatisfiable if equalities.nonEmpty && !abort =>
+            case _: Unsatisfiable if (equalities.nonEmpty || distinctions.nonEmpty) && !abort =>
               val inCore = coreEqualities(res, equalities).filter(_._2 <= witnessLevel)
               if (inCore.nonEmpty) Left(inCore)
               else check(Seq.empty) match {
@@ -1613,6 +1623,17 @@ abstract class AbstractUnrollingSolver private
       if (abort) {
         // Extracting and validating a large model takes time: skip them once interrupted
         CheckResult.cast(Unknown)
+      } else if (templates.witnesses.hasLambdaPairs && {
+        val wrapped = wrapModel(umodel)
+        val distinguish = templates.witnesses.distinguishEquatedLambdas(
+          e => wrapped.modelEval(e, t.BooleanType()) == Some(t.BooleanLiteral(true)))
+        for (cl <- distinguish) assertClause(cl)
+        distinguish.nonEmpty
+      }) {
+        // under extensional equality, the model made lambdas equal that may differ on some input
+        // (see [[WitnessTemplates.lambdaDistinctions]]), so we look for a model that keeps them apart
+        reporter.debug(" - Keeping apart the lambdas that the model makes equal")
+        ModelCheck
       } else if (equalCaptures(umodel).nonEmpty) {
         // the unrolling left out the clauses that relate these lambdas to the functions they capture
         // (see [[LambdaTemplates.equalCaptures]]), so the model needs them before it can be trusted

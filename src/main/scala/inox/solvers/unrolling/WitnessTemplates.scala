@@ -55,6 +55,44 @@ trait WitnessTemplates { self: Templates =>
     if (onDemand) Seq.empty else Rule.Hypothesis(equality, cond, mkEquals(f1, f2)).clauses
   }
 
+  /** Registers two lambdas of the program, which are both defined when `cond` holds, as only
+    * equal under extensional equality when they agree on every input (see [[lambdaDistinctions]]).
+    * `closuresEqual` is the equality of their closures when they have the same body, under which
+    * they are equal (see [[Rule.LambdaEquality]]). */
+  private[unrolling] def registerLambdaPair(cond: Encoded, f1: Encoded, f2: Encoded, closuresEqual: Option[Encoded]): Unit =
+    lambdaPairs += LambdaPair(cond, f1, f2, closuresEqual)
+
+  /** Whether the query has lambdas whose equality a model must not assume (see [[lambdaDistinctions]]). */
+  protected def hasLambdaPairs: Boolean = lambdaPairs.nonEmpty
+
+  /** The literals under which the model checks keep apart the lambdas that a model made equal.
+    *
+    * A pending distinguishing input lets the model checks assume that two functions are equal (see
+    * [[witnessEqualities]]). That is a valid model when one of them is free, which can be taken to
+    * be the other, but two lambdas of the program that differ in structure (or in closures) are
+    * only equal if they agree on every input, which neither the unfolding nor the distinguishing
+    * input establishes: the input only tells distinct functions apart. Models that make such
+    * lambdas equal are therefore rejected, and the model checks then assume them distinct through
+    * these literals (see [[distinguishLambdas]]). Like the equalities, they are only assumed by
+    * the model checks, so a query that is only satisfiable with such lambdas equal remains unknown,
+    * and the refutations are unchanged. */
+  protected def lambdaDistinctions: Set[Encoded] = distinctLambdas.toSet.map(_._2)
+
+  /** The pairs of lambdas that the model, given by `holds`, makes equal although their equality
+    * doesn't follow from their structure, and that aren't kept apart yet. */
+  protected def equatedLambdas(holds: Encoded => Boolean): Seq[LambdaPair] =
+    lambdaPairs.toSeq.filter { p =>
+      !distinctLambdas.contains(p) && holds(p.cond) && holds(mkEquals(p.f1, p.f2)) && !p.closuresEqual.exists(holds)
+    }
+
+  /** Keeps the lambdas of `pairs` apart in the following model checks (see [[lambdaDistinctions]]). */
+  protected def distinguishLambdas(pairs: Seq[LambdaPair]): Clauses = pairs.flatMap { p =>
+    val literal = encodeSymbol(Variable.fresh("b_neq", BooleanType(), true))
+    distinctLambdas += p -> literal
+    val distinct = mkNot(mkEquals(p.f1, p.f2))
+    Rule.Hypothesis(literal, p.cond, p.closuresEqual.fold(distinct)(mkOr(distinct, _))).clauses
+  }
+
   /** The equality literals of the pending distinguishing inputs, along with their depth.
     *
     * Distinguishing inputs are unfolded progressively, much like function calls: once it has found
@@ -136,6 +174,8 @@ trait WitnessTemplates { self: Templates =>
     witnessInputs += (f1 -> f2) -> (tpe, ws)
   }
 
+  protected case class LambdaPair(cond: Encoded, f1: Encoded, f2: Encoded, closuresEqual: Option[Encoded])
+
   protected case class PendingWitness(
     cond: Encoded, tpe: FunctionType, f1: Encoded, f2: Encoded, depth: Int, equality: Encoded, onDemand: Boolean)
 
@@ -161,7 +201,14 @@ trait WitnessTemplates { self: Templates =>
     /** The distinguishing inputs that haven't been instantiated yet. */
     private[WitnessTemplates] val pendingWitnesses = new IncrementalSet[PendingWitness]
 
+    /** The pairs of lambdas whose equality a model must not assume (see [[registerLambdaPair]]). */
+    private[WitnessTemplates] val lambdaPairs = new IncrementalSet[LambdaPair]
+
+    /** The pairs of lambdas that the model checks keep apart, with the literal under which they do. */
+    private[WitnessTemplates] val distinctLambdas = new IncrementalMap[LambdaPair, Encoded]
+
     val incrementals: Seq[IncrementalState] =
-      Seq(witnessFunctions, witnessDepths, appDepths, witnessArguments, witnessInputs, pendingWitnesses)
+      Seq(witnessFunctions, witnessDepths, appDepths, witnessArguments, witnessInputs, pendingWitnesses,
+        lambdaPairs, distinctLambdas)
   }
 }

@@ -565,6 +565,9 @@ trait LambdaTemplates { self: Templates =>
         if (!intensional) {
           clauses ++= registerWitness(blocker, template.tpe, template.ids._2, that.ids._2, onDemand = modes.onDemandLambdaWitnesses)
         }
+        if (modes.functionEquality == FunctionEquality.Extensional) {
+          registerLambdaPair(blocker, template.ids._2, that.ids._2, closuresEqual)
+        }
       }
     }
     clauses.toSeq

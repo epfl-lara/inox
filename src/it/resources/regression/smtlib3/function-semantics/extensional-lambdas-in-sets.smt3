@@ -1,0 +1,19 @@
+; A model may assume that two lambdas are equal while their distinguishing input is pending, but
+; that doesn't make them equal: without the model check, these queries were SAT with the lambdas
+; equal. Refuting them needs an input on which the lambdas differ, which the unfolding doesn't look
+; for, so they may stay unknown.
+(set-option :function-equality extensional)
+(set-option :check-models false)
+(set-option :no-simplifications true)
+(push 1)
+(set-info :status unsat)
+(set-info :inox-may-be-unknown true)
+(assert (member (lambda ((z Int)) (= z 0)) (insert (insert (as emptyset (-> Int Bool)) (lambda ((z Int)) (= z 1))) (lambda ((z Int)) (> z 0)))))
+(check-sat)
+(pop 1)
+(push 1)
+(set-info :status unsat)
+(set-info :inox-may-be-unknown true)
+(assert (= (lambda ((z Int)) (= z 0)) (lambda ((z Int)) (= z 1))))
+(check-sat)
+(pop 1)

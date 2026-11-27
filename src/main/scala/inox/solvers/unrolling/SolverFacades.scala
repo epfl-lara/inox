@@ -59,6 +59,17 @@ trait SolverFacades { self: Templates =>
     /** @see [[WitnessTemplates.promoteWitnesses]] */
     def promote(equalities: Set[Encoded]): Clauses = self.promoteWitnesses(equalities)
 
+    /** @see [[WitnessTemplates.hasLambdaPairs]] */
+    def hasLambdaPairs: Boolean = self.hasLambdaPairs
+
+    /** @see [[WitnessTemplates.lambdaDistinctions]] */
+    def distinctions: Set[Encoded] = self.lambdaDistinctions
+
+    /** The clauses that keep apart the lambdas that the model, given by `holds`, makes equal although
+      * their equality doesn't follow from their structure (see [[WitnessTemplates.equatedLambdas]]). */
+    def distinguishEquatedLambdas(holds: Encoded => Boolean): Clauses =
+      self.distinguishLambdas(self.equatedLambdas(holds))
+
     /** @see [[WitnessTemplates.instantiateWitnesses]] */
     def instantiate(equalities: Set[Encoded]): Clauses = self.instantiateWitnesses(equalities)
 

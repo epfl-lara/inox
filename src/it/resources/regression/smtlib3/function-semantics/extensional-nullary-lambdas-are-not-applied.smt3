@@ -6,6 +6,10 @@
 ; checking the model would compare the lambdas by applying them, where the refinement of makeEqual
 ; doesn't hold
 (set-option :check-models false)
+; the model can't keep the two lambdas of type `() => Unit` equal without knowing that they agree,
+; and the input that would tell them apart assumes the refinement of makeEqual, so the solver may
+; not find a model
+(set-info :inox-may-be-unknown true)
 (declare-datatypes ((Unit 0)) (((Uu))))
 (declare-datatypes ((Equations 2)) ((par (A B) ((Equation (lhs (-> A)) (rhs (-> A)) (ev (-> B)))))))
 (declare-fun makeEqual ((x Int) (y Int)) (! Unit :var u :restrict (= x y)))
