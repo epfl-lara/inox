@@ -244,18 +244,52 @@ structure Rules where
   meanings : Std.HashMap Nat (List (String × Sexp)) := {}
   /-- the source expressions of the instances of `expression` kind, instantiated -/
   expressions : Array Sexp := #[]
+  /-- the symbols that instances introduce (see `freshSymbol`), each with the instance's template -/
+  byInstances : Std.HashMap String Nat := {}
 
 def Rules.introduce (state : Rules) (symbol : Sexp) (kind : String) : Check Rules :=
   match symbol with
   | .atom a =>
-    match state.introduced.get? a with
-    | some other => fail s!"{a} is introduced by both a {other} and a {kind} rule"
-    | none => pure { state with introduced := state.introduced.insert a kind }
+    match state.introduced.get? a, state.byInstances.get? a with
+    | some other, _ => fail s!"{a} is introduced by both a {other} and a {kind} rule"
+    | none, some t => fail s!"{a} is introduced by both an instance of template {t} and a {kind} rule"
+    | none, none => pure { state with introduced := state.introduced.insert a kind }
   | other => fail s!"{text other}, which a {kind} rule introduces, is not a symbol"
+
+/-- The symbol that an instance of the template `t` introduces, which is `again` when its instances
+all introduce it (see `freshSymbol`). -/
+def Rules.introduceBy (state : Rules) (symbol : Sexp) (t : Nat) (again : Bool) : Check Rules :=
+  match symbol with
+  | .atom a =>
+    match state.introduced.get? a, state.byInstances.get? a with
+    | some other, _ => fail s!"{a} is introduced by both a {other} rule and an instance of template {t}"
+    | none, some t' =>
+      if again && t' == t then pure state
+      else fail s!"{a} is introduced by both an instance of template {t'} and an instance of template {t}"
+    | none, none => pure { state with byInstances := state.byInstances.insert a t }
+  | other => fail s!"{text other}, which an instance of template {t} introduces, is not a symbol"
+
+/-- The symbol `p` that an expression `(= p e)` defines, under its assumptions. -/
+def definedBy : Sexp → Option Sexp
+  | .expr [.atom "assume", _, body] => definedBy body
+  | .expr [.atom "=", p@(.atom _), _] => some p
+  | _ => none
+
+/-- The symbol of a template that its instances introduce, if any, with whether all of them
+introduce the same one: the lambda whose body the template is, `(@ f x1 … xn)`, which must be a
+symbol of the template and not a parameter, as its instances define the lambda, and the parameter
+`p` of an expression `(= p e)`, such as the result of a probe, which its instance defines as `e`. -/
+def freshSymbol (i : String) (params : List Sexp) : Lowering.Source → Check (Option (Sexp × Bool))
+  | .function (.expr (.expr [.atom "as", .atom "@", _] :: f :: _)) _ _ =>
+    if params.contains f then fail s!"the lambda {text f} whose body template {i} is is one of its parameters"
+    else pure (some (f, true))
+  | .expression t _ => pure ((definedBy t).filter (params.contains ·) |>.map (·, false))
+  | _ => pure none
 
 /-- Checks that the asserts that the rule `line` names are its clauses. -/
 def checkRule (clauses : Array Sexp) (templates : Array Template) (sources : Array (Option Sexp))
-    (given : Array (List (String × Sexp) × Option Sexp)) (state : Rules) (line : Sexp) :
+    (given : Array (List (String × Sexp) × Option Sexp)) (fresh : Array (Option (Sexp × Bool)))
+    (state : Rules) (line : Sexp) :
     Check Rules := do
   match line with
   | .expr (.atom kind :: .expr (.atom "args" :: args) :: rest) =>
@@ -297,6 +331,10 @@ def checkRule (clauses : Array Sexp) (templates : Array Template) (sources : Arr
       for i in is do
         if !instantiated.contains (text (testers clauses[i]!)) then
           fail s!"assert {i}, {text clauses[i]!}, is not a clause of the instance that a {kind} rule names"
+      -- the instances of a lambda's template all define the same lambda
+      let state ← match fresh[ti]?.join with
+        | some (symbol, again) => state.introduceBy (substitute values terms symbol) ti again
+        | none => pure state
       let applied := state.applied.push (kind, instClauses)
       -- the definitions of the instance's local symbols, which nothing relies on
       let ms := match state.meanings.get? ti with
@@ -363,6 +401,7 @@ def check (certificate : Sexp) : Check Checked := do
     let mut sources : Array Sexp := #[]
     let mut expressions : Array (Option Sexp) := #[]
     let mut given : Array (List (String × Sexp) × Option Sexp) := #[]
+    let mut fresh : Array (Option (Sexp × Bool)) := #[]
     for line in templateLines do
       match line with
       | .expr (.atom i :: .expr (.atom "params" :: params) :: rest) =>
@@ -408,6 +447,7 @@ def check (certificate : Sexp) : Check Checked := do
             expressions := expressions.push none
           | _ => expressions := expressions.push (tables.statement source)
         | .error why => fail s!"the source of template {i} can't be lowered: {why}"
+        fresh := fresh.push (← freshSymbol i params source)
         let body ← indices.mapM fun i => do
           pure templateClauses[← index i templateClauses.size "the templates"]!
         templates := templates.push (params, body)
@@ -415,7 +455,7 @@ def check (certificate : Sexp) : Check Checked := do
 
     let mut state : Rules := { named := Array.replicate clauses.size false }
     for line in ruleLines do
-      state ← checkRule clauses templates expressions given state line
+      state ← checkRule clauses templates expressions given fresh state line
 
     let queryIndices ← query.mapM (index · clauses.size "the script")
     let completeIndices ← complete.mapM (index · clauses.size "the script")

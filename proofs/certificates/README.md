@@ -9,7 +9,9 @@ This directory checks certificates apart from the solver, in two steps.
    what Inox printed and checks the rules of each certificate: each rule is an
    instance of its kind and builds the asserts that it names, every assert of
    the script is named by a rule or is an assumption, each fresh symbol is
-   introduced once, and the proof only assumes asserts of the script (where
+   introduced once (those that `Define`, `Hypothesis` and `Root` rules
+   introduce, the lambdas whose bodies templates are, and the symbols that
+   instances of expressions `(= p e)` define), and the proof only assumes asserts of the script (where
    the solver may have inlined their bindings). It shares
    no code with the solver. With `--cpc <dir>`, it writes the CPC proof of each
    certificate that holds to `<dir>`.
@@ -199,7 +201,13 @@ rule of `unrolling.RuleKernel` builds. Two things are left to the reader:
   of the sources in the same way.
 - **The side conditions of the rules.** The checker checks the shape of each
   rule, and that the symbols that `Define`, `Hypothesis` and `Root` introduce
-  are introduced once. It doesn't check what a rule states about the program,
+  are introduced once, as are the lambdas whose bodies templates are, each by
+  the instances of one template, and the parameters `p` of the expressions
+  `(= p e)` that instances define. Without that, a certificate could give one
+  lambda the bodies of two, or have a probe define a symbol that the script
+  already constrains. Introduced once is not fresh: the Scala checker doesn't
+  check that no clause before the introduction mentions the symbol, which the
+  Lean checker's check on terms does for the symbols of the rules. It doesn't check what a rule states about the program,
   such as that the blockers of a `Congruence` are those of two calls of the
   same function, or that an assumption states the completeness of an open
   conjunction that refutations may assume (it checks that it is a literal).
