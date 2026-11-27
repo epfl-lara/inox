@@ -211,4 +211,25 @@ class SimplificationsSuite extends AnyFunSuite {
     reported("(= x (loop 0))", "(= x 0)", "(steps (evaluate (2) 0))")
     reported("(= x (+ y 0))", "(= x y)", "(steps (evaluate (2) y))")
   }
+
+  test("An evaluation is over the program before its simplifications") {
+    // `f` is simplified by a step that the checker doesn't know, into a body of another value
+    def check(simplified: String, steps: String) =
+      try Right(Simplifications.check(
+        List(term("(function-equality none)"), term("(function f (and (> y 0) false) (steps (fold () (and (> y 0) true))))"),
+          term(s"(expression 0 (and p (f 1)) (names) $steps)")),
+        definitions, i => if (i == 0) Some(term(simplified)) else None))
+      catch { case e: Failure => Left(e.getMessage) }
+    // the call has the value of the original body
+    assert(check("false", "(steps (evaluate (2) false) (logic () false))").exists(_.size == 1))
+    assert(check("p", "(steps (evaluate (2) true) (logic () p))").isLeft)
+  }
+
+  test("Literals that are written differently may be the same value") {
+    refused("(= #x0a #x0A)", "false", "(steps (arith () false))")
+    refused("(= #x0a #b00001010)", "false", "(steps (arith () false))")
+    refused("(= \"a\" \"\\u{61}\")", "false", "(steps (arith () false))")
+    holds("(= #x0a #x0b)", "false", "(steps (arith () false))")
+    holds("(= \"a\" \"b\")", "false", "(steps (arith () false))")
+  }
 }

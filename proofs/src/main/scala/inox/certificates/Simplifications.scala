@@ -64,8 +64,9 @@ package certificates
   *    same polynomial becomes `true`, and one between literals that differ becomes `false`;
   *  - `rename`: a term becomes itself, up to the names of the variables that it binds.
   *  - `evaluate`: a closed term becomes its value, or a term of the same value: both are read as
-  *    terms of Inox with the source definitions, and evaluated with fuel by the evaluator that is
-  *    generated from `proofs/semantics.md` (see [[Evaluation]]).
+  *    terms of Inox with the source definitions, where the functions have their original bodies,
+  *    and evaluated with fuel by the evaluator that is generated from `proofs/semantics.md` (see
+  *    [[Evaluation]]).
   * Substitutions refuse to capture a variable.
   *
   * The simplifiers name each of their rewrites, including those that no rule above tells (the
@@ -234,8 +235,26 @@ object Simplifications {
     * symbol, with the constructors of the datatype, and their selectors, with their constructor
     * and index. */
   private final class Program(commands: List[SExpr]) {
-    /** The evaluation of closed terms with the functions of the program. */
-    lazy val evaluation = new Evaluation(commands)
+    /** The evaluation of closed terms with the functions of the program, as [[functions]] has
+      * their bodies when it is first used. */
+    lazy val evaluation = {
+      def body(f: SExpr, current: SExpr): SExpr = f match {
+        case Atom(f) => functions.get(f).fold(current)(_.body)
+        case _ => current
+      }
+      new Evaluation(commands.map {
+        case SList(List(d @ Atom("define-fun" | "define-fun-rec"), f, ps, sort, b)) => SList(List(d, f, ps, sort, body(f, b)))
+        case SList(List(d @ Atom("define-fun" | "define-fun-rec"), SList(List(par @ Atom("par"), tps, SList(List(f, ps, sort, b)))))) =>
+          SList(List(d, SList(List(par, tps, SList(List(f, ps, sort, body(f, b)))))))
+        case SList(List(d @ Atom("define-funs-rec"), SList(decls), SList(bodies))) if decls.size == bodies.size =>
+          SList(List(d, SList(decls), SList((decls zip bodies).map {
+            case (SList(List(f, _, _)), b) => body(f, b)
+            case (SList(List(Atom("par"), _, SList(List(f, _, _)))), b) => body(f, b)
+            case (_, b) => b
+          })))
+        case command => command
+      })
+    }
     val functions = scala.collection.mutable.Map[String, Function]()
     val constructors = scala.collection.mutable.Map[String, List[String]]()
     val selectors = scala.collection.mutable.Map[String, (String, Int)]()
@@ -687,7 +706,8 @@ object Simplifications {
       // what a simplifier did without naming it is not a simplification that is known of at all
       if (rule == "unrecorded") fail(s"the step at ${deepest.mkString("(", " ", ")")} that gives $subterm was not recorded by a simplifier")
       else if (rule == "evaluate") {
-        // The terms at the position, or around it, are closed and have the same value. Terms that
+        // The terms at the position, or around it, are closed and have the same value in the
+        // program (the one before simplifications, as the other steps are over it). Terms that
         // the evaluator gives no value to are taken as the steps of the rules that aren't known.
         val same = deepest.inits.flatMap(pos => program.evaluation.same(at(term, pos), at(rewritten, pos))).nextOption()
         same match {
@@ -762,9 +782,15 @@ object Simplifications {
     }
   }
 
-  /** The literal that `t` is, if it is one whose text is its value. */
+  /** The literal that `t` is, as a text that literals of the same sort only share when they are
+    * the same value: a Boolean, a string without escapes, or the bits of a bit-vector. */
   private def literal(t: SExpr): Option[String] = t match {
-    case Atom(a) if a == "true" || a == "false" || a.startsWith("\"") || a.startsWith("#x") || a.startsWith("#b") => Some(a)
+    case Atom(a @ ("true" | "false")) => Some(a)
+    case Atom(a) if a.startsWith("\"") && !a.contains('\\') => Some(a)
+    case Atom(a) if a.startsWith("#b") && a.length > 2 && a.drop(2).forall(c => c == '0' || c == '1') => Some(a)
+    case Atom(a) if a.startsWith("#x") && a.length > 2 && a.drop(2).forall(c => Character.digit(c, 16) >= 0) =>
+      val bits = BigInt(a.drop(2), 16).toString(2)
+      Some("#b" + "0" * (4 * (a.length - 2) - bits.length) + bits)
     case SList(Atom("!") :: (l: Atom) :: annotations) if annotations.forall(_.isInstanceOf[Atom]) => literal(l).map(_ + annotations.mkString(" ", " ", ""))
     case _ => None
   }

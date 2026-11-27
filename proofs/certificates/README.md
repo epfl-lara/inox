@@ -117,7 +117,8 @@ rule of `unrolling.RuleKernel` builds. Two things are left to the reader:
   the operands of a connective (`prenex`), polynomial arithmetic
   (`arith`), renaming bound variables (`rename`), and the evaluation of a
   closed term (`evaluate`): the term and its value are read as terms of
-  Inox with the source definitions, and both are evaluated, with fuel, by
+  Inox with the source definitions, where the functions have their original
+  bodies, and both are evaluated, with fuel, by
   the evaluator that is generated from [`semantics.md`](../semantics.md),
   to the same value. The simplifiers name
   every rewrite, and don't judge which ones the checker can check: a step
