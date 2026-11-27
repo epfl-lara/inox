@@ -112,8 +112,10 @@ object ProgramEncoder {
     val t: p.trees.type
   } = {
     val identity = new p.trees.ConcreteIdentityTreeTransformer
+    // The target program is the source program itself, so that the solvers that encode no theory share its
+    // symbols and their caches (such as the call graph) instead of each transforming the whole program
     class EmptyImpl(override val t: p.trees.type, override val sourceProgram: p.type)
-      extends ProgramEncoder(t, sourceProgram, identity, identity)()
+      extends ProgramEncoder(t)(sourceProgram, sourceProgram)(identity, identity)
 
     new EmptyImpl(p.trees, p)
   }
