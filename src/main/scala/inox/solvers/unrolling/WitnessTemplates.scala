@@ -99,6 +99,7 @@ trait WitnessTemplates { self: Templates =>
     val apart = apartLambdas.toSeq.filterNot(equalLambdas(_))
     for (p <- apartLambdas.toSeq) apartLambdas -= p
     for (p <- probedLambdas.toSeq) probedLambdas -= p
+    for (t <- comparedLambdas.toSeq) comparedLambdas -= t
     apart
   }
 
@@ -110,17 +111,29 @@ trait WitnessTemplates { self: Templates =>
     lambdaComparisons.get(p) match {
       case Some((literal, ws)) => (literal, ws, Seq.empty)
       case None =>
-        val (literal, ws, clauses) = instantiateComparison(p.cond, p.t1, p.t2)
+        val (literal, ws, clauses) = newLambdas(instantiateComparison(p.cond, p.t1, p.t2))
         lambdaComparisons += p -> (literal, ws)
         (literal, ws, clauses)
     }
+
+  /** Runs `instantiation`, and records the lambdas that it creates, which aren't probed in the
+    * current round (see [[canProbe]]). */
+  private def newLambdas[A](instantiation: => A): A = {
+    val before = getLambdaTemplates.toSet
+    val res = instantiation
+    for (t <- getLambdaTemplates if !before(t)) comparedLambdas += t
+    res
+  }
 
   /** The values that the lambdas of `p` capture, with their types, which a comparison can fix to
     * those of a model (see [[fixCaptures]]). The values that may contain functions are left out:
     * their encodings in a model aren't values. */
   protected def lambdaCaptures(p: LambdaPair): Seq[(Encoded, Type)] =
+    allLambdaCaptures(p).filterNot((_, tpe) => FunctionEquality.containsFunctions(program)(tpe))
+
+  /** The values that the lambdas of `p` capture, with their types. */
+  protected def allLambdaCaptures(p: LambdaPair): Seq[(Encoded, Type)] =
     (p.t1.closures ++ p.t2.closures).map((v, e) => e -> v.getType).distinct
-      .filterNot((_, tpe) => FunctionEquality.containsFunctions(program)(tpe))
 
   /** A fresh literal under which the captured values `captures` are equal to `values`, which only
     * the comparisons of lambdas in a model assume. */
@@ -145,14 +158,19 @@ trait WitnessTemplates { self: Templates =>
     }
   }
 
-  /** Whether the lambdas of `p` were applied to an input on which they differ in the current round. */
-  protected def wasProbed(p: LambdaPair): Boolean = probedLambdas(p)
+  /** Whether the lambdas of `p` may be applied to an input on which they differ (see [[probeLambdas]]):
+    * once per round of the unfolding, and only when neither was created by the comparisons and probes
+    * of the round. Probes can create lambdas (their inputs, and the lambdas in the bodies that they
+    * apply), whose comparisons and probes can create more, so each round stays finite this way. */
+  protected def canProbe(p: LambdaPair): Boolean =
+    !probedLambdas(p) && !comparedLambdas(p.t1) && !comparedLambdas(p.t2)
 
   /** Applies the lambdas of `p` to `args`, on which their bodies differ, so that equal lambdas must
-    * agree on them (see [[Templates.instantiateProbe]]). */
-  protected def probeLambdas(p: LambdaPair, args: Seq[Expr]): Clauses = {
+    * agree on them (see [[Templates.instantiateProbe]]). The free variables of `args` stand for the
+    * given `terms`. */
+  protected def probeLambdas(p: LambdaPair, args: Seq[Expr], terms: Map[Variable, Encoded]): Clauses = {
     probedLambdas += p
-    instantiateProbe(p.cond, p.t1.tpe, p.f1, p.f2, args)
+    newLambdas(instantiateProbe(p.cond, p.t1.tpe, p.f1, p.f2, args, terms))
   }
 
   /** The equality literals of the pending distinguishing inputs, along with their depth.
@@ -284,8 +302,11 @@ trait WitnessTemplates { self: Templates =>
     /** The pairs of lambdas that were applied to an input on which they differ in the current round. */
     private[WitnessTemplates] val probedLambdas = new IncrementalSet[LambdaPair]
 
+    /** The lambdas that the comparisons and probes of the current round created (see [[canProbe]]). */
+    private[WitnessTemplates] val comparedLambdas = new IncrementalSet[LambdaTemplate]
+
     val incrementals: Seq[IncrementalState] =
       Seq(witnessFunctions, witnessDepths, appDepths, witnessArguments, witnessInputs, pendingWitnesses,
-        lambdaPairs, distinctLambdas, apartLambdas, lambdaComparisons, equalLambdas, probedLambdas)
+        lambdaPairs, distinctLambdas, apartLambdas, lambdaComparisons, equalLambdas, probedLambdas, comparedLambdas)
   }
 }

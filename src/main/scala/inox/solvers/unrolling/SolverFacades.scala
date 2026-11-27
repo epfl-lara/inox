@@ -92,11 +92,14 @@ trait SolverFacades { self: Templates =>
     /** @see [[WitnessTemplates.keepApart]] */
     def keepApart(p: LambdaPair): Clauses = self.keepApart(p)
 
-    /** @see [[WitnessTemplates.wasProbed]] */
-    def wasProbed(p: LambdaPair): Boolean = self.wasProbed(p)
+    /** @see [[WitnessTemplates.canProbe]] */
+    def canProbe(p: LambdaPair): Boolean = self.canProbe(p)
 
     /** @see [[WitnessTemplates.probeLambdas]] */
-    def probe(p: LambdaPair, args: Seq[Expr]): Clauses = self.probeLambdas(p, args)
+    def probe(p: LambdaPair, args: Seq[Expr], terms: Map[Variable, Encoded]): Clauses = self.probeLambdas(p, args, terms)
+
+    /** The values that the lambdas of `p` capture, with their types, including those that contain functions. */
+    def allCaptures(p: LambdaPair): Seq[(Encoded, Type)] = self.allLambdaCaptures(p)
 
     /** @see [[WitnessTemplates.instantiateWitnesses]] */
     def instantiate(equalities: Set[Encoded]): Clauses = self.instantiateWitnesses(equalities)
@@ -142,6 +145,9 @@ trait SolverFacades { self: Templates =>
       * [[QuantificationTemplates.getGroundInstantiations]]). */
     def groundInstantiations(e: Encoded, tpe: Type): Seq[(Encoded, Seq[Encoded])] =
       self.getGroundInstantiations(e, tpe)
+
+    /** @see [[QuantificationTemplates.getApplications]] */
+    def applications(tpe: FunctionType): Seq[(Encoded, Encoded, Seq[Encoded])] = self.getApplications(tpe)
 
     /** @see [[PartialFunctions.appFailureLiterals]] */
     def appFailureLiterals(tpe: FunctionType): Seq[((Encoded, Seq[Encoded]), Encoded)] =

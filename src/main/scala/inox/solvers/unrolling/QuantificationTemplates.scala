@@ -1059,6 +1059,13 @@ trait QuantificationTemplates { self: Templates =>
     clauses.toSeq
   }
 
+  /** The applications of functions of type `tpe` that the unfolding has instantiated, as their
+    * blocker, caller and arguments. */
+  protected def getApplications(tpe: FunctionType): Seq[(Encoded, Encoded, Seq[Encoded])] =
+    matcherBlockers.toList.collect { case (m @ Matcher(Left((caller, `tpe`)), _, _), b) =>
+      (b, caller, m.args.map(_.encoded))
+    }
+
   protected def getGroundInstantiations(e: Encoded, tpe: Type): Seq[(Encoded, Seq[Encoded])] = {
     matcherBlockers.toList.flatMap { case (m, b) =>
       val optArgs = matcherKey(m) match {

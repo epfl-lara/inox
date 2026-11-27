@@ -1261,15 +1261,17 @@ trait Templates
   /** Instantiates the applications of the functions `f1` and `f2` of type `tpe` to the values `args`
     * where `cond` holds, so that `f1` and `f2` can only be equal if they agree on `args`: equal
     * functions have the same applications, which the bodies of lambdas then define. The applications
-    * may fail. */
-  def instantiateProbe(cond: Encoded, tpe: FunctionType, f1: Encoded, f2: Encoded, args: Seq[Expr]): Clauses = {
+    * may fail. The free variables of `args` stand for the encoded `terms`, which are already typed. */
+  def instantiateProbe(cond: Encoded, tpe: FunctionType, f1: Encoded, f2: Encoded, args: Seq[Expr],
+      terms: Map[Variable, Encoded]): Clauses = {
     val v1 = Variable.fresh("f", tpe, true)
     val v2 = Variable.fresh("g", tpe, true)
     val agree = Variable.fresh("agree", BooleanType(), true)
-    val bindings = Map(v1 -> f1, v2 -> f2, agree -> encodeSymbol(agree))
-    // the compared functions have already been typed where they were registered
+    val bindings = terms ++ Map(v1 -> f1, v2 -> f2, agree -> encodeSymbol(agree))
+    // the compared functions have already been typed where they were registered, and so have the terms
     declared += v1 -> f1
     declared += v2 -> f2
+    for ((v, e) <- terms) declared += v -> e
 
     val partial = modes.partialFunctions
     def isProbeApp(app: App): Boolean = partial && (app.caller == f1 || app.caller == f2) && app.tpe == tpe

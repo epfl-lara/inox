@@ -472,18 +472,30 @@ fresh literal `k_p`, `c_p` holds, `w̄` lies in the parameter types, and the bod
   may keep them equal.
 - Otherwise, if the check also assumes a literal `x_M` under which the captured values have their
   values in `M` (those without functions, whose encodings in `M` aren't values) and is UNSAT, the
-  bodies agree on every input with these captures, and `M` may keep the lambdas equal.
+  bodies agree on every input with these captures, and `M` may keep the lambdas equal. As `M`
+  satisfies the unfolding, so does `x_M` unless the encoding of a value of `M` differs from it, and
+  the check would then be UNSAT whatever the bodies: so the check without `k_p` must be SAT.
 - Otherwise, the check under the satisfaction assumptions, `k_p` and `x_M` gives an input `ā` on
   which the bodies differ with the captures of `M`, and the lambdas are applied to it under `c_p`
   (`Templates.instantiateProbe`): equal functions have the same applications, which the bodies
   define, so the next models can't keep them equal with the same captures, and refutations can use
   that they differ on `ā`. This refutes `(λz. z = 0) = (λz. z = 1)`, and finds `c = 1` in
   `(λz. z + c = 1) ∈ {λz. z = 0}`.
-  A function in `ā` is given by a fresh lambda that captures nothing, with the values that `M'` (the
-  model of the comparison) gives it on the inputs that the bodies apply it to: that tells the bodies
-  apart as well, and `M'`'s own extraction may call fresh functions. This refutes
-  `(λf. f(0)) = (λf. f(1))`.
-- A pair is only applied to one such input per unrolling, so that each model search terminates. When
+  `ā` is built from `M'` (the model of the comparison) along its type. A function, wherever it
+  occurs (in a field, in the results of another function, ...), is given by a fresh lambda that
+  captures nothing, with the values (or failures) that `M'` gives it on the inputs that the
+  unfolding applies it to: the bodies only observe it through these applications, so it tells them
+  apart as well, while `M'`'s own extraction may call fresh functions. Functions nested in the
+  results of others are built up to a fixed depth, past which they are the simplest value of their
+  type (as in streams of functions). The inputs of these applications that aren't values (functions, again) are given by
+  the applied terms themselves, which the fresh lambda then compares extensionally. A value of an
+  abstract type (type parameter, uninterpreted sort) has no encoding as a value, so it is given by
+  a capture of the lambdas that has it in `M'`. This refutes `(λf. f(0)) = (λf. f(1))`,
+  `(λg. g(λx. x)) = (λg. g(λx. 0))` and `(λz. z = s) = (λz. z = t)` with `s ≠ t`. The probe only
+  instantiates definitions, so it is sound whatever `ā` is: `ā` only matters for refuting `M`.
+- A pair is only applied to one such input per unrolling, and not at all when one of its lambdas
+  was created by the comparisons and probes of the unrolling (which create lambdas, whose
+  comparisons and probes create more), so that each model search terminates. When
   a later model of the same search makes it equal again (or no such input is found), the
   model checks assume a literal `n_p` with `n_p ∧ c_p ⇒ λ1 ≄ λ2` (or the closures are equal) until
   the next unrolling, which keeps them apart (`WitnessTemplates.lambdaDistinctions`). The unrolling

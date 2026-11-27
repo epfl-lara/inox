@@ -1644,7 +1644,7 @@ abstract class AbstractUnrollingSolver private
         val captures = templates.witnesses.captures(p).flatMap((c, tpe) => wrapped.modelEval(c, tpe).map(c -> _))
         if (!agreeEverywhere(p) && (captures.isEmpty || !agreeWith(p, captures))) {
           discarded = true
-          if (templates.witnesses.wasProbed(p) || !probe(p, captures)) {
+          if (!templates.witnesses.canProbe(p) || !probe(p, captures)) {
             for (cl <- templates.witnesses.keepApart(p)) assertClause(cl)
           }
         }
@@ -1686,13 +1686,19 @@ abstract class AbstractUnrollingSolver private
 
     /** Whether the bodies of the lambdas of `p` agree on every input when their captures have the
       * given values, as in a model: if so, the model may keep them equal. */
-    private def agreeWith(p: templates.witnesses.LambdaPair, captures: Seq[(Encoded, t.Expr)]): Boolean =
-      !abort && (checkComparison(p, fixedCaptures(captures), refuting = true) match {
-        case _: Unsatisfiable =>
+    private def agreeWith(p: templates.witnesses.LambdaPair, captures: Seq[(Encoded, t.Expr)]): Boolean = {
+      val fixed = fixedCaptures(captures)
+      !abort && (checkComparison(p, fixed, refuting = true) match {
+        // the values of the model must be consistent with the unfolding when they are fixed: as the
+        // model satisfies it, they are unless their encoding differs from the model's own values,
+        // and the check would then hold whatever the bodies
+        case _: Unsatisfiable if !abort && !checkUnderlying(Configuration(model = false, unsatAssumptions = false))(
+            ListSet.from(encodedAssumptions) ++ templates.unfolding.refutationAssumptions ++ fixed).isInstanceOf[Unsatisfiable] =>
           reporter.debug(" - The lambdas agree on every input with the captures of the model")
           true
         case _ => false
       })
+    }
 
     /** Applies the lambdas of `p` to an input on which their bodies differ when their captures have the
       * given values, if a model of their comparison gives one (see [[WitnessTemplates.probeLambdas]]).
@@ -1702,50 +1708,142 @@ abstract class AbstractUnrollingSolver private
         case SatWithModel(model) =>
           val wrapped = wrapModel(model)
           val (_, args, _) = templates.witnesses.comparison(p)
-          val values = (args zip templates.witnesses.argumentTypes(p)).map(probeValue(wrapped, _, _))
+          val input = new ProbeInput(wrapped, templates.witnesses.allCaptures(p))
+          val values = (args zip templates.witnesses.argumentTypes(p)).map(input.value(_, _))
+          if (!values.forall(_.isDefined)) reporter.debug(" - No input of the model can be probed: " +
+            (args zip templates.witnesses.argumentTypes(p)).map((a, tpe) => wrapped.modelEval(a, tpe)).mkString(", "))
           values.forall(_.isDefined) && {
             reporter.debug(" - The lambdas differ on " + values.flatten.mkString(", "))
-            for (cl <- templates.witnesses.probe(p, values.flatten)) assertClause(cl)
+            for (cl <- templates.witnesses.probe(p, values.flatten, input.terms)) assertClause(cl)
             true
           }
         case _ => false
       })
 
-    /** The value of the argument `a` of a comparison in its model `wrapped`, as an input that the
-      * unfolding can apply the compared lambdas to. A function is given by its values on the inputs
-      * that the bodies applied it to in the model, which is enough to tell them apart there: the
-      * fresh lambda that has these values captures nothing, so applying the compared lambdas to it is
-      * a definition like any other. The model's own function may not be one, as its extraction can
-      * give it calls to fresh functions. None if a value contains functions elsewhere, or if one of
-      * the applications fails. */
-    private def probeValue(wrapped: ModelWrapper, a: Encoded, tpe: t.Type): Option[t.Expr] = {
+    /** The inputs of a comparison in its model `wrapped`, as expressions that the unfolding can apply
+      * the compared lambdas to (see [[probe]]):
+      *  - a function, wherever it occurs in an input (in the fields of a value, in the results of
+      *    another function, ...), is given by a fresh lambda that captures nothing, with the values
+      *    that the model gives it on the inputs that the unfolding applies it to.
+      *    That is enough to tell the bodies apart, which can only observe it through these
+      *    applications, and the model's own function (from its extraction) may call fresh functions;
+      *  - the values of abstract types (type parameters, uninterpreted sorts) can't be encoded as
+      *    values, so they are given by the captures of the lambdas that have them in the model, which
+      *    the bodies compare them to (see [[terms]]).
+      * Applications to functions are given the applied terms, which the fresh lambda compares
+      * extensionally to its arguments. None for an input that contains functions elsewhere (in sets,
+      * maps, ...), or nested more than `maxDepth` times in the results of other functions, as with
+      * the functions in a stream. */
+    private class ProbeInput(wrapped: ModelWrapper, captures: Seq[(Encoded, t.Type)]) {
       import programEncoder.targetProgram.symbols.{given, _}
-      def hasLambdas(e: t.Expr) = t.exprOps.exists { case _: t.Lambda => true; case _ => false }(e)
-      tpe.getType match {
-        // with unrefined types, which the fresh lambda's parameters and results lie in
-        case ft @ t.FunctionType(from, to) if (to +: from).forall(tpe =>
-            tpe == tpe.getType && !FunctionEquality.containsFunctions(programEncoder.targetProgram)(tpe)) =>
-          val applied = templates.model.groundInstantiations(a, ft).filter { (b, _) =>
-            wrapped.modelEval(b, t.BooleanType()) == Some(t.BooleanLiteral(true))
-          }.map(_._2).distinct
-          val fails = applied.exists { as =>
-            templates.model.appFailureLiterals(ft).exists { case ((c, cas), literal) =>
-              c == a && cas == as && wrapped.modelEval(literal, t.BooleanType()) == Some(t.BooleanLiteral(true))
+
+      private val maxDepth = 8
+      private val abstractTerms = scala.collection.mutable.Map.empty[t.GenericValue, Option[t.Variable]]
+      private var bound = Map.empty[t.Variable, Encoded]
+
+      /** The encoded terms that the free variables of the inputs stand for. */
+      def terms: Map[t.Variable, Encoded] = bound
+
+      private def abstractTerm(gv: t.GenericValue): Option[t.Variable] = abstractTerms.getOrElseUpdate(gv,
+        captures.collectFirst { case (e, tpe) if tpe == gv.tp && wrapped.modelEval(e, tpe) == Some(gv) => termOf(e, tpe) })
+
+      /** A variable that stands for the encoded term `e` of type `tpe`. */
+      private def termOf(e: Encoded, tpe: t.Type): t.Variable = {
+        val v = t.Variable.fresh("v", tpe, true)
+        bound += v -> e
+        v
+      }
+
+      /** `value`, a value of the model without functions, with its abstract values replaced by the
+        * terms that have them. */
+      private def ground(value: t.Expr): Option[t.Expr] = {
+        var ok = true
+        val res = t.exprOps.postMap {
+          case gv: t.GenericValue =>
+            val v = abstractTerm(gv)
+            if (v.isEmpty) ok = false
+            v
+          case _: t.Lambda | _: t.Error => ok = false; None
+          case fi: t.FunctionInvocation if lookupFunction(fi.id).isEmpty => ok = false; None
+          case _ => None
+        }(value)
+        Option.when(ok && (t.exprOps.variablesOf(res) -- bound.keySet).isEmpty)(res)
+      }
+
+      /** Whether `e` is a closed expression over the program and the terms. */
+      private def closed(e: t.Expr): Boolean =
+        (t.exprOps.variablesOf(e) -- bound.keySet).isEmpty && !t.exprOps.exists {
+          case _: t.GenericValue => true
+          case fi: t.FunctionInvocation => lookupFunction(fi.id).isEmpty
+          case _ => false
+        }(e)
+
+      private def holds(e: Encoded): Boolean = wrapped.modelEval(e, t.BooleanType()) == Some(t.BooleanLiteral(true))
+
+      /** The value of the comparison argument `a` of type `tpe`. */
+      def value(a: Encoded, tpe: t.Type): Option[t.Expr] = {
+        val v = t.Variable.fresh("w", tpe, true)
+        // the values may refer to the terms of abstract values
+        build(v, tpe, e => templates.mkEncoder(bound + (v -> a))(e), maxDepth)
+      }
+
+      /** The value of `term` of type `tpe`, given the encoding of the terms over the argument. */
+      private def build(term: t.Expr, tpe: t.Type, encode: t.Expr => Encoded, depth: Int): Option[t.Expr] = {
+        def hasFunctions(tpe: t.Type) = FunctionEquality.containsFunctions(programEncoder.targetProgram)(tpe)
+        def eval(term: t.Expr, tpe: t.Type) = wrapped.modelEval(encode(term), tpe)
+        tpe.getType match {
+          case tpe if !hasFunctions(tpe) => eval(term, tpe).flatMap(ground)
+
+          case ft @ t.FunctionType(from, to) if depth > 0 =>
+            val c = encode(term)
+            def same(x: Encoded, y: Encoded) = holds(templates.mkEquals(x, y))
+            // the applications of the function in the model
+            val applied = templates.model.applications(ft).collect { case (b, caller, as) if holds(b) && same(caller, c) => as }
+            // the applications of the argument that fail in the model, which the lambda then fails on
+            def fails(as: Seq[Encoded]) = templates.model.appFailureLiterals(ft).exists { case ((caller, cas), literal) =>
+              same(caller, c) && cas.size == as.size && (cas zip as).forall(same) && holds(literal)
             }
+            // the arguments are values where they can be, and the applied terms otherwise (functions,
+            // which the lambda then compares extensionally)
+            val points = applied.map { as =>
+              (as zip from).map((e, tpe) => wrapped.modelEval(e, tpe).flatMap(ground).orElse(Some(termOf(e, tpe)))) -> fails(as)
+            }.distinctBy(_._1)
+            Option.when(points.forall(_._1.forall(_.isDefined))) {
+              val results = points.map { (as, failing) =>
+                if (failing) Some(t.Error(to, "Application of a partial function"))
+                else build(t.Application(term, as.map(_.get)), to, encode, depth - 1)
+              }
+              // the value outside of the points must lie in `to`, as do the results
+              val default = (points zip results).collectFirst { case ((_, false), Some(r)) => r }
+                .orElse(Option.when(to == to.getType)(simplestValue(to)).filter(closed))
+              Option.when(default.isDefined && results.forall(_.isDefined)) {
+                val params = from.map(tpe => t.ValDef.fresh("x", tpe, true))
+                (points zip results).foldRight(default.get) { case (((as, _), r), elze) =>
+                  t.IfExpr(t.andJoin((params zip as).map((vd, v) => t.Equals(vd.toVariable, v.get))), r.get, elze)
+                } match { case body => t.Lambda(params, body) }
+              }
+            }.flatten
+
+          // past the depth, the function is only known to lie in its type
+          case ft: t.FunctionType if ft == ft.getType =>
+            Some(simplestValue(ft)).filter(closed)
+
+          case t.TupleType(tps) =>
+            val elems = tps.indices.map(i => build(t.TupleSelect(term, i + 1), tps(i), encode, depth))
+            Option.when(elems.forall(_.isDefined))(t.Tuple(elems.map(_.get)))
+
+          case adt: t.ADTType => eval(term, adt) match {
+            case Some(t.ADT(id, tps, _)) =>
+              val cons = getConstructor(id, tps)
+              // the fields of the constructor that the model gives the value
+              val inCons = t.IsConstructor(term, id)
+              val fields = cons.fields.map(vd => build(t.ADTSelector(term, vd.id), vd.getType, encode, depth))
+              Option.when(holds(encode(inCons)) && fields.forall(_.isDefined))(t.ADT(id, tps, fields.map(_.get)))
+            case _ => None
           }
-          val points = applied.map { as =>
-            ((as zip from).map((e, tpe) => wrapped.modelEval(e, tpe)), wrapped.modelEval(templates.mkApp(a, ft, as), to))
-          }
-          Option.when(!fails && points.forall((as, r) => as.forall(_.isDefined) && r.isDefined)) {
-            val params = from.map(tpe => t.ValDef.fresh("x", tpe, true))
-            val default = simplestValue(to)
-            t.Lambda(params, points.distinctBy(_._1).foldRight(default: t.Expr) { case ((as, r), elze) =>
-              val cond = t.andJoin((params zip as).map((vd, v) => t.Equals(vd.toVariable, v.get)))
-              t.IfExpr(cond, r.get, elze)
-            })
-          }
-        case _ =>
-          wrapped.modelEval(a, tpe).filterNot(hasLambdas)
+
+          case _ => None
+        }
       }
     }
 
