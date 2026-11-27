@@ -19,7 +19,8 @@ open Inox.Semantics Inox.Bags Inox.Typing
 
 /-- The kinds of values: elements of bags, which are the same in both programs, integers,
 booleans, bags of elements, values of a sort of the program, tuples, functions, from the
-kinds of their arguments to the kind of their result, and sets, which the encoders keep. -/
+kinds of their arguments to the kind of their result, sets, which the encoders keep, and
+the other primitive values, such as reals and bitvectors, which the encoders keep too. -/
 inductive Kind where
   | elem
   | int
@@ -29,6 +30,7 @@ inductive Kind where
   | tuple (ks : List Kind)
   | fn (ks : List Kind) (k : Kind)
   | set (k : Kind)
+  | prim
 
 mutual
 /-- Whether two kinds are the same. -/
@@ -41,6 +43,7 @@ def kindEq : Kind → Kind → Bool
   | .tuple ks, .tuple ls => kindsEq ks ls
   | .fn ks k, .fn ls l => kindsEq ks ls && kindEq k l
   | .set k, .set l => kindEq k l
+  | .prim, .prim => true
   | _, _ => false
 def kindsEq : List Kind → List Kind → Bool
   | [], [] => true
@@ -60,6 +63,11 @@ theorem kindEq_eq : ∀ {a b : Kind}, kindEq a b = true → a = b
     simp only [kindEq, Bool.and_eq_true] at h
     rw [kindsEq_eq h.1, kindEq_eq h.2]
   | .set k, .set l, h => by simp only [kindEq] at h; rw [kindEq_eq h]
+  | .prim, .prim, _ => rfl
+  | .prim, .elem, h | .prim, .int, h | .prim, .bool, h | .prim, .bag, h
+  | .prim, .adt _, h | .prim, .tuple _, h | .prim, .fn _ _, h | .prim, .set _, h
+  | .elem, .prim, h | .int, .prim, h | .bool, .prim, h | .bag, .prim, h
+  | .adt _, .prim, h | .tuple _, .prim, h | .fn _ _, .prim, h | .set _, .prim, h
   | .set _, .elem, h | .set _, .int, h | .set _, .bool, h | .set _, .bag, h
   | .set _, .adt _, h | .set _, .tuple _, h | .set _, .fn _ _, h
   | .elem, .set _, h | .int, .set _, h | .bool, .set _, h | .bag, .set _, h
@@ -83,6 +91,13 @@ theorem kindsEq_eq : ∀ {a b : List Kind}, kindsEq a b = true → a = b
     rw [kindEq_eq h.1, kindsEq_eq h.2]
   | [], _ :: _, h | _ :: _, [], h => by simp [kindsEq] at h
 end
+
+/-- The primitive values other than integers and booleans, whose equality is that of values
+in any program. -/
+def IsPrim : Value → Bool
+  | .IntV _ | .BoolV _ | .UnitV | .CharV _ | .RealV _ _ | .StringV _ | .BVV _ _ _ | .FPV _ _ _
+  | .RoundingModeV _ => true
+  | _ => false
 
 /-- The kinds of the elements of bags: `elem`, or integers where the elements are integers. -/
 def BagKind (κ : Kind) (k : Kind) : Prop := k = .elem ∨ (k = .int ∧ κ = .int)
@@ -314,6 +329,19 @@ inductive Encodes (N : Names) (S : Sig) (Te : Ty) :
       Encodes N S Te Γ (.UninterpretedCall f (if p then [Te] else []) es)
         (.UninterpretedCall f (if p then [Te] else []) es') k u
   | error {Γ : Id → Option Kind} {u : Bool} (k : Kind) : Encodes N S Te Γ .Error .Error k u
+  | frac {Γ : Id → Option Kind} {u : Bool} (n d : Int) :
+      Encodes N S Te Γ (.FractionLiteral n d) (.FractionLiteral n d) .prim u
+  | bvLit {Γ : Id → Option Kind} {u : Bool} (sg : Bool) (w x : Int) :
+      Encodes N S Te Γ (.BVLiteral sg w x) (.BVLiteral sg w x) .prim u
+  | div {Γ : Id → Option Kind} {u : Bool} {a a' b b' : Expr}
+      (ha : Encodes N S Te Γ a a' .prim u) (hb : Encodes N S Te Γ b b' .prim u) :
+      Encodes N S Te Γ (.Division a b) (.Division a' b') .prim u
+  | toSigned {Γ : Id → Option Kind} {u : Bool} {a a' : Expr}
+      (ha : Encodes N S Te Γ a a' .prim u) :
+      Encodes N S Te Γ (.BVUnsignedToSigned a) (.BVUnsignedToSigned a') .prim u
+  | toUnsigned {Γ : Id → Option Kind} {u : Bool} {a a' : Expr}
+      (ha : Encodes N S Te Γ a a' .prim u) :
+      Encodes N S Te Γ (.BVSignedToUnsigned a) (.BVSignedToUnsigned a') .prim u
   | setEmpty {Γ : Id → Option Kind} {u : Bool} {k : Kind} (hk : setKind k = true) :
       Encodes N S Te Γ (.FiniteSet [] Te) (.FiniteSet [] Te) (.set k) u
   | setAdd {Γ : Id → Option Kind} {u : Bool} {k : Kind} {a a' e e' : Expr}
@@ -364,6 +392,7 @@ inductive Rel (O : Oracle) (P : Program) (N : Names) (K : Value → Prop)
       (hv' : (Γ0.map Prod.fst).map (lookup_var vars') = vs'.map Result.Ok) :
       Rel O P N K E T0 S (.fn ks k) (.ClosureV ps body (.Env tys vars))
         (.ClosureV ps' body' (.Env tys' vars'))
+  | prim (v : Value) (h : IsPrim v = true) : Rel O P N K E T0 S .prim v v
   | set {k : Kind} (t : Ty) (xs : List Value) (hk : setKind k = true)
       (h : ∀ x ∈ xs, Rel O P N K E T0 S k x x) :
       Rel O P N K E T0 S (.set k) (.SetV t xs) (.SetV t xs)
@@ -550,6 +579,12 @@ theorem rel_value_eq (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) {A : Id → B
   intro k a a' h
   induction h with
   | closure _ _ _ _ _ _ _ => intro hk; simp [foKind] at hk
+  | prim v hv =>
+    intro _ b b' hb
+    cases hb with
+    | prim _ hw =>
+      rw [hB.sound.value_eq, hB.sound.value_eq (P := P)]
+      cases v <;> simp_all [IsPrim]
   | set t xs hk hxs _ =>
     intro _ b b' hb
     cases hb with
@@ -821,6 +856,21 @@ theorem rel_bagKind (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) {k : Kind}
       have h0 := hB.ints hκ
       subst h0
       exact ⟨rfl, (hB.elemsS _).1 (by rw [hB.sound.has_type])⟩
+
+theorem real_prim {n d : Int} {v : Value} (h : real n d = .Ok v) : IsPrim v = true := by
+  unfold real at h
+  split at h
+  · cases h
+  · cases h; rfl
+
+theorem arith_div_prim {a b v : Value} (h : arith_div a b = .Ok v) : IsPrim v = true := by
+  unfold arith_div at h
+  simp only [] at h
+  repeat' split at h
+  all_goals first
+    | exact real_prim h
+    | (cases h; simp [bv, IsPrim])
+    | cases h
 
 theorem eval_set_ok {Q : Program} {fuel : Int} {env : Env} {e : Expr} {b : Value}
     (h : eval_set O Q fuel env e = .Ok b) :
@@ -2255,6 +2305,60 @@ theorem encodes_eval (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) (hSo : S.Ok)
         · cases hv
         · cases hv
       · cases hv
+      · cases hv
+    · cases hv
+    · cases hv
+  | frac n d =>
+    intro env env' hT hΓ fuel hfn v hv
+    simp only [eval] at hv
+    exact ⟨_, 0, fun hu => by bnd hu, .prim _ (real_prim hv), fun _ _ => by simp only [eval, hv]⟩
+  | bvLit sg w x =>
+    intro env env' hT hΓ fuel hfn v hv
+    simp only [eval] at hv
+    cases hv
+    exact ⟨_, 0, fun hu => by bnd hu, .prim _ rfl, fun _ _ => by simp only [eval]⟩
+  | div _ _ iha ihb =>
+    intro env env' hT hΓ fuel hfn v hv
+    simp only [eval] at hv
+    split at hv
+    · next va ha =>
+      split at hv
+      · next vb hb =>
+        obtain ⟨_, n1, bd1, hR1, e1⟩ := iha env env' hT hΓ fuel hfn va ha
+        obtain ⟨_, n2, bd2, hR2, e2⟩ := ihb env env' hT hΓ fuel hfn vb hb
+        cases hR1
+        cases hR2
+        exact ⟨_, max n1 n2, fun hu => by bnd hu, .prim _ (arith_div_prim hv), fun f hf => by
+          simp only [eval, e1 f (by omega), e2 f (by omega), hv]⟩
+      · cases hv
+      · cases hv
+    · cases hv
+    · cases hv
+  | toSigned _ iha =>
+    intro env env' hT hΓ fuel hfn v hv
+    simp only [eval] at hv
+    split at hv
+    · next va ha =>
+      obtain ⟨_, n1, bd1, hR1, e1⟩ := iha env env' hT hΓ fuel hfn va ha
+      cases hR1
+      split at hv
+      · cases hv
+        exact ⟨_, n1, fun hu => by bnd hu, .prim _ rfl, fun f hf => by
+          simp only [eval, e1 f hf]⟩
+      · cases hv
+    · cases hv
+    · cases hv
+  | toUnsigned _ iha =>
+    intro env env' hT hΓ fuel hfn v hv
+    simp only [eval] at hv
+    split at hv
+    · next va ha =>
+      obtain ⟨_, n1, bd1, hR1, e1⟩ := iha env env' hT hΓ fuel hfn va ha
+      cases hR1
+      split at hv
+      · cases hv
+        exact ⟨_, n1, fun hu => by bnd hu, .prim _ rfl, fun f hf => by
+          simp only [eval, e1 f hf]⟩
       · cases hv
     · cases hv
     · cases hv

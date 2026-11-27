@@ -582,6 +582,14 @@ def encodesCheck (N : Names) (S : CSig) (Te : Ty) (g : List (Id × Kind) → Exp
       | some ks => encodesCheck N S Te g ((param_ids ps).zip ks ++ Γ) body body' .bool true
       | none => paramsEq ps ps' && ps.all (fun p => inhabCheck Te (paramTy p)) &&
           encodesCheck N S Te g (dropIds (param_ids ps) Γ) body body' .bool true)
+  | _, .FractionLiteral n d, .FractionLiteral n' d', .prim, _ => n == n' && d == d'
+  | _, .BVLiteral sg w x, .BVLiteral sg' w' x', .prim, _ => sg == sg' && w == w' && x == x'
+  | Γ, .Division a b, .Division a' b', .prim, u =>
+    encodesCheck N S Te g Γ a a' .prim u && encodesCheck N S Te g Γ b b' .prim u
+  | Γ, .BVUnsignedToSigned a, .BVUnsignedToSigned a', .prim, u =>
+    encodesCheck N S Te g Γ a a' .prim u
+  | Γ, .BVSignedToUnsigned a, .BVSignedToUnsigned a', .prim, u =>
+    encodesCheck N S Te g Γ a a' .prim u
   | _, .FiniteSet [] t, .FiniteSet [] t', .set k, _ => sameTy t Te && sameTy t' Te && setKind k
   | Γ, .SetAdd a e, .SetAdd a' e', .set k, u =>
     encodesCheck N S Te g Γ a a' (.set k) u && encodesCheck N S Te g Γ e e' k u
@@ -782,6 +790,17 @@ theorem encodesCheck_sound {N : Names} {S : CSig} {Te : Ty}
     have hb := ih hb
     simp only [lookup_drop] at hb
     exact .forallUnused (fun p hp => inhabCheck_sound (hi p hp)) hb
+  · simp only [Bool.and_eq_true, beq_iff_eq] at h
+    obtain ⟨rfl, rfl⟩ := h
+    exact .frac _ _
+  · simp only [Bool.and_eq_true, beq_iff_eq] at h
+    obtain ⟨⟨rfl, rfl⟩, rfl⟩ := h
+    exact .bvLit _ _ _
+  · next iha ihb =>
+    simp only [Bool.and_eq_true] at h
+    exact .div (iha h.1) (ihb h.2)
+  · next iha => exact .toSigned (iha h)
+  · next iha => exact .toUnsigned (iha h)
   · simp only [Bool.and_eq_true] at h
     obtain ⟨⟨h1, h2⟩, h3⟩ := h
     cases sameTy_eq h1
@@ -850,6 +869,8 @@ def kindOfSort (c : Ctx) : Nat → Sexp → Except String Kind
     match s with
     | .atom "Int" => .ok .int
     | .atom "Bool" => .ok .bool
+    | .atom "Real" => .ok .prim
+    | .expr [.atom "_", .atom "BitVec", _] => .ok .prim
     | .atom a =>
       if a == c.elem then .ok (if c.ints then .int else .elem)
       else if c.table.kind a == "sort" then .ok (.adt (c.table.id a))
@@ -890,6 +911,7 @@ def kindTy (elem : Id) : Kind → Ty
   | .tuple ks => .TupleType (kindTys elem ks)
   | .fn ks k => .FunctionType (kindTys elem ks) (kindTy elem k)
   | .set k => .SetType (kindTy elem k)
+  | .prim => .UnitType
 def kindTys (elem : Id) : List Kind → List Ty
   | [] => []
   | k :: ks => kindTy elem k :: kindTys elem ks
@@ -956,6 +978,10 @@ def readExpr (c : Ctx) : Nat → Sexp → Except String Expr
       if !a.isEmpty && a.all Char.isDigit then .ok (.IntegerLiteral a.toNat!)
       else if a == "true" then .ok (.BooleanLiteral true)
       else if a == "false" then .ok (.BooleanLiteral false)
+      else if a.startsWith "#b" then
+        let bits := a.toList.drop 2
+        .ok (.BVLiteral true bits.length
+          (bits.foldl (fun n b => 2 * n + if b == '1' then 1 else 0) 0))
       else if c.table.kind a == "uninterpreted" then .ok (.UninterpretedCall (c.table.id a) [] [])
       else if c.table.kind a == "function" then .ok (.FunctionInvocation (c.table.id a) [] [])
       else if c.table.kind a == "constructor" then .ok (.ADT (c.table.id a) [] [])
@@ -980,6 +1006,15 @@ def readExpr (c : Ctx) : Nat → Sexp → Except String Expr
     | .expr [.atom "assume", p, b] => do pure (.Assume (← readExpr c n p) (← readExpr c n b))
     | .expr [.atom "as", .atom "bag.empty", t] => pure (.FiniteBag [] (readTy t))
     | .expr [.atom "as", .atom "emptyset", t] => pure (.FiniteSet [] (readTy t))
+    | .expr [.atom "/", .atom a, .atom b] =>
+      if !a.isEmpty && a.all Char.isDigit && !b.isEmpty && b.all Char.isDigit then
+        pure (.FractionLiteral a.toNat! b.toNat!)
+      else do pure (.Division (← readExpr c n (.atom a)) (← readExpr c n (.atom b)))
+    | .expr [.atom "/", a, b] => do pure (.Division (← readExpr c n a) (← readExpr c n b))
+    | .expr [.atom "bvudiv", a, b] | .expr [.atom "bvsdiv", a, b] => do
+      pure (.Division (← readExpr c n a) (← readExpr c n b))
+    | .expr [.atom "!", e, .atom ":unsigned"] => do pure (.BVSignedToUnsigned (← readExpr c n e))
+    | .expr [.atom "!", e, .atom ":signed"] => do pure (.BVUnsignedToSigned (← readExpr c n e))
     | .expr [.atom "insert", a, e] => do pure (.SetAdd (← readExpr c n a) (← readExpr c n e))
     | .expr [.atom "member", e, a] => do
       pure (.ElementOfSet (← readExpr c n e) (← readExpr c n a))
@@ -1066,6 +1101,9 @@ partial def kindOf (S : CSig) (Γ : List (Id × Kind)) : Expr → Kind
   | .GreaterEquals _ _ | .Equals _ _ | .Not _ | .And _ | .Or _ | .Implies _ _
   | .IsConstructor _ _ | .Forall _ _ | .ElementOfSet _ _ => .bool
   | .FiniteSet _ t => .set (tyKind t)
+  | .FractionLiteral _ _ | .BVLiteral _ _ _ | .BVUnsignedToSigned _ | .BVSignedToUnsigned _ =>
+    .prim
+  | .Division a _ => kindOf S Γ a
   | .SetAdd a _ | .SetUnion a _ | .SetIntersection a _ | .SetDifference a _ => kindOf S Γ a
   | .FiniteBag _ _ | .BagAdd _ _ | .BagUnion _ _ | .BagDifference _ _
   | .BagIntersection _ _ => .bag

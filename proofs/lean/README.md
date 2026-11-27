@@ -1182,18 +1182,20 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   that the elements have an equality that is an equivalence.
   [`Encoded.lean`](Inox/Encoded.lean) puts them together for programs. The
   values of the input relate to those of the encoded program by their kinds
-  (`Rel`): elements, integers, booleans and sets are the same, a bag relates to
-  its encoding, values of the sorts of the program and tuples relate field by
-  field, and two functions relate when the body of one is what the encoder
-  makes of the body of the other and the variables that they keep have values
-  that relate. `encodes_eval` proves, by induction on the fuel, that when an
-  expression evaluates to a value in the program of the input, what the encoder
-  makes of it evaluates, with enough fuel, to a value that relates to it in the
-  encoded program. It covers variables, literals, sums, differences,
-  comparisons, equalities, connectives, conditionals, lets, assumptions, the
-  bag operations above, multiplicities, where integers may be the elements of
-  bags when the elements are integers, the operations of sets of elements,
-  integers or booleans, which the encoders keep, tuples, the constructors,
+  (`Rel`): elements, integers, booleans, sets and the other primitive values
+  are the same, a bag relates to its encoding, values of the sorts of the
+  program and tuples relate field by field, and two functions relate when the
+  body of one is what the encoder makes of the body of the other and the
+  variables that they keep have values that relate. `encodes_eval` proves, by
+  induction on the fuel, that when an expression evaluates to a value in the
+  program of the input, what the encoder makes of it evaluates, with enough
+  fuel, to a value that relates to it in the encoded program. It covers
+  variables, literals, sums, differences, comparisons, equalities, connectives,
+  conditionals, lets, assumptions, the bag operations above, multiplicities,
+  where integers may be the elements of bags when the elements are integers,
+  the operations of sets of elements, integers or booleans, which the encoders
+  keep, the divisions of reals and of bitvectors and the casts of bitvectors
+  between signed and unsigned, which they keep too, tuples, the constructors,
   selectors and testers of the sorts of the program, calls of its functions,
   whose bodies in the encoded program are what the encoder makes of their
   bodies in the input (`Funs`), lambdas and applications, quantifiers over
@@ -1225,11 +1227,11 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   after the encoders and defines the encoder's datatype as the encoder does, on
   values of the free variables that relate. `inox-solution --input` says how
   many constraints of each certificate that covers, and what the first of the
-  others has that isn't read. On the corpus it covers 27 of the 36 constraints,
+  others has that isn't read. On the corpus it covers 29 of the 36 constraints,
   among which that of `bags/split-preserves-content`, with its two recursive
-  functions, twelve with quantifiers, three with sets, and eight with
-  uninterpreted functions or errors: the others have encoders that rewrite
-  terms, maps, bitvectors, reals, or sorts whose type arguments are not the
+  functions, twelve with quantifiers, three with sets, two with reals or
+  bitvectors, and eight with uninterpreted functions or errors: the others have
+  encoders that rewrite terms, maps, or sorts whose type arguments are not the
   elements. Nor is this theorem joined to `no_solution_of_reached` yet, whose
   program has neither sorts with type parameters nor sorts with an equality.
 - **The link between the proof and the script.** The checker checks that each
