@@ -479,8 +479,12 @@ fresh literal `k_p`, `c_p` holds, `w̄` lies in the parameter types, and the bod
   define, so the next models can't keep them equal with the same captures, and refutations can use
   that they differ on `ā`. This refutes `(λz. z = 0) = (λz. z = 1)`, and finds `c = 1` in
   `(λz. z + c = 1) ∈ {λz. z = 0}`.
+  A function in `ā` is given by a fresh lambda that captures nothing, with the values that `M'` (the
+  model of the comparison) gives it on the inputs that the bodies apply it to: that tells the bodies
+  apart as well, and `M'`'s own extraction may call fresh functions. This refutes
+  `(λf. f(0)) = (λf. f(1))`.
 - A pair is only applied to one such input per unrolling, so that each model search terminates. When
-  a later model of the same search makes it equal again (or no input without lambdas is found), the
+  a later model of the same search makes it equal again (or no such input is found), the
   model checks assume a literal `n_p` with `n_p ∧ c_p ⇒ λ1 ≄ λ2` (or the closures are equal) until
   the next unrolling, which keeps them apart (`WitnessTemplates.lambdaDistinctions`). The unrolling
   then tries the first check again, and the models may make them equal again.

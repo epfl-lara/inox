@@ -1702,15 +1702,52 @@ abstract class AbstractUnrollingSolver private
         case SatWithModel(model) =>
           val wrapped = wrapModel(model)
           val (_, args, _) = templates.witnesses.comparison(p)
-          val values = (args zip templates.witnesses.argumentTypes(p)).flatMap((a, tpe) => wrapped.modelEval(a, tpe))
-          // the input must be a value that the unfolding can apply the lambdas to as is
-          values.size == args.size && !values.exists(t.exprOps.exists { case _: t.Lambda => true; case _ => false }) && {
-            reporter.debug(" - The lambdas differ on " + values.mkString(", "))
-            for (cl <- templates.witnesses.probe(p, values)) assertClause(cl)
+          val values = (args zip templates.witnesses.argumentTypes(p)).map(probeValue(wrapped, _, _))
+          values.forall(_.isDefined) && {
+            reporter.debug(" - The lambdas differ on " + values.flatten.mkString(", "))
+            for (cl <- templates.witnesses.probe(p, values.flatten)) assertClause(cl)
             true
           }
         case _ => false
       })
+
+    /** The value of the argument `a` of a comparison in its model `wrapped`, as an input that the
+      * unfolding can apply the compared lambdas to. A function is given by its values on the inputs
+      * that the bodies applied it to in the model, which is enough to tell them apart there: the
+      * fresh lambda that has these values captures nothing, so applying the compared lambdas to it is
+      * a definition like any other. The model's own function may not be one, as its extraction can
+      * give it calls to fresh functions. None if a value contains functions elsewhere, or if one of
+      * the applications fails. */
+    private def probeValue(wrapped: ModelWrapper, a: Encoded, tpe: t.Type): Option[t.Expr] = {
+      import programEncoder.targetProgram.symbols.{given, _}
+      def hasLambdas(e: t.Expr) = t.exprOps.exists { case _: t.Lambda => true; case _ => false }(e)
+      tpe.getType match {
+        // with unrefined types, which the fresh lambda's parameters and results lie in
+        case ft @ t.FunctionType(from, to) if (to +: from).forall(tpe =>
+            tpe == tpe.getType && !FunctionEquality.containsFunctions(programEncoder.targetProgram)(tpe)) =>
+          val applied = templates.model.groundInstantiations(a, ft).filter { (b, _) =>
+            wrapped.modelEval(b, t.BooleanType()) == Some(t.BooleanLiteral(true))
+          }.map(_._2).distinct
+          val fails = applied.exists { as =>
+            templates.model.appFailureLiterals(ft).exists { case ((c, cas), literal) =>
+              c == a && cas == as && wrapped.modelEval(literal, t.BooleanType()) == Some(t.BooleanLiteral(true))
+            }
+          }
+          val points = applied.map { as =>
+            ((as zip from).map((e, tpe) => wrapped.modelEval(e, tpe)), wrapped.modelEval(templates.mkApp(a, ft, as), to))
+          }
+          Option.when(!fails && points.forall((as, r) => as.forall(_.isDefined) && r.isDefined)) {
+            val params = from.map(tpe => t.ValDef.fresh("x", tpe, true))
+            val default = simplestValue(to)
+            t.Lambda(params, points.distinctBy(_._1).foldRight(default: t.Expr) { case ((as, r), elze) =>
+              val cond = t.andJoin((params zip as).map((vd, v) => t.Equals(vd.toVariable, v.get)))
+              t.IfExpr(cond, r.get, elze)
+            })
+          }
+        case _ =>
+          wrapped.modelEval(a, tpe).filterNot(hasLambdas)
+      }
+    }
 
     /** Extracts a model from `umodel` and validates it, once the unfolding has related the lambdas
       * of `umodel` to the functions they capture. */
