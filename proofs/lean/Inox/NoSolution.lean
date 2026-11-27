@@ -50,11 +50,11 @@ def Total (O : Oracle) (P : Program) (D : List Data) (S : List Sig) : Prop :=
 program for all the values of their parameters. -/
 theorem good_star (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hPF : ProgFrag P)
     (hP : ProgTy D S P) (htot : Total O P D S) {eqs : List Equation}
-    (hE : ∀ e ∈ eqs, ∃ s ∈ S, EqFor P D S s e) (M0 N : SmtModel) (cd : Codes)
-    (hw : model_wf (Model.star (defs D S) (interpOf O P D S) M0 cd N)) :
+    (hE : ∀ e ∈ eqs, ∃ s ∈ S, EqFor P D S s e) {M0 N : SmtModel} (cd : Codes)
+    (hM0 : model_wf M0) (hN : model_wf N) (hu : N.usortDom = M0.usortDom) :
     Good eqs (Model.star (defs D S) (interpOf O P D S) M0 cd N) :=
   fun e he vs hvs =>
-    (goodOn_star hO hty hS hPF hP htot.1 hE M0 N cd hw e he vs hvs).2
+    (goodOn_star hO hty hS hPF hP htot.1 hE cd hM0 hN hu e he vs hvs).2
       (fun s hs _ us hus _ => htot.2 s hs us hus)
 
 /-- The free variables `Γ` of a query: of types of the fragment, and named after no function. -/
@@ -123,7 +123,8 @@ theorem satisfies_star (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hPF 
     obtain ⟨u, hu, huT⟩ := bind_lookup Γ vs bs hbs hvs x T hx
     rw [lookup_var_det hw' hu]; exact huT
   obtain ⟨_, hM⟩ := ev hO hty hS hP.2 (call_ty' hO hty hS hP n) hq _ _ hE hn
-  rw [htr, hM _ hw (callsOk_star hO hty hS hPF hP M0 _ cd n) (varsOk_star hΓ M0 cd hbs tenv)]
+  rw [htr, hM _ hw (callsOk_star hO hty hS hPF hP cd hM0 (wf_varsModel hS.data hM0 hvs) rfl n)
+    (varsOk_star hΓ M0 cd hbs tenv)]
   rfl
 
 /-- The base clauses `base` are the translations of the expressions `qs` of a query over the
@@ -161,7 +162,7 @@ theorem no_solution (sound : LogosSound) (hO : O.Sound) (hty : LogosTyping) (hS 
   obtain ⟨M0, hM0⟩ := Smtm.model_wf_nonvacuous
   have hw := wf_star (defs D S) (interpOf O P D S) M0 cd hM0 (wf_varsModel hS.data hM0 hvs) rfl
   refine no_good_model_of_instances sound hty hAccept hr hcheck hkeeps hfacts _
-    (good_star hO hty hS hPF hP htot hE M0 _ cd hw)
+    (good_star hO hty hS hPF hP htot hE cd hM0 (wf_varsModel hS.data hM0 hvs) rfl)
     (satisfies_star hO hty hS hPF hP hΓ hM0 cd hvs hbs [] ?_)
   intro t ht
   obtain ⟨q, hq, hty', htr⟩ := hbase t ht

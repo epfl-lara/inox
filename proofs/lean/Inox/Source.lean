@@ -48,6 +48,7 @@ def tyOf : SmtType → Ty
   | .Datatype s _ => .ADTType (idOf s) []
   | .BitVec n => .BVType false n
   | .Real => .RealType
+  | .Set T => .SetType (tyOf T)
   | _ => .UnitType
 
 /-- The name that the constructor of index `i` of the datatype `s` is read with. Logos has no
@@ -133,6 +134,14 @@ def back : SmtTerm → Expr
     .BVSignedToUnsigned (.BVWideningCast (.BVUnsignedToSigned (back a)) (k + widthOf a))
   | .and a r => .And (back a :: backAnd r)
   | .or a r => .Or (back a :: backOr r)
+  | .set_empty T => .FiniteSet [] (tyOf T)
+  | .set_singleton a => .FiniteSet [back a] (tyOf (__smtx_typeof a))
+  | .set_union (.set_singleton a) s => .SetAdd (back s) (back a)
+  | .set_union a b => .SetUnion (back a) (back b)
+  | .set_inter a b => .SetIntersection (back a) (back b)
+  | .set_minus a b => .SetDifference (back a) (back b)
+  | .set_member a s => .ElementOfSet (back a) (back s)
+  | .set_subset a b => .SubsetOf (back a) (back b)
   | .DtCons s _ i => .ADT (ctorName s i) [] []
   | .Apply (.DtTester s _ i) a => .IsConstructor (back a) (ctorName s i)
   | .Apply (.DtSel s _ i j) a => .ADTSelector (back a) (fieldName s i j)
@@ -170,28 +179,30 @@ def consts : SmtTerm → List (native_String × SmtType)
   | .UConst s T => [(s, T)]
   | .ite c a b => consts c ++ consts a ++ consts b
   | .not a | .uneg a | .bvneg a | .bvnot a | .extract _ _ a | .zero_extend _ a
-  | .sign_extend _ a => consts a
+  | .sign_extend _ a | .set_singleton a => consts a
   | .xor a b => consts a ++ consts b
   | .imp a b | .eq a b | .plus a b | .neg a b | .mult a b | .div a b | .mod a b | .lt a b
   | .gt a b | .leq a b | .geq a b | .and a b | .or a b | .bvadd a b | .bvsub a b | .bvmul a b
   | .bvudiv a b | .bvurem a b | .bvult a b | .bvugt a b | .bvule a b | .bvuge a b
   | .qdiv a b | .bvsdiv a b | .bvsrem a b | .bvsmod a b | .bvslt a b | .bvsgt a b | .bvsle a b
   | .bvsge a b | .bvand a b | .bvor a b | .bvxor a b | .bvshl a b | .bvashr a b
-  | .bvlshr a b => consts a ++ consts b
+  | .bvlshr a b | .set_union a b | .set_inter a b | .set_minus a b | .set_member a b
+  | .set_subset a b => consts a ++ consts b
   | .Apply (.UConst _ _) a => consts a
   | .Apply f a => consts f ++ consts a
   | _ => []
 
 /-! ## Typing -/
 
-/-- The types of the fragment: the integers, the Booleans, the reals, the bit-vectors and the
-datatypes. -/
+/-- The types of the fragment: the integers, the Booleans, the reals, the bit-vectors, the
+datatypes, and the sets of these. -/
 inductive K where
   | int
   | bool
   | real
   | bv (s : Bool) (w : Int)
   | data (s : Id)
+  | set (k : K)
   deriving DecidableEq
 
 /-- The type of a kind. -/
@@ -201,6 +212,7 @@ def K.ty : K → Ty
   | .real => .RealType
   | .bv s w => .BVType s w
   | .data s => .ADTType s []
+  | .set k => .SetType k.ty
 
 /-- The kind of a type of the fragment. -/
 def kind (D : List Data) : Ty → Option K
@@ -209,45 +221,61 @@ def kind (D : List Data) : Ty → Option K
   | .RealType => some .real
   | .BVType s w => if 0 < w then some (.bv s w) else none
   | .ADTType s [] => if (findData D s).isSome then some (.data s) else none
+  | .SetType A => (kind D A).map .set
   | _ => none
 
-theorem kind_spec {D : List Data} {T : Ty} {k : K} (h : kind D T = some k) : T = k.ty := by
-  cases T <;> try (simp [kind] at h; done)
-  case IntegerType => simp only [kind, Option.some.injEq] at h; subst h; rfl
-  case BooleanType => simp only [kind, Option.some.injEq] at h; subst h; rfl
-  case RealType => simp only [kind, Option.some.injEq] at h; subst h; rfl
-  case BVType s w =>
+theorem kind_spec' {D : List Data} : ∀ (T : Ty) (k : K), kind D T = some k → T = k.ty
+  | .IntegerType, k, h => by simp only [kind, Option.some.injEq] at h; subst h; rfl
+  | .BooleanType, k, h => by simp only [kind, Option.some.injEq] at h; subst h; rfl
+  | .RealType, k, h => by simp only [kind, Option.some.injEq] at h; subst h; rfl
+  | .BVType s w, k, h => by
     simp only [kind] at h
     split at h
     · simp only [Option.some.injEq] at h; subst h; rfl
     · cases h
-  case ADTType s args =>
-    cases args with
-    | cons _ _ => simp [kind] at h
-    | nil =>
-      simp only [kind] at h
-      split at h
-      · simp only [Option.some.injEq] at h; subst h; rfl
-      · cases h
+  | .ADTType s [], k, h => by
+    simp only [kind] at h
+    split at h
+    · simp only [Option.some.injEq] at h; subst h; rfl
+    · cases h
+  | .SetType A, k, h => by
+    simp only [kind, Option.map_eq_some_iff] at h
+    obtain ⟨k', hk, rfl⟩ := h
+    simp only [K.ty, ← kind_spec' A k' hk]
+  | .ADTType _ (_ :: _), _, h | .UnitType, _, h | .CharType, _, h | .StringType, _, h
+  | .FPType _ _, _, h | .RoundingModeType, _, h | .TypeParameter _, _, h | .TupleType _, _, h
+  | .BagType _, _, h | .MapType _ _, _, h | .FunctionType _ _, _, h
+  | .RefinementType _ _ _, _, h | .PropType, _, h | .PiType _ _, _, h
+  | .SigmaType _ _, _, h => by simp [kind] at h
 
-theorem fragTy_of_kind {D : List Data} {T : Ty} (h : (kind D T).isSome = true) : FragTy D T := by
-  cases T <;> try (simp [kind] at h; done)
-  case IntegerType => trivial
-  case BooleanType => trivial
-  case RealType => trivial
-  case BVType s w =>
+theorem kind_spec {D : List Data} {T : Ty} {k : K} (h : kind D T = some k) : T = k.ty :=
+  kind_spec' T k h
+
+theorem fragTy_of_kind' {D : List Data} : ∀ T : Ty, (kind D T).isSome = true → FragTy D T
+  | .IntegerType, _ => trivial
+  | .BooleanType, _ => trivial
+  | .RealType, _ => trivial
+  | .BVType s w, h => by
     simp only [kind] at h
     split at h
     · rename_i hw; exact hw
     · cases h
-  case ADTType s args =>
-    cases args with
-    | cons _ _ => simp [kind] at h
-    | nil =>
-      simp only [kind] at h
-      split at h
-      · rename_i hs; simpa [FragTy] using hs
-      · cases h
+  | .ADTType s [], h => by
+    simp only [kind] at h
+    split at h
+    · rename_i hs; simpa [FragTy] using hs
+    · cases h
+  | .SetType A, h => by
+    simp only [kind, Option.isSome_map] at h
+    exact fragTy_of_kind' A h
+  | .ADTType _ (_ :: _), h | .UnitType, h | .CharType, h | .StringType, h
+  | .FPType _ _, h | .RoundingModeType, h | .TypeParameter _, h | .TupleType _, h
+  | .BagType _, h | .MapType _ _, h | .FunctionType _ _, h
+  | .RefinementType _ _ _, h | .PropType, h | .PiType _ _, h
+  | .SigmaType _ _, h => by simp [kind] at h
+
+theorem fragTy_of_kind {D : List Data} {T : Ty} (h : (kind D T).isSome = true) : FragTy D T :=
+  fragTy_of_kind' T h
 
 theorem kind_data {D : List Data} (hD : DataOk D) {d : Data} (hd : d ∈ D) :
     kind D (.ADTType d.name []) = some (.data d.name) := by
@@ -346,6 +374,28 @@ def infer (D : List Data) (S : List Sig) (Γ : List (Id × Ty)) : Expr → Optio
     match findSel D x with
     | some (d, _, _, T) => if infer D S Γ a = some (.data d.name) then kind D T else none
     | none => none
+  | .FiniteSet es A =>
+    match kind D A with
+    | some k =>
+      if es.length ≤ 1 ∧ inferArgs D S Γ es (es.map fun _ => A) = true then some (.set k)
+      else none
+    | none => none
+  | .SetAdd s a =>
+    match infer D S Γ s, infer D S Γ a with
+    | some (.set k), some k' => if k = k' then some (.set k) else none
+    | _, _ => none
+  | .ElementOfSet a s =>
+    match infer D S Γ a, infer D S Γ s with
+    | some k', some (.set k) => if k = k' then some .bool else none
+    | _, _ => none
+  | .SubsetOf s u =>
+    match infer D S Γ s, infer D S Γ u with
+    | some (.set k), some (.set k') => if k = k' then some .bool else none
+    | _, _ => none
+  | .SetUnion s u | .SetIntersection s u | .SetDifference s u =>
+    match infer D S Γ s, infer D S Γ u with
+    | some (.set k), some (.set k') => if k = k' then some (.set k) else none
+    | _, _ => none
   | _ => none
 
 /-- The expressions `es` are Booleans. -/
@@ -555,6 +605,90 @@ theorem infer_sound (hD : DataOk D) (S : List Sig) (Γ : List (Id × Ty)) :
     · rename_i ha
       simp only [Option.some.injEq] at h; subst h
       exact .rNeg (infer_sound hD S Γ a .real ha)
+    · cases h
+  | .FiniteSet es A, k, h => by
+    simp only [infer] at h
+    split at h
+    · rename_i kA hA
+      split at h
+      · rename_i hc
+        simp only [Option.some.injEq] at h; subst h
+        obtain ⟨_, hall⟩ := inferArgs_sound hD S Γ es _ hc.2
+        have hAT := kind_spec hA
+        have hl := hc.1
+        simp only [K.ty]
+        rw [← hAT]
+        match es, hl, hall with
+        | [], _, _ => exact .setEmpty (fragTy_of_kind (by rw [hA]; rfl))
+        | [a], _, hall => exact .setOne (hall (a, A) (by simp))
+        | _ :: _ :: _, hl, _ => simp at hl
+      · cases h
+    · cases h
+  | .SetAdd s a, k, h => by
+    simp only [infer] at h
+    split at h
+    · rename_i k1 k2 hs ha
+      split at h
+      · rename_i hk
+        subst hk
+        simp only [Option.some.injEq] at h; subst h
+        exact .setAdd (infer_sound hD S Γ s (.set k1) hs) (infer_sound hD S Γ a k1 ha)
+      · cases h
+    · cases h
+  | .ElementOfSet a s, k, h => by
+    simp only [infer] at h
+    split at h
+    · rename_i k2 k1 ha hs
+      split at h
+      · rename_i hk
+        subst hk
+        simp only [Option.some.injEq] at h; subst h
+        exact .elementOf (infer_sound hD S Γ a k1 ha) (infer_sound hD S Γ s (.set k1) hs)
+      · cases h
+    · cases h
+  | .SubsetOf s u, k, h => by
+    simp only [infer] at h
+    split at h
+    · rename_i k1 k2 hs hu
+      split at h
+      · rename_i hk
+        subst hk
+        simp only [Option.some.injEq] at h; subst h
+        exact .subsetOf (infer_sound hD S Γ s (.set k1) hs) (infer_sound hD S Γ u (.set k1) hu)
+      · cases h
+    · cases h
+  | .SetUnion s u, k, h => by
+    simp only [infer] at h
+    split at h
+    · rename_i k1 k2 hs hu
+      split at h
+      · rename_i hk
+        subst hk
+        simp only [Option.some.injEq] at h; subst h
+        exact .setUnion (infer_sound hD S Γ s (.set k1) hs) (infer_sound hD S Γ u (.set k1) hu)
+      · cases h
+    · cases h
+  | .SetIntersection s u, k, h => by
+    simp only [infer] at h
+    split at h
+    · rename_i k1 k2 hs hu
+      split at h
+      · rename_i hk
+        subst hk
+        simp only [Option.some.injEq] at h; subst h
+        exact .setInter (infer_sound hD S Γ s (.set k1) hs) (infer_sound hD S Γ u (.set k1) hu)
+      · cases h
+    · cases h
+  | .SetDifference s u, k, h => by
+    simp only [infer] at h
+    split at h
+    · rename_i k1 k2 hs hu
+      split at h
+      · rename_i hk
+        subst hk
+        simp only [Option.some.injEq] at h; subst h
+        exact .setDiff (infer_sound hD S Γ s (.set k1) hs) (infer_sound hD S Γ u (.set k1) hu)
+      · cases h
     · cases h
   | .BVAnd a b, k, h => by
     simp only [infer] at h
@@ -806,8 +940,6 @@ theorem infer_sound (hD : DataOk D) (S : List Sig) (Γ : List (Id × Ty)) :
   | .FPLessEquals _ _, k, h | .FPGreaterEquals _ _, k, h | .FPIsZero _, k, h
   | .FPIsInfinite _, k, h | .FPIsNaN _, k, h | .FPIsNegative _, k, h | .FPIsPositive _, k, h
   | .FPIsNormal _, k, h | .FPIsSubnormal _, k, h | .Tuple _, k, h | .TupleSelect _ _, k, h
-  | .FiniteSet _ _, k, h | .SetAdd _ _, k, h | .ElementOfSet _ _, k, h | .SubsetOf _ _, k, h
-  | .SetIntersection _ _, k, h | .SetUnion _ _, k, h | .SetDifference _ _, k, h
   | .FiniteBag _ _, k, h | .BagAdd _ _, k, h | .MultiplicityInBag _ _, k, h
   | .BagIntersection _ _, k, h | .BagUnion _ _, k, h | .BagDifference _ _, k, h
   | .FiniteMap _ _ _ _, k, h | .MapApply _ _, k, h | .MapUpdated _ _ _, k, h
@@ -921,6 +1053,14 @@ theorem HasTy.frag {S : List Sig} {Γ : List (Id × Ty)} {e : Expr} {T : Ty} (h 
       ⟨n, by rw [List.length_zip]; exact Nat.lt_min.mpr ⟨hn, hn'⟩, List.getElem_zip⟩)
   | isCons _ _ ih => exact .isCons ih
   | sel _ _ ih => exact .select ih
+  | setEmpty _ => exact .finiteSet fun _ h => nomatch h
+  | setOne _ ih => exact .finiteSet fun a ha => by rw [List.mem_singleton.mp ha]; exact ih
+  | setAdd _ _ ihs iha => exact .setAdd ihs iha
+  | elementOf _ _ iha ihs => exact .elementOf iha ihs
+  | subsetOf _ _ iha ihb => exact .subsetOf iha ihb
+  | setUnion _ _ iha ihb => exact .setUnion iha ihb
+  | setInter _ _ iha ihb => exact .setInter iha ihb
+  | setDiff _ _ iha ihb => exact .setDiff iha ihb
 
 /-! ## The datatypes of a certificate -/
 
@@ -934,6 +1074,7 @@ mutual
 def declsOfType : SmtType → List (native_String × SmtDatatypeDecl)
   | .Datatype _ dd => declNames dd dd ++ declsOfDecl dd
   | .FunType A B => declsOfType A ++ declsOfType B
+  | .Set A => declsOfType A
   | _ => []
 
 def declsOfDecl : SmtDatatypeDecl → List (native_String × SmtDatatypeDecl)
@@ -955,14 +1096,16 @@ def typesOf : SmtTerm → List SmtType
   | .UConst _ T => [T]
   | .DtCons s dd _ | .DtSel s dd _ _ | .DtTester s dd _ => [.Datatype s dd]
   | .ite c a b => typesOf c ++ typesOf a ++ typesOf b
+  | .set_empty T => [T]
   | .not a | .uneg a | .bvneg a | .bvnot a | .extract _ _ a | .zero_extend _ a
-  | .sign_extend _ a => typesOf a
+  | .sign_extend _ a | .set_singleton a => typesOf a
   | .xor a b | .imp a b | .eq a b | .plus a b | .neg a b | .mult a b | .div a b | .mod a b
   | .lt a b | .gt a b | .leq a b | .geq a b | .and a b | .or a b | .Apply a b | .bvadd a b
   | .bvsub a b | .bvmul a b | .bvudiv a b | .bvurem a b | .bvult a b | .bvugt a b | .bvule a b
   | .bvuge a b | .qdiv a b | .bvsdiv a b | .bvsrem a b | .bvsmod a b | .bvslt a b | .bvsgt a b
   | .bvsle a b | .bvsge a b | .bvand a b | .bvor a b | .bvxor a b | .bvshl a b | .bvashr a b
-  | .bvlshr a b => typesOf a ++ typesOf b
+  | .bvlshr a b | .set_union a b | .set_inter a b | .set_minus a b | .set_member a b
+  | .set_subset a b => typesOf a ++ typesOf b
   | _ => []
 
 /-- The fields of a constructor of the datatype `s`, of index `i`, from the field of index `j`

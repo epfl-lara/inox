@@ -308,6 +308,8 @@ theorem noBinder_tr {S : List Sig} {Γ : List (Id × Ty)} {e : Expr} {T : Ty}
   | isCons hc _ ih => simpa [tr, hc, noBinder] using ih
   | sel hx _ ih => simpa [tr, hx, noBinder] using ih
   | frac _ => simp only [tr, lit, noBinder]; split <;> split <;> simp [noBinder]
+  | setEmpty _ => simp [tr, trs, noBinder]
+  | setOne _ ih => simpa [tr, trs, noBinder] using ih
   | _ => simp only [tr]; (try split) <;> (try split) <;> simp_all [noBinder]
 
 /-! ## The literals of definitions -/
@@ -378,7 +380,8 @@ theorem called_of_reachesBody (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S
   have hss : s = s' := sig_eq_of_name hS.nodup hs hs' (nm_inj (uconst_inj hhead))
   subst hss
   obtain ⟨hσ, _⟩ := params_of_paramsB hty hw hparams
-  obtain ⟨hw', hc', hV'⟩ := bound_model hS hs hw hcalls hvs
+  obtain ⟨hw', hc0', hV'⟩ := bound_model (O := O) (P := P) hS hs hw hvs
+  have hc' := fun m => hc0' m (hcalls m)
   have hM' : setConsts M (bindingValues M (bindParams e.params us)) =
       setConsts M (bindValues (ptys D s.params) (vs.map (trV D))) := by
     rw [bindingValues_bindParams, hpe, hus]
@@ -517,7 +520,8 @@ theorem assumesBody_sound (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (h
   have hss : sigOf e = s' := sig_eq_of_name hS.nodup hs hs' (nm_inj (uconst_inj hhead))
   subst hss
   obtain ⟨hσ, _⟩ := params_of_paramsB hty hw hparams
-  obtain ⟨hw', hc', hV'⟩ := bound_model hS hs hw hcalls hvs
+  obtain ⟨hw', hc0', hV'⟩ := bound_model (O := O) (P := P) hS hs hw hvs
+  have hc' := fun m => hc0' m (hcalls m)
   have hM' : setConsts M (bindingValues M (bindParams e.params us)) =
       setConsts M (bindValues (ptys D (sigOf e).params) (vs.map (trV D))) := by
     rw [bindingValues_bindParams, hpe, hus]
@@ -791,7 +795,8 @@ theorem no_solution_of_reached {O : Oracle} (sound : LogosSound) (hO : O.Sound)
         (fun q hq => ⟨query_ty_of_check hD hB' q hq, (hsol q hq).imp fun _ hn => ⟨_, hn⟩⟩) h hsub)
       (fun _ h => h)
       (factsHoldExcept_of_all hall)) _
-    ⟨fun m => callsOk_star hO hty hS hPF hP M0 _ cd m, varsOk_star hΓ M0 cd hbs []⟩
+    ⟨fun m => callsOk_star hO hty hS hPF hP cd hM0 (wf_varsModel hS.data hM0 hvs) rfl m,
+      varsOk_star hΓ M0 cd hbs []⟩
     (satisfies_star hO hty hS hPF hP hΓ hM0 cd hvs hbs [] ?_)
   intro t ht
   obtain ⟨q, hq, hty', htr⟩ := hB t ht

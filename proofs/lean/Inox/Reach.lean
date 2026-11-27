@@ -104,6 +104,12 @@ def reachesW (w : SmtTerm → SmtTerm) (K : List (SmtTerm × Bool)) (c : SmtTerm
   | _, .extract _ _ x => reachesW w K c true x
   | _, .zero_extend _ x => reachesW w K c true x
   | _, .sign_extend _ x => reachesW w K c true x
+  | _, .set_singleton x => reachesW w K c true x
+  | _, .set_union x y => reachesW w K c true x || reachesW w K c true y
+  | _, .set_inter x y => reachesW w K c true x || reachesW w K c true y
+  | _, .set_minus x y => reachesW w K c true x || reachesW w K c true y
+  | _, .set_member x y => reachesW w K c true x || reachesW w K c true y
+  | _, .set_subset x y => reachesW w K c true x || reachesW w K c true y
   | _, _ => false
 
 /-- `reachesW` with the terms as they are. -/
@@ -386,6 +392,52 @@ theorem called_of_reachesW (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (
     rename_i x hx
     simp only [tr, isBv_eq ha, Ty.isBv, Bool.false_eq_true, ↓reduceIte, reachesW] at hr
     exact ih env _ hE hx M hw hc hV N w hN hT K hK c hr
+  | setEmpty _ =>
+    intro env v hE he M hw hc hV N w hN hT K hK c hr
+    simp [tr, trs, reachesW] at hr
+  | setOne _ ih =>
+    intro env v hE he M hw hc hV N w hN hT K hK c hr
+    rw [eval] at he
+    ok_split he
+    rename_i vs hvs
+    rw [eval_list] at hvs
+    ok_split hvs
+    rename_i x hx
+    simp only [tr, trs, reachesW] at hr
+    exact ih env _ hE hx M hw hc hV N w hN hT K hK c hr
+  | setAdd _ _ ihs iha =>
+    intro env v hE he M hw hc hV N w hN hT K hK c hr
+    rw [eval] at he
+    ok_split he
+    rename_i sv hs'
+    ok_split he
+    rename_i x hx
+    simp only [tr, reachesW, Bool.or_eq_true] at hr
+    rcases hr with hr | hr
+    · exact iha env _ hE hx M hw hc hV N w hN hT K hK c hr
+    · exact ihs env _ hE (eval_set_ok hs') M hw hc hV N w hN hT K hK c hr
+  | elementOf _ _ iha ihs =>
+    intro env v hE he M hw hc hV N w hN hT K hK c hr
+    rw [eval] at he
+    ok_split he
+    rename_i x hx
+    ok_split he
+    rename_i sv hs'
+    simp only [tr, reachesW, Bool.or_eq_true] at hr
+    rcases hr with hr | hr
+    · exact iha env _ hE hx M hw hc hV N w hN hT K hK c hr
+    · exact ihs env _ hE (eval_set_ok hs') M hw hc hV N w hN hT K hK c hr
+  | subsetOf _ _ ihs ihu | setUnion _ _ ihs ihu | setInter _ _ ihs ihu | setDiff _ _ ihs ihu =>
+    intro env v hE he M hw hc hV N w hN hT K hK c hr
+    rw [eval] at he
+    ok_split he
+    rename_i sv hs'
+    ok_split he
+    rename_i uv hu'
+    simp only [tr, reachesW, Bool.or_eq_true] at hr
+    rcases hr with hr | hr
+    · exact ihs env _ hE (eval_set_ok hs') M hw hc hV N w hN hT K hK c hr
+    · exact ihu env _ hE (eval_set_ok hu') M hw hc hV N w hN hT K hK c hr
   | @invoke s args hs hl hargs ih =>
     intro env v hE he M hw hc hV N w hN hT K hK c hr
     rw [eval] at he
@@ -511,8 +563,11 @@ def assumesW (D : List Data) (S : List Sig) (Γ : List (Id × Ty)) (w : SmtTerm 
       (decide (red K (w (tr D S Γ a)) = .Boolean true) && assumesW D S Γ w K φ b)
   | .Equals a b | .Plus a b | .Minus a b | .Times a b | .LessThan a b | .GreaterThan a b
   | .LessEquals a b | .GreaterEquals a b | .BVAnd a b | .BVOr a b | .BVXor a b
-  | .BVShiftLeft a b | .BVAShiftRight a b | .BVLShiftRight a b =>
+  | .BVShiftLeft a b | .BVAShiftRight a b | .BVLShiftRight a b | .SetAdd a b
+  | .ElementOfSet a b | .SubsetOf a b | .SetUnion a b | .SetIntersection a b
+  | .SetDifference a b =>
     assumesW D S Γ w K φ a || assumesW D S Γ w K φ b
+  | .FiniteSet es _ => assumesAny D S Γ w K φ es
   | .Division a b | .Remainder a b | .Modulo a b =>
     (!isBv D S Γ a && !isReal D S Γ a &&
         decide (SmtTerm.not (.eq (w (tr D S Γ b)) (.Numeral 0)) = φ)) ||
@@ -787,6 +842,52 @@ theorem holds_of_assumesW (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S)
     rename_i x hx
     simp only [assumesW] at hr
     exact ih env _ hE hx M hw hc hV N w hN hT K hK φ hr
+  | setEmpty _ =>
+    intro env v hE he M hw hc hV N w hN hT K hK φ hr
+    simp [assumesW, assumesAny] at hr
+  | setOne _ ih =>
+    intro env v hE he M hw hc hV N w hN hT K hK φ hr
+    rw [eval] at he
+    ok_split he
+    rename_i vs hvs
+    rw [eval_list] at hvs
+    ok_split hvs
+    rename_i x hx
+    simp only [assumesW, assumesAny, Bool.or_false] at hr
+    exact ih env _ hE hx M hw hc hV N w hN hT K hK φ hr
+  | setAdd _ _ ihs iha =>
+    intro env v hE he M hw hc hV N w hN hT K hK φ hr
+    rw [eval] at he
+    ok_split he
+    rename_i sv hs'
+    ok_split he
+    rename_i x hx
+    simp only [assumesW, Bool.or_eq_true] at hr
+    rcases hr with hr | hr
+    · exact ihs env _ hE (eval_set_ok hs') M hw hc hV N w hN hT K hK φ hr
+    · exact iha env _ hE hx M hw hc hV N w hN hT K hK φ hr
+  | elementOf _ _ iha ihs =>
+    intro env v hE he M hw hc hV N w hN hT K hK φ hr
+    rw [eval] at he
+    ok_split he
+    rename_i x hx
+    ok_split he
+    rename_i sv hs'
+    simp only [assumesW, Bool.or_eq_true] at hr
+    rcases hr with hr | hr
+    · exact iha env _ hE hx M hw hc hV N w hN hT K hK φ hr
+    · exact ihs env _ hE (eval_set_ok hs') M hw hc hV N w hN hT K hK φ hr
+  | subsetOf _ _ ihs ihu | setUnion _ _ ihs ihu | setInter _ _ ihs ihu | setDiff _ _ ihs ihu =>
+    intro env v hE he M hw hc hV N w hN hT K hK φ hr
+    rw [eval] at he
+    ok_split he
+    rename_i sv hs'
+    ok_split he
+    rename_i uv hu'
+    simp only [assumesW, Bool.or_eq_true] at hr
+    rcases hr with hr | hr
+    · exact ihs env _ hE (eval_set_ok hs') M hw hc hV N w hN hT K hK φ hr
+    · exact ihu env _ hE (eval_set_ok hu') M hw hc hV N w hN hT K hK φ hr
   | @invoke s args hs hl hargs ih =>
     intro env v hE he M hw hc hV N w hN hT K hK φ hr
     rw [eval] at he

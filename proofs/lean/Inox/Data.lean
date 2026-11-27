@@ -1,21 +1,23 @@
 /- Copyright 2009-2026 EPFL, Lausanne -/
 import Inox.Mono
 import Inox.Model
+import Inox.Sets
 import Cpc.Proofs.TypePreservation.Helpers
 
 /-!
-# The types and the values of the bridge: integers, Booleans, reals, bit-vectors and datatypes
+# The types and the values of the bridge: integers, Booleans, reals, bit-vectors, datatypes, sets
 
 `Inox/Bridge.lean` ties the semantics of Inox to the models of Logos on the expressions of some
 types. This module gives the types (`FragTy`), their sorts (`trT`), their values (`HasV`) and
-the values of the models that those are (`trV`, and `ofSmt` back), and proves what the bridge
-uses of them:
+the values of the models that those are (`trV`), and proves what the bridge uses of them:
 
-- a value of a type is a canonical value of its sort (`typed_trV`), and a value of the sort of a
-  type is that of a value of the type (`typed_inv1`);
-- `ofSmt` reads back what `trV` gives (`ofSmt_trV`), so `trV` is injective on the values of the
-  types;
-- two values of a type are equal for the semantics when they are the same (`value_eq_hasV`).
+- a value of a type is a canonical value of its sort (`typed_trV`), and a canonical value of the
+  sort of a type is that of a value of the type (`typed_inv1`);
+- two values of a type are equal for the semantics when they are the same value of Logos
+  (`value_eq_hasV`). A set of the semantics is the list of its elements, so two lists with the
+  same elements are two values, that are equal for the semantics and are the same set of Logos
+  (`trV_set_eq`, with `Inox/Sets.lean`);
+- the operators of the sets of Logos, on the values (`trV_union` and the like).
 
 A datatype of Inox is a datatype of SMT-LIB. `Data` gives the names of its constructors and of
 their fields, which a datatype of Logos doesn't have: a constructor of Logos is the datatype
@@ -66,6 +68,7 @@ def trT (D : List Data) : Ty → SmtType
   | .BooleanType => .Bool
   | .RealType => .Real
   | .BVType _ w => .BitVec w.toNat
+  | .SetType A => .Set (trT D A)
   | .ADTType s [] =>
     match findData D s with
     | some d => .Datatype (nm s) d.decl
@@ -78,6 +81,7 @@ def FragTy (D : List Data) : Ty → Prop
   | .BooleanType => True
   | .RealType => True
   | .BVType _ w => 0 < w
+  | .SetType A => FragTy D A
   | .ADTType s [] => (findData D s).isSome
   | _ => False
 
@@ -130,52 +134,86 @@ theorem fragTy_data {D : List Data} (hD : DataOk D) {d : Data} (hd : d ∈ D) :
     FragTy D (.ADTType d.name []) := by
   simp only [FragTy, findData_of_mem hD.nodup hd, Option.isSome_some]
 
-/-- A type of the bridge is of integers, of Booleans, or a datatype of `D`. -/
+/-- A type of the bridge is of integers, of Booleans, of reals, of bit-vectors, a datatype of
+`D`, or of sets of a type of the bridge. -/
 theorem fragTy_cases {D : List Data} {T : Ty} (h : FragTy D T) :
     T = .IntegerType ∨ T = .BooleanType ∨ T = .RealType ∨ (∃ s w, 0 < w ∧ T = .BVType s w) ∨
-      ∃ d ∈ D, T = .ADTType d.name [] := by
+      (∃ d ∈ D, T = .ADTType d.name []) ∨ ∃ A, FragTy D A ∧ T = .SetType A := by
   cases T
   case IntegerType => exact .inl rfl
   case BooleanType => exact .inr (.inl rfl)
   case RealType => exact .inr (.inr (.inl rfl))
   case BVType s w => exact .inr (.inr (.inr (.inl ⟨s, w, h, rfl⟩)))
+  case SetType A => exact .inr (.inr (.inr (.inr (.inr ⟨A, h, rfl⟩))))
   case ADTType s args =>
     cases args with
     | nil =>
       simp only [FragTy] at h
       obtain ⟨d, hd⟩ := Option.isSome_iff_exists.mp h
       obtain ⟨hm, rfl⟩ := findData_spec hd
-      exact .inr (.inr (.inr (.inr ⟨d, hm, rfl⟩)))
+      exact .inr (.inr (.inr (.inr (.inl ⟨d, hm, rfl⟩))))
     | cons _ _ => exact absurd h id
   all_goals exact absurd h id
 
+/-- The types of the bridge, by induction: a property of the base types that holds of the sets
+of a type where it holds, holds of all. -/
+theorem fragTy_induct {D : List Data} {motive : Ty → Prop} (int : motive .IntegerType)
+    (bool : motive .BooleanType) (real : motive .RealType)
+    (bv : ∀ s w, 0 < w → motive (.BVType s w)) (data : ∀ d ∈ D, motive (.ADTType d.name []))
+    (set : ∀ A, FragTy D A → motive A → motive (.SetType A)) : ∀ T, FragTy D T → motive T
+  | .IntegerType, _ => int
+  | .BooleanType, _ => bool
+  | .RealType, _ => real
+  | .BVType s w, h => bv s w h
+  | .SetType A, h => set A h (fragTy_induct int bool real bv data set A h)
+  | .ADTType s [], h => by
+    simp only [FragTy] at h
+    obtain ⟨d, hd⟩ := Option.isSome_iff_exists.mp h
+    obtain ⟨hm, rfl⟩ := findData_spec hd
+    exact data d hm
+  | .ADTType _ (_ :: _), h | .UnitType, h | .CharType, h | .StringType, h | .FPType _ _, h
+  | .RoundingModeType, h | .TypeParameter _, h | .TupleType _, h | .BagType _, h
+  | .MapType _ _, h | .FunctionType _ _, h | .RefinementType _ _ _, h | .PropType, h
+  | .PiType _ _, h | .SigmaType _ _, h => absurd h id
+
 theorem trT_component {D : List Data} (hD : DataOk D) {T : Ty} (h : FragTy D T) :
     __smtx_type_wf_component (trT D T) = true := by
-  rcases fragTy_cases h with rfl | rfl | rfl | ⟨sg, w, _, rfl⟩ | ⟨d, hd, rfl⟩
+  refine fragTy_induct (motive := fun T => __smtx_type_wf_component (trT D T) = true)
+    ?_ ?_ ?_ ?_ ?_ ?_ T h
   · simp [trT, __smtx_type_wf_component, __smtx_type_wf_rec, native_and]
   · simp [trT, __smtx_type_wf_component, __smtx_type_wf_rec, native_and]
   · simp [trT, __smtx_type_wf_component, __smtx_type_wf_rec, native_and, __smtx_inhabited_type]
-  · simp [trT, __smtx_type_wf_component, __smtx_type_wf_rec, native_and, __smtx_inhabited_type]
-  · rw [trT_data hD hd]
+  · intro s w _
+    simp [trT, __smtx_type_wf_component, __smtx_type_wf_rec, native_and, __smtx_inhabited_type]
+  · intro d hd
+    rw [trT_data hD hd]
     have := hD.wf d hd
     simpa only [__smtx_type_wf] using this
+  · intro A _ ih
+    simp only [__smtx_type_wf_component, native_and, Bool.and_eq_true] at ih
+    simp [trT, __smtx_type_wf_component, __smtx_type_wf_rec, native_and, ih.1, ih.2,
+      __smtx_inhabited_type]
 
 theorem trT_wf {D : List Data} (hD : DataOk D) {T : Ty} (h : FragTy D T) :
     __smtx_type_wf (trT D T) = true := by
-  rcases fragTy_cases h with rfl | rfl | rfl | ⟨sg, w, _, rfl⟩ | ⟨d, hd, rfl⟩
+  rcases fragTy_cases h with
+    rfl | rfl | rfl | ⟨sg, w, _, rfl⟩ | ⟨d, hd, rfl⟩ | ⟨A, _, rfl⟩
   · simp only [trT, __smtx_type_wf]; exact trT_component (T := .IntegerType) hD h
   · simp only [trT, __smtx_type_wf]; exact trT_component (T := .BooleanType) hD h
   · simp only [trT, __smtx_type_wf]; exact trT_component (T := .RealType) hD h
   · simp only [trT, __smtx_type_wf]; exact trT_component (T := .BVType sg w) hD h
   · rw [trT_data hD hd]; exact hD.wf d hd
+  · simp only [trT, __smtx_type_wf]; exact trT_component (T := .SetType A) hD h
 
 theorem trT_ne {D : List Data} (hD : DataOk D) {T : Ty} (h : FragTy D T) : trT D T ≠ .None := by
-  rcases fragTy_cases h with rfl | rfl | rfl | ⟨sg, w, _, rfl⟩ | ⟨d, hd, rfl⟩
+  rcases fragTy_cases h with
+    rfl | rfl | rfl | ⟨sg, w, _, rfl⟩ | ⟨d, hd, rfl⟩ | ⟨A, _, rfl⟩
   · simp [trT]
   · simp [trT]
   · simp [trT]
   · simp [trT]
   · rw [trT_data hD hd]; simp
+  · simp [trT]
 
 /-! ## Constructors -/
 
@@ -277,12 +315,14 @@ theorem findCtor_of {D : List Data} (hD : DataOk D) {d : Data} (hd : d ∈ D) {c
 
 mutual
 /-- The values of the bridge, as SMT values: a value of a datatype is its constructor applied to
-the values of its fields, one at a time. -/
+the values of its fields, one at a time, and a set is the set of Logos of the list of its
+elements. -/
 noncomputable def trV (D : List Data) : Value → SmtValue
   | .IntV i => .Numeral i
   | .BoolV b => .Boolean b
   | .RealV n d => .Real (native_rat_to_real (ratOf n d))
   | .BVV _ w x => .Binary w x
+  | .SetV A xs => .Set (setOf (trT D A) (trVl D xs))
   | .ADTV c vs =>
     match findCtor D c with
     | some (d, i, _) => trVs D (.DtCons (nm d.name) d.decl i) vs
@@ -293,42 +333,16 @@ noncomputable def trV (D : List Data) : Value → SmtValue
 noncomputable def trVs (D : List Data) (f : SmtValue) : List Value → SmtValue
   | [] => f
   | v :: vs => trVs D (.Apply f (trV D v)) vs
+
+/-- The values `vs`, as SMT values. -/
+noncomputable def trVl (D : List Data) : List Value → List SmtValue
+  | [] => []
+  | v :: vs => trV D v :: trVl D vs
 end
 
-/-- The name of the constructor of index `i` of the datatype `s` of the declaration `dd`. -/
-def ctorAt (D : List Data) (s : native_String) (dd : SmtDatatypeDecl) (i : Nat) : Id :=
-  match D.find? fun d => nm d.name == s && d.decl == dd with
-  | some d => ((d.ctors[i]?).map (·.1)).getD ""
-  | none => ""
-
-/-- The value `v`, signed if it is a bit-vector and `T` is a type of signed bit-vectors: the
-bit-vectors of SMT-LIB are of one sort whatever their sign. -/
-def resign : Ty → Value → Value
-  | .BVType true _, .BVV _ w x => .BVV true w x
-  | _, v => v
-
-/-- The type of the field of index `n` of the constructor `c`. -/
-def fieldTy (D : List Data) (c : Id) (n : Nat) : Ty :=
-  match findCtor D c with
-  | some (_, _, fs) => ((fs[n]?).map Prod.snd).getD .UnitType
-  | none => .UnitType
-
-open Classical in
-/-- The value of the bridge that an SMT value is, up to the signs of its bit-vectors: a
-bit-vector is read as unsigned, and a field of a constructor with the sign of its type. A real
-that is not a rational is none. -/
-noncomputable def ofSmt (D : List Data) : SmtValue → Value
-  | .Numeral i => .IntV i
-  | .Boolean b => .BoolV b
-  | .Real x =>
-    if h : ∃ q : ℚ, native_rat_to_real q = x then .RealV h.choose.num h.choose.den else .UnitV
-  | .Binary w x => .BVV false w x
-  | .DtCons s dd i => .ADTV (ctorAt D s dd i) []
-  | .Apply f a =>
-    match ofSmt D f with
-    | .ADTV c vs => .ADTV c (vs ++ [resign (fieldTy D c vs.length) (ofSmt D a)])
-    | _ => .UnitV
-  | _ => .UnitV
+theorem trVl_eq (D : List Data) : ∀ vs : List Value, trVl D vs = vs.map (trV D)
+  | [] => rfl
+  | v :: vs => by rw [trVl, trVl_eq D vs]; rfl
 
 mutual
 /-- `v` is a value of type `T`, a type of the bridge. -/
@@ -339,6 +353,7 @@ def HasV (D : List Data) : Value → Ty → Prop
   | .BVV s' w' x, .BVType s w => s' = s ∧ w' = w ∧ 0 < w ∧ 0 ≤ x ∧ x < 2 ^ w.toNat
   | .ADTV c vs, .ADTType s [] =>
     ∃ d i fs, findCtor D c = some (d, i, fs) ∧ d.name = s ∧ HasVs D vs (fs.map Prod.snd)
+  | .SetV B xs, .SetType A => B = A ∧ FragTy D A ∧ HasVall D xs A
   | _, _ => False
 
 /-- The values `vs` are of the types `Ts`. -/
@@ -346,7 +361,17 @@ def HasVs (D : List Data) : List Value → List Ty → Prop
   | [], [] => True
   | v :: vs, T :: Ts => HasV D v T ∧ HasVs D vs Ts
   | _, _ => False
+
+/-- The values `vs` are all of the type `T`. -/
+def HasVall (D : List Data) : List Value → Ty → Prop
+  | [], _ => True
+  | v :: vs, T => HasV D v T ∧ HasVall D vs T
 end
+
+theorem hasVall_iff {D : List Data} {T : Ty} : ∀ {vs : List Value},
+    HasVall D vs T ↔ ∀ v ∈ vs, HasV D v T
+  | [] => by simp [HasVall]
+  | v :: vs => by simp [HasVall, hasVall_iff (vs := vs)]
 
 theorem hasVs_iff {D : List Data} : ∀ {vs : List Value} {Ts : List Ty},
     HasVs D vs Ts ↔ List.Forall₂ (HasV D) vs Ts
@@ -423,6 +448,20 @@ theorem hasV_adt {D : List Data} {c : Id} {vs : List Value} {d : Data} {i : Nat}
   simp only [HasV]
   exact ⟨d, i, fs, hc, rfl, hasVs_iff.mpr hvs⟩
 
+/-- A value of a type of sets is a set of that type, of elements of the type of its elements. -/
+theorem hasV_set {D : List Data} {v : Value} {A : Ty} (h : HasV D v (.SetType A)) :
+    ∃ xs, v = .SetV A xs ∧ FragTy D A ∧ ∀ x ∈ xs, HasV D x A := by
+  cases v <;> try no_hasV h
+  case SetV B xs =>
+    simp only [HasV] at h
+    obtain ⟨rfl, hA, hxs⟩ := h
+    exact ⟨xs, rfl, hA, hasVall_iff.mp hxs⟩
+
+theorem hasV_set_of {D : List Data} {A : Ty} {xs : List Value} (hA : FragTy D A)
+    (h : ∀ x ∈ xs, HasV D x A) : HasV D (.SetV A xs) (.SetType A) := by
+  simp only [HasV]
+  exact ⟨by trivial, hA, hasVall_iff.mpr h⟩
+
 theorem hasV_fragTy {D : List Data} {v : Value} {T : Ty} (h : HasV D v T) : FragTy D T := by
   cases T <;> try (cases v <;> no_hasV h; done)
   case IntegerType => trivial
@@ -439,6 +478,9 @@ theorem hasV_fragTy {D : List Data} {v : Value} {T : Ty} (h : HasV D v T) : Frag
       exact List.find?_isSome.mpr ⟨d, (findCtor_spec hc).1, by simp⟩
     | cons _ _ =>
       cases v <;> no_hasV h
+  case SetType A =>
+    obtain ⟨xs, rfl, hA, _⟩ := hasV_set h
+    exact hA
 
 /-! ## The sorts of the constructors -/
 
@@ -539,27 +581,6 @@ theorem canonical_applyVs (uc : SmtUSortDom) : ∀ (as : List SmtValue) (f : Smt
     apply canonical_applyVs uc as (.Apply f a) _ (fun b hb => h b (.tail _ hb))
     simp [__smtx_value_canonical, native_and, hf, h a (.head _)]
 
-/-- A constructor applied to the translations of values that are read back, at the types of its
-fields, is read back as the constructor of the values. -/
-theorem ofSmt_applyVs (D : List Data) {c : Id} {d : Data} {i : Nat} {fs : List (Id × Ty)}
-    (hc : findCtor D c = some (d, i, fs)) : ∀ (vs : List Value) (Ts pre : List Ty)
-    (f : SmtValue) (us : List Value), fs.map Prod.snd = pre ++ Ts → pre.length = us.length →
-    List.Forall₂ (fun v T => resign T (ofSmt D (trV D v)) = v) vs Ts →
-    ofSmt D f = .ADTV c us →
-    ofSmt D (applyVs f (vs.map (trV D))) = .ADTV c (us ++ vs)
-  | [], _, _, f, us, _, _, _, hf => by simpa [applyVs] using hf
-  | v :: vs, [], _, _, _, _, _, h, _ => by cases h
-  | v :: vs, T :: Ts, pre, f, us, hfs, hlen, .cons h hs, hf => by
-    have hT : fieldTy D c us.length = T := by
-      have : (fs.map Prod.snd)[us.length]? = some T := by
-        rw [hfs, ← hlen]; simp
-      simp only [fieldTy, hc]
-      rw [List.getElem?_map] at this
-      rw [this]; rfl
-    have := ofSmt_applyVs D hc vs Ts (pre ++ [T]) (.Apply f (trV D v)) (us ++ [v])
-      (by simp [hfs]) (by simp [hlen]) hs (by simp [ofSmt, hf, hT, h])
-    simpa [applyVs] using this
-
 theorem head_applyVs : ∀ (as : List SmtValue) (f : SmtValue),
     __smtx_apply_head_value (applyVs f as) = __smtx_apply_head_value f
   | [], _ => rfl
@@ -574,28 +595,11 @@ theorem data_eq_of_name {D : List Data} (hD : (D.map (·.name)).Nodup) {d d' : D
   rw [h, h2] at h1
   exact (Option.some.inj h1).symm
 
-theorem ctorAt_of {D : List Data} (hD : DataOk D) {d : Data} (hd : d ∈ D) {c : Id} {i : Nat}
-    {fs : List (Id × Ty)} (h : d.ctors[i]? = some (c, fs)) :
-    ctorAt D (nm d.name) d.decl i = c := by
-  unfold ctorAt
-  cases hf : D.find? fun d' => nm d'.name == nm d.name && d'.decl == d.decl with
-  | none =>
-    have := List.find?_eq_none.mp hf d hd
-    simp at this
-  | some d' =>
-    have hp := List.find?_some hf
-    simp only [Bool.and_eq_true, beq_iff_eq] at hp
-    have := data_eq_of_name hD.nodup (List.mem_of_find?_eq_some hf) hd (nm_inj hp.1)
-    subst this
-    simp [h]
-
 /-! ## The values of the types are values of their sorts -/
 
-/-- What the SMT value of a value `v` of type `T` is: a canonical value of the sort of `T`,
-which `ofSmt` reads back as `v`, with the sign of `T`. -/
+/-- What the SMT value of a value `v` of type `T` is: a canonical value of the sort of `T`. -/
 def ValueOk (D : List Data) (uc : SmtUSortDom) (v : Value) (T : Ty) : Prop :=
-  __smtx_typeof_value (trV D v) = trT D T ∧ __smtx_value_canonical uc (trV D v) = true ∧
-    resign T (ofSmt D (trV D v)) = v
+  __smtx_typeof_value (trV D v) = trT D T ∧ __smtx_value_canonical uc (trV D v) = true
 
 theorem agrees_adt {D : List Data} (hD : DataOk D) (uc : SmtUSortDom) {c : Id}
     {vs : List Value} {d : Data} {i : Nat} {fs : List (Id × Ty)}
@@ -605,7 +609,7 @@ theorem agrees_adt {D : List Data} (hD : DataOk D) (uc : SmtUSortDom) {c : Id}
   obtain ⟨hd, hi⟩ := findCtor_spec hc
   have hfs : ∀ f ∈ fs, FragTy D f.2 := hD.fields d hd (c, fs) (List.mem_of_getElem? hi)
   simp only [ValueOk, trV, hc, trVs_eq, trT_data hD hd]
-  refine ⟨?_, ?_, ?_⟩
+  refine ⟨?_, ?_⟩
   · apply typeof_applyVs (Us := fs.map fun f => trT D f.2)
     · simp only [__smtx_typeof_value, cons_value_rec, ctorFields_data hD hd, hi, Option.map_some,
         Option.getD_some]
@@ -627,71 +631,63 @@ theorem agrees_adt {D : List Data} (hD : DataOk D) (uc : SmtUSortDom) {c : Id}
     | nil => cases hv
     | cons h _ ihf =>
       rcases List.mem_cons.mp hv with rfl | hv'
-      · exact h.2.1
+      · exact h.2
       · exact ihf hv'
-  · rw [ofSmt_applyVs D hc vs (fs.map Prod.snd) [] _ [] rfl rfl
-      (ih.imp fun _ _ h => h.2.2) (by simp [ofSmt, ctorAt_of hD hd hi])]
-    rfl
 
-mutual
-theorem agrees_trV {D : List Data} (hD : DataOk D) (uc : SmtUSortDom) :
-    ∀ (v : Value) (T : Ty), HasV D v T → ValueOk D uc v T
-  | .IntV i, T, h => by
-    cases T <;> first | (simp [HasV] at h; done) | exact ⟨rfl, rfl, rfl⟩
-  | .BoolV b, T, h => by
-    cases T <;> first | (simp [HasV] at h; done) | exact ⟨rfl, rfl, rfl⟩
-  | .ADTV c vs, T, h => by
-    cases T <;> try (simp [HasV] at h; done)
-    case ADTType s args =>
-      cases args with
-      | cons _ _ => simp [HasV] at h
-      | nil =>
-        simp only [HasV] at h
-        obtain ⟨d, i, fs, hc, rfl, hvs⟩ := h
-        exact agrees_adt hD uc hc (agrees_trVs hD uc vs _ hvs)
-  | .BVV s w x, T, h => by
-    obtain ⟨rfl, hw, h0, hx⟩ := hasV_bv_inv h
-    have hp : native_int_pow2 w = 2 ^ w.toNat := by
-      simp [native_int_pow2, native_zexp_total, Int.not_lt.mpr (Int.le_of_lt hw)]
-    have hm : native_zeq x (native_mod_total x (native_int_pow2 w)) = true := by
-      simp [native_zeq, native_mod_total, hp, Int.emod_eq_of_lt h0 hx]
-    have hz : native_zleq 0 w = true := by simp [native_zleq, Int.le_of_lt hw]
-    refine ⟨?_, ?_, by cases s <;> rfl⟩
-    · simp [trV, trT, __smtx_typeof_value, native_ite, native_and, hz, hm, native_int_to_nat]
-    · simp [trV, __smtx_value_canonical, native_ite, hz, hm]
-  | .RealV n d, T, h => by
-    cases T <;> try (simp [HasV] at h; done)
-    obtain ⟨q, hq⟩ := hasV_real h
-    cases hq
-    refine ⟨rfl, rfl, ?_⟩
-    have hex : ∃ q' : ℚ, native_rat_to_real q' = native_rat_to_real (ratOf q.num q.den) :=
-      ⟨_, rfl⟩
-    have hq : hex.choose = q := by
-      have := hex.choose_spec
-      exact (Rat.cast_injective this).trans (ratOf_num_den q)
-    simp only [trV, ofSmt, hex, ↓reduceDIte, hq]
-    rfl
-  | .UnitV, T, h | .CharV _, T, h | .StringV _, T, h
-  | .FPV _ _ _, T, h | .RoundingModeV _, T, h | .TupleV _, T, h | .ClosureV _ _ _, T, h
-  | .SetV _ _, T, h | .BagV _ _, T, h | .MapV _ _ _ _, T, h => by simp [HasV] at h
+theorem forall₂_imp_mem {α β : Type} {R Q : α → β → Prop} :
+    ∀ {l : List α} {m : List β}, List.Forall₂ R l m → (∀ a ∈ l, ∀ b, R a b → Q a b) → List.Forall₂ Q l m
+  | [], [], _, _ => .nil
+  | _ :: _, _ :: _, .cons h hs, f =>
+    .cons (f _ (.head _) _ h) (forall₂_imp_mem hs fun a ha => f a (.tail _ ha))
 
-theorem agrees_trVs {D : List Data} (hD : DataOk D) (uc : SmtUSortDom) :
-    ∀ (vs : List Value) (Ts : List Ty), HasVs D vs Ts → List.Forall₂ (ValueOk D uc) vs Ts
-  | [], [], _ => .nil
-  | [], _ :: _, h => by simp [HasVs] at h
-  | _ :: _, [], h => by simp [HasVs] at h
-  | v :: vs, T :: Ts, h => by
-    simp only [HasVs] at h
-    exact .cons (agrees_trV hD uc v T h.1) (agrees_trVs hD uc vs Ts h.2)
-end
+theorem agrees_k {D : List Data} (hD : DataOk D) (uc : SmtUSortDom) :
+    ∀ (k : Nat) (v : Value) (T : Ty), sizeOf v < k → HasV D v T → ValueOk D uc v T
+  | 0, _, _, h, _ => by omega
+  | k + 1, v, T, hk, h => by
+    rcases fragTy_cases (hasV_fragTy h) with
+      rfl | rfl | rfl | ⟨s, w, _, rfl⟩ | ⟨d, hd, rfl⟩ | ⟨A, hA, rfl⟩
+    · obtain ⟨i, rfl⟩ := hasV_int h
+      exact ⟨rfl, rfl⟩
+    · obtain ⟨b, rfl⟩ := hasV_bool h
+      exact ⟨rfl, rfl⟩
+    · obtain ⟨q, rfl⟩ := hasV_real h
+      exact ⟨rfl, rfl⟩
+    · obtain ⟨x, rfl, hw, h0, hx⟩ := hasV_bv h
+      have hp : native_int_pow2 w = 2 ^ w.toNat := by
+        simp [native_int_pow2, native_zexp_total, Int.not_lt.mpr (Int.le_of_lt hw)]
+      have hm : native_zeq x (native_mod_total x (native_int_pow2 w)) = true := by
+        simp [native_zeq, native_mod_total, hp, Int.emod_eq_of_lt h0 hx]
+      have hz : native_zleq 0 w = true := by simp [native_zleq, Int.le_of_lt hw]
+      refine ⟨?_, ?_⟩
+      · simp [trV, trT, __smtx_typeof_value, native_ite, native_and, hz, hm, native_int_to_nat]
+      · simp [trV, __smtx_value_canonical, native_ite, hz, hm]
+    · obtain ⟨c, vs, d', i, fs, rfl, hc, hs, hvs⟩ := hasV_data h
+      rw [← hs]
+      exact agrees_adt hD uc hc (forall₂_imp_mem hvs fun a ha b hab => agrees_k hD uc k a b (by
+        have := List.sizeOf_lt_of_mem ha
+        simp only [Value.ADTV.sizeOf_spec] at hk
+        omega) hab)
+    · obtain ⟨xs, rfl, _, hxs⟩ := hasV_set h
+      have hall : ∀ w ∈ xs.map (trV D), __smtx_typeof_value w = trT D A ∧
+          __smtx_value_canonical uc w = true := by
+        intro w hw
+        obtain ⟨x, hx, rfl⟩ := List.mem_map.mp hw
+        exact agrees_k hD uc k x A (by
+          have := List.sizeOf_lt_of_mem hx
+          simp only [Value.SetV.sizeOf_spec] at hk
+          omega) (hxs x hx)
+      simp only [ValueOk, trV, trT, trVl_eq]
+      refine ⟨?_, setOf_value_canonical uc _ _ fun w hw => (hall w hw).2⟩
+      simp only [__smtx_typeof_value, setOf_typeof _ _ fun w hw => (hall w hw).1,
+        __smtx_map_to_set_type]
 
-theorem ofSmt_trV {D : List Data} (hD : DataOk D) {v : Value} {T : Ty} (h : HasV D v T) :
-    resign T (ofSmt D (trV D v)) = v :=
-  (agrees_trV hD default v T h).2.2
+theorem agrees_trV {D : List Data} (hD : DataOk D) (uc : SmtUSortDom) (v : Value) (T : Ty)
+    (h : HasV D v T) : ValueOk D uc v T :=
+  agrees_k hD uc _ v T (Nat.lt_succ_self _) h
 
 theorem typed_trV {D : List Data} (hD : DataOk D) (M : SmtModel) (s : native_String) {v : Value}
     {T : Ty} (h : HasV D v T) : Typed M (s, trT D T) (trV D v) :=
-  ⟨(agrees_trV hD M.usortDom v T h).1, (agrees_trV hD M.usortDom v T h).2.1⟩
+  ⟨(agrees_trV hD M.usortDom v T h).1, (agrees_trV hD M.usortDom v T h).2⟩
 
 theorem trV_ne {D : List Data} (hD : DataOk D) {v : Value} {T : Ty} (h : HasV D v T) :
     trV D v ≠ .NotValue := by
@@ -700,10 +696,56 @@ theorem trV_ne {D : List Data} (hD : DataOk D) {v : Value} {T : Ty} (h : HasV D 
   rw [e] at this
   exact trT_ne hD (hasV_fragTy h) this.symm
 
-/-- `trV` is injective on the values of a type. -/
-theorem trV_inj {D : List Data} (hD : DataOk D) {a b : Value} {T : Ty} (ha : HasV D a T)
-    (hb : HasV D b T) (h : trV D a = trV D b) : a = b := by
-  rw [← ofSmt_trV hD ha, ← ofSmt_trV hD hb, h]
+theorem applyVs_inj : ∀ (as bs : List SmtValue) (f g : SmtValue), as.length = bs.length →
+    applyVs f as = applyVs g bs → f = g ∧ as = bs
+  | [], [], _, _, _, h => ⟨h, rfl⟩
+  | a :: as, b :: bs, f, g, hl, h => by
+    obtain ⟨h1, h2⟩ := applyVs_inj as bs (.Apply f a) (.Apply g b) (by simpa using hl)
+      (by simpa [applyVs] using h)
+    cases h1
+    exact ⟨rfl, by rw [h2]⟩
+  | [], _ :: _, _, _, hl, _ | _ :: _, [], _, _, hl, _ => by simp at hl
+
+/-- Two values of datatypes are the same SMT value when they are of the same constructor, with
+fields that are the same SMT values. -/
+theorem trV_adt_eq {D : List Data} (hD : DataOk D) {c c' : Id} {xs ys : List Value}
+    {d d' : Data} {i i' : Nat} {fs fs' : List (Id × Ty)} (hc : findCtor D c = some (d, i, fs))
+    (hc' : findCtor D c' = some (d', i', fs')) (hl : xs.length = fs.length)
+    (hl' : ys.length = fs'.length) :
+    trV D (.ADTV c xs) = trV D (.ADTV c' ys) ↔ c = c' ∧ xs.map (trV D) = ys.map (trV D) := by
+  simp only [trV, hc, hc', trVs_eq]
+  constructor
+  · intro h
+    have hh := congrArg __smtx_apply_head_value h
+    rw [head_applyVs, head_applyVs] at hh
+    simp only [__smtx_apply_head_value, SmtValue.DtCons.injEq] at hh
+    obtain ⟨hn, _, rfl⟩ := hh
+    have hdd := data_eq_of_name hD.nodup (findCtor_spec hc).1 (findCtor_spec hc').1 (nm_inj hn)
+    subst hdd
+    have h1 := (findCtor_spec hc).2
+    rw [(findCtor_spec hc').2] at h1
+    cases h1
+    exact ⟨rfl, (applyVs_inj _ _ _ _ (by simp [hl, hl']) h).2⟩
+  · rintro ⟨rfl, hm⟩
+    rw [hc] at hc'
+    cases hc'
+    rw [hm]
+
+/-- Two sets of a type are the same SMT value when their elements are the same SMT values. -/
+theorem trV_set_eq {D : List Data} (hD : DataOk D) {A : Ty} {xs ys : List Value}
+    (hxs : ∀ x ∈ xs, HasV D x A) (hys : ∀ y ∈ ys, HasV D y A) :
+    trV D (.SetV A xs) = trV D (.SetV A ys) ↔
+      ∀ w, w ∈ xs.map (trV D) ↔ w ∈ ys.map (trV D) := by
+  have hcx : ∀ w ∈ xs.map (trV D), __smtx_value_canonical default w = true := by
+    intro w hw
+    obtain ⟨x, hx, rfl⟩ := List.mem_map.mp hw
+    exact (agrees_trV hD default x A (hxs x hx)).2
+  have hcy : ∀ w ∈ ys.map (trV D), __smtx_value_canonical default w = true := by
+    intro w hw
+    obtain ⟨y, hy, rfl⟩ := List.mem_map.mp hw
+    exact (agrees_trV hD default y A (hys y hy)).2
+  simp only [trV, trVl_eq, SmtValue.Set.injEq]
+  exact ⟨fun h => setOf_inj default _ hcx hcy h, fun h => setOf_ext default _ hcx hcy h⟩
 
 /-! ## The values of the sorts are values of the types -/
 
@@ -811,21 +853,52 @@ theorem exists_values {D : List Data} : ∀ {as : List SmtValue} {fs : List (Id 
     obtain ⟨vs, hvs, rfl⟩ := exists_values hs
     exact ⟨v :: vs, .cons hv hvs, rfl⟩
 
-/-- No datatype has a field of the reals. -/
-def RealFree (D : List Data) : Prop := ∀ d ∈ D, ∀ c ∈ d.ctors, ∀ f ∈ c.2, f.2 ≠ .RealType
+theorem exists_all {D : List Data} {A : Ty} : ∀ {ws : List SmtValue},
+    (∀ w ∈ ws, ∃ v, HasV D v A ∧ w = trV D v) →
+    ∃ xs : List Value, (∀ x ∈ xs, HasV D x A) ∧ ws = xs.map (trV D)
+  | [], _ => ⟨[], ⟨fun _ h => (nomatch h), rfl⟩⟩
+  | w :: ws, h => by
+    obtain ⟨v, hv, rfl⟩ := h w (.head _)
+    obtain ⟨xs, hxs, rfl⟩ := exists_all fun x hx => h x (.tail _ hx)
+    refine ⟨v :: xs, fun x hx => ?_, rfl⟩
+    rcases List.mem_cons.mp hx with rfl | hx'
+    · exact hv
+    · exact hxs x hx'
 
-theorem typed_inv_k {D : List Data} (hD : DataOk D) (hR : RealFree D) :
-    ∀ (k : Nat) (w : SmtValue),
-    sizeOf w < k → ∀ T, FragTy D T → T ≠ .RealType → __smtx_typeof_value w = trT D T →
-    ∃ v, HasV D v T ∧ w = trV D v
-  | 0, _, h, _, _, _, _ => by omega
-  | k + 1, w, hk, T, hT, hne, hw => by
-    rcases fragTy_cases hT with rfl | rfl | rfl | ⟨sg, u, hu, rfl⟩ | ⟨d, hd, rfl⟩
+theorem canonical_applyVs_inv (uc : SmtUSortDom) : ∀ (as : List SmtValue) (f : SmtValue),
+    __smtx_value_canonical uc (applyVs f as) = true →
+    __smtx_value_canonical uc f = true ∧ ∀ a ∈ as, __smtx_value_canonical uc a = true
+  | [], _, h => ⟨h, by simp⟩
+  | a :: as, f, h => by
+    obtain ⟨h1, h2⟩ := canonical_applyVs_inv uc as (.Apply f a) h
+    simp only [__smtx_value_canonical, native_and, Bool.and_eq_true] at h1
+    refine ⟨h1.1, fun b hb => ?_⟩
+    rcases List.mem_cons.mp hb with rfl | hb'
+    · exact h1.2
+    · exact h2 b hb'
+
+/-- No real is in the type: it is not the reals, nor the sets of such a type. -/
+def NoReal : Ty → Prop
+  | .RealType => False
+  | .SetType A => NoReal A
+  | _ => True
+
+/-- No datatype has a field with a real. -/
+def RealFree (D : List Data) : Prop := ∀ d ∈ D, ∀ c ∈ d.ctors, ∀ f ∈ c.2, NoReal f.2
+
+theorem typed_inv_k {D : List Data} (hD : DataOk D) (hR : RealFree D)
+    (uc : SmtUSortDom) : ∀ (k : Nat) (w : SmtValue),
+    sizeOf w < k → ∀ T, FragTy D T → NoReal T → __smtx_typeof_value w = trT D T →
+    __smtx_value_canonical uc w = true → ∃ v, HasV D v T ∧ w = trV D v
+  | 0, _, h, _, _, _, _, _ => by omega
+  | k + 1, w, hk, T, hT, hne, hw, hcw => by
+    rcases fragTy_cases hT with
+      rfl | rfl | rfl | ⟨sg, u, hu, rfl⟩ | ⟨d, hd, rfl⟩ | ⟨A, hA, rfl⟩
     · obtain ⟨i, rfl⟩ := int_value_canonical hw
       exact ⟨.IntV i, by simp [HasV], rfl⟩
     · obtain ⟨b, rfl⟩ := bool_value_canonical hw
       exact ⟨.BoolV b, by simp [HasV], rfl⟩
-    · exact absurd rfl hne
+    · exact absurd hne id
     · simp only [trT] at hw
       obtain ⟨n, rfl⟩ := bitvec_value_canonical hw
       have hu' : native_nat_to_int u.toNat = u := by
@@ -856,31 +929,111 @@ theorem typed_inv_k {D : List Data} (hD : DataOk D) (hR : RealFree D) :
           exact this
         rw [htake] at hall
         have hflds : ∀ f ∈ flds, FragTy D f.2 := hD.fields d hd (c, flds) (List.mem_of_getElem? hi)
-        have hfr : ∀ f ∈ flds, f.2 ≠ .RealType := hR d hd (c, flds) (List.mem_of_getElem? hi)
+        have hfr : ∀ f ∈ flds, NoReal f.2 := hR d hd (c, flds) (List.mem_of_getElem? hi)
+        have hcan := (canonical_applyVs_inv uc as _ hcw).2
         have hex : List.Forall₂ (fun a f => ∃ v, HasV D v f.2 ∧ a = trV D v) as flds := by
           have hsz : ∀ a ∈ as, sizeOf a < k := fun a ha => by
             have := sizeOf_applyVs_lt as (.DtCons (nm d.name) d.decl i) a ha
             omega
-          clear hi hdrop htake hw hk
+          clear hi hdrop htake hw hk hcw
           induction flds generalizing as with
           | nil => cases hall; exact .nil
           | cons f flds ih =>
             cases hall with
             | cons ha has =>
-              exact .cons (typed_inv_k hD hR k _ (hsz _ (.head _)) f.2 (hflds f (.head _))
-                  (hfr f (.head _)) ha)
+              exact .cons (typed_inv_k hD hR uc k _ (hsz _ (.head _)) f.2 (hflds f (.head _))
+                  (hfr f (.head _)) ha (hcan _ (.head _)))
                 (ih _ has (fun g hg => hflds g (.tail _ hg)) (fun g hg => hfr g (.tail _ hg))
-                  fun b hb => hsz b (.tail _ hb))
+                  (fun b hb => hcan b (.tail _ hb)) fun b hb => hsz b (.tail _ hb))
         obtain ⟨vs, hvs, rfl⟩ := exists_values hex
         have hc := findCtor_of hD hd hi
         exact ⟨.ADTV c vs, hasV_adt hc hvs, by simp only [trV, hc, trVs_eq]⟩
+    · simp only [trT] at hw
+      obtain ⟨m, rfl⟩ := set_value_canonical hw
+      obtain ⟨hm, hks⟩ := set_inv uc hw hcw
+      have hex : ∀ j ∈ keys m, ∃ v, HasV D v A ∧ j = trV D v := fun j hj => by
+        obtain ⟨h1, h2, h3⟩ := hks j hj
+        exact typed_inv_k hD hR uc k j (by simp only [SmtValue.Set.sizeOf_spec] at hk; omega) A hA
+          hne h1 h2
+      obtain ⟨xs, hxs, hkeys⟩ := exists_all hex
+      refine ⟨.SetV A xs, hasV_set_of hA hxs, ?_⟩
+      simp only [trV, trVl_eq]
+      rw [← hkeys]
+      exact congrArg SmtValue.Set hm
 
-/-- A value of the sort of a type of the bridge is that of a value of the type, where no real
-is involved: a real of the models needs not be a fraction. -/
-theorem typed_inv1 {D : List Data} (hD : DataOk D) (hR : RealFree D) {w : SmtValue} {T : Ty}
-    (hT : FragTy D T) (hne : T ≠ .RealType) (hw : __smtx_typeof_value w = trT D T) :
+/-- A canonical value of the sort of a type of the bridge is that of a value of the type, where
+no real is involved: a real of the models needs not be a fraction. -/
+theorem typed_inv1 {D : List Data} (hD : DataOk D) (hR : RealFree D) {uc : SmtUSortDom}
+    {w : SmtValue} {T : Ty} (hT : FragTy D T) (hne : NoReal T)
+    (hw : __smtx_typeof_value w = trT D T) (hcw : __smtx_value_canonical uc w = true) :
     ∃ v, HasV D v T ∧ w = trV D v :=
-  typed_inv_k hD hR _ w (Nat.lt_succ_self _) T hT hne hw
+  typed_inv_k hD hR uc _ w (Nat.lt_succ_self _) T hT hne hw hcw
+
+/-! ## The operators of the sets, on the values -/
+
+/-- The SMT values of the elements of a set are canonical values of the sort of their type. -/
+theorem elems_ok {D : List Data} (hD : DataOk D) (uc : SmtUSortDom) {xs : List Value} {A : Ty}
+    (h : ∀ x ∈ xs, HasV D x A) : ∀ w ∈ xs.map (trV D),
+      __smtx_value_canonical uc w = true ∧ __smtx_typeof_value w = trT D A := by
+  intro w hw
+  obtain ⟨x, hx, rfl⟩ := List.mem_map.mp hw
+  exact ⟨(agrees_trV hD uc x A (h x hx)).2, (agrees_trV hD uc x A (h x hx)).1⟩
+
+theorem trV_singleton {D : List Data} (hD : DataOk D) {A : Ty} {x : Value} (hx : HasV D x A) :
+    __smtx_model_eval_set_singleton (trV D x) = trV D (.SetV A [x]) := by
+  rw [singleton_eq, (agrees_trV hD default x A hx).1]
+  simp only [trV, trVl]
+
+theorem trV_union {D : List Data} (hD : DataOk D) {A : Ty} {xs ys zs : List Value}
+    (hxs : ∀ x ∈ xs, HasV D x A) (hys : ∀ y ∈ ys, HasV D y A)
+    (hzs : ∀ z ∈ zs, HasV D z A)
+    (hm : ∀ w, w ∈ zs.map (trV D) ↔ w ∈ xs.map (trV D) ∨ w ∈ ys.map (trV D)) :
+    __smtx_model_eval_set_union (trV D (.SetV A xs)) (trV D (.SetV A ys)) =
+      trV D (.SetV A zs) := by
+  simp only [trV, trVl_eq]
+  rw [union_eq default _ (elems_ok hD default hxs) (elems_ok hD default hys)]
+  congr 1
+  exact setOf_ext default _
+    (fun w hw => (List.mem_append.mp hw).elim (fun h => (elems_ok hD default hxs w h).1)
+      fun h => (elems_ok hD default hys w h).1)
+    (fun w hw => (elems_ok hD default hzs w hw).1)
+    fun w => by rw [List.mem_append]; exact (hm w).symm
+
+theorem trV_inter {D : List Data} (hD : DataOk D) {A : Ty} {xs ys : List Value}
+    (hxs : ∀ x ∈ xs, HasV D x A) (hys : ∀ y ∈ ys, HasV D y A) :
+    __smtx_model_eval_set_inter (trV D (.SetV A xs)) (trV D (.SetV A ys)) =
+      trV D (.SetV A (xs.filter fun x => decide (trV D x ∈ ys.map (trV D)) == true)) := by
+  have hf : (xs.filter fun x => decide (trV D x ∈ ys.map (trV D)) == true) =
+      xs.filter ((fun w => decide (w ∈ ys.map (trV D))) ∘ trV D) :=
+    List.filter_congr fun x _ => by simp
+  simp only [trV, trVl_eq]
+  rw [inter_eq default _ (elems_ok hD default hxs) (elems_ok hD default hys), hf,
+    List.filter_map]
+
+theorem trV_minus {D : List Data} (hD : DataOk D) {A : Ty} {xs ys : List Value}
+    (hxs : ∀ x ∈ xs, HasV D x A) (hys : ∀ y ∈ ys, HasV D y A) :
+    __smtx_model_eval_set_minus (trV D (.SetV A xs)) (trV D (.SetV A ys)) =
+      trV D (.SetV A (xs.filter fun x => decide (trV D x ∈ ys.map (trV D)) == false)) := by
+  have hf : (xs.filter fun x => decide (trV D x ∈ ys.map (trV D)) == false) =
+      xs.filter ((fun w => !decide (w ∈ ys.map (trV D))) ∘ trV D) :=
+    List.filter_congr fun x _ => by simp
+  simp only [trV, trVl_eq]
+  rw [minus_eq default _ (elems_ok hD default hxs) (elems_ok hD default hys), hf,
+    List.filter_map]
+
+theorem trV_member {D : List Data} (hD : DataOk D) {A : Ty} {xs : List Value} (v : Value)
+    (hxs : ∀ x ∈ xs, HasV D x A) :
+    __smtx_model_eval_set_member (trV D v) (trV D (.SetV A xs)) =
+      .Boolean (decide (trV D v ∈ xs.map (trV D))) := by
+  simp only [trV, trVl_eq]
+  exact member_eq default _ _ _ fun w hw => (elems_ok hD default hxs w hw).1
+
+theorem trV_subset {D : List Data} (hD : DataOk D) {A : Ty} {xs ys : List Value}
+    (hxs : ∀ x ∈ xs, HasV D x A) (hys : ∀ y ∈ ys, HasV D y A) :
+    __smtx_model_eval_set_subset (trV D (.SetV A xs)) (trV D (.SetV A ys)) =
+      .Boolean (decide (∀ w ∈ xs.map (trV D), w ∈ ys.map (trV D))) := by
+  simp only [trV, trVl_eq]
+  exact subset_eq default _ (elems_ok hD default hxs) (elems_ok hD default hys)
 
 /-! ## Equality -/
 
@@ -888,60 +1041,173 @@ section Equality
 variable {O : Oracle}
 
 open Classical in
-mutual
-theorem value_eq_hasV {D : List Data} (hO : O.Sound) (P : Program) :
-    ∀ (a : Value) (T : Ty) (b : Value), HasV D a T → HasV D b T →
-      O.value_eq P a b = .Ok (decide (a = b))
-  | .IntV i, _, b, _, _ => by rw [hO.value_eq]
-  | .BoolV i, _, b, _, _ => by rw [hO.value_eq]
-  | .ADTV c xs, T, b, ha, hb => by
-    cases T <;> try (simp [HasV] at ha; done)
-    case ADTType s args =>
-      cases args with
-      | cons _ _ => simp [HasV] at ha
-      | nil =>
-        obtain ⟨c', ys, d', i', fs', rfl, hc', hs', hys⟩ := hasV_data hb
-        simp only [HasV] at ha
-        obtain ⟨d, i, fs, hc, hs, hxs⟩ := ha
-        rw [hO.value_eq]
-        dsimp only
-        by_cases hcc : c = c'
-        · subst hcc
-          rw [hc] at hc'
-          cases hc'
-          rw [dite_eq_left_of_eq_true (eq_true rfl), values_eq_hasV hO P xs _ ys hxs (hasVs_iff.mpr
-              hys)]
-          simp
-        · rw [dite_eq_right_of_eq_false (eq_false hcc)]
-          simp [hcc]
-  | .BVV _ _ _, _, b, _, _ => by rw [hO.value_eq]
-  | .RealV _ _, _, b, _, _ => by rw [hO.value_eq]
-  | .UnitV, T, _, h, _ | .CharV _, T, _, h, _ | .StringV _, T, _, h, _
-  | .FPV _ _ _, T, _, h, _ | .RoundingModeV _, T, _, h, _
-  | .TupleV _, T, _, h, _ | .ClosureV _ _ _, T, _, h, _ | .SetV _ _, T, _, h, _
-  | .BagV _ _, T, _, h, _ | .MapV _ _ _ _, T, _, h, _ => by simp [HasV] at h
-
-theorem values_eq_hasV {D : List Data} (hO : O.Sound) (P : Program) :
-    ∀ (xs : List Value) (Ts : List Ty) (ys : List Value), HasVs D xs Ts → HasVs D ys Ts →
-      O.values_eq P xs ys = .Ok (decide (xs = ys))
-  | [], [], [], _, _ => by rw [hO.values_eq]; simp
-  | [], [], _ :: _, _, h => by simp [HasVs] at h
-  | [], _ :: _, _, h, _ => by simp [HasVs] at h
-  | _ :: _, [], _, h, _ => by simp [HasVs] at h
-  | _ :: _, _ :: _, [], _, h => by simp [HasVs] at h
-  | x :: xs, T :: Ts, y :: ys, hx, hy => by
-    simp only [HasVs] at hx hy
+theorem values_eq_of {D : List Data} (hO : O.Sound) (P : Program) :
+    ∀ (xs ys : List Value) (Ts : List Ty), List.Forall₂ (HasV D) xs Ts →
+      List.Forall₂ (HasV D) ys Ts →
+      (∀ x ∈ xs, ∀ y ∈ ys, ∀ T, HasV D x T → HasV D y T →
+        O.value_eq P x y = .Ok (decide (trV D x = trV D y))) →
+      O.values_eq P xs ys = .Ok (decide (xs.map (trV D) = ys.map (trV D)))
+  | [], [], _, _, _, _ => by rw [hO.values_eq]; simp
+  | [], _ :: _, _, .nil, h2, _ => nomatch h2
+  | _ :: _, [], _, .cons _ _, h2, _ => nomatch h2
+  | x :: xs, y :: ys, _, .cons hx hxs, .cons hy hys, h => by
     rw [hO.values_eq]
     dsimp only
-    rw [value_eq_hasV hO P x T y hx.1 hy.1]
+    rw [h x (.head _) y (.head _) _ hx hy]
     dsimp only
-    by_cases hxy : x = y
-    · subst hxy
-      simp only [decide_true, ↓reduceDIte]
-      rw [values_eq_hasV hO P xs Ts ys hx.2 hy.2]
-      simp
+    have ih := values_eq_of hO P xs ys _ hxs hys fun a ha b hb =>
+      h a (.tail _ ha) b (.tail _ hb)
+    by_cases hxy : trV D x = trV D y
+    · rw [dite_eq_left_of_eq_true (by simp [hxy]), ih]
+      simp [hxy]
     · simp [hxy]
-end
+
+open Classical in
+theorem set_contains_of {D : List Data} (hO : O.Sound) (P : Program) (v : Value) :
+    ∀ xs : List Value, (∀ x ∈ xs, O.value_eq P x v = .Ok (decide (trV D x = trV D v))) →
+      O.set_contains P xs v = .Ok (decide (trV D v ∈ xs.map (trV D)))
+  | [], _ => by rw [hO.set_contains]; simp
+  | x :: xs, h => by
+    rw [hO.set_contains]
+    dsimp only
+    rw [h x (.head _)]
+    dsimp only
+    have ih := set_contains_of hO P v xs fun a ha => h a (.tail _ ha)
+    by_cases hxv : trV D x = trV D v
+    · simp [hxv]
+    · have hvx : trV D v ≠ trV D x := fun e => hxv e.symm
+      rw [dite_eq_right_of_eq_false (by simp [hxv]), ih]
+      simp [hvx]
+
+open Classical in
+theorem subset_of {D : List Data} (hO : O.Sound) (P : Program) (ys : List Value) :
+    ∀ xs : List Value,
+      (∀ x ∈ xs, ∀ y ∈ ys, O.value_eq P y x = .Ok (decide (trV D y = trV D x))) →
+      O.subset P xs ys = .Ok (decide (∀ w ∈ xs.map (trV D), w ∈ ys.map (trV D)))
+  | [], _ => by rw [hO.subset]; simp
+  | x :: xs, h => by
+    rw [hO.subset]
+    dsimp only
+    rw [set_contains_of hO P x ys fun y hy => h x (.head _) y hy]
+    dsimp only
+    have ih := subset_of hO P ys xs fun a ha => h a (.tail _ ha)
+    by_cases hin : trV D x ∈ ys.map (trV D)
+    · rw [dite_eq_left_of_eq_true (by simp only [decide_eq_true hin]), ih]
+      congr 1
+      apply decide_eq_decide.mpr
+      simp only [List.map_cons, List.forall_mem_cons]
+      exact ⟨fun h => ⟨hin, h⟩, fun h => h.2⟩
+    · rw [dite_eq_right_of_eq_false (by simp only [decide_eq_false hin]; simp)]
+      congr 1
+      symm
+      apply decide_eq_false
+      simp only [List.map_cons, List.forall_mem_cons]
+      exact fun h => hin h.1
+
+open Classical in
+theorem value_eq_k {D : List Data} (hD : DataOk D) (hO : O.Sound) (P : Program) :
+    ∀ (k : Nat) (a b : Value) (T : Ty), sizeOf a + sizeOf b < k → HasV D a T → HasV D b T →
+      O.value_eq P a b = .Ok (decide (trV D a = trV D b))
+  | 0, _, _, _, h, _, _ => by omega
+  | k + 1, a, b, T, hk, ha, hb => by
+    rcases fragTy_cases (hasV_fragTy ha) with
+      rfl | rfl | rfl | ⟨sg, w, _, rfl⟩ | ⟨d, hd, rfl⟩ | ⟨A, hA, rfl⟩
+    · obtain ⟨i, rfl⟩ := hasV_int ha
+      obtain ⟨j, rfl⟩ := hasV_int hb
+      rw [hO.value_eq]; simp [trV]
+    · obtain ⟨i, rfl⟩ := hasV_bool ha
+      obtain ⟨j, rfl⟩ := hasV_bool hb
+      rw [hO.value_eq]; simp [trV]
+    · obtain ⟨p, rfl⟩ := hasV_real ha
+      obtain ⟨q, rfl⟩ := hasV_real hb
+      rw [hO.value_eq]
+      dsimp only
+      congr 1
+      apply decide_eq_decide.mpr
+      constructor
+      · intro h; rw [h]
+      · intro h
+        simp only [trV, SmtValue.Real.injEq] at h
+        have := Rat.cast_injective h
+        rw [ratOf_num_den, ratOf_num_den] at this
+        rw [this]
+    · obtain ⟨x, rfl, _⟩ := hasV_bv ha
+      obtain ⟨y, rfl, _⟩ := hasV_bv hb
+      rw [hO.value_eq]; simp [trV]
+    · obtain ⟨c, xs, d1, i, fs, rfl, hc, hs, hxs⟩ := hasV_data ha
+      obtain ⟨c', ys, d2, i', fs', rfl, hc', hs', hys⟩ := hasV_data hb
+      rw [hO.value_eq]
+      dsimp only
+      have hiff := trV_adt_eq hD hc hc' (xs := xs) (ys := ys) (by simpa using hxs.length_eq)
+        (by simpa using hys.length_eq)
+      by_cases hcc : c = c'
+      · subst hcc
+        rw [hc] at hc'
+        cases hc'
+        rw [dite_eq_left_of_eq_true (eq_true rfl), values_eq_of hO P xs ys _ hxs hys
+          fun x hx y hy U hxU hyU => value_eq_k hD hO P k x y U (by
+            have h1 := List.sizeOf_lt_of_mem hx
+            have h2 := List.sizeOf_lt_of_mem hy
+            simp only [Value.ADTV.sizeOf_spec] at hk
+            omega) hxU hyU]
+        congr 1
+        apply decide_eq_decide.mpr
+        rw [hiff]
+        exact ⟨fun h => ⟨rfl, h⟩, fun h => h.2⟩
+      · rw [dite_eq_right_of_eq_false (eq_false hcc)]
+        congr 1
+        symm
+        apply decide_eq_false
+        rw [hiff]
+        exact fun h => hcc h.1
+    · obtain ⟨xs, rfl, _, hxs⟩ := hasV_set ha
+      obtain ⟨ys, rfl, _, hys⟩ := hasV_set hb
+      have hsz : ∀ x ∈ xs, ∀ y ∈ ys, sizeOf x + sizeOf y < k := fun x hx y hy => by
+        have h1 := List.sizeOf_lt_of_mem hx
+        have h2 := List.sizeOf_lt_of_mem hy
+        simp only [Value.SetV.sizeOf_spec] at hk
+        omega
+      rw [hO.value_eq]
+      dsimp only
+      rw [subset_of hO P ys xs fun x hx y hy => value_eq_k hD hO P k y x A
+        (by have := hsz x hx y hy; omega) (hys y hy) (hxs x hx)]
+      dsimp only
+      have hiff := trV_set_eq hD hxs hys
+      by_cases h1 : ∀ w ∈ xs.map (trV D), w ∈ ys.map (trV D)
+      · rw [dite_eq_left_of_eq_true (by simp only [decide_eq_true h1]),
+          subset_of hO P xs ys fun y hy x hx => value_eq_k hD hO P k x y A (hsz x hx y hy)
+            (hxs x hx) (hys y hy)]
+        congr 1
+        apply decide_eq_decide.mpr
+        rw [hiff]
+        exact ⟨fun h2 w => ⟨h1 w, h2 w⟩, fun h w hw => (h w).mpr hw⟩
+      · rw [dite_eq_right_of_eq_false (by simp only [decide_eq_false h1]; simp)]
+        congr 1
+        symm
+        apply decide_eq_false
+        rw [hiff]
+        exact fun h => h1 fun w hw => (h w).mp hw
+
+open Classical in
+/-- The equality of the semantics on the values of a type is that of their SMT values. -/
+theorem value_eq_hasV {D : List Data} (hD : DataOk D) (hO : O.Sound) (P : Program) {a b : Value}
+    {T : Ty} (ha : HasV D a T) (hb : HasV D b T) :
+    O.value_eq P a b = .Ok (decide (trV D a = trV D b)) :=
+  value_eq_k hD hO P _ a b T (Nat.lt_succ_self _) ha hb
+
+open Classical in
+/-- A value is found in a list of values of its type when its SMT value is among theirs. -/
+theorem set_contains_hasV {D : List Data} (hD : DataOk D) (hO : O.Sound) (P : Program)
+    {xs : List Value} {v : Value} {A : Ty} (hxs : ∀ x ∈ xs, HasV D x A) (hv : HasV D v A) :
+    O.set_contains P xs v = .Ok (decide (trV D v ∈ xs.map (trV D))) :=
+  set_contains_of hO P v xs fun x hx => value_eq_hasV hD hO P (hxs x hx) hv
+
+open Classical in
+theorem subset_hasV {D : List Data} (hD : DataOk D) (hO : O.Sound) (P : Program)
+    {xs ys : List Value} {A : Ty} (hxs : ∀ x ∈ xs, HasV D x A)
+    (hys : ∀ y ∈ ys, HasV D y A) :
+    O.subset P xs ys = .Ok (decide (∀ w ∈ xs.map (trV D), w ∈ ys.map (trV D))) :=
+  subset_of hO P ys xs fun x hx y hy => value_eq_hasV hD hO P (hys y hy) (hxs x hx)
 
 end Equality
 

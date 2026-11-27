@@ -83,6 +83,13 @@ inductive Frag : Expr → Prop where
   | lshr {a b} : Frag a → Frag b → Frag (.BVLShiftRight a b)
   | narrow {a v} : Frag a → Frag (.BVNarrowingCast a v)
   | widen {a v} : Frag a → Frag (.BVWideningCast a v)
+  | finiteSet {es A} : (∀ a ∈ es, Frag a) → Frag (.FiniteSet es A)
+  | setAdd {s a} : Frag s → Frag a → Frag (.SetAdd s a)
+  | elementOf {a s} : Frag a → Frag s → Frag (.ElementOfSet a s)
+  | subsetOf {a b} : Frag a → Frag b → Frag (.SubsetOf a b)
+  | setUnion {a b} : Frag a → Frag b → Frag (.SetUnion a b)
+  | setInter {a b} : Frag a → Frag b → Frag (.SetIntersection a b)
+  | setDiff {a b} : Frag a → Frag b → Frag (.SetDifference a b)
 
 /-- Every function of the program has a body in the fragment. -/
 def ProgFrag : Program → Prop
@@ -104,6 +111,12 @@ variable {O : Oracle} {P : Program} {n m : Int}
 theorem le_bool {env : Env} {e : Expr} (h : Le (eval O P n env e) (eval O P m env e)) :
     Le (eval_bool O P n env e) (eval_bool O P m env e) := by
   rw [eval_bool, eval_bool]
+  le_step h
+  exact Le.refl _
+
+theorem le_set {env : Env} {e : Expr} (h : Le (eval O P n env e) (eval O P m env e)) :
+    Le (eval_set O P n env e) (eval_set O P m env e) := by
+  rw [eval_set, eval_set]
   le_step h
   exact Le.refl _
 
@@ -181,6 +194,15 @@ theorem frag_mono
   | ge _ _ iha ihb | bvand _ _ iha ihb | bvor _ _ iha ihb | bvxor _ _ iha ihb
   | shl _ _ iha ihb | ashr _ _ iha ihb | lshr _ _ iha ihb =>
     intro env; rw [eval, eval]; le_step (iha env); le_step (ihb env); exact Le.refl _
+  | finiteSet _ ih =>
+    intro env; rw [eval, eval]; le_step (le_list fun a ha => ih a ha env); exact Le.refl _
+  | setAdd _ _ ihs iha =>
+    intro env; rw [eval, eval]; le_step (le_set (ihs env)); le_step (iha env); exact Le.refl _
+  | elementOf _ _ iha ihs =>
+    intro env; rw [eval, eval]; le_step (iha env); le_step (le_set (ihs env)); exact Le.refl _
+  | subsetOf _ _ iha ihb | setUnion _ _ iha ihb | setInter _ _ iha ihb | setDiff _ _ iha ihb =>
+    intro env; rw [eval, eval]; le_step (le_set (iha env)); le_step (le_set (ihb env))
+    exact Le.refl _
   | _ => intro env; rw [eval, eval]; exact Le.refl _
 
 theorem call_zero (h : n ≤ 0) (f tps tenv vs) :

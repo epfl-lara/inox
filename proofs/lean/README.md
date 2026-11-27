@@ -410,8 +410,8 @@ are relative to an oracle `O` for the functions that quantify over values, and
 `O.Sound` states that it gives them as the semantics defines them. The checker
 and Logos, on the other side, work on SMT-LIB terms and on `SmtValue`s. This
 section says what connects them. The proved part is the first-order fragment of
-integers, Booleans, reals, bit-vectors and datatypes without type parameters,
-against the generated evaluator (see [What is proved of it so
+integers, Booleans, reals, bit-vectors, datatypes without type parameters and
+sets, against the generated evaluator (see [What is proved of it so
 far](#what-is-proved-of-it-so-far)).
 
 ### The fragment
@@ -657,10 +657,10 @@ integers, fractions, Booleans, strings and unit, `ADT`, `IsConstructor`,
 and rounding modes, and the string, bit-vector and floating-point operations.
 
 **The agreement theorem** ([`Inox/Bridge.lean`](Inox/Bridge.lean)). The
-translation is for integers, Booleans, reals, bit-vectors and datatypes without
-type parameters ([`Inox/Data.lean`](Inox/Data.lean)). `D : List Data` gives
-each datatype its name, its declaration in Logos and its constructors with
-their fields. `trT D` sends `IntegerType`, `BooleanType` and `RealType` to
+translation is for integers, Booleans, reals, bit-vectors, datatypes without
+type parameters and sets ([`Inox/Data.lean`](Inox/Data.lean)). `D : List Data`
+gives each datatype its name, its declaration in Logos and its constructors
+with their fields. `trT D` sends `IntegerType`, `BooleanType` and `RealType` to
 `Int`, `Bool` and `Real`, `BVType s w` to `BitVec w`, whatever the sign `s`,
 and `ADTType d []` to the datatype of `d`, `trV D` sends `IntV i` and `BoolV b`
 to `Numeral i` and `Boolean b`, `RealV n d` to the real number of the fraction
@@ -694,8 +694,7 @@ semantics is its unsigned integer with a sign, which says how the division, the
 remainder, the modulo and the comparisons read it, and Logos defines the signed
 operators of SMT-LIB from the unsigned ones by the cases of the top bits:
 [`Inox/Signed.lean`](Inox/Signed.lean) proves that they agree (`bvsdiv_eq`,
-`bvsrem_eq`, `bvsmod_eq`, `bvsgt_eq`, `bvsge_eq`). The two signs have one sort,
-so a value of Logos is read back at a type (`resign`).
+`bvsrem_eq`, `bvsmod_eq`, `bvsgt_eq`, `bvsge_eq`). The two signs have one sort.
 [`Inox/Bits.lean`](Inox/Bits.lean) proves the agreement of the bitwise
 operators, which the semantics defines by recursion on the bits and Logos by
 those of `BitVec` (`bvand_eq`, `bvor_eq`, `bvxor_eq`), of the shifts, where the
@@ -703,20 +702,46 @@ semantics cuts the amount at the width and the arithmetic one of Logos is by
 the cases of the top bit (`bvshl_eq`, `bvlshr_eq`, `bvashr_eq`), and of the
 casts, which Inox prints as `extract`, `sign_extend` and `zero_extend`
 (`extract_eq`, `sign_extend_eq`, `zero_extend_eq`). `BVToInt` and `IntToBV` are
-not there. The reals of the semantics are the
-fractions in lowest terms, and those of Logos the real numbers: the operators
-agree on the fractions (`real_eq`, `ratOf_add` and the like), and a real number
-that is not a fraction is the translation of no value. `DataOk D` asks that the
-names of the datatypes, of the constructors and of the fields be distinct, that
-the fields have types of the fragment, and that each declaration be well-formed
-and the one that Logos types its datatype with. Under it a value translates to
-a value of Logos of its type (`typed_trV`), each value of Logos of a type other
-than the reals, in datatypes without real fields (`RealFree D`), is the
-translation of one (`typed_inv1`), and `value-eq` on such values is equality
-(`value_eq_hasV`). `ProgData D P` says that the program has the constructors
-and the sorts of `D`, without invariants. For a model whose function constants
-agree with `call` at fuel `n` (`CallsOk`) and whose variable constants agree
-with the environment (`VarsOk`):
+not there. The reals of the semantics are the fractions in lowest terms, and
+those of Logos the real numbers: the operators agree on the fractions
+(`real_eq`, `ratOf_add` and the like), and a real number that is not a fraction
+is the translation of no value. `DataOk D` asks that the names of the
+datatypes, of the constructors and of the fields be distinct, that the fields
+have types of the fragment, and that each declaration be well-formed and the
+one that Logos types its datatype with. Under it a value translates to a value
+of Logos of its type (`typed_trV`), each canonical value of Logos of a type
+without reals (`NoReal`), in datatypes without real fields (`RealFree D`), is
+the translation of one (`typed_inv1`), and `value-eq` on two values of a type
+says whether they are the same value of Logos (`value_eq_hasV`). `ProgData D P`
+says that the program has the constructors and the sorts of `D`, without
+invariants. For a model whose function constants agree with `call` at fuel `n`
+(`CallsOk`) and whose variable constants agree with the environment (`VarsOk`):
+
+The sets are those of a type of the fragment: `trT D` sends `SetType A` to
+`Set` of the sort of `A`, and `HasTy` has `FiniteSet` of no element or of one,
+`SetAdd`, `ElementOfSet`, `SubsetOf`, `SetUnion`, `SetIntersection` and
+`SetDifference`, which `tr` sends to `set.empty`, `set.singleton`, the union
+with a singleton, `set.member`, `set.subset`, `set.union`, `set.inter` and
+`set.minus`. Inox prints a set of several elements as insertions into a set of
+one or of none, which is how the certificate is read: as `SetAdd`s. A set of
+the semantics is the list of its elements in the order of their insertion, with
+the type of its elements, and a set of Logos is a map to the Booleans whose
+entries are sorted and none of which is the default, so that two sets with the
+same elements are the same value. [`Inox/Sets.lean`](Inox/Sets.lean) builds the
+set of Logos of a list by inserting its elements (`setOf`) and proves that it
+is canonical, that its members are those of the list and that it depends on
+them only (`setOf_lookup`, `setOf_ext`), that the operators of Logos on such
+sets are those of the lists (`union_eq`, `inter_eq`, `minus_eq`, `member_eq`,
+`subset_eq`), and that every canonical set of Logos is the set of the list of
+its keys (`set_inv`). `trV D` sends `SetV A xs` to the set of the translations
+of `xs`. Two lists with the same elements in another order are two values of
+the semantics with one translation, so the translation is no longer injective:
+`value-eq` on them is true, the agreement theorem is up to it, and the function
+of the intended model is well defined because the calls to values with the same
+translations give values with the same translation (`call_congr`: the value of
+a call is that of the term of its body in a model that depends on the
+translations of the arguments only, by the agreement theorem and induction on
+the fuel).
 
 ```lean
 theorem ev (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S)
@@ -731,7 +756,8 @@ theorem ev (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S)
 The intended model is `Model.star (defs D S) (interpOf O P D S) M0 cd N`, with
 `interpOf` giving the function of `s` on `vs.map (trV D)` the value of
 `call O P n s.name [] [] vs` for some fuel `n` where it is `Ok` (unique by fuel
-monotonicity). `callsOk_star` shows that it satisfies `CallsOk` at every fuel.
+monotonicity, and the same for the values with these translations, by
+`call_congr`). `callsOk_star` shows that it satisfies `CallsOk` at every fuel.
 `goodOn_star` then shows that it satisfies the defining equations (the equation
 of `s` relates the spine of its constant to `tr D S s.params body`, `EqFor`) on
 the arguments where the calls give values (`okCall`), and so:
@@ -1026,10 +1052,14 @@ body with many nested assumptions is read slowly.
   than guarded unfoldings. `no_solution_of_reached` has none: `reachedCheck`
   asks that every fact be covered.
 
-The translation stops at integers, Booleans, reals, bit-vectors and datatypes
-without type parameters: unit, `Let`, `Error`, `Division`, `Remainder`,
-`Modulo`, type arguments, closures, `Forall` and `UninterpretedCall` are not
-translated.
+The translation stops at integers, Booleans, reals, bit-vectors, datatypes
+without type parameters and sets. A certificate with a variable or a parameter
+of a type of sets has clauses for the typing of its elements, which take an
+element and the rest of a set that is not empty; these are facts that
+`reachedCheck` doesn't cover yet, so `no_solution_of_reached` applies to the
+certificates with sets only where these clauses hold as they are. Not
+translated: unit, `Let`, `Error`, `Division`, `Remainder`, `Modulo`, type
+arguments, closures, `Forall` and `UninterpretedCall`.
 
 **What would make the generated Lean easier to prove things about.** The
 generated `match`es on `Result` (one auxiliary matcher per site) defeat generic
@@ -1050,7 +1080,8 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   declared equalities). The theorem to come is the one of an UNSAT answer in
   [`semantics.md`](../semantics.md): the query has no solution. `no_solution`
   states it for the first-order programs over integers, Booleans, reals,
-  bit-vectors and datatypes whose calls all give values, with hypotheses (see
+  bit-vectors, datatypes and sets whose calls all give values, with hypotheses
+  (see
   [The bridge to the semantics](#the-bridge-to-the-semantics-partly-proved)),
   and `no_solution_of_reached` for those programs whatever their calls, for the
   certificates of which its checks hold. In general it needs the bridge beyond
