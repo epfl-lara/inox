@@ -1232,7 +1232,10 @@ def exprEq : Nat → Expr → Expr → Bool
     | .IntegerLiteral a, .IntegerLiteral b => a == b
     | .BooleanLiteral a, .BooleanLiteral b => a == b
     | .FractionLiteral a b, .FractionLiteral c d => a == c && b == d
+    | .StringLiteral a, .StringLiteral b => a == b
+    | .BVLiteral s w x, .BVLiteral s' w' x' => s == s' && w == w' && x == x'
     | .Error, .Error => true
+    | .StringConcat a b, .StringConcat a' b' => exprEq n a a' && exprEq n b b'
     | .Plus a b, .Plus a' b' => exprEq n a a' && exprEq n b b'
     | .Minus a b, .Minus a' b' => exprEq n a a' && exprEq n b b'
     | .Times a b, .Times a' b' => exprEq n a a' && exprEq n b b'
@@ -1287,6 +1290,7 @@ theorem exprEq_eq : ∀ n e e', exprEq n e e' = true → e = e'
       | (obtain ⟨h1, h2⟩ := h; rw [ih _ _ h1, ih _ _ h2])
       | (rw [ih _ _ h])
       | (subst h; rfl)
+      | (obtain ⟨⟨rfl, rfl⟩, rfl⟩ := h; rfl)
       | cases h
 
 /-- The operations whose operands are matched position by position, by a tag. -/

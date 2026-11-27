@@ -30,6 +30,7 @@ The rules that are checked here:
   expression with itself is `true` where its value is of a primitive type, which the equality of
   the semantics compares by identity (`value_eq_refl`): a literal, an arithmetic operation, an
   equality, or a free variable of the input (a fact `prim`).
+- `evaluate`, a ground term of literals, arithmetic and concatenations of strings is its value.
 -/
 
 namespace Inox.Simplified
@@ -2114,6 +2115,104 @@ theorem arithCheck_refines (hO : O.Sound) {Fs : List Fact} {t t' : Expr}
 
 end
 
+/-! ## Ground terms -/
+
+/-- The value of a result, if it has one. -/
+def okOf : Result Value → Option Value
+  | .Ok v => some v
+  | _ => none
+
+/-- The value of a ground term of literals, arithmetic and concatenations of strings, which it
+has in every environment, `n` deep. -/
+def geval : Nat → Expr → Option Value
+  | 0, _ => none
+  | n + 1, e =>
+    match e with
+    | .IntegerLiteral i => some (.IntV i)
+    | .BooleanLiteral b => some (.BoolV b)
+    | .StringLiteral cs => some (.StringV cs)
+    | .BVLiteral s w x => some (.BVV s w x)
+    | .Plus a b => (geval n a).bind fun x => (geval n b).bind fun y => okOf (arith_plus x y)
+    | .Minus a b => (geval n a).bind fun x => (geval n b).bind fun y => okOf (arith_minus x y)
+    | .Times a b => (geval n a).bind fun x => (geval n b).bind fun y => okOf (arith_times x y)
+    | .StringConcat a b =>
+      (geval n a).bind fun
+        | .StringV x => (geval n b).bind fun
+          | .StringV y => some (.StringV (append_chars x y))
+          | _ => none
+        | _ => none
+    | _ => none
+
+/-- Two values of literals that are the same. -/
+def litEq : Value → Value → Bool
+  | .IntV a, .IntV b => a == b
+  | .BoolV a, .BoolV b => a == b
+  | .StringV a, .StringV b => a == b
+  | .BVV s w x, .BVV s' w' x' => s == s' && w == w' && x == x'
+  | _, _ => false
+
+/-- `evaluate`: a ground term is its value. -/
+def evaluateCheck (t t' : Expr) : Bool :=
+  match geval 100 t, geval 100 t' with
+  | some v, some w => litEq v w
+  | _, _ => false
+
+theorem okOf_eq {r : Result Value} {v : Value} (h : okOf r = some v) : r = .Ok v := by
+  unfold okOf at h; split at h <;> cases h; rfl
+
+theorem litEq_eq {v w : Value} (h : litEq v w = true) : v = w := by
+  unfold litEq at h
+  split at h <;> simp_all
+
+section
+variable {O : Oracle} {P : Program}
+
+theorem geval_eval {fuel : Int} {env : Env} :
+    ∀ n e {v : Value}, geval n e = some v → eval O P fuel env e = .Ok v
+  | 0, _, _, h => by simp [geval] at h
+  | n + 1, e, v, h => by
+    have ih := @geval_eval fuel env n
+    unfold geval at h
+    split at h
+    all_goals first
+      | (cases h; rw [eval])
+      | skip
+    · obtain ⟨x, hx, y, hy, h⟩ : ∃ x, geval n _ = some x ∧ ∃ y, geval n _ = some y ∧ _ := by
+        simpa only [Option.bind_eq_some_iff] using h
+      rw [eval, ih _ hx, ih _ hy]; exact okOf_eq h
+    · obtain ⟨x, hx, y, hy, h⟩ : ∃ x, geval n _ = some x ∧ ∃ y, geval n _ = some y ∧ _ := by
+        simpa only [Option.bind_eq_some_iff] using h
+      rw [eval, ih _ hx, ih _ hy]; exact okOf_eq h
+    · obtain ⟨x, hx, y, hy, h⟩ : ∃ x, geval n _ = some x ∧ ∃ y, geval n _ = some y ∧ _ := by
+        simpa only [Option.bind_eq_some_iff] using h
+      rw [eval, ih _ hx, ih _ hy]; exact okOf_eq h
+    · next a b =>
+      obtain ⟨x, hx, h⟩ := Option.bind_eq_some_iff.mp h
+      split at h
+      · next cs =>
+        obtain ⟨y, hy, h⟩ := Option.bind_eq_some_iff.mp h
+        split at h
+        · next ds =>
+          cases h
+          rw [eval]
+          simp only [eval_string, ih _ hx, ih _ hy]
+        · cases h
+      · cases h
+    · cases h
+
+theorem evaluateCheck_refines {Fs : List Fact} {t t' : Expr} (h : evaluateCheck t t' = true) :
+    Refines O P Fs t t' := by
+  intro fuel env v _ hv
+  unfold evaluateCheck at h
+  split at h
+  · next v0 w h1 h2 =>
+    rw [geval_eval _ _ h1] at hv
+    cases hv
+    rw [geval_eval _ _ h2, litEq_eq h]
+  · cases h
+
+end
+
 
 /-! ## The steps -/
 
@@ -2134,6 +2233,7 @@ def ruleCheck (cs : List Constructor) : String → List Fact → Expr → Expr �
   | "bind", _, t, t' => bindCheck t t'
   | "expand", Fs, t, t' => expandCheck Fs t t'
   | "arith", Fs, t, t' => arithCheck Fs t t'
+  | "evaluate", _, t, t' => evaluateCheck t t'
   | _, _, _, _ => false
 
 theorem ruleCheck_refines {O : Oracle} {P : Program} {cs : List Constructor} (hO : O.Sound)
@@ -2150,6 +2250,7 @@ theorem ruleCheck_refines {O : Oracle} {P : Program} {cs : List Constructor} (hO
   · exact bindCheck_refines h
   · exact expandCheck_refines h
   · exact arithCheck_refines hO h
+  · exact evaluateCheck_refines h
   · cases h
 
 /-- `e` after the steps `ss`, if each of them holds, in a program whose constructors are

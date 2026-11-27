@@ -1258,11 +1258,12 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   of its lets are their values), `select` (the selection of a field of a
   construction is the argument of the field), `bind` (a let of a subterm that
   the term always evaluates, to a variable that it doesn't mention), `expand`
-  (a variable is the value of its let) and `arith` (a product with a factor `0`
-  is `0`, a sum with an operand `0` is the other, and an equality of an
-  expression of a primitive type with itself is `true`), and proves that what
-  the steps rewrite a constraint into refines it: wherever the constraint has
-  a value, what it becomes has the same (`stepsApply_refines`).
+  (a variable is the value of its let), `arith` (a product with a factor `0` is
+  `0`, a sum with an operand `0` is the other, and an equality of an expression
+  of a primitive type with itself is `true`) and `evaluate` (a ground term of
+  literals, arithmetic and concatenations of strings is its value), and proves
+  that what the steps rewrite a constraint into refines it: wherever the
+  constraint has a value, what it becomes has the same (`stepsApply_refines`).
   [`Lowered.lean`](Inox/Lowered.lean) relates an expression of the input to
   what Logos reads of its lowering, whose symbols have other names, whose
   errors are assumptions that fail and whose sums and products of two integers
@@ -1277,8 +1278,8 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   have other names in the reading of Logos, with lets, which the lowering
   inlines or drops, where each step of a constraint is of these rules: on the
   corpus, the 3 certificates of `error-is-infeasible`, the 1st, 2nd, 3rd and
-  5th of `lets-and-assumptions-around-partial-terms`, the 1st and 5th of
-  `ground-terms-that-evaluate`, the first 3 of
+  5th of `lets-and-assumptions-around-partial-terms`, the 1st, 3rd, 4th and
+  5th of `ground-terms-that-evaluate`, the first 3 of
   `arithmetic-over-partial-operands`, and the first of
   `real-division-by-zero-is-infeasible` and
   `selections-of-constructions-with-partial-fields`, as `inox-solution --input`

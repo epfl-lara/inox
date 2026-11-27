@@ -1157,6 +1157,14 @@ partial def callsIn (t : Table) : Sexp → List (String × Sexp)
   | .expr xs => xs.flatMap (callsIn t)
   | _ => []
 
+/-- The characters of a string literal of printable characters without quotes or escapes. -/
+def strChars (a : String) : Option (List Int) :=
+  let body := (a.toList.drop 1).dropLast
+  if a.length ≥ 2 && a.startsWith "\"" && a.endsWith "\"" &&
+      body.all (fun ch => ch != '"' && ch != '\\' && ' ' ≤ ch && ch ≤ '~') then
+    some (body.map fun ch => (ch.toNat : Int))
+  else none
+
 /-- The expression that `s` reads as, or what it has that isn't read. A sum or a product of more
 than two operands, which the printer and the lowering make of nested ones, is read nested to the
 right, which is the same where they are integers. -/
@@ -1168,6 +1176,7 @@ def readExpr (c : Ctx) : Nat → Sexp → Except String Expr
       if !a.isEmpty && a.all Char.isDigit then .ok (.IntegerLiteral a.toNat!)
       else if a == "true" then .ok (.BooleanLiteral true)
       else if a == "false" then .ok (.BooleanLiteral false)
+      else if let some cs := strChars a then .ok (.StringLiteral cs)
       else if a.startsWith "#b" then
         let bits := a.toList.drop 2
         .ok (.BVLiteral true bits.length
@@ -1182,6 +1191,9 @@ def readExpr (c : Ctx) : Nat → Sexp → Except String Expr
     | .expr [.atom "-", a, b] => do pure (.Minus (← readExpr c n a) (← readExpr c n b))
     | .expr [.atom "-", a] => do pure (.UMinus (← readExpr c n a))
     | .expr [.atom "*", a, b] => do pure (.Times (← readExpr c n a) (← readExpr c n b))
+    | .expr [.atom "bvadd", a, b] => do pure (.Plus (← readExpr c n a) (← readExpr c n b))
+    | .expr [.atom "str.++", a, b] => do
+      pure (.StringConcat (← readExpr c n a) (← readExpr c n b))
     | .expr (.atom "+" :: a :: b :: d :: es) => do
       pure (.Plus (← readExpr c n a) (← readExpr c n (.expr (.atom "+" :: b :: d :: es))))
     | .expr (.atom "*" :: a :: b :: d :: es) => do
