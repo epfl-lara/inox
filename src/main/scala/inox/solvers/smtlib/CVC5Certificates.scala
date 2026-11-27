@@ -132,6 +132,13 @@ trait CVC5Certificates extends CVC5Solver with SymbolRefs with certificates.Cert
 
     override protected def symbolNames = names
 
+    // a proposition of the input is printed as a Boolean, as the encoder of propositions makes it
+    // (the session's program has none)
+    override protected def sortOf(t: Type)(using bindings: Map[Identifier, Term]): Sort = t match {
+      case PropType() => super.sortOf(BooleanType())
+      case _ => super.sortOf(t)
+    }
+
     /** `e` as the text of a term, where the variables that `bindings` binds are their terms. */
     def termText(e: Expr, bindings: Map[Identifier, Term]): String = {
       val writer = new java.io.StringWriter
