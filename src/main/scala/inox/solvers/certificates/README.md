@@ -29,13 +29,12 @@ certificate of that query on standard output:
     ...)
     (input
     (encoders "<name>" ...)
-    (function-equality "<none, intensional or extensional>")
     (definitions
     <the SMT-LIB 3 declarations of the datatypes and definitions of the functions of the input>
     )
-    (constraint <a constraint of the input> (encoded <what the encoders make of it>) (simplified (<rule> <term>) ...))
+    (constraint <a constraint of the input> (encoded <what the encoders make of it>))
     ...
-    (function <the call of a function of the sources on its parameters> (encoded <its body>) (simplified (<rule> <term>) ...))
+    (function <the call of a function of the sources on its parameters> (encoded <its body>))
     ...
     (symbols
     (<symbol of the input> <kind> "<identifier, type or index>" ... [<sort>])
@@ -134,24 +133,19 @@ session is the program of the input after the encoders that `encoders` names,
 in their order (`propositions`, which makes propositions Booleans, `bags`,
 which makes a bag a datatype with a function for its multiplicities,
 `map-merge`, and for other solvers `strings`, `sets` and `reals`; see
-`solvers.theories`). `function-equality` is how the solver compares functions
-(the option `--function-equality`): the input compares none when it is `none`.
-The definitions are those of the datatypes and functions of the input that its
-constraints mention, each constraint is one that was asserted, with the term
-that the encoders make of it, and the symbols say what those of the input stand
-for, as the source symbols do: a symbol of the input and one of the sources
-that stand for the same identifier are the function, the sort or the variable
-before and after the encoders. The input is `(input)` when the solver's program
-is not one that the session's printer prints. The steps of `simplified` are
-those of the solver's simplification of the encoded constraint
-(`ast.SymbolOps.simplifyFormulaRecorded`), each the rule that names it (see
-`transformers.TransformationRecorder`) and the term after it, a source: the
-last term is the formula of the template of the constraint, whose source
-assumes the typing of its variables. Each function that the source definitions
-define comes with its body in the program of the session, after the encoders,
-and the steps of its simplification, whose last term is the body of its source
-definition (the body that the solver unfolds). The checkers don't yet check the
-steps.
+`solvers.theories`). The definitions are those of the datatypes and functions
+of the input that its constraints mention, each constraint is one that was
+asserted, with the term that the encoders make of it, and the symbols say what
+those of the input stand for, as the source symbols do: a symbol of the input
+and one of the sources that stand for the same identifier are the function, the
+sort or the variable before and after the encoders. The input is `(input)` when
+the solver's program is not one that the session's printer prints. Each
+function that the source definitions define comes with its body in the program
+of the session, after the encoders. The `simplifications` section relates these
+terms to the sources: an encoded constraint, under the typing of its variables,
+is the original of the expression of its template, and the body of a function
+is the original of its entry there, or the body of its source definition when
+the solver left it as it is.
 
 A source names what its body doesn't have with markers (`unrolling.TemplateGenerator.markers`), whose
 meanings a `(where (<marker> <meaning>) ...)` after the body gives. A marker

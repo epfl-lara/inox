@@ -22,15 +22,12 @@ object Certificates {
 
   /** What relates the sources of a refutation to the input of the solver: the constraints that
     * were asserted, as terms of the program before the encoders `encoders`, which `printer`
-    * prints, each with the term that the encoders make of it and the steps of the solver's
-    * simplification of that term, the rule of each and the term after it, which lead to the
-    * source of the template of the constraint, and as well, for each function that the sources
-    * define, the call of the function on its parameters, its body after the encoders, and the
-    * steps of the solver's simplification of that body, which lead to the body of its source
-    * definition: those of the functions defined so far, which printing sources defines more of. */
-  final case class Encoding[E](encoders: Seq[String], printer: Printer[E], constraints: Seq[(E, E, Seq[(String, E)])],
-                               definitions: () => Seq[(E, E, Seq[(String, E)])] = () => Seq(),
-                               functionEquality: String = "none")
+    * prints, each with the term that the encoders make of it, and as well, for each function
+    * that the sources define, the call of the function on its parameters and its body after the
+    * encoders: those of the functions defined so far, which printing sources defines more of.
+    * The simplifications of the certificate relate these terms to the sources. */
+  final case class Encoding[E](encoders: Seq[String], printer: Printer[E], constraints: Seq[(E, E)],
+                               definitions: () => Seq[(E, E)] = () => Seq())
 
   /** An assumption of the check, and whether it states that an open conjunction or disjunction
     * is complete, which refutations may assume (see [[unrolling.OpenJunctions]]), or is one of
@@ -152,7 +149,6 @@ object Certificates {
     * )
     * (input
     * (encoders "<name>" ...)
-    * (function-equality "<none, intensional or extensional>")
     * (definitions
     * <the declarations of the datatypes and the definitions of the functions of the input>
     * )
@@ -238,45 +234,49 @@ object Certificates {
         Rule(r.kind, r.arguments.map(a => Argument(a.name, a.terms.map(_ => it.next()))), instance, names(r.clauses))
       }
       val (complete, query) = (clauses.size until asserts).partition(i => assumptions(i - clauses.size).complete)
-      val simplifications = simplified(sourceSeq, printer, functionEquality)
-      // what the encoders make of the constraints of the input, and the steps of its
-      // simplification, are sources
-      val encoded = encoding.map { case Encoding(encoders, _, constraints, _, equality) =>
-        val after = printer.printSources(constraints.map(_._2)).terms
-        val steps = constraints.map(c => c._3.map(_._1) zip printer.printSources(c._3.map(_._2)).terms)
-        Input(encoders, Seq(), (after zip steps).map { case (a, s) => Constraint(a, a, s) }, functionEquality = equality)
+      // what the encoders make of the constraints of the input are sources
+      val encoded = encoding.map { case Encoding(encoders, _, constraints, _) =>
+        Input(encoders, Seq(), printer.printSources(constraints.map(_._2)).terms.map(a => Constraint(a, a)))
       }
       // the functions that the sources define, after those of `done`: printing a function may
       // define more of them, until the sources define them all
       def definitions(done: Seq[Constraint]): Seq[Constraint] = encoding.fold(done) { e =>
         Iterator.iterate(done.toVector) { done =>
-          done ++ e.definitions().drop(done.size).map { (call, body, steps) =>
-            val printed = printer.printSources(call +: body +: steps.map(_._2)).terms
-            Constraint(printed(0), printed(1), steps.map(_._1) zip printed.drop(2))
+          done ++ e.definitions().drop(done.size).map { (call, body) =>
+            val printed = printer.printSources(Seq(call, body)).terms
+            Constraint(printed(0), printed(1))
           }
         }.sliding(2).collectFirst { case Seq(a, b) if a.size == b.size => b }.get
       }
-      def withDefinitions(c: Certificate): Certificate =
-        c.copy(input = c.input.map(in => in.copy(functions = definitions(in.functions))))
+      // the simplifications of the functions defined so far, and the functions of the input
+      def withDefinitions(c: Certificate): Certificate = {
+        val withSimplifications = c.copy(simplifications = simplified(sourceSeq, printer, functionEquality))
+        withSimplifications.copy(input = c.input.map(in => in.copy(functions = definitions(in.functions))))
+      }
       val certificate = withDefinitions(Certificate(proof, declarations ++ sessionDeclarations ++ templateAsserts, templateSeq,
-        ruleSeq, Assumptions(query, complete), simplifications = simplifications, input = encoded))
+        ruleSeq, Assumptions(query, complete), input = encoded))
       // the sorts of the symbols, which may declare more datatypes in the printer, whose
       // declarations are then those of the sources: of the symbols of the session that depend on a
       // type, and of the variables and uninterpreted functions of the sources and definitions
       def sorts(refs: Seq[Ref]): Map[Ref, SExpr] = refs.distinct.flatMap(ref => printer.sort(ref).map(ref -> _)).toMap
       def ofSources(ref: Ref) = ref.isInstanceOf[Ref.Variable] || ref.isInstanceOf[Ref.Uninterpreted]
       val solverSorts = sorts(certificate.solverSymbols.map(_._2).filterNot(_.isInstanceOf[Ref.Variable]))
-      // printing the sorts may define more functions (such as the equality of a sort), which may
-      // have symbols with more sorts
-      val (withSorts, sourceSorts) = Iterator.iterate((certificate, Map.empty[Ref, SExpr])) { (c, _) =>
-        val sourceSorts = sorts(c.copy(sourceDefinitions = printer.declarations).sourceSymbols.map(_._2).filter(ofSources))
-        (withDefinitions(c), sourceSorts)
-      }.drop(1).sliding(2).collectFirst { case Seq(a, b) if a._1 == b._1 => b }.get
+      def sourceSortsOf(c: Certificate) = sorts(c.copy(sourceDefinitions = printer.declarations).sourceSymbols.map(_._2).filter(ofSources))
+      // printing the sorts may define more functions (such as the equality of a sort), whose
+      // simplifications and symbols may define more, until the printer defines nothing more
+      var withSorts = certificate
+      var defined = -1
+      while (defined != printer.declarations.size) {
+        defined = printer.declarations.size
+        sourceSortsOf(withSorts)
+        withSorts = withDefinitions(withSorts)
+      }
+      val sourceSorts = sourceSortsOf(withSorts)
       // the input: its constraints are printed by its printer, whose declarations they make
-      val input = encoding.map { case Encoding(encoders, inputPrinter, constraints, _, equality) =>
+      val input = encoding.map { case Encoding(encoders, inputPrinter, constraints, _) =>
         val before = inputPrinter.printSources(constraints.map(_._1)).terms
         val in = Input(encoders, inputPrinter.declarations, (before zip encoded.get.constraints).map { case (b, c) => c.copy(input = b) },
-          functions = withSorts.input.get.functions, functionEquality = equality)
+          functions = withSorts.input.get.functions)
         val inputSorts = in.symbols.map(_._2).filter(ofSources).distinct.flatMap(ref => inputPrinter.sort(ref).map(ref -> _)).toMap
         // the sorts may declare more datatypes
         in.copy(definitions = inputPrinter.declarations, sorts = inputSorts)

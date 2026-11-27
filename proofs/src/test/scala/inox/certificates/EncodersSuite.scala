@@ -26,7 +26,7 @@ class EncodersSuite extends AnyFunSuite {
   def input(constraint: String, encoded: String, encoders: String = "\"propositions\" \"bags\" \"map-merge\""): List[SExpr] = parse(s"""
     (encoders $encoders)
     (definitions)
-    (constraint $constraint (encoded $encoded) (simplified))
+    (constraint $constraint (encoded $encoded))
     (symbols
     (size!1 function "size$$4")
     (List!1 sort "List$$1[A$$0]")
@@ -74,11 +74,11 @@ class EncodersSuite extends AnyFunSuite {
     (define-fun-rec (par (A!1) (count!1 ((b!5 (Bag!1 A!1)) (x!5 A!1)) Int
       (ite (> ((as get!1 (A!1)) b!5 x!5) 0) ((as get!1 (A!1)) b!5 x!5) 0))))
   """)
-  def function(body: String, encoded: String, steps: String): List[SExpr] = parse(s"""
+  def function(body: String, encoded: String): List[SExpr] = parse(s"""
     (encoders "bags")
     (definitions
     (define-fun-rec (par (A!0) (count!1 ((b!2 (Bag A!0)) (x!2 A!0)) Int $body))))
-    (function ((as count!1 (A!1)) b!5 x!5) (encoded $encoded) (simplified $steps))
+    (function ((as count!1 (A!1)) b!5 x!5) (encoded $encoded))
     (symbols
     (count!1 function "count$$3"))
   """)
@@ -87,14 +87,16 @@ class EncodersSuite extends AnyFunSuite {
   val encodedCount = "(ite (> ((as get!1 (A!1)) b!5 x!5) 0) ((as get!1 (A!1)) b!5 x!5) 0)"
 
   test("a function of the sources is the encoding of the function of the input, simplified") {
-    assert(Encoders.check(function(count, encodedCount, ""), counts, countSymbols) == 1)
-    assert(Encoders.check(function(s"(ite true $count 0)", s"(ite true $encodedCount 0)", s"(simplify $encodedCount)"), counts,
-      countSymbols) == 1)
+    assert(Encoders.check(function(count, encodedCount), counts, countSymbols) == 1)
+    // a body that the solver simplified is the original of its simplification
+    val simplified = sexprs(s"(function count!1 (ite true $encodedCount 0) (steps (simplify () $encodedCount)))")
+    assert(Encoders.check(function(s"(ite true $count 0)", s"(ite true $encodedCount 0)"), counts, countSymbols, simplified) == 1)
     // another body of the input, another simplification, and a function that the input doesn't give
-    def refused(in: List[SExpr], definitions: Seq[SExpr] = counts) =
-      intercept[Failure](Encoders.check(in, definitions, countSymbols)).getMessage
-    assert(refused(function("(bag.multiplicity x!2 b!2)", encodedCount, "")).contains("is not what the encoders make"))
-    assert(refused(function(count, encodedCount, "(simplify 0)")).contains("is not the simplification of its encoded body"))
+    def refused(in: List[SExpr], definitions: Seq[SExpr] = counts, simplifications: Seq[SExpr] = Nil) =
+      intercept[Failure](Encoders.check(in, definitions, countSymbols, simplifications)).getMessage
+    assert(refused(function("(bag.multiplicity x!2 b!2)", encodedCount)).contains("is not what the encoders make"))
+    assert(refused(function(s"(ite true $count 0)", s"(ite true $encodedCount 0)")).contains("is not the simplification of its encoded body"))
+    assert(refused(function(count, encodedCount), simplifications = simplified).contains("is not the simplification of its encoded body"))
     assert(refused(input("true", "true"), counts).contains("the input doesn't say what count!1 is the simplification of"))
   }
 

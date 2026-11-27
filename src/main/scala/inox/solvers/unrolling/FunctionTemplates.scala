@@ -77,10 +77,9 @@ trait FunctionTemplates { self: Templates =>
     functionCaches.steps(id).map((rule, body) => rule -> encoder(body))
   }
 
-  /** The steps of the simplification of the body of each function that certificates define it
-    * with: the rule of each step and the body after it (see [[definitionBody]] and
-    * [[ast.SymbolOps.simplifyFormulaRecorded]]), in the order of the definitions. */
-  private[unrolling] def simplifiedBodies: Seq[(Identifier, Seq[(String, Expr)])] = functionCaches.steps.toSeq
+  /** The functions that certificates define (see [[definitionBody]]), in the order of their
+    * definitions. */
+  private[unrolling] def definedFunctions: Seq[Identifier] = functionCaches.steps.keys.toSeq
 
   /** The definition of the function `id` in the solver's terms (see [[definitionBody]]). */
   def definition(id: Identifier): Encoded = mkEncoder(Map.empty)(definitionBody(id))

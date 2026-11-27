@@ -192,13 +192,11 @@ rule of `unrolling.RuleKernel` builds. Two things are left to the reader:
 
   The same goes for the functions: the input gives, for each function of the
   source definitions, its body after the encoders, which the checker checks
-  against the definition of the function in the input, and the steps of the
-  solver's simplification of that body, the last of which must be the body of
-  the source definition. The datatypes of the input are checked against those
-  of the sources in the same way. Each constraint also comes with the steps of
-  the simplification of its encoded term, which lead to the source of its
-  template. The steps are those that the `simplifications` section gives,
-  which the checker replays there; here it only reads them.
+  against the definition of the function in the input, and which must be the
+  original of the function in the `simplifications` section, whose steps lead
+  to the body of the source definition, or that body when the section has no
+  entry for the function. The datatypes of the input are checked against those
+  of the sources in the same way.
 - **The side conditions of the rules.** The checker checks the shape of each
   rule, and that the symbols that `Define`, `Hypothesis` and `Root` introduce
   are introduced once. It doesn't check what a rule states about the program,

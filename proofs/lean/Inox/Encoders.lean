@@ -31,11 +31,10 @@ call of the encoder's `mapMerge`. The symbols of an encoder are those of the sou
 for an identifier of its name that the input doesn't have, and the source definitions of the
 datatype `Bag` and of its functions `get` and `inv` must be those of the encoder.
 
-Each constraint also gives the steps of the solver's simplification of the encoded term, the rule
-of each and the term after it, which lead to the source of the template of the constraint. The
-check reads them, and doesn't check them yet. Each function of the source definitions comes with
-its body after the encoders, which is what the encoders make of its definition in the input, and
-the steps of its simplification, the last of which is the body of its source definition.
+Each function of the source definitions comes with its body after the encoders, which is what the
+encoders make of its definition in the input, and which is the original of the entry of the
+function in the `simplifications` of the certificate, or the body of its source definition when it
+has none.
 -/
 
 namespace Inox.Encoders
@@ -347,22 +346,14 @@ def bind (r : Relation) (xs ys : List Sexp) (bound : List (String × String)) (i
 
 end Relation
 
-/-- The term after the steps `steps` of a simplification of `term`, which are recorded, and not
-yet checked. -/
-def simplified (term : Sexp) (steps : List Sexp) : Lower Sexp :=
-  steps.foldlM (init := term) fun _ step =>
-    match step with
-    | .expr [.atom _, t] => pure t
-    | other => refuse s!"{text other} is not a step of a simplification"
-
 /-- Checks the input `input` of a certificate whose sources have the definitions
-`sourceDefinitions` and the symbols `sourceSymbols`, and gives the number of constraints and
-functions that it checked: none when the certificate has no input. -/
-def check (input sourceDefinitions sourceSymbols : List Sexp) : Lower Nat :=
+`sourceDefinitions` and the symbols `sourceSymbols`, and whose simplifications are
+`simplifications`, and gives the number of constraints and functions that it checked: none when
+the certificate has no input. -/
+def check (input sourceDefinitions sourceSymbols : List Sexp) (simplifications : List Sexp := []) :
+    Lower Nat :=
   match input with
   | [] => pure 0
-  | .expr (.atom "encoders" :: names) :: .expr [.atom "function-equality", _] ::
-      .expr (.atom "definitions" :: definitions) :: rest
   | .expr (.atom "encoders" :: names) :: .expr (.atom "definitions" :: definitions) :: rest => do
     let (lines, symbols) ← match rest.getLast? with
       | some (.expr (.atom "symbols" :: lines)) => pure (rest.dropLast, lines)
@@ -379,17 +370,18 @@ def check (input sourceDefinitions sourceSymbols : List Sexp) : Lower Nat :=
     let r : Relation := ⟨encoders, ← symbols.mapM entry, ← sourceSymbols.mapM entry⟩
     let inFuns := functions definitions
     let outFuns := functions sourceDefinitions
+    -- the bodies of the functions that the solver simplified, before it did
+    let originals := simplifications.filterMap fun
+      | .expr (.atom "function" :: .atom f :: original :: _) => some (f, original)
+      | _ => none
     let mut defined : List String := []
     for line in lines do
       match line with
-      | .expr [.atom "constraint", i, .expr [.atom "encoded", o],
-          .expr (.atom "simplified" :: steps)] =>
+      | .expr [.atom "constraint", i, .expr [.atom "encoded", o]] =>
         r.relate i o []
-        let _ ← simplified o steps
       -- a function of the sources: its body after the encoders is the body of its definition in
-      -- the input, and its simplification the body of its source definition
-      | .expr [.atom "function", call, .expr [.atom "encoded", body],
-          .expr (.atom "simplified" :: steps)] =>
+      -- the input, and what the solver simplified into the body of its source definition
+      | .expr [.atom "function", call, .expr [.atom "encoded", body]] =>
         let (f, args) ← match call with
           | .expr [.atom "as", .atom f, _] => pure (f, [])
           | .expr (.expr [.atom "as", .atom f, _] :: args) => pure (f, args)
@@ -402,7 +394,7 @@ def check (input sourceDefinitions sourceSymbols : List Sexp) : Lower Nat :=
           | .expr (p :: _) => p
           | p => p
         if params != args then refuse s!"{text call} is not the call of {f} on its parameters"
-        if (← simplified body steps) != out.body then
+        if (originals.lookup f).getD out.body != body then
           refuse s!"the body of {f} is not the simplification of its encoded body"
         match r.inputOf f (inFuns.map (·.1)) with
         | some g =>

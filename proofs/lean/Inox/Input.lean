@@ -1593,7 +1593,8 @@ def coversAt (certificate : Sexp) (top : String) : Coverage :=
   let symbols := input.flatMap fun | .expr (.atom "symbols" :: rows) => rows | _ => []
   let definitions := input.flatMap fun | .expr (.atom "definitions" :: ds) => ds | _ => []
   -- whether the input may compare functions: unless the certificate says that it doesn't
-  let extEq := !input.contains (.expr [.atom "function-equality", .atom "\"none\""])
+  let extEq := !(sectionOf certificate "simplifications").contains
+    (.expr [.atom "function-equality", .atom "none"])
   let constraints := input.filterMap fun
     | .expr (.atom "constraint" :: i :: .expr [.atom "encoded", e] :: _) => some (i, e)
     | _ => none

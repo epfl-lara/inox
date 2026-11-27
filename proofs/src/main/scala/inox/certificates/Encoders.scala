@@ -38,23 +38,20 @@ import Lowering.{Entry, entry}
   * that the input doesn't have, and the source definitions of the datatype `Bag` and of its
   * functions `get` and `inv` must be those of the encoder.
   *
-  * Each constraint also gives the steps of the solver's simplification of the encoded term, the
-  * rule of each and the term after it, which lead to the source of the template of the
-  * constraint. The check reads them, and doesn't check them yet. Each function of the source
-  * definitions comes with its body after the encoders, which is what the encoders make of its
-  * definition in the input, and the steps of its simplification, the last of which is the body
-  * of its source definition. */
+  * Each function of the source definitions comes with its body after the encoders, which is what
+  * the encoders make of its definition in the input, and which is the original of the entry of
+  * the function in the `simplifications` of the certificate, or the body of its source definition
+  * when it has none. */
 object Encoders {
   private val known = Set("propositions", "bags", "map-merge")
 
   /** Checks the input `input` of a certificate whose sources have the definitions
-    * `sourceDefinitions` and the symbols `sourceSymbols`, and gives the number of constraints
-    * and functions that it checked: none when the certificate has no input. */
-  def check(input: List[SExpr], sourceDefinitions: Seq[SExpr], sourceSymbols: Seq[SExpr]): Int = input match {
+    * `sourceDefinitions` and the symbols `sourceSymbols`, and whose simplifications are
+    * `simplifications`, and gives the number of constraints and functions that it checked: none
+    * when the certificate has no input. */
+  def check(input: List[SExpr], sourceDefinitions: Seq[SExpr], sourceSymbols: Seq[SExpr],
+            simplifications: Seq[SExpr] = Nil): Int = input match {
     case Nil => 0
-    // how the solver compares functions changes nothing of what the encoders make
-    case (encoders @ SList(Atom("encoders") :: _)) :: SList(List(Atom("function-equality"), _)) :: rest =>
-      check(encoders :: rest, sourceDefinitions, sourceSymbols)
     case SList(Atom("encoders") :: names) :: SList(Atom("definitions") :: definitions) :: rest if rest.nonEmpty =>
       val (lines, symbols) = (rest.init, rest.last match {
         case SList(Atom("symbols") :: lines) => lines.map(entry)
@@ -69,11 +66,8 @@ object Encoders {
       val (inFuns, outFuns) = (functions(definitions), functions(sourceDefinitions))
       val (inData, outData) = (datatypes(definitions), datatypes(sourceDefinitions))
 
-      // the steps of a simplification are recorded, and not yet checked: the term after the last
-      def simplified(term: SExpr, steps: List[SExpr]): SExpr = steps.foldLeft(term) {
-        case (_, SList(List(Atom(_), t))) => t
-        case (_, other) => fail(s"$other is not a step of a simplification")
-      }
+      // the bodies of the functions that the solver simplified, before it did
+      val originals = simplifications.collect { case SList(Atom("function") :: (f: Atom) :: original :: _) => f -> original }.toMap
       // the variables that `xs` bind face those that `ys` bind, the sorts of parameters under `bound`
       def bind(xs: List[SExpr], ys: List[SExpr], bound: Map[Atom, Atom], in: SExpr, out: SExpr): Map[Atom, Atom] =
         if (xs.size != ys.size) relation.no(in, out) else (xs zip ys).map {
@@ -84,13 +78,12 @@ object Encoders {
 
       val defined = scala.collection.mutable.Set[Atom]()
       for (line <- lines) line match {
-        case SList(List(Atom("constraint"), in, SList(List(Atom("encoded"), out)), SList(Atom("simplified") :: steps))) =>
+        case SList(List(Atom("constraint"), in, SList(List(Atom("encoded"), out)))) =>
           relation.relate(in, out, Map.empty)
-          simplified(out, steps)
 
         // a function of the sources: its body after the encoders is the body of its definition
-        // in the input, and its simplification the body of its source definition
-        case SList(List(Atom("function"), call, SList(List(Atom("encoded"), body)), SList(Atom("simplified") :: steps))) =>
+        // in the input, and what the solver simplified into the body of its source definition
+        case SList(List(Atom("function"), call, SList(List(Atom("encoded"), body)))) =>
           val (f, args) = call match {
             case SList(List(Atom("as"), f: Atom, _)) => (f, Nil)
             case SList(SList(List(Atom("as"), f: Atom, _)) :: args) => (f, args)
@@ -100,7 +93,7 @@ object Encoders {
           }
           val (ps2, xs2, range2, body2) = outFuns.getOrElse(f, fail(s"$f is not a function of the source definitions"))
           if (xs2.map { case SList(x :: _) => x; case x => x } != args) fail(s"$call is not the call of $f on its parameters")
-          if (simplified(body, steps) != body2) fail(s"the body of $f is not the simplification of its encoded body")
+          if (originals.getOrElse(f, body2) != body) fail(s"the body of $f is not the simplification of its encoded body")
           for (g <- relation.inputOf(f, inFuns.keys)) {
             val (ps, xs, range, inBody) = inFuns(g)
             val tparams = bind(ps, ps2, Map.empty, g, f)

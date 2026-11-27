@@ -1163,8 +1163,8 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   ([`Encoders.lean`](Inox/Encoders.lean), a port of
   [`Encoders.scala`](../src/main/scala/inox/certificates/Encoders.scala)),
   and that the body of each function of the source definitions is what they
-  make of its definition in the input, simplified by the steps that the
-  certificate gives. It doesn't check the steps. No theorem yet states that
+  make of its definition in the input, before the simplifications that the
+  certificate gives. It doesn't check them. No theorem yet states that
   an encoded constraint has a solution whenever its constraint has one, and
   nothing relates the encoded constraints to the sources of the templates:
   the theorem is about the sources. For the encoder of bags,
