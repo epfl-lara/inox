@@ -58,12 +58,16 @@ private[certificates] final class Evaluation(definitions: List[SExpr]) {
       case SList(List(Atom("define-funs-rec"), SList(decls), SList(bodies))) if decls.size == bodies.size => decls zip bodies
       case _ => Nil
     }
-    val others = definitions.filter {
+    // the invariants of the datatypes call functions
+    val (invariants, others) = definitions.filter {
       case SList(Atom("define-fun" | "define-fun-rec" | "define-funs-rec") :: _) => false
       case _ => true
+    }.partition {
+      case SList(Atom("datatype-invariant") :: _) => true
+      case _ => false
     }
     others ++ (if (functions.isEmpty) Nil
-      else List(SList(List(Atom("define-funs-rec"), SList(functions.map(_._1)), SList(functions.map(_._2))))))
+      else List(SList(List(Atom("define-funs-rec"), SList(functions.map(_._1)), SList(functions.map(_._2)))))) ++ invariants
   }
 
   /** The definitions as Inox has them, and the terms that refer to them. */

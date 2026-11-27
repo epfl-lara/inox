@@ -151,7 +151,9 @@ rule of `unrolling.RuleKernel` builds. Two things are left to the reader:
     negation names an existential one). The source also names a call of an
     uninterpreted function under the assumptions of its typing, and a
     construction under the assumption of the invariant of its sort, which
-    the checker evaluates and reports when the evaluator gives it no value;
+    the checker checks to be the invariant that the source definitions
+    declare (`datatype-invariant`), as it is of the construction or as a
+    function of the same body, and evaluates or reports otherwise;
   - the theory encoders (sets, bags, maps, propositions) that run before the
     simplifier, whose output is the original that the steps start from;
   - the rules themselves, which the Lean checker doesn't prove yet (it skips
