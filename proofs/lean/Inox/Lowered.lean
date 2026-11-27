@@ -15,8 +15,8 @@ functions are what those of the input are lowered to (`Funs`) and whose construc
 of the input (`Ctors`).
 
 The relation is of first-order expressions over integers, other primitive values and values
-of datatypes without invariants, with calls of functions without type parameters: no lets and
-no lambdas yet.
+of datatypes without invariants, with calls of functions without type parameters, and lets,
+which the lowering inlines or drops: no lambdas yet.
 -/
 
 namespace Inox.Lowered
@@ -92,111 +92,125 @@ theorem vr_has {K : Id → Option Id} {v v' : Value} (h : VR K v v') :
   | _, .tupleNil, hk => by simp at hk
   | _, .tupleCons _ _, hk => by simp at hk
 
+/-- `Γ` where the variable `x` is `o`. -/
+def bindCtx (Γ : Id → Option (Expr × LK)) (x : Id) (o : Option (Expr × LK)) :
+    Id → Option (Expr × LK) :=
+  fun z => if z = x then o else Γ z
+
 /-- `Lowers S Γ e e' k`: the expression `e` of the input is lowered to `e'`, and its values are
-of the kind `k`, where each variable `x` of `Γ` is the variable `y` of `Γ x = some (y, k)`, of
-the kind `k`, and the functions, the constructors and the fields of the input are those of `S`. -/
-inductive Lowers (S : LSig) : (Id → Option (Id × LK)) → Expr → Expr → LK → Prop where
-  | var {Γ : Id → Option (Id × LK)} {x y : Id} {k : LK} (h : Γ x = some (y, k)) :
-      Lowers S Γ (.Variable x) (.Variable y) k
-  | int {Γ : Id → Option (Id × LK)} (n : Int) :
+of the kind `k`, where each variable `x` of `Γ` is lowered to the expression `y` of
+`Γ x = some (y, k)`, of the kind `k`: a variable, or what the value of a let is lowered to where
+the lowering inlines it. The functions, the constructors and the fields of the input are those
+of `S`. -/
+inductive Lowers (S : LSig) : (Id → Option (Expr × LK)) → Expr → Expr → LK → Prop where
+  | var {Γ : Id → Option (Expr × LK)} {x : Id} {y : Expr} {k : LK} (h : Γ x = some (y, k)) :
+      Lowers S Γ (.Variable x) y k
+  /-- A let whose value the lowering inlines. -/
+  | letIn {Γ : Id → Option (Expr × LK)} {x : Id} {a a' b e' : Expr} {ka k : LK}
+      (ha : Lowers S Γ a a' ka) (hb : Lowers S (bindCtx Γ x (some (a', ka))) b e' k) :
+      Lowers S Γ (.Let x a b) e' k
+  /-- A let whose variable the lowering drops. -/
+  | letDrop {Γ : Id → Option (Expr × LK)} {x : Id} {a b e' : Expr} {k : LK}
+      (hb : Lowers S (bindCtx Γ x none) b e' k) : Lowers S Γ (.Let x a b) e' k
+  | int {Γ : Id → Option (Expr × LK)} (n : Int) :
       Lowers S Γ (.IntegerLiteral n) (.IntegerLiteral n) .int
-  | bool {Γ : Id → Option (Id × LK)} (b : Bool) :
+  | bool {Γ : Id → Option (Expr × LK)} (b : Bool) :
       Lowers S Γ (.BooleanLiteral b) (.BooleanLiteral b) .prim
-  | frac {Γ : Id → Option (Id × LK)} (n d : Int) :
+  | frac {Γ : Id → Option (Expr × LK)} (n d : Int) :
       Lowers S Γ (.FractionLiteral n d) (.FractionLiteral n d) .prim
   /-- An error has no value, whatever it is lowered to. -/
-  | error {Γ : Id → Option (Id × LK)} (e' : Expr) (k : LK) : Lowers S Γ .Error e' k
-  | weaken {Γ : Id → Option (Id × LK)} {e e' : Expr} {k k' : LK} (h : Lowers S Γ e e' k)
+  | error {Γ : Id → Option (Expr × LK)} (e' : Expr) (k : LK) : Lowers S Γ .Error e' k
+  | weaken {Γ : Id → Option (Expr × LK)} {e e' : Expr} {k k' : LK} (h : Lowers S Γ e e' k)
       (hs : Sub k k' = true) : Lowers S Γ e e' k'
-  | plusInt {Γ : Id → Option (Id × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .int)
+  | plusInt {Γ : Id → Option (Expr × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .int)
       (hb : Lowers S Γ b b' .int) : Lowers S Γ (.Plus a b) (.Plus a' b') .int
   /-- A sum of two integers, as Logos reads it. -/
-  | plusZero {Γ : Id → Option (Id × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .int)
+  | plusZero {Γ : Id → Option (Expr × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .int)
       (hb : Lowers S Γ b b' .int) :
       Lowers S Γ (.Plus a b) (.Plus a' (.Plus b' (.IntegerLiteral 0))) .int
-  | plus {Γ : Id → Option (Id × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .any)
+  | plus {Γ : Id → Option (Expr × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .any)
       (hb : Lowers S Γ b b' .any) : Lowers S Γ (.Plus a b) (.Plus a' b') .prim
-  | minusInt {Γ : Id → Option (Id × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .int)
+  | minusInt {Γ : Id → Option (Expr × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .int)
       (hb : Lowers S Γ b b' .int) : Lowers S Γ (.Minus a b) (.Minus a' b') .int
-  | minus {Γ : Id → Option (Id × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .any)
+  | minus {Γ : Id → Option (Expr × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .any)
       (hb : Lowers S Γ b b' .any) : Lowers S Γ (.Minus a b) (.Minus a' b') .prim
-  | timesInt {Γ : Id → Option (Id × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .int)
+  | timesInt {Γ : Id → Option (Expr × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .int)
       (hb : Lowers S Γ b b' .int) : Lowers S Γ (.Times a b) (.Times a' b') .int
-  | times {Γ : Id → Option (Id × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .any)
+  | times {Γ : Id → Option (Expr × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .any)
       (hb : Lowers S Γ b b' .any) : Lowers S Γ (.Times a b) (.Times a' b') .prim
-  | uminusInt {Γ : Id → Option (Id × LK)} {a a' : Expr} (ha : Lowers S Γ a a' .int) :
+  | uminusInt {Γ : Id → Option (Expr × LK)} {a a' : Expr} (ha : Lowers S Γ a a' .int) :
       Lowers S Γ (.UMinus a) (.UMinus a') .int
-  | uminus {Γ : Id → Option (Id × LK)} {a a' : Expr} (ha : Lowers S Γ a a' .any) :
+  | uminus {Γ : Id → Option (Expr × LK)} {a a' : Expr} (ha : Lowers S Γ a a' .any) :
       Lowers S Γ (.UMinus a) (.UMinus a') .prim
   /-- A product of two integers, as Logos reads it. -/
-  | timesOne {Γ : Id → Option (Id × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .int)
+  | timesOne {Γ : Id → Option (Expr × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .int)
       (hb : Lowers S Γ b b' .int) :
       Lowers S Γ (.Times a b) (.Times a' (.Times b' (.IntegerLiteral 1))) .int
-  | divInt {Γ : Id → Option (Id × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .int)
+  | divInt {Γ : Id → Option (Expr × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .int)
       (hb : Lowers S Γ b b' .int) : Lowers S Γ (.Division a b) (.Division a' b') .int
-  | modInt {Γ : Id → Option (Id × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .int)
+  | modInt {Γ : Id → Option (Expr × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .int)
       (hb : Lowers S Γ b b' .int) : Lowers S Γ (.Modulo a b) (.Modulo a' b') .int
-  | remInt {Γ : Id → Option (Id × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .int)
+  | remInt {Γ : Id → Option (Expr × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .int)
       (hb : Lowers S Γ b b' .int) : Lowers S Γ (.Remainder a b) (.Remainder a' b') .int
-  | div {Γ : Id → Option (Id × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .any)
+  | div {Γ : Id → Option (Expr × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .any)
       (hb : Lowers S Γ b b' .any) : Lowers S Γ (.Division a b) (.Division a' b') .prim
-  | rem {Γ : Id → Option (Id × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .any)
+  | rem {Γ : Id → Option (Expr × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .any)
       (hb : Lowers S Γ b b' .any) : Lowers S Γ (.Remainder a b) (.Remainder a' b') .prim
-  | mod {Γ : Id → Option (Id × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .any)
+  | mod {Γ : Id → Option (Expr × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .any)
       (hb : Lowers S Γ b b' .any) : Lowers S Γ (.Modulo a b) (.Modulo a' b') .prim
-  | lt {Γ : Id → Option (Id × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .any)
+  | lt {Γ : Id → Option (Expr × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .any)
       (hb : Lowers S Γ b b' .any) : Lowers S Γ (.LessThan a b) (.LessThan a' b') .prim
-  | gt {Γ : Id → Option (Id × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .any)
+  | gt {Γ : Id → Option (Expr × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .any)
       (hb : Lowers S Γ b b' .any) : Lowers S Γ (.GreaterThan a b) (.GreaterThan a' b') .prim
-  | le {Γ : Id → Option (Id × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .any)
+  | le {Γ : Id → Option (Expr × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .any)
       (hb : Lowers S Γ b b' .any) : Lowers S Γ (.LessEquals a b) (.LessEquals a' b') .prim
-  | ge {Γ : Id → Option (Id × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .any)
+  | ge {Γ : Id → Option (Expr × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .any)
       (hb : Lowers S Γ b b' .any) : Lowers S Γ (.GreaterEquals a b) (.GreaterEquals a' b') .prim
   /-- Primitive values are equal alike in both programs. -/
-  | eq {Γ : Id → Option (Id × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .prim)
+  | eq {Γ : Id → Option (Expr × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .prim)
       (hb : Lowers S Γ b b' .prim) : Lowers S Γ (.Equals a b) (.Equals a' b') .prim
-  | not {Γ : Id → Option (Id × LK)} {a a' : Expr} (ha : Lowers S Γ a a' .any) :
+  | not {Γ : Id → Option (Expr × LK)} {a a' : Expr} (ha : Lowers S Γ a a' .any) :
       Lowers S Γ (.Not a) (.Not a') .prim
-  | implies {Γ : Id → Option (Id × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .any)
+  | implies {Γ : Id → Option (Expr × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .any)
       (hb : Lowers S Γ b b' .any) : Lowers S Γ (.Implies a b) (.Implies a' b') .prim
-  | andNil {Γ : Id → Option (Id × LK)} : Lowers S Γ (.And []) (.And []) .prim
-  | andCons {Γ : Id → Option (Id × LK)} {a a' : Expr} {es es' : List Expr}
+  | andNil {Γ : Id → Option (Expr × LK)} : Lowers S Γ (.And []) (.And []) .prim
+  | andCons {Γ : Id → Option (Expr × LK)} {a a' : Expr} {es es' : List Expr}
       (ha : Lowers S Γ a a' .any) (hr : Lowers S Γ (.And es) (.And es') .prim) :
       Lowers S Γ (.And (a :: es)) (.And (a' :: es')) .prim
-  | orNil {Γ : Id → Option (Id × LK)} : Lowers S Γ (.Or []) (.Or []) .prim
-  | orCons {Γ : Id → Option (Id × LK)} {a a' : Expr} {es es' : List Expr}
+  | orNil {Γ : Id → Option (Expr × LK)} : Lowers S Γ (.Or []) (.Or []) .prim
+  | orCons {Γ : Id → Option (Expr × LK)} {a a' : Expr} {es es' : List Expr}
       (ha : Lowers S Γ a a' .any) (hr : Lowers S Γ (.Or es) (.Or es') .prim) :
       Lowers S Γ (.Or (a :: es)) (.Or (a' :: es')) .prim
-  | ite {Γ : Id → Option (Id × LK)} {c c' a a' b b' : Expr} {k : LK}
+  | ite {Γ : Id → Option (Expr × LK)} {c c' a a' b b' : Expr} {k : LK}
       (hc : Lowers S Γ c c' .any) (ha : Lowers S Γ a a' k) (hb : Lowers S Γ b b' k) :
       Lowers S Γ (.IfExpr c a b) (.IfExpr c' a' b') k
-  | assume {Γ : Id → Option (Id × LK)} {p p' a a' : Expr} {k : LK}
+  | assume {Γ : Id → Option (Expr × LK)} {p p' a a' : Expr} {k : LK}
       (hp : Lowers S Γ p p' .any) (ha : Lowers S Γ a a' k) :
       Lowers S Γ (.Assume p a) (.Assume p' a') k
-  | tupleNil {Γ : Id → Option (Id × LK)} : Lowers S Γ (.Tuple []) (.Tuple []) (.tuple [])
-  | tupleCons {Γ : Id → Option (Id × LK)} {e e' : Expr} {es es' : List Expr} {k : LK}
+  | tupleNil {Γ : Id → Option (Expr × LK)} : Lowers S Γ (.Tuple []) (.Tuple []) (.tuple [])
+  | tupleCons {Γ : Id → Option (Expr × LK)} {e e' : Expr} {es es' : List Expr} {k : LK}
       {ks : List LK} (he : Lowers S Γ e e' k)
       (hr : Lowers S Γ (.Tuple es) (.Tuple es') (.tuple ks)) :
       Lowers S Γ (.Tuple (e :: es)) (.Tuple (e' :: es')) (.tuple (k :: ks))
   /-- A call of a function without type parameters, whatever its type arguments. -/
-  | call {Γ : Id → Option (Id × LK)} {f g : Id} {ks : List LK} {k : LK} {tps tps' : List Ty}
+  | call {Γ : Id → Option (Expr × LK)} {f g : Id} {ks : List LK} {k : LK} {tps tps' : List Ty}
       {es es' : List Expr} (hf : S.funs f = some (g, ks, k))
       (ha : Lowers S Γ (.Tuple es) (.Tuple es') (.tuple ks)) :
       Lowers S Γ (.FunctionInvocation f tps es) (.FunctionInvocation g tps' es') k
   /-- A construction, of a constructor of a sort without an invariant (`Ctors`). -/
-  | adt {Γ : Id → Option (Id × LK)} {c c' : Id} {ks : List LK} {tps tps' : List Ty}
+  | adt {Γ : Id → Option (Expr × LK)} {c c' : Id} {ks : List LK} {tps tps' : List Ty}
       {es es' : List Expr} (hc : S.ctors c = some c')
       (ha : Lowers S Γ (.Tuple es) (.Tuple es') (.tuple ks)) :
       Lowers S Γ (.ADT c tps es) (.ADT c' tps' es') .any
-  | isCtor {Γ : Id → Option (Id × LK)} {e e' : Expr} {c c' : Id} (hc : S.ctors c = some c')
+  | isCtor {Γ : Id → Option (Expr × LK)} {e e' : Expr} {c c' : Id} (hc : S.ctors c = some c')
       (he : Lowers S Γ e e' .any) : Lowers S Γ (.IsConstructor e c) (.IsConstructor e' c') .prim
-  | sel {Γ : Id → Option (Id × LK)} {e e' : Expr} {f f' : Id} (hf : S.fields f = some f')
+  | sel {Γ : Id → Option (Expr × LK)} {e e' : Expr} {f f' : Id} (hf : S.fields f = some f')
       (he : Lowers S Γ e e' .any) : Lowers S Γ (.ADTSelector e f) (.ADTSelector e' f') .any
 
 /-- The variables of the body of a function: its parameters `params`, which are the parameters
 `params'` of the function that it is lowered to, of the kinds `ks`. -/
-def paramsCtx (params params' : List Id) (ks : List LK) : Id → Option (Id × LK) :=
-  fun x => (params.zip (params'.zip ks)).lookup x
+def paramsCtx (params params' : List Id) (ks : List LK) : Id → Option (Expr × LK) :=
+  fun x => ((params.zip (params'.zip ks)).lookup x).map fun p => (.Variable p.1, p.2)
 
 /-- The functions of `S` are those of `Ps`, without type parameters, and their bodies are
 lowered to those of their functions in `P`, whose parameters are distinct. -/
@@ -358,12 +372,12 @@ theorem bind_lowered {K : Id → Option Id} : ∀ {params params' : List Id} {ks
     Has (.tuple ks) (.TupleV vs) → VRs K vs vs' → ∀ {bs : List Binding},
       bind_all params vs = .Ok bs →
       ∃ bs', bind_all params' vs' = .Ok bs' ∧
-        ∀ x y k, paramsCtx params params' ks x = some (y, k) →
+        ∀ x y k, (params.zip (params'.zip ks)).lookup x = some (y, k) →
           ∃ v v', lookup_var bs x = .Ok v ∧ lookup_var bs' y = .Ok v' ∧ VR K v v' ∧ Has k v
   | [], [], [], [], [], _, _, _, _, _, bs, hb => by
     simp [bind_all] at hb
     subst hb
-    exact ⟨[], by simp [bind_all], fun x y k hx => by simp [paramsCtx] at hx⟩
+    exact ⟨[], by simp [bind_all], fun x y k hx => by simp at hx⟩
   | p :: ps, p' :: ps', k :: ks, v :: vs, v' :: vs', hnd, hl1, hl2, h, hvr, bs, hb => by
     cases h with
     | tupleCons hv hr =>
@@ -379,12 +393,12 @@ theorem bind_lowered {K : Id → Option Id} : ∀ {params params' : List Id} {ks
         refine ⟨.Binding p' v' :: bs1', by simp [bind_all, hb1'], fun x y k2 hx => ?_⟩
         by_cases hxp : x = p
         · subst hxp
-          simp [paramsCtx] at hx
+          simp at hx
           obtain ⟨rfl, rfl⟩ := hx
           exact ⟨v, v', by simp [lookup_var], by simp [lookup_var], hvv, hv⟩
         · have hb : (x == p) = false := by simpa using hxp
-          have hx' : paramsCtx ps ps' ks x = some (y, k2) := by
-            simpa only [paramsCtx, List.zip_cons_cons, List.lookup, hb] using hx
+          have hx' : (ps.zip (ps'.zip ks)).lookup x = some (y, k2) := by
+            simpa only [List.zip_cons_cons, List.lookup, hb] using hx
           obtain ⟨u, u', h1, h2, h3, h4⟩ := hl x y k2 hx'
           have hy : y ∈ ps' := (List.of_mem_zip (List.of_mem_zip (mem_of_lookup hx')).2).1
           have hyp : y ≠ p' := fun e => hnd'.1 (e ▸ hy)
@@ -423,16 +437,59 @@ section Evaluation
 variable {O : Oracle} {Ps P : Program} {S : LSig}
 
 /-- The variables of `Γ` have values in `env` and `env'` that relate, of their kinds. -/
-def EnvOk (K : Id → Option Id) (Γ : Id → Option (Id × LK)) (env env' : Env) : Prop :=
-  ∀ x y k, Γ x = some (y, k) → ∃ v v', lookup_var (env_vars env) x = .Ok v ∧
-    lookup_var (env_vars env') y = .Ok v' ∧ VR K v v' ∧ Has k v
+def EnvOk (O : Oracle) (P : Program) (K : Id → Option Id) (Γ : Id → Option (Expr × LK))
+    (env env' : Env) : Prop :=
+  ∀ x y k, Γ x = some (y, k) → ∃ v, lookup_var (env_vars env) x = .Ok v ∧ Has k v ∧
+    ∃ (v' : Value) (m : Int), VR K v v' ∧ ∀ fuel : Int, m ≤ fuel → eval O P fuel env' y = .Ok v'
+
+theorem envOk_params {O : Oracle} {P : Program} {K : Id → Option Id}
+    {params params' : List Id} {ks : List LK} {tys tys' : List TypeBinding} {bs bs' : List Binding}
+    (h : ∀ x y k, (params.zip (params'.zip ks)).lookup x = some (y, k) →
+      ∃ v v', lookup_var bs x = .Ok v ∧ lookup_var bs' y = .Ok v' ∧ VR K v v' ∧ Has k v) :
+    EnvOk O P K (paramsCtx params params' ks) (.Env tys bs) (.Env tys' bs') := by
+  intro x y k hx
+  simp only [paramsCtx, Option.map_eq_some_iff] at hx
+  obtain ⟨⟨y0, k0⟩, hl, he⟩ := hx
+  cases he
+  obtain ⟨v, v', h1, h2, h3, h4⟩ := h x y0 k0 hl
+  exact ⟨v, h1, h4, v', 0, h3, fun _ _ => by simp only [eval, env_vars, h2]⟩
+
+theorem envOk_letIn {O : Oracle} {P : Program} {K : Id → Option Id}
+    {Γ : Id → Option (Expr × LK)} {env env' : Env} {x : Id} {a' : Expr} {ka : LK} {va va' : Value}
+    {m : Int} (h : EnvOk O P K Γ env env') (hk : Has ka va) (hr : VR K va va')
+    (he : ∀ fuel : Int, m ≤ fuel → eval O P fuel env' a' = .Ok va') :
+    EnvOk O P K (bindCtx Γ x (some (a', ka))) (env_bind env x va) env' := by
+  intro z y k hz
+  cases env with
+  | Env tys bs =>
+  by_cases hzx : z = x
+  · subst hzx
+    simp only [bindCtx, if_true, Option.some.injEq, Prod.mk.injEq] at hz
+    obtain ⟨rfl, rfl⟩ := hz
+    exact ⟨va, by simp [env_bind, env_vars, lookup_var], hk, va', m, hr, he⟩
+  · simp only [bindCtx, hzx, if_false] at hz
+    obtain ⟨v, h1, h2, h3⟩ := h z y k hz
+    exact ⟨v, by simpa [env_bind, env_vars, lookup_var, hzx] using h1, h2, h3⟩
+
+theorem envOk_letDrop {O : Oracle} {P : Program} {K : Id → Option Id}
+    {Γ : Id → Option (Expr × LK)} {env env' : Env} {x : Id} {va : Value}
+    (h : EnvOk O P K Γ env env') : EnvOk O P K (bindCtx Γ x none) (env_bind env x va) env' := by
+  intro z y k hz
+  cases env with
+  | Env tys bs =>
+  by_cases hzx : z = x
+  · subst hzx
+    simp [bindCtx] at hz
+  · simp only [bindCtx, hzx, if_false] at hz
+    obtain ⟨v, h1, h2, h3⟩ := h z y k hz
+    exact ⟨v, by simpa [env_bind, env_vars, lookup_var, hzx] using h1, h2, h3⟩
 
 /-- Where an expression of the input evaluates to a value, the expression that it is lowered
 to evaluates with enough fuel to a value that relates to it, and it is of the kind of the
 relation. -/
 theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) (hC : Ctors Ps P S) :
-    ∀ (n : Nat) {Γ : Id → Option (Id × LK)} {e e' : Expr} {k : LK}, Lowers S Γ e e' k →
-      ∀ (env env' : Env), EnvOk S.ctors Γ env env' →
+    ∀ (n : Nat) {Γ : Id → Option (Expr × LK)} {e e' : Expr} {k : LK}, Lowers S Γ e e' k →
+      ∀ (env env' : Env), EnvOk O P S.ctors Γ env env' →
         ∀ (fuel : Int), fuel ≤ n → ∀ (v : Value), eval O Ps fuel env e = .Ok v →
           Has k v ∧ ∃ (v' : Value) (m : Int), VR S.ctors v v' ∧
             ∀ fuel' : Int, m ≤ fuel' → eval O P fuel' env' e' = .Ok v' := by
@@ -443,10 +500,26 @@ theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) (hC : Ctors Ps P S) :
   induction h with
   | var hx =>
     intro env env' hΓ fuel hfn v hv
-    obtain ⟨w, w', h1, h2, hr, hk⟩ := hΓ _ _ _ hx
+    obtain ⟨w, h1, hk, w', m, hr, h2⟩ := hΓ _ _ _ hx
     simp only [eval, h1] at hv
     cases hv
-    exact ⟨hk, w', 0, hr, fun _ _ => by simp only [eval, h2]⟩
+    exact ⟨hk, w', m, hr, h2⟩
+  | letIn _ _ iha ihb =>
+    intro env env' hΓ fuel hfn v hv
+    simp only [eval] at hv
+    split at hv
+    · next va ha =>
+      obtain ⟨hka, va', n1, ra, e1⟩ := iha env env' hΓ fuel hfn va ha
+      exact ihb _ env' (envOk_letIn hΓ hka ra e1) fuel hfn v hv
+    · cases hv
+    · cases hv
+  | letDrop _ ihb =>
+    intro env env' hΓ fuel hfn v hv
+    simp only [eval] at hv
+    split at hv
+    · exact ihb _ env' (envOk_letDrop hΓ) fuel hfn v hv
+    · cases hv
+    · cases hv
   | int n =>
     intro env env' hΓ fuel hfn v hv
     simp only [eval] at hv
@@ -1058,7 +1131,7 @@ theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) (hC : Ctors Ps P S) :
       · cases hvs
     · cases hv
     · cases hv
-  | @call f g ks k tps tps' es es' hf _ iha =>
+  | @call _ f g ks k tps tps' es es' hf _ iha =>
     intro env env' hΓ fuel hfn v hv
     obtain ⟨params, params', body, body', hFS, hFP, hnd, hl1, hl2, hlow⟩ := hF f g ks k hf
     simp only [eval] at hv
@@ -1074,14 +1147,15 @@ theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) (hC : Ctors Ps P S) :
       | succ m =>
       obtain ⟨hk, v', m2, rv, e2⟩ := ihn m (Nat.lt_succ_self m) hlow
         (Env.Env (bind_types [] tps (env_types env)) bs)
-        (Env.Env (bind_types [] tps' (env_types env')) bs') hl (fuel - 1) (by omega) v hbody
+        (Env.Env (bind_types [] tps' (env_types env')) bs') (envOk_params hl) (fuel - 1)
+        (by omega) v hbody
       refine ⟨hk, v', max (max n1 (m2 + 1)) 1, rv, fun f' hf' => ?_⟩
       simp only [eval, eval_tuple_inv (e1 f' (by omega))]
       rw [call_fun hFP (by omega) _ _ hbs']
       exact e2 (f' - 1) (by omega)
     · cases hv
     · cases hv
-  | @adt c c' ks tps tps' es es' hc _ iha =>
+  | @adt _ c c' ks tps tps' es es' hc _ iha =>
     intro env env' hΓ fuel hfn v hv
     obtain ⟨fs, fs', hS, hP, _⟩ := hC.ctor c c' hc
     simp only [eval] at hv
@@ -1098,7 +1172,7 @@ theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) (hC : Ctors Ps P S) :
       rw [construct_of hP]
     · cases hv
     · cases hv
-  | @isCtor e e' c c' hc _ ihe =>
+  | @isCtor _ e e' c c' hc _ ihe =>
     intro env env' hΓ fuel hfn v hv
     simp only [eval] at hv
     split at hv
@@ -1119,7 +1193,7 @@ theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) (hC : Ctors Ps P S) :
         simp [hiff]
     · cases hv
     · cases hv
-  | @sel e e' f0 f0' hf _ ihe =>
+  | @sel _ e e' f0 f0' hf _ ihe =>
     intro env env' hΓ fuel hfn v hv
     simp only [eval] at hv
     split at hv
@@ -1147,18 +1221,139 @@ end Evaluation
 
 /-! ## The check -/
 
+/-- Whether two expressions are the same, `n` deep, where they are of the fragment. -/
+def exprEq : Nat → Expr → Expr → Bool
+  | 0, _, _ => false
+  | n + 1, e, e' =>
+    let all (es es' : List Expr) : Bool :=
+      es.length == es'.length && (es.zip es').all fun p => exprEq n p.1 p.2
+    match e, e' with
+    | .Variable x, .Variable y => x == y
+    | .IntegerLiteral a, .IntegerLiteral b => a == b
+    | .BooleanLiteral a, .BooleanLiteral b => a == b
+    | .FractionLiteral a b, .FractionLiteral c d => a == c && b == d
+    | .Error, .Error => true
+    | .Plus a b, .Plus a' b' => exprEq n a a' && exprEq n b b'
+    | .Minus a b, .Minus a' b' => exprEq n a a' && exprEq n b b'
+    | .Times a b, .Times a' b' => exprEq n a a' && exprEq n b b'
+    | .Division a b, .Division a' b' => exprEq n a a' && exprEq n b b'
+    | .Remainder a b, .Remainder a' b' => exprEq n a a' && exprEq n b b'
+    | .Modulo a b, .Modulo a' b' => exprEq n a a' && exprEq n b b'
+    | .LessThan a b, .LessThan a' b' => exprEq n a a' && exprEq n b b'
+    | .GreaterThan a b, .GreaterThan a' b' => exprEq n a a' && exprEq n b b'
+    | .LessEquals a b, .LessEquals a' b' => exprEq n a a' && exprEq n b b'
+    | .GreaterEquals a b, .GreaterEquals a' b' => exprEq n a a' && exprEq n b b'
+    | .Equals a b, .Equals a' b' => exprEq n a a' && exprEq n b b'
+    | .Implies a b, .Implies a' b' => exprEq n a a' && exprEq n b b'
+    | .Assume a b, .Assume a' b' => exprEq n a a' && exprEq n b b'
+    | .UMinus a, .UMinus a' => exprEq n a a'
+    | .Not a, .Not a' => exprEq n a a'
+    | .IfExpr c a b, .IfExpr c' a' b' => exprEq n c c' && exprEq n a a' && exprEq n b b'
+    | .IsConstructor a c, .IsConstructor a' c' => c == c' && exprEq n a a'
+    | .ADTSelector a f, .ADTSelector a' f' => f == f' && exprEq n a a'
+    | .And es, .And es' => all es es'
+    | .Or es, .Or es' => all es es'
+    | .Tuple es, .Tuple es' => all es es'
+    | .FunctionInvocation f [] es, .FunctionInvocation g [] es' => f == g && all es es'
+    | .ADT c [] es, .ADT c' [] es' => c == c' && all es es'
+    | _, _ => false
+
+theorem list_eq_of_all {r : Expr → Expr → Bool} (hr : ∀ a b, r a b = true → a = b) :
+    ∀ {es es' : List Expr}, es.length = es'.length → (∀ p ∈ es.zip es', r p.1 p.2 = true) →
+      es = es'
+  | [], [], _, _ => rfl
+  | [], _ :: _, hl, _ => by simp at hl
+  | _ :: _, [], hl, _ => by simp at hl
+  | a :: as, b :: bs, hl, h => by
+    simp only [List.zip_cons_cons, List.mem_cons, forall_eq_or_imp] at h
+    rw [hr a b h.1, list_eq_of_all hr (by simpa using hl) h.2]
+
+theorem exprEq_eq : ∀ n e e', exprEq n e e' = true → e = e'
+  | 0, _, _, h => by simp [exprEq] at h
+  | n + 1, e, e', h => by
+    have ih := exprEq_eq n
+    unfold exprEq at h
+    split at h <;>
+      simp only [Bool.and_eq_true, beq_iff_eq, List.all_eq_true] at h <;>
+      first
+      | rfl
+      | (obtain ⟨⟨h1, h2⟩, h3⟩ := h; rw [ih _ _ h1, ih _ _ h2, ih _ _ h3])
+      | (obtain ⟨rfl, h1, h2⟩ := h; rw [list_eq_of_all ih (by simpa using h1) h2])
+      | (obtain ⟨h1, h2⟩ := h; rw [list_eq_of_all ih (by simpa using h1) h2])
+      | (obtain ⟨rfl, h1⟩ := h; rw [ih _ _ h1])
+      | (obtain ⟨rfl, rfl⟩ := h; rfl)
+      | (obtain ⟨h1, h2⟩ := h; rw [ih _ _ h1, ih _ _ h2])
+      | (rw [ih _ _ h])
+      | (subst h; rfl)
+      | cases h
+
+/-- The operations whose operands are matched position by position, by a tag. -/
+def kids : Expr → Option (Nat × List Expr)
+  | .Plus a b => some (0, [a, b])
+  | .Minus a b => some (1, [a, b])
+  | .Times a b => some (2, [a, b])
+  | .UMinus a => some (3, [a])
+  | .Division a b => some (4, [a, b])
+  | .Remainder a b => some (5, [a, b])
+  | .Modulo a b => some (6, [a, b])
+  | .LessThan a b => some (7, [a, b])
+  | .GreaterThan a b => some (8, [a, b])
+  | .LessEquals a b => some (9, [a, b])
+  | .GreaterEquals a b => some (10, [a, b])
+  | .Equals a b => some (11, [a, b])
+  | .Not a => some (12, [a])
+  | .Implies a b => some (13, [a, b])
+  | .And es => some (14, es)
+  | .Or es => some (15, es)
+  | .IfExpr c a b => some (16, [c, a, b])
+  | .Assume p a => some (17, [p, a])
+  | .Tuple es => some (18, es)
+  | _ => none
+
+/-- What the lowering inlines for the variable `x` of `e`: the expression at its first position
+in `e'`, which `e` is lowered to, if `x` is found, `n` deep. It is only a candidate, which the
+check checks. -/
+def findVar (x : Id) : Nat → Expr → Expr → Option Expr
+  | 0, _, _ => none
+  | n + 1, e, e' =>
+    let all (es es' : List Expr) : Option Expr :=
+      (es.zip es').foldl (fun acc (a, a') => acc <|> findVar x n a a') none
+    match e, e' with
+    | .Variable y, e' => if y = x then some e' else none
+    | .Let y a b, e' =>
+      if y = x then none
+      else findVar x n b e' <|> (findVar y n b e').bind fun a' => findVar x n a a'
+    | .FunctionInvocation _ _ es, .FunctionInvocation _ _ es' => all es es'
+    | .ADT _ _ es, .ADT _ _ es' => all es es'
+    | .IsConstructor a _, .IsConstructor a' _ => findVar x n a a'
+    | .ADTSelector a _, .ADTSelector a' _ => findVar x n a a'
+    | .Plus a b, .Plus a' (.Plus b' (.IntegerLiteral 0)) => all [a, b] [a', b']
+    | .Times a b, .Times a' (.Times b' (.IntegerLiteral 1)) => all [a, b] [a', b']
+    | e, e' =>
+      match kids e, kids e' with
+      | some (i, es), some (j, es') => if i == j then all es es' else none
+      | _, _ => none
+
 mutual
 /-- Whether `e` is lowered to `e'` with values of the kind `k`, in at most `n` steps of the
 check. -/
-def lowersCheck (S : LSig) : Nat → (Id → Option (Id × LK)) → Expr → Expr → LK → Bool
+def lowersCheck (S : LSig) : Nat → (Id → Option (Expr × LK)) → Expr → Expr → LK → Bool
   | 0, _, _, _, _ => false
   | n + 1, Γ, e, e', k =>
     match e, e' with
     | .Error, _ => true
-    | .Variable x, .Variable y =>
+    | .Variable x, e' =>
       match Γ x with
-      | some (y0, k0) => y0 == y && Sub k0 k
+      | some (y, k0) => exprEq 1000 y e' && Sub k0 k
       | none => false
+    | .Let x a b, e' =>
+      match findVar x 1000 b e' with
+      | some a' =>
+        (lowersCheck S n Γ a a' .int && lowersCheck S n (bindCtx Γ x (some (a', .int))) b e' k) ||
+        (lowersCheck S n Γ a a' .prim &&
+          lowersCheck S n (bindCtx Γ x (some (a', .prim))) b e' k) ||
+        (lowersCheck S n Γ a a' .any && lowersCheck S n (bindCtx Γ x (some (a', .any))) b e' k)
+      | none => lowersCheck S n (bindCtx Γ x none) b e' k
     | .IntegerLiteral a, .IntegerLiteral b => a == b && Sub .int k
     | .BooleanLiteral a, .BooleanLiteral b => a == b && Sub .prim k
     | .FractionLiteral a b, .FractionLiteral c d => a == c && b == d && Sub .prim k
@@ -1228,7 +1423,7 @@ def lowersCheck (S : LSig) : Nat → (Id → Option (Id × LK)) → Expr → Exp
 
 /-- Whether each of `es` is lowered to the expression of `es'` at its position, with any
 values. -/
-def lowersAll (S : LSig) : Nat → (Id → Option (Id × LK)) → List Expr → List Expr → Bool
+def lowersAll (S : LSig) : Nat → (Id → Option (Expr × LK)) → List Expr → List Expr → Bool
   | 0, _, _, _ => false
   | _ + 1, _, [], [] => true
   | n + 1, Γ, a :: es, a' :: es' => lowersCheck S n Γ a a' .any && lowersAll S n Γ es es'
@@ -1237,7 +1432,7 @@ def lowersAll (S : LSig) : Nat → (Id → Option (Id × LK)) → List Expr → 
 /-- Whether each of the arguments `es` is lowered to that of `es'` at its position, of the kind
 of `ks` at its position. -/
 def lowersArgs (S : LSig) :
-    Nat → (Id → Option (Id × LK)) → List Expr → List Expr → List LK → Bool
+    Nat → (Id → Option (Expr × LK)) → List Expr → List Expr → List LK → Bool
   | 0, _, _, _, _ => false
   | _ + 1, _, [], [], [] => true
   | n + 1, Γ, a :: es, a' :: es', k :: ks =>
@@ -1261,10 +1456,18 @@ theorem lowers_sound (S : LSig) : ∀ n : Nat,
       · exact .error _ _
       · split at h
         · next hx =>
-          simp only [Bool.and_eq_true, beq_iff_eq] at h
-          obtain ⟨rfl, hs⟩ := h
+          simp only [Bool.and_eq_true] at h
+          obtain ⟨he, hs⟩ := h
+          rw [← exprEq_eq _ _ _ he]
           exact .weaken (.var hx) hs
         · cases h
+      · split at h
+        · simp only [Bool.or_eq_true, Bool.and_eq_true] at h
+          rcases h with (⟨ha, hb⟩ | ⟨ha, hb⟩) | ⟨ha, hb⟩
+          · exact .letIn (ih _ _ _ _ ha) (ih _ _ _ _ hb)
+          · exact .letIn (ih _ _ _ _ ha) (ih _ _ _ _ hb)
+          · exact .letIn (ih _ _ _ _ ha) (ih _ _ _ _ hb)
+        · exact .letDrop (ih _ _ _ _ h)
       · simp only [Bool.and_eq_true, beq_iff_eq] at h
         obtain ⟨rfl, hs⟩ := h
         exact .weaken (.int _) hs

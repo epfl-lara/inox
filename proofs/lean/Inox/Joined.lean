@@ -116,28 +116,6 @@ def readInput (certificate : Sexp) : Except String InputRead := do
 
 /-! ## Matching the names -/
 
-/-- The operations whose operands are matched position by position, by a tag. -/
-def kids : Expr → Option (Nat × List Expr)
-  | .Plus a b => some (0, [a, b])
-  | .Minus a b => some (1, [a, b])
-  | .Times a b => some (2, [a, b])
-  | .UMinus a => some (3, [a])
-  | .Division a b => some (4, [a, b])
-  | .Remainder a b => some (5, [a, b])
-  | .Modulo a b => some (6, [a, b])
-  | .LessThan a b => some (7, [a, b])
-  | .GreaterThan a b => some (8, [a, b])
-  | .LessEquals a b => some (9, [a, b])
-  | .GreaterEquals a b => some (10, [a, b])
-  | .Equals a b => some (11, [a, b])
-  | .Not a => some (12, [a])
-  | .Implies a b => some (13, [a, b])
-  | .And es => some (14, es)
-  | .Or es => some (15, es)
-  | .IfExpr c a b => some (16, [c, a, b])
-  | .Assume p a => some (17, [p, a])
-  | _ => none
-
 /-- The names of the input matched with those of the lowered expressions: of variables, of
 functions, of constructors and of fields. -/
 structure Names where
@@ -158,6 +136,11 @@ def pairs : Nat → Expr → Expr → Names
       (es.zip es').foldl (fun acc (a, a') => acc.app (pairs n a a')) {}
     match e, e' with
     | .Variable x, .Variable y => { vars := [(x, y)] }
+    | .Let x a b, e' =>
+      let inner := pairs n b e'
+      match findVar x 1000 b e' with
+      | some a' => inner.app (pairs n a a')
+      | none => inner
     | .FunctionInvocation f _ es, .FunctionInvocation g _ es' =>
       ({ funs := [(f, g)] } : Names).app (all es es')
     | .ADT c _ es, .ADT c' _ es' => ({ ctors := [(c, c')] } : Names).app (all es es')
@@ -223,9 +206,9 @@ def Link.sig (L : Link) (R : InputRead) : LSig where
   fields f := L.σ.lookup f
 
 /-- The variables of the input that are matched, with their kinds. -/
-def Link.ctx (L : Link) (R : InputRead) : Id → Option (Id × LK) := fun x =>
+def Link.ctx (L : Link) (R : InputRead) : Id → Option (Expr × LK) := fun x =>
   match L.ρ.lookup x, R.vars.lookup x with
-  | some y, some T => some (y, kindOfTy T)
+  | some y, some T => some (.Variable y, kindOfTy T)
   | _, _ => none
 
 /-- The variable of the input that is matched with the variable `y` of the query. -/
@@ -305,12 +288,12 @@ def linkCheck (R : InputRead) (r : TermSteps) : Bool :=
           | some T' => primEq T' T
           | none => false) &&
         (match Γ x with
-          | some (y0, _) => y0 == y
-          | none => false)
+          | some (.Variable y0, _) => y0 == y
+          | _ => false)
       | none => false) &&
     L.ρ.all (fun (x, _) => match Γ x with
-      | some (y, _) => L.pre y == some x && Γt.any (·.1 == y)
-      | none => true) &&
+      | some (.Variable y, _) => L.pre y == some x && Γt.any (·.1 == y)
+      | _ => true) &&
     L.κ.all (fun (c, _) => match S.ctors c with
       | some c' => ctorCheck S R.ctors R.sorts ((dataOf r).flatMap ctorsOfData)
           ((dataOf r).map fun d => .Sort d.name [] none none) c c'
@@ -429,21 +412,22 @@ theorem no_input_solution {O : Oracle} (sound : LogosSound) (hO : O.Sound)
     obtain ⟨v, hv1, hv2⟩ := bind_lookup R.vars vs bs hbs hvs x T hx
     exact ⟨v, hv1, hv2, by simp only [g, hy, hv1]⟩
   obtain ⟨bs', hbs', hl'⟩ := bind_map g ((varsOf (sigsOf r.equations) r.query).map Prod.fst)
-  have hEnv : EnvOk (L.sig R).ctors (L.ctx R) (Env.Env [] bs) (Env.Env [] bs') := by
+  have hEnv : EnvOk O (programOf (dataOf r) r.equations) (L.sig R).ctors (L.ctx R)
+      (Env.Env [] bs) (Env.Env [] bs') := by
     intro x y k hx
     have hx' := hx
     unfold Link.ctx at hx'
     split at hx'
     · next y0 T h1 h2 =>
       cases hx'
-      have hc := hρ (x, y) (Inox.Lowered.mem_of_lookup h1)
+      have hc := hρ (x, y0) (Inox.Lowered.mem_of_lookup h1)
       simp only [hx, Bool.and_eq_true, beq_iff_eq, List.any_eq_true] at hc
       obtain ⟨hpre, y1, hy1, hy⟩ := hc
-      obtain ⟨v, hv1, hv2, hgv⟩ := hg x T y h2 hpre
+      obtain ⟨v, hv1, hv2, hgv⟩ := hg x T y0 h2 hpre
       have hk := has_of_hasV (hprim (x, T) (Inox.Lowered.mem_of_lookup h2)) hv2
-      refine ⟨v, v, hv1, ?_, .prim (prim_of_kind hk), hk⟩
-      rw [show lookup_var (env_vars (Env.Env [] bs')) y = lookup_var bs' y from rfl,
-        hl' y (List.mem_map.mpr ⟨y1, hy1, hy⟩), hgv]
+      refine ⟨v, hv1, hk, v, 0, .prim (prim_of_kind hk), fun _ _ => ?_⟩
+      rw [eval, show lookup_var (env_vars (Env.Env [] bs')) y0 = lookup_var bs' y0 from rfl,
+        hl' y0 (List.mem_map.mpr ⟨y1, hy1, hy⟩), hgv]
     · cases hx'
   have hvs' : List.Forall₂ (HasV (dataOf r))
       (((varsOf (sigsOf r.equations) r.query).map Prod.fst).map g)

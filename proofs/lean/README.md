@@ -1260,13 +1260,14 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   constraints and the functions of the input are lowered to the query and the
   program that Logos reads (`linkCheck`), no values of the variables of the
   input make all its constraints evaluate to `true` in its program. It covers
-  first-order inputs without lets nor type parameters, over integers, booleans,
-  reals and datatypes without invariants, whose constructors, testers and
-  selectors have other names in the reading of Logos: on the corpus, the 3
-  certificates of `error-is-infeasible` and those of
+  first-order inputs without type parameters, over integers, booleans, reals
+  and datatypes without invariants, whose constructors, testers and selectors
+  have other names in the reading of Logos, with lets, which the lowering
+  inlines or drops: on the corpus, the 3 certificates of `error-is-infeasible`,
+  the first 2 of `lets-and-assumptions-around-partial-terms` and the first of
   `real-division-by-zero-is-infeasible`, `arithmetic-over-partial-operands` and
-  `ground-terms-that-evaluate` (the first of each), as `inox-solution --input`
-  says. The encoders aren't in this theorem yet.
+  `ground-terms-that-evaluate`, as `inox-solution --input` says. The encoders
+  aren't in this theorem yet.
 - **The link between the proof and the script.** The checker checks that each
   assumption of the proof is the text of an assert of the script, up to how
   cvc5 prints testers (`(is C e)` for `((_ is C) e)`), once the terms that the
