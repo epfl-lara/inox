@@ -41,9 +41,11 @@ jobs:
       uses: leanprover/lean-action@v1
       with:
         lake-package-directory: proofs/lean/verification
+    # only its module: linking the executable compiles every module that it imports, Mathlib's
+    # included, to C, which takes longer than the theorems
     - name: Build the command that runs their checks
       working-directory: proofs/lean/verification
-      run: lake build inox-solution
+      run: lake build +SolutionMain
     - name: Build them on the proofs of Logos
       if: ${{ inputs.closed }}
       working-directory: proofs/lean/verification
