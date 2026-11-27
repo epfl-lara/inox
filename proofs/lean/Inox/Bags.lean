@@ -911,6 +911,7 @@ inductive Kind where
   | int
   | bool
   | bag
+  deriving DecidableEq
 
 /-- The value `v` of the input and the value `v'` of the encoded program are the same value,
 or `v'` encodes the bag `v`. -/
@@ -948,6 +949,7 @@ inductive Encodes (N : Names) (Γ : Id → Option Kind) (Te : Ty) :
       Encodes N Γ Te (.Equals a b) (.Equals a' b') .bool
   | eqInt {a a' b b' : Expr} (ha : Encodes N Γ Te a a' .int) (hb : Encodes N Γ Te b b' .int) :
       Encodes N Γ Te (.Equals a b) (.Equals a' b') .bool
+  | not {a a' : Expr} (ha : Encodes N Γ Te a a' .bool) : Encodes N Γ Te (.Not a) (.Not a') .bool
 
 section Expressions
 variable {O : Oracle} {P : Program} {N : Names} {K : Value → Prop} {E : Value → Value → Bool}
@@ -960,6 +962,17 @@ theorem eval_bag_ok {fuel : Int} {env : Env} {e : Expr} {b : Value}
   · next v hv =>
     split at h
     · next t xs => cases h; exact ⟨hv, t, xs, rfl⟩
+    · cases h
+  · cases h
+  · cases h
+
+theorem eval_bool_ok {fuel : Int} {env : Env} {e : Expr} {b : Bool}
+    (h : eval_bool O P fuel env e = .Ok b) : eval O P fuel env e = .Ok (.BoolV b) := by
+  rw [eval_bool] at h
+  split at h
+  · next v hv =>
+    split at h
+    · cases h; exact hv
     · cases h
   · cases h
   · cases h
@@ -1177,6 +1190,16 @@ theorem encodes_eval (hO : O.Sound) (hN : N.Distinct) (hP : HasBags N P) {inv bi
         · cases hv
       · cases hv
       · cases hv
+    · cases hv
+    · cases hv
+  | not _ iha =>
+    intro fuel v hv
+    simp only [eval] at hv
+    split at hv
+    · next a ha =>
+      cases hv
+      obtain ⟨_, n1, ⟨rfl, _⟩, e1⟩ := iha fuel _ (eval_bool_ok ha)
+      exact ⟨_, n1, ⟨rfl, _, rfl⟩, fun f hf => by simp only [eval, eval_bool, e1 f hf]⟩
     · cases hv
     · cases hv
 

@@ -1186,7 +1186,20 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   of it evaluates, with enough fuel, to the same value or to the encoding of
   the bag. It assumes the invariant of the datatype as the encoder defines
   it, and doesn't cover bag literals with elements, bags of bags, nor the
-  other expressions of a constraint yet.
+  other expressions of a constraint yet. [`Input.lean`](Inox/Input.lean)
+  reads the constraints of a certificate's input and their encoded terms as
+  expressions of the semantics, for these expressions only, and
+  `covers_encoded` states the theorem for them: where the constraints that
+  are read all evaluate to `true`, so do their encoded terms, in a program
+  that defines the encoder's datatype as the encoder does and on values of
+  the free variables that are the same, or a bag and its encoding.
+  `inox-solution --input` says how many constraints of each certificate that
+  covers, and what the first of the others has that isn't read. On the
+  corpus it covers none of the 36 constraints: 22 call functions of the
+  program or build its datatypes, 19 have conjunctions, 17 quantifiers and 14
+  implications, and the two with bags have calls and datatypes too. Nor is
+  this theorem joined to `no_solution_of_reached` yet, whose program has
+  neither sorts with type parameters nor sorts with an equality.
 - **The link between the proof and the script.** The checker checks that each
   assumption of the proof is the text of an assert of the script, up to how
   cvc5 prints testers (`(is C e)` for `((_ is C) e)`), once the terms that the
