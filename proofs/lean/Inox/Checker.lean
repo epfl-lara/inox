@@ -348,6 +348,7 @@ def check (certificate : Sexp) : Check Checked := do
       -- The simplification steps relate the sources to the original program. The Scala checker
       -- replays them; this checker doesn't yet, so its result holds over the simplified program.
       .expr (.atom "simplifications" :: _),
+      .expr (.atom "input" :: _),
       .expr (.atom "cpc" :: cpc)] =>
     if v != version then fail s!"the certificate has version {v}, and the checker checks version {version}"
     let clauses := assertsOf script

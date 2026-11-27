@@ -15,7 +15,9 @@ class StringEncoder private(override val sourceProgram: Program)
     stringDec(sourceProgram)(theory, stringBijection),
     theory.extraFunctions,
     theory.extraSorts
-  )
+  ) {
+  override def encoders: Seq[String] = Seq("strings")
+}
 
 /** Strings as lists of characters, which are unsigned bit-vectors of `charSize` bits whose values are at most
   * `maxChar`: models with larger characters are rejected.

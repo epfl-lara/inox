@@ -21,6 +21,8 @@ class PropEncoder private(override val sourceProgram: Program)
      with TheoryEncoder {
   def this(sourceProgram: Program) = this(sourceProgram)(sourceProgram.trees)(
     PropEncoder.eraser(sourceProgram.trees), new sourceProgram.trees.ConcreteIdentityTreeTransformer)
+
+  override def encoders: Seq[String] = Seq("propositions")
 }
 
 object PropEncoder {

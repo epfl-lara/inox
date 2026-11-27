@@ -94,6 +94,9 @@ class CertificateSuite extends AnyFunSuite {
         // the sources define the functions once, with the bodies that the templates unfold
         assert(text.contains("\n(source-definitions\n(") && text.contains("\n(define-fun") && text.contains("\n(source-symbols\n("), text)
         assert(text.contains("\n(rules\n") && text.contains("\n(Root "), text)
+        // the input: the encoders, the definitions before them, and the constraint with its encoding
+        assert(text.contains("\n(input\n(encoders \"propositions\"") && text.contains("\n(constraint ") &&
+          text.contains(" (encoded "), text)
         assert(text.contains("\n(Unfold (args (blocker "), text)
         // the rules have their arguments, and the symbols what they stand for
         val root = certificate.rules.find(_.kind == "Root").get

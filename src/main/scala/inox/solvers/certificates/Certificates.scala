@@ -4,6 +4,8 @@ package inox
 package solvers
 package certificates
 
+import scala.annotation.unchecked.uncheckedVariance
+
 /** Has the solvers that can produce proofs do so: the unrolling solver logs the rules that it
   * applies, and cvc5 runs with proofs. Proof production slows the solver down from its first
   * assertion, so that it is set only where proofs will be asked for: Inox sets it for an input
@@ -15,7 +17,13 @@ object Certificates {
     * asserted and the assumptions of the check that answered unsat, in the order of the asserts
     * of the solver's session, the rules that gave the clauses, and the templates that they
     * instantiate, which a rule names by their index. */
-  final case class Refutation[E](clauses: Seq[E], assumptions: Seq[Assumed[E]], templates: Seq[TemplateClauses[E]], rules: Seq[AppliedRule[E]])
+  final case class Refutation[E](clauses: Seq[E], assumptions: Seq[Assumed[E]], templates: Seq[TemplateClauses[E]], rules: Seq[AppliedRule[E]],
+                                 input: Option[Encoding[E]] = None)
+
+  /** What relates the sources of a refutation to the input of the solver: the constraints that
+    * were asserted, as terms of the program before the encoders `encoders`, which `printer`
+    * prints, each with the term that the encoders make of it. */
+  final case class Encoding[E](encoders: Seq[String], printer: Printer[E], constraints: Seq[(E, E)])
 
   /** An assumption of the check, and whether it states that an open conjunction or disjunction
     * is complete, which refutations may assume (see [[unrolling.OpenJunctions]]), or is one of
@@ -67,6 +75,12 @@ object Certificates {
       * definition, as the definition prints them. Printing them may define more functions, whose
       * original bodies are printed too. */
     def originals: Seq[(SExpr, SExpr, Seq[(String, SExpr)])] = Seq()
+    /** The printer of the input of the session: of the terms of `program`, the program before
+      * the encoders that give the session's, as sources, where the symbols of the identifiers
+      * that the session's program keeps are those of this printer, and a variable `v` is the
+      * variable `encode(v)` of the session. Its declarations are those of the input. None when
+      * the printer prints no input, or not that of this program. */
+    def input(program: Program, encode: (E @uncheckedVariance) => (E @uncheckedVariance)): Option[Printer[E]] = None
 
     /** The sort, as the printer of the sources prints it, of the type that a symbol stands for
       * when the symbol of the session that stands for an expression depends on its type: the
@@ -129,6 +143,16 @@ object Certificates {
     * (simplifications
     * <the original bodies and expressions that the solver simplified, and the steps that rewrite them>
     * )
+    * (input
+    * (encoders "<name>" ...)
+    * (definitions
+    * <the declarations of the datatypes and the definitions of the functions of the input>
+    * )
+    * (constraint <a constraint of the input> (encoded <what the encoders make of it>))
+    * ...
+    * (symbols
+    * (<symbol of the input> <kind> "<identifier, type or index>" ... [<sort>])
+    * ...))
     * (cpc
     * <the solver's CPC proof that the script has no model>
     * ))
@@ -165,7 +189,7 @@ object Certificates {
     * assert is named, and the proof (see `proofs/certificates`). */
   def certificate[E](proof: ScriptProof, refutation: Refutation[E], printer: Printer[E],
                      functionEquality: String = "none"): Either[String, Certificate] = {
-    val Refutation(clauses, assumptions, templates, rules) = refutation
+    val Refutation(clauses, assumptions, templates, rules, encoding) = refutation
     val asserts = proof.asserts.size
     val ruled = rules.flatMap(_.clauses).toSet
     if (asserts != clauses.size + assumptions.size) {
@@ -216,7 +240,18 @@ object Certificates {
       def ofSources(ref: Ref) = ref.isInstanceOf[Ref.Variable] || ref.isInstanceOf[Ref.Uninterpreted]
       val solverSorts = sorts(certificate.solverSymbols.map(_._2).filterNot(_.isInstanceOf[Ref.Variable]))
       val sourceSorts = sorts(certificate.copy(sourceDefinitions = printer.declarations).sourceSymbols.map(_._2).filter(ofSources))
-      Right(certificate.copy(sourceDefinitions = printer.declarations, solverSorts = solverSorts, sourceSorts = sourceSorts))
+      // the input: its constraints are printed by its printer, whose declarations they make, and
+      // what the encoders make of them are sources
+      val input = encoding.map { case Encoding(encoders, inputPrinter, constraints) =>
+        val before = inputPrinter.printSources(constraints.map(_._1)).terms
+        val after = printer.printSources(constraints.map(_._2)).terms
+        val in = Input(encoders, inputPrinter.declarations, (before zip after).map { case (b, a) => Constraint(b, a) })
+        val inputSorts = in.symbols.map(_._2).filter(ofSources).distinct.flatMap(ref => inputPrinter.sort(ref).map(ref -> _)).toMap
+        // the sorts may declare more datatypes
+        in.copy(definitions = inputPrinter.declarations, sorts = inputSorts)
+      }
+      Right(certificate.copy(sourceDefinitions = printer.declarations, solverSorts = solverSorts, sourceSorts = sourceSorts,
+        input = input))
     } catch {
       case e: Throwable if !e.isInstanceOf[VirtualMachineError] =>
         Left(s"the certificate's terms or sources can't be printed in SMT-LIB (${e.getMessage})")

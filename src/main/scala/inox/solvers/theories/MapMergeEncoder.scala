@@ -10,7 +10,9 @@ class MapMergeEncoder private(override val sourceProgram: Program)
     sourceProgram,
     mapMergeEnc(sourceProgram)(theory),
     mapMergeDec(sourceProgram)(theory),
-    theory.extraFunctions)
+    theory.extraFunctions) {
+  override def encoders: Seq[String] = Seq("map-merge")
+}
 
 private class MapMergeTheory[Trees <: ast.Trees](val trees: Trees) {
   import trees._

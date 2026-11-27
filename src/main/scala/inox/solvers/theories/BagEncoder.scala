@@ -18,7 +18,9 @@ class BagEncoder private
     bagEnc(sourceProgram)(theory)(evaluator).asInstanceOf,
     bagDec(sourceProgram)(theory)(evaluator).asInstanceOf,
     theory.extraFunctions,
-    theory.extraSorts)
+    theory.extraSorts) {
+  override def encoders: Seq[String] = Seq("bags")
+}
 
 private class BagTheory[Trees <: ast.Trees](val trees: Trees) {
   import trees._

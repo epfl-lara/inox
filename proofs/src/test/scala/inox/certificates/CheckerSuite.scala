@@ -58,6 +58,7 @@ class CheckerSuite extends AnyFunSuite {
       |(simplifications
       |(function-equality none)
       |)
+      |(input)
       |(cpc
       |(assume @p1 start)
       |(define @t1 () (> x 0))

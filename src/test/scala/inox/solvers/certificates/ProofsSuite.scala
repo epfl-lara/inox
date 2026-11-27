@@ -91,6 +91,7 @@ class ProofsSuite extends AnyFunSuite {
           "(assumptions (query 2) (complete 3))\n" +
           s"(solver-symbols\n(c0 variable \"${x.id.uniqueName}\" \"BigInt\")\n)\n" +
           "(source-definitions\n)\n(source-symbols\n)\n(simplifications\n(function-equality none)\n)\n" +
+          "(input)\n" +
           "(cpc\n(assume @p1 c0)\n))")
       case Left(why) => fail(why)
     }

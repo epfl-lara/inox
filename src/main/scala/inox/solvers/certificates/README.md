@@ -3,7 +3,7 @@
 A `(get-proof)` after a `(check-sat)` that Inox answers `unsat` prints the
 certificate of that query on standard output:
 
-    (inox-certificate 3
+    (inox-certificate 5
     (script
     <the SMT-LIB script of the clauses that the unrolling solver checked>
     )
@@ -27,6 +27,16 @@ certificate of that query on standard output:
     (source-symbols
     (<symbol of the sources> <kind> "<identifier, type or index>" ... [<sort>])
     ...)
+    (input
+    (encoders "<name>" ...)
+    (definitions
+    <the SMT-LIB 3 declarations of the datatypes and definitions of the functions of the input>
+    )
+    (constraint <a constraint of the input> (encoded <what the encoders make of it>))
+    ...
+    (symbols
+    (<symbol of the input> <kind> "<identifier, type or index>" ... [<sort>])
+    ...))
     (cpc
     <cvc5's proof that the script has no model>
     ))
@@ -114,9 +124,23 @@ otherwise.
 The checker checks that the clauses of the template are those of its source: they
 name the values of its subexpressions and the paths that lead to them. Every
 template has a source, that of a type, a lambda or a quantifier included; when
-the solver can't print the source of a template, there is no certificate. The
-certificate doesn't yet hold the input query and the encoding of its program
-either, which relate the sources to the input.
+the solver can't print the source of a template, there is no certificate.
+
+The input is what the solver was given, before its encoders: the program of
+the session is the program of the input after the encoders that `encoders`
+names, in their order (`propositions`, which makes propositions Booleans,
+`bags`, which makes a bag a datatype with a function for its multiplicities,
+`map-merge`, and for other solvers `strings`, `sets` and `reals`; see
+`solvers.theories`). The definitions are those of the datatypes and functions
+of the input that its constraints mention, each constraint is one that was
+asserted, with the term that the encoders make of it, and the symbols say
+what those of the input stand for, as the source symbols do: a symbol of the
+input and one of the sources that stand for the same identifier are the
+function, the sort or the variable before and after the encoders. The input is
+`(input)` when the solver's program is not one that the session's printer
+prints. The certificate doesn't yet relate the encoded constraints to the
+sources of the templates, which are what the solver's simplifications make of
+them, nor the definitions of the input to the source definitions.
 
 A source names what its body doesn't have with markers (`unrolling.TemplateGenerator.markers`), whose
 meanings a `(where (<marker> <meaning>) ...)` after the body gives. A marker
