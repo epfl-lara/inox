@@ -234,6 +234,8 @@ apart from the solver. From the text of a certificate, it checks that:
   introduced once;
 - the clauses of each template are those of its source, once the source is
   lowered to the syntax of the script;
+- each encoded constraint of the input is what the named encoders make of its
+  constraint;
 - the proof's `assume` commands are asserts of the script.
 
 Ethos then checks the proof. The checker also exists in Lean

@@ -303,10 +303,13 @@ object Checker {
       SList(Atom("source-definitions") :: sourceDefinitions),
       SList(Atom("source-symbols") :: sourceSymbols),
       SList(Atom("simplifications") :: simplifications),
-      SList(Atom("input") :: _),
+      SList(Atom("input") :: input),
       SList(Atom("cpc") :: cpc))) =>
 
       if (version != Version) fail(s"the certificate has version $version, and the checker checks version $Version")
+
+      // the constraints of the input are encoded as the certificate states
+      Encoders.check(input, sourceSymbols)
 
       val clauses = asserts(script)
       val templateClauses = asserts(templateScript)
