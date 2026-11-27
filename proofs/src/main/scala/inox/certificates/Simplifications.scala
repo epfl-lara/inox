@@ -677,6 +677,80 @@ object Simplifications {
     }
   }
 
+  // Reduction
+
+  /** The reduction of closed terms to values that are written as terms: literals, lambdas and
+    * constructions of values. It gives the values that the evaluator doesn't compare, those of
+    * functions, as the lambdas that the calls of functions make of their arguments.
+    *
+    * A call is the body of its function with the values of its arguments for its parameters, a
+    * `let` is its body with the values of its bindings, a conditional is its branch, and a
+    * selection of a construction of values is its field, under lambdas too. Each of these has the
+    * value of the term, wherever the term has one. */
+  private final class Reduction(program: Program) {
+    private var fuel = 2000
+
+    private def literal(t: SExpr): Boolean = t match {
+      case Atom(x) => x == "true" || x == "false" || x.headOption.exists(c => c.isDigit || c == '#' || c == '"')
+      case SList(List(Atom("-"), Atom(x))) => x.headOption.exists(_.isDigit)
+      case _ => false
+    }
+
+    private def value(t: SExpr): Boolean = literal(t) || (t match {
+      case SList(Atom("lambda") :: _) => true
+      case Atom(c) => program.constructors.contains(c)
+      case _ => program.construction(t).exists(_._2.forall(value))
+    })
+
+    /** `t` where the selections of constructions of values are their fields. */
+    private def selected(t: SExpr): SExpr = t match {
+      case SList(items) => SList(items.map(selected)) match {
+        case Applied(sel, List(c)) if value(c) && program.construction(c).exists((cons, _) => program.selectors.get(sel).exists(_._1 == cons)) =>
+          program.construction(c).get._2(program.selectors(sel)._2)
+        case r => r
+      }
+      case a => a
+    }
+
+    private def reduce(t: SExpr): Option[SExpr] = {
+      fuel -= 1
+      if (fuel < 0) None else t match {
+        case _ if literal(t) => Some(t)
+        case SList(Atom("lambda") :: _) => Some(selected(t))
+        case Atom(c) if program.constructors.contains(c) => Some(t)
+        case Atom(f) if program.functions.get(f).exists(fn => fn.params.isEmpty && fn.tparams.isEmpty) => reduce(program.functions(f).body)
+        case SList(List(Atom("let"), SList(bindings), body)) =>
+          val values = bindings.map {
+            case SList(List(Atom(x), v)) => reduce(v).map(x -> _)
+            case _ => None
+          }
+          if (values.exists(_.isEmpty)) None else reduce(subst(body, values.flatten.toMap))
+        case SList(List(Atom("ite"), c, a, b)) => reduce(c) match {
+          case Some(Atom("true")) => reduce(a)
+          case Some(Atom("false")) => reduce(b)
+          case _ => None
+        }
+        case SList(Atom(k) :: _) if keywords(k) => None
+        case SList(head :: args) if args.nonEmpty =>
+          val values = args.map(reduce)
+          if (values.exists(_.isEmpty)) None else SList(head :: values.flatten) match {
+            case c if program.construction(c).nonEmpty => Some(c)
+            case Applied(f, vs) if program.functions.get(f).exists(fn => fn.tparams.isEmpty && fn.params.size == vs.size) =>
+              reduce(subst(program.functions(f).body, program.functions(f).params.zip(vs).toMap))
+            case r => Some(selected(r)).filter(value)
+          }
+        case _ => None
+      }
+    }
+
+    /** Whether the closed term `a` reduces to the value `b`. */
+    def gives(a: SExpr, b: SExpr): Boolean =
+      try value(b) && reduce(a).exists(alpha(_, b))
+      // a term that is not closed, whose variables a substitution would capture, or that nests
+      // deeper than the stack
+      catch { case _: Failure | _: StackOverflowError => false }
+  }
+
   // Steps
 
   /** Checks the steps of `simplifications`, the section of a certificate, where the program is the
@@ -904,7 +978,9 @@ object Simplifications {
         same match {
           case Some(true) =>
           case Some(false) => fail(s"no evaluate step at ${deepest.mkString("(", " ", ")")} gives $subterm: ${at(term, deepest)} has another value")
-          case None => unknown += rule
+          // the value of a function is the lambda that the term reduces to
+          case None =>
+            if (!deepest.inits.exists(pos => new Reduction(program).gives(at(term, pos), at(rewritten, pos)))) unknown += rule
         }
       }
       else if (attempted.contains(rule)) {

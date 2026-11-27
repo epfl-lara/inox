@@ -21,7 +21,10 @@ class SimplificationsSuite extends AnyFunSuite {
       |(declare-datatypes ((Pos 0)) (((pos (pv Int)))))
       |(datatype-invariant q Pos (positive (pv q)))
       |(define-fun positive ((y Int)) Bool (> y 0))
-      |(define-fun inv ((r Pos)) Bool (positive (pv r)))""".stripMargin)
+      |(define-fun inv ((r Pos)) Bool (positive (pv r)))
+      |(declare-datatypes ((Box 0)) (((box (get (-> Int Bool))))))
+      |(define-fun single ((a Int)) Box (box (lambda ((z Int)) (= z a))))
+      |(define-fun both ((b Box) (c Box)) Box (box (lambda ((z Int)) (or (@ (get b) z) (@ (get c) z)))))""".stripMargin)
 
   /** Checks that `steps` rewrite `original` into the expression `simplified`. */
   def check(original: String, simplified: String, steps: String, equality: String = "none"): Either[String, List[String]] =
@@ -339,6 +342,22 @@ class SimplificationsSuite extends AnyFunSuite {
 
   test("An evaluation of a construction is that of the invariant of its sort") {
     holds("(= x (pv (pos 1)))", "(= x 1)", "(steps (evaluate (2) 1))")
-    reported("(= x (pv (pos 0)))", "(= x 0)", "(steps (evaluate (2) 0))")
+    // a construction whose invariant doesn't hold has no value, which the field of a selection refines
+    holds("(= x (pv (pos 0)))", "(= x 0)", "(steps (evaluate (2) 0))")
+    reported("(= u (pos 0))", "(= u (pos 1))", "(steps (evaluate (2) (pos 1)))")
+  }
+
+  test("An evaluation to a function gives the lambda that the term reduces to") {
+    val (one, two) = ("(lambda ((z Int)) (= z 1))", "(lambda ((z Int)) (= z 2))")
+    holds("(= u (single 1))", s"(= u (box $one))", s"(steps (evaluate (2) (box $one)))")
+    // a selection of a construction of values is its field, under the lambda too
+    val or = s"(box (lambda ((z Int)) (or (@ $one z) (@ $two z))))"
+    holds("(= u (both (single 1) (single 2)))", s"(= u $or)", s"(steps (evaluate (2) $or))")
+    holds("(= u (let ((s (single 1))) (get s)))", s"(= u $one)", s"(steps (evaluate (2) $one))")
+    // another lambda is not known to be the value, nor is a term that is not a value
+    reported("(= u (single 1))", s"(= u (box $two))", s"(steps (evaluate (2) (box $two)))")
+    reported("(= u (single 1))", "(= u (single (+ 0 1)))", "(steps (evaluate (2) (single (+ 0 1))))")
+    // and a term with variables doesn't reduce
+    reported("(= u (single x))", "(= u (box (lambda ((z Int)) (= z x))))", "(steps (evaluate (2) (box (lambda ((z Int)) (= z x)))))")
   }
 }

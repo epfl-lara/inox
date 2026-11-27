@@ -126,7 +126,10 @@ rule of `unrolling.RuleKernel` builds. Two things are left to the reader:
   the certificate then holds over the simplified program only, which the
   checker says with the rules. This is the case of the evaluation of a term
   that the generated evaluator gives no value to (it covers a fragment of
-  Inox, and doesn't compare functions), and of the steps that a simplifier
+  Inox, and doesn't compare functions) and that doesn't reduce to the value
+  either (the checker reduces calls, bindings, conditionals and selections
+  to literals, lambdas and constructions, which is how it checks the values
+  of functions), and of the steps that a simplifier
   can't tell are ones of `logic`, which the checker checks as such, and
   reports when they are not: an assumption that is lifted out of a binder
   (`lift-assumptions`, a step of `logic` out of a quantifier over sorts
