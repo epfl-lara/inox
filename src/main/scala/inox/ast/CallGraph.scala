@@ -49,6 +49,22 @@ trait CallGraph {
     g
   }
 
+  /** The function `id` and the functions it calls transitively. Unlike [[transitiveCallees]], this only
+    * visits the functions that `id` reaches instead of computing the call graph of the whole program. */
+  def reachableFunctions(id: Identifier): Set[Identifier] = {
+    var seen = Set(id)
+    var todo = List(id)
+    while (todo.nonEmpty) {
+      val fid = todo.head
+      todo = todo.tail
+      for (callee <- collectCalls(symbols.getFunction(fid)) if !seen(callee)) {
+        seen += callee
+        todo = callee :: todo
+      }
+    }
+    seen
+  }
+
   @inline def callGraph: DiGraph[Identifier, SimpleEdge[Identifier]] = _callGraph.get
   private val _callGraph: Lazy[DiGraph[Identifier, SimpleEdge[Identifier]]] = Lazy(computeCallGraph)
 

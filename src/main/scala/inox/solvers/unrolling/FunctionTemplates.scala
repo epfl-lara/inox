@@ -267,8 +267,8 @@ trait FunctionTemplates { self: Templates =>
   /** Whether calls of `tfd` can reach an uninterpreted function, in which case ground calls of
     * `tfd` can't be evaluated. */
   private def callsUninterpreted(tfd: TypedFunDef): Boolean = functionCaches.uninterpreted.getOrElseUpdate(tfd.id,
-    (transitiveCallees(tfd.fd) + tfd.fd).exists { fd =>
-      exprOps.exists { case _: UninterpretedCall => true case _ => false } (fd.fullBody)
+    reachableFunctions(tfd.id).exists { fid =>
+      exprOps.exists { case _: UninterpretedCall => true case _ => false } (getFunction(fid).fullBody)
     })
 
   /** Records that the equality symbol of `tpe` is constrained on some terms, by an unfolded equality

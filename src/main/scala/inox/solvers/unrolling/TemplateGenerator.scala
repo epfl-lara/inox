@@ -955,7 +955,14 @@ trait TemplateGenerator { self: Templates =>
   private val callsMayFalsifyPath: MutableMap[Identifier, Boolean] = MutableMap.empty
 
   private def callMayFalsifyPath(id: Identifier): Boolean = callsMayFalsifyPath.getOrElseUpdate(id,
-    (transitiveCallees(id) + id).exists(fid => exprOps.exists(containsAssumption)(getFunction(fid).fullBody)))
+    reachableFunctions(id).exists(fid => exprOps.exists(containsAssumption)(getFunction(fid).fullBody)))
+
+  private val reachable: MutableMap[Identifier, Set[Identifier]] = MutableMap.empty
+
+  /** The functions that calls of `id` reach. The symbols of each solver are new, so their call graph, which
+    * covers the whole program, would be computed again for each solver. */
+  private[unrolling] def reachableFunctions(id: Identifier): Set[Identifier] =
+    reachable.getOrElseUpdate(id, program.symbols.reachableFunctions(id))
 
   /** Whether checking that a value belongs to `tpe` may falsify the path condition. */
   private def mayFalsifyPath(tpe: Type): Boolean = typeOps.exists {
