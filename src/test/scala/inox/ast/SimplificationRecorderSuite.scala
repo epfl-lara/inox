@@ -260,7 +260,9 @@ class SimplificationRecorderSuite extends AnyFunSuite with DatastructureUtils {
     val (a, b) = (Variable.fresh("a", tp), Variable.fresh("b", tp))
     val distinct = Forall(Seq(a.toVal), Not(Equals(a, b)))
     // a disjunction holds for all values of a type that has none, as the quantifier does
-    assert(rules(Forall(Seq(i.toVal), Or(distinct, GreaterThan(i, y)))) == Seq("prenex"))
+    assert(rules(Forall(Seq(i.toVal), Or(GreaterThan(i, y), distinct))) == Seq("prenex"))
+    // not from an operand of a disjunction before the last one
+    assert(rules(Forall(Seq(i.toVal), Or(distinct, GreaterThan(i, y)))) == Seq())
     assert(rules(Forall(Seq(i.toVal), And(distinct, GreaterThan(i, y)))) == Seq())
   }
 

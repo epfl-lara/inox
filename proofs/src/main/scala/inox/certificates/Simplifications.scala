@@ -1175,12 +1175,14 @@ object Simplifications {
     case "prenex" => lhs match {
       case Binder("forall", names, decls, SList(Atom(op @ ("and" | "or" | "=>")) :: operands)) =>
         // The quantifiers that come out are operands that may: not the premise of an implication,
-        // where the quantifier would be an existential one, and over sorts that have values when
+        // where the quantifier would be an existential one, nor an operand of a disjunction
+        // before the last one, which may be false where the disjunction holds while its body has
+        // no value for some values and is false for others, and over sorts that have values when
         // they are operands of a conjunction: a quantifier over a sort without values holds, as
         // does the one that it comes out into, but the conjunction may not. The others stay, and
         // so may any: the step is one for some of those that may come out.
         val candidates = operands.zipWithIndex.collect {
-          case (Binder("forall", _, ds, _), i) if !(op == "=>" && i < operands.size - 1) && (op != "and" || ds.forall {
+          case (Binder("forall", _, ds, _), i) if !((op == "=>" || op == "or") && i < operands.size - 1) && (op != "and" || ds.forall {
             case SList(List(_, sort)) => program.inhabited(sort)
             case _ => false
           }) => i
