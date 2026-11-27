@@ -1441,7 +1441,12 @@ trait SymbolOps extends TypeOps { self =>
     //    `forall x. (forall y. p) ==> q` is `forall x. exists y. p ==> q`;
     //  - a quantifier over a type without values holds, whereas the conjunction that it is an
     //    operand of may not: `forall x. (forall y. p) && q` is `forall x. q` then, and
-    //    `forall x, y. p && q` holds. Type parameters may be instantiated with such types.
+    //    `forall x, y. p && q` holds. Type parameters may be instantiated with such types;
+    //  - a quantifier that is not the last operand of a disjunction may be false where the
+    //    disjunction holds, while the operands after it are evaluated with its body for each
+    //    value, which may have no value for some and be false for others: `forall x. (forall
+    //    y. p) || q` holds when `p` is false for some `y` and `q` holds, and `forall x, y. p || q`
+    //    has no value when `p` has none for another `y`.
     def liftForalls(es: Seq[Expr], recons: Seq[Expr] => Expr, lifted: (Forall, Int) => Boolean): Expr = {
       val (allArgs, allBodies) = es.zipWithIndex.map {
         case (f: Forall, i) if lifted(f, i) =>
@@ -1476,7 +1481,7 @@ trait SymbolOps extends TypeOps { self =>
         if (r.active) r.rewrite("merge", Forall(args ++ args2, body))
         simpForall(args ++ args2, body, r)
       case And(es) => liftForalls(es, andJoin, (f, _) => f.params.forall(vd => certifiablyInhabited(vd.tpe)))
-      case Or(es) => liftForalls(es, orJoin, (_, _) => true)
+      case Or(es) => liftForalls(es, orJoin, (_, i) => i == es.size - 1)
       case Implies(l, r) => liftForalls(Seq(l, r), es => implies(es(0), es(1)), (_, i) => i == 1)
       case _ => recordedForall(args, body, r)
     }

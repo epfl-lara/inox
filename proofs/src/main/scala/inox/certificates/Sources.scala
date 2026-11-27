@@ -292,7 +292,14 @@ object Sources {
     }
     // the meanings that the source gives: of terms of its body, such as the typing of a value,
     // and of symbols of the template
-    val termMeanings: Map[SExpr, SExpr] = source.where.collect { case (l: SList, r) => l -> r }.toMap
+    // a term is also written with the terms that the symbols of the template are named for, such
+    // as the typing of a value that a symbol is named for
+    val named: Map[SExpr, SExpr] = source.where.collect { case (l: Atom, r) if l != True && l != False => l -> r }.toMap
+    def unname(e: SExpr, seen: Set[SExpr] = Set.empty): SExpr = e match {
+      case a: Atom => named.get(a).filterNot(_ => seen(a)).map(unname(_, seen + a)).getOrElse(a)
+      case SList(items) => SList(items.map(unname(_, seen)))
+    }
+    val termMeanings: Map[SExpr, SExpr] = source.where.collect { case (l: SList, r) => l -> r }.flatMap((l, r) => List(unname(l) -> r, l -> r)).toMap
     def unmark(e: SExpr, seen: Set[SExpr] = Set.empty): SExpr = termMeanings.get(e) match {
       case Some(r) =>
         if (seen(e)) untraced(s"the meaning of $e is given from itself")

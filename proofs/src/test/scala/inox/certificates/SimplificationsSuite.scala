@@ -299,9 +299,17 @@ class SimplificationsSuite extends AnyFunSuite {
       "(steps (lift-assumptions () (assume p (= h (lambda ((k Int)) (+ x k))))))")
   }
 
+  test("A quantifier comes out of the last operand of a disjunction only") {
+    // `(forall y. p)` may be false for some `y` and stuck for another, where `q` holds
+    refused("(forall ((x Int)) (or (forall ((y Int)) (assume (> y x) p)) q))", "(forall ((x Int) (y Int)) (or (assume (> y x) p) q))",
+      "(steps (prenex () (forall ((x Int) (y Int)) (or (assume (> y x) p) q))))")
+    holds("(forall ((x Int)) (or q (forall ((y Int)) (assume (> y x) p))))", "(forall ((x Int) (y Int)) (or q (assume (> y x) p)))",
+      "(steps (prenex () (forall ((x Int) (y Int)) (or q (assume (> y x) p)))))")
+  }
+
   test("A quantifier comes out of a disjunction over a sort that may have no values") {
-    holds("(forall ((x Int)) (or (forall ((y T)) p) (> x 0)))", "(forall ((x Int) (y T)) (or p (> x 0)))",
-      "(steps (prenex () (forall ((x Int) (y T)) (or p (> x 0)))))")
+    holds("(forall ((x Int)) (or (> x 0) (forall ((y T)) p)))", "(forall ((x Int) (y T)) (or (> x 0) p))",
+      "(steps (prenex () (forall ((x Int) (y T)) (or (> x 0) p))))")
     holds("(forall ((x Int)) (=> (> x 0) (forall ((y T)) p)))", "(forall ((x Int) (y T)) (=> (> x 0) p))",
       "(steps (prenex () (forall ((x Int) (y T)) (=> (> x 0) p))))")
   }

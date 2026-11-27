@@ -155,6 +155,14 @@ class SourcesSuite extends AnyFunSuite {
     assert(traced("start x", source, clauses.map(c => if (c == "(=> start (= e (> x 1)))") "(=> start (= e (> x 2)))" else c)*).isLeft)
   }
 
+  test("The meaning of a term is also that of the term written with what its symbols are named for") {
+    // the value that the source assumes is typed is named `u`, and the meaning of its typing is `h`
+    def source(where: (String, String)*) = Expression(term("(assume (typing (f x)) true)"), where.toList.map((l, r) => term(l) -> term(r)))
+    val clauses = Seq("(=> start true)", "(=> start k)")
+    assert(traced("start x", source("k" -> "h", "(typing u)" -> "h", "u" -> "(f x)"), clauses*).isRight)
+    assert(traced("start x", source("k" -> "h", "(typing u)" -> "h", "u" -> "(g x)"), clauses*).isLeft)
+  }
+
   test("The meanings of a source are of its symbols and terms, never of a literal or of themselves") {
     assert(traced("start y", Expression(term("(= y 0)"), List(Atom("true") -> term("(= y 1)"))), "(=> start (= y 0))").isLeft)
     assert(traced("start y", Expression(term("(= y v)"), List(Atom("v") -> term("(+ v 1)"))), "(=> start (= y v))").isLeft)
