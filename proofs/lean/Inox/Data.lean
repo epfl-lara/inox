@@ -323,7 +323,7 @@ noncomputable def trV (D : List Data) : Value → SmtValue
   | .RealV n d => .Real (native_rat_to_real (ratOf n d))
   | .BVV _ w x => .Binary w x
   | .SetV A xs => .Set (setOf (trT D A) (trVl D xs))
-  | .ADTV c vs =>
+  | .ADTV c _ vs =>
     match findCtor D c with
     | some (d, i, _) => trVs D (.DtCons (nm d.name) d.decl i) vs
     | none => .NotValue
@@ -351,8 +351,9 @@ def HasV (D : List Data) : Value → Ty → Prop
   | .BoolV _, .BooleanType => True
   | .RealV n d, .RealType => ∃ q : ℚ, n = q.num ∧ d = q.den
   | .BVV s' w' x, .BVType s w => s' = s ∧ w' = w ∧ 0 < w ∧ 0 ≤ x ∧ x < 2 ^ w.toNat
-  | .ADTV c vs, .ADTType s [] =>
-    ∃ d i fs, findCtor D c = some (d, i, fs) ∧ d.name = s ∧ HasVs D vs (fs.map Prod.snd)
+  | .ADTV c tps vs, .ADTType s [] =>
+    tps = [] ∧
+      ∃ d i fs, findCtor D c = some (d, i, fs) ∧ d.name = s ∧ HasVs D vs (fs.map Prod.snd)
   | .SetV B xs, .SetType A => B = A ∧ FragTy D A ∧ HasVall D xs A
   | _, _ => False
 
@@ -433,20 +434,20 @@ theorem hasV_bool {D : List Data} {v : Value} (h : HasV D v .BooleanType) :
 
 /-- A value of a datatype is a constructor of it with values of the types of its fields. -/
 theorem hasV_data {D : List Data} {v : Value} {s : Id} (h : HasV D v (.ADTType s [])) :
-    ∃ c vs d i fs, v = .ADTV c vs ∧ findCtor D c = some (d, i, fs) ∧ d.name = s ∧
+    ∃ c vs d i fs, v = .ADTV c [] vs ∧ findCtor D c = some (d, i, fs) ∧ d.name = s ∧
       List.Forall₂ (HasV D) vs (fs.map Prod.snd) := by
   cases v <;> try no_hasV h
-  case ADTV c vs =>
+  case ADTV c tps vs =>
     simp only [HasV] at h
-    obtain ⟨d, i, fs, hc, hs, hvs⟩ := h
+    obtain ⟨rfl, d, i, fs, hc, hs, hvs⟩ := h
     exact ⟨c, vs, d, i, fs, rfl, hc, hs, hasVs_iff.mp hvs⟩
 
 theorem hasV_adt {D : List Data} {c : Id} {vs : List Value} {d : Data} {i : Nat}
     {fs : List (Id × Ty)} (hc : findCtor D c = some (d, i, fs))
     (hvs : List.Forall₂ (HasV D) vs (fs.map Prod.snd)) :
-    HasV D (.ADTV c vs) (.ADTType d.name []) := by
+    HasV D (.ADTV c [] vs) (.ADTType d.name []) := by
   simp only [HasV]
-  exact ⟨d, i, fs, hc, rfl, hasVs_iff.mpr hvs⟩
+  exact ⟨trivial, d, i, fs, hc, rfl, hasVs_iff.mpr hvs⟩
 
 /-- A value of a type of sets is a set of that type, of elements of the type of its elements. -/
 theorem hasV_set {D : List Data} {v : Value} {A : Ty} (h : HasV D v (.SetType A)) :
@@ -605,7 +606,7 @@ theorem agrees_adt {D : List Data} (hD : DataOk D) (uc : SmtUSortDom) {c : Id}
     {vs : List Value} {d : Data} {i : Nat} {fs : List (Id × Ty)}
     (hc : findCtor D c = some (d, i, fs))
     (ih : List.Forall₂ (ValueOk D uc) vs (fs.map Prod.snd)) :
-    ValueOk D uc (.ADTV c vs) (.ADTType d.name []) := by
+    ValueOk D uc (.ADTV c [] vs) (.ADTType d.name []) := by
   obtain ⟨hd, hi⟩ := findCtor_spec hc
   have hfs : ∀ f ∈ fs, FragTy D f.2 := hD.fields d hd (c, fs) (List.mem_of_getElem? hi)
   simp only [ValueOk, trV, hc, trVs_eq, trT_data hD hd]
@@ -712,7 +713,8 @@ theorem trV_adt_eq {D : List Data} (hD : DataOk D) {c c' : Id} {xs ys : List Val
     {d d' : Data} {i i' : Nat} {fs fs' : List (Id × Ty)} (hc : findCtor D c = some (d, i, fs))
     (hc' : findCtor D c' = some (d', i', fs')) (hl : xs.length = fs.length)
     (hl' : ys.length = fs'.length) :
-    trV D (.ADTV c xs) = trV D (.ADTV c' ys) ↔ c = c' ∧ xs.map (trV D) = ys.map (trV D) := by
+    trV D (.ADTV c [] xs) = trV D (.ADTV c' [] ys) ↔
+      c = c' ∧ xs.map (trV D) = ys.map (trV D) := by
   simp only [trV, hc, hc', trVs_eq]
   constructor
   · intro h
@@ -947,7 +949,7 @@ theorem typed_inv_k {D : List Data} (hD : DataOk D) (hR : RealFree D)
                   (fun b hb => hcan b (.tail _ hb)) fun b hb => hsz b (.tail _ hb))
         obtain ⟨vs, hvs, rfl⟩ := exists_values hex
         have hc := findCtor_of hD hd hi
-        exact ⟨.ADTV c vs, hasV_adt hc hvs, by simp only [trV, hc, trVs_eq]⟩
+        exact ⟨.ADTV c [] vs, hasV_adt hc hvs, by simp only [trV, hc, trVs_eq]⟩
     · simp only [trT] at hw
       obtain ⟨m, rfl⟩ := set_value_canonical hw
       obtain ⟨hm, hks⟩ := set_inv uc hw hcw
@@ -1104,8 +1106,25 @@ theorem subset_of {D : List Data} (hO : O.Sound) (P : Program) (ys : List Value)
       simp only [List.map_cons, List.forall_mem_cons]
       exact fun h => hin h.1
 
+/-- The program has the constructors of `D`, with their fields, in datatypes without type
+parameters, without invariants and without an equality of their own. -/
+def ProgData (D : List Data) : Program → Prop
+  | .Program _ cs ss _ _ => ∀ c d i fs, findCtor D c = some (d, i, fs) →
+      lookup_ctor cs c = .Ok (.Constructor c d.name (fs.map fun f => .Param f.1 f.2)) ∧
+      lookup_sort ss d.name = .Ok (.Sort d.name [] none none)
+
+/-- The values of a datatype of `D` are compared structurally. -/
+theorem sort_equality_of {D : List Data} {P : Program} (hPD : ProgData D P) {c : Id} {d : Data}
+    {i : Nat} {fs : List (Id × Ty)} (hc : findCtor D c = some (d, i, fs)) :
+    sort_equality P c = none := by
+  cases P with
+  | Program fns cs ss is eq =>
+  obtain ⟨hlc, hls⟩ := hPD c d i fs hc
+  simp only [sort_equality, hlc, hls]
+
 open Classical in
-theorem value_eq_k {D : List Data} (hD : DataOk D) (hO : O.Sound) (P : Program) :
+theorem value_eq_k {D : List Data} (hD : DataOk D) (hO : O.Sound) (P : Program)
+    (hPD : ProgData D P) :
     ∀ (k : Nat) (a b : Value) (T : Ty), sizeOf a + sizeOf b < k → HasV D a T → HasV D b T →
       O.value_eq P a b = .Ok (decide (trV D a = trV D b))
   | 0, _, _, _, h, _, _ => by omega
@@ -1138,6 +1157,8 @@ theorem value_eq_k {D : List Data} (hD : DataOk D) (hO : O.Sound) (P : Program) 
       obtain ⟨c', ys, d2, i', fs', rfl, hc', hs', hys⟩ := hasV_data hb
       rw [hO.value_eq]
       dsimp only
+      rw [sort_equality_of hPD hc]
+      dsimp only
       have hiff := trV_adt_eq hD hc hc' (xs := xs) (ys := ys) (by simpa using hxs.length_eq)
         (by simpa using hys.length_eq)
       by_cases hcc : c = c'
@@ -1145,7 +1166,7 @@ theorem value_eq_k {D : List Data} (hD : DataOk D) (hO : O.Sound) (P : Program) 
         rw [hc] at hc'
         cases hc'
         rw [dite_eq_left_of_eq_true (eq_true rfl), values_eq_of hO P xs ys _ hxs hys
-          fun x hx y hy U hxU hyU => value_eq_k hD hO P k x y U (by
+          fun x hx y hy U hxU hyU => value_eq_k hD hO P hPD k x y U (by
             have h1 := List.sizeOf_lt_of_mem hx
             have h2 := List.sizeOf_lt_of_mem hy
             simp only [Value.ADTV.sizeOf_spec] at hk
@@ -1169,13 +1190,13 @@ theorem value_eq_k {D : List Data} (hD : DataOk D) (hO : O.Sound) (P : Program) 
         omega
       rw [hO.value_eq]
       dsimp only
-      rw [subset_of hO P ys xs fun x hx y hy => value_eq_k hD hO P k y x A
+      rw [subset_of hO P ys xs fun x hx y hy => value_eq_k hD hO P hPD k y x A
         (by have := hsz x hx y hy; omega) (hys y hy) (hxs x hx)]
       dsimp only
       have hiff := trV_set_eq hD hxs hys
       by_cases h1 : ∀ w ∈ xs.map (trV D), w ∈ ys.map (trV D)
       · rw [dite_eq_left_of_eq_true (by simp only [decide_eq_true h1]),
-          subset_of hO P xs ys fun y hy x hx => value_eq_k hD hO P k x y A (hsz x hx y hy)
+          subset_of hO P xs ys fun y hy x hx => value_eq_k hD hO P hPD k x y A (hsz x hx y hy)
             (hxs x hx) (hys y hy)]
         congr 1
         apply decide_eq_decide.mpr
@@ -1190,24 +1211,27 @@ theorem value_eq_k {D : List Data} (hD : DataOk D) (hO : O.Sound) (P : Program) 
 
 open Classical in
 /-- The equality of the semantics on the values of a type is that of their SMT values. -/
-theorem value_eq_hasV {D : List Data} (hD : DataOk D) (hO : O.Sound) (P : Program) {a b : Value}
+theorem value_eq_hasV {D : List Data} (hD : DataOk D) (hO : O.Sound) (P : Program)
+    (hPD : ProgData D P) {a b : Value}
     {T : Ty} (ha : HasV D a T) (hb : HasV D b T) :
     O.value_eq P a b = .Ok (decide (trV D a = trV D b)) :=
-  value_eq_k hD hO P _ a b T (Nat.lt_succ_self _) ha hb
+  value_eq_k hD hO P hPD _ a b T (Nat.lt_succ_self _) ha hb
 
 open Classical in
 /-- A value is found in a list of values of its type when its SMT value is among theirs. -/
 theorem set_contains_hasV {D : List Data} (hD : DataOk D) (hO : O.Sound) (P : Program)
+    (hPD : ProgData D P)
     {xs : List Value} {v : Value} {A : Ty} (hxs : ∀ x ∈ xs, HasV D x A) (hv : HasV D v A) :
     O.set_contains P xs v = .Ok (decide (trV D v ∈ xs.map (trV D))) :=
-  set_contains_of hO P v xs fun x hx => value_eq_hasV hD hO P (hxs x hx) hv
+  set_contains_of hO P v xs fun x hx => value_eq_hasV hD hO P hPD (hxs x hx) hv
 
 open Classical in
 theorem subset_hasV {D : List Data} (hD : DataOk D) (hO : O.Sound) (P : Program)
+    (hPD : ProgData D P)
     {xs ys : List Value} {A : Ty} (hxs : ∀ x ∈ xs, HasV D x A)
     (hys : ∀ y ∈ ys, HasV D y A) :
     O.subset P xs ys = .Ok (decide (∀ w ∈ xs.map (trV D), w ∈ ys.map (trV D))) :=
-  subset_of hO P ys xs fun x hx y hy => value_eq_hasV hD hO P (hys y hy) (hxs x hx)
+  subset_of hO P ys xs fun x hx y hy => value_eq_hasV hD hO P hPD (hys y hy) (hxs x hx)
 
 end Equality
 
@@ -1461,12 +1485,5 @@ theorem hasV_bvmk {D : List Data} {s : Bool} {w : Int} (hw : 0 < w) (z : Int) :
 theorem trV_bvmk {D : List Data} {s : Bool} {w : Int} (hw : 0 < w) (z : Int) :
     trV D (bv s w z) = .Binary w (z % 2 ^ w.toNat) := by
   rw [bv, pow2_eq (Int.le_of_lt hw)]; rfl
-
-/-- The program has the constructors of `D`, with their fields, in datatypes without type
-parameters and without invariants. -/
-def ProgData (D : List Data) : Program → Prop
-  | .Program _ cs ss _ _ => ∀ c d i fs, findCtor D c = some (d, i, fs) →
-      lookup_ctor cs c = .Ok (.Constructor c d.name (fs.map fun f => .Param f.1 f.2)) ∧
-      lookup_sort ss d.name = .Ok (.Sort d.name [] none)
 
 end Inox.Bridge

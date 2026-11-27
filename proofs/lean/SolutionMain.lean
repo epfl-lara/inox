@@ -1,5 +1,6 @@
 /- Copyright 2009-2026 EPFL, Lausanne -/
 import Inox.Reached
+import Inox.Input
 
 /-!
 `inox-solution <file>...` says, for each certificate of each file, whether
@@ -11,6 +12,10 @@ values (`reachedCheck`). These are the hypotheses of the theorem that are comput
 a certificate the query that it reads has no solution in the program that it reads, given the
 soundness of Logos. Otherwise it says which check fails, and with `--remaining` it prints the
 facts that are not covered. It exits with 1 unless the theorem applies to every certificate.
+
+With `--input` it also says, for each certificate, how many constraints of its input the theorem
+on the encoders covers (`Inox.Input.covers_encoded`: where they all evaluate to `true`, so do
+their encoded terms), and what the first of the others has that isn't read.
 
 It is an executable of the verification package, since the last two checks are defined over the
 semantics of Inox: `lake build inox-solution` in `proofs/lean/verification`.
@@ -64,12 +69,15 @@ def applies (certificate : Logos.Sexp) (remaining : Bool) : Bool × String :=
 
 def main (args : List String) : IO UInt32 := do
   let remaining := args.contains "--remaining"
-  let files := args.filter (· != "--remaining")
+  let input := args.contains "--input"
+  let files := args.filter fun a => a != "--remaining" && a != "--input"
   if files.isEmpty then
-    IO.eprintln "usage: inox-solution [--remaining] <file>..."
+    IO.eprintln "usage: inox-solution [--remaining] [--input] <file>..."
     return 2
   let mut total := 0
   let mut proved := 0
+  let mut constraints := 0
+  let mut encoded := 0
   for file in files do
     let mut n := 0
     for parsed in certificates (← IO.FS.readFile file) do
@@ -80,6 +88,17 @@ def main (args : List String) : IO UInt32 := do
         | .ok certificate => applies certificate remaining
       if ok then proved := proved + 1
       IO.println s!"{if ok then "no solution" else "not shown "} {file} {n}: {what}"
+      if input then
+        if let .ok certificate := parsed then
+          let c := Inox.Input.covers certificate
+          constraints := constraints + c.constraints
+          encoded := encoded + c.covered.length
+          let first := match c.first with
+            | some why => s!"; of the first other, {why}"
+            | none => ""
+          IO.println s!"  input: {c.covered.length} of {c.constraints} constraints{first}"
       (← IO.getStdout).flush
   IO.println s!"no_solution_of_reached applies to {proved} of {total} certificates"
+  if input then
+    IO.println s!"covers_encoded covers {encoded} of {constraints} constraints of their inputs"
   return if proved == total && total > 0 then 0 else 1

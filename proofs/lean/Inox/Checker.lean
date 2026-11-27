@@ -1,6 +1,7 @@
 /- Copyright 2009-2026 EPFL, Lausanne -/
 import Inox.Sexp
 import Inox.Lowering
+import Inox.Encoders
 import Inox.Meanings
 
 /-!
@@ -332,7 +333,7 @@ def checkRule (clauses : Array Sexp) (templates : Array Template) (sources : Arr
   | other => fail s!"{text other} is not a rule"
 
 /-- The version of the format that the checker checks. -/
-def version : String := "5"
+def version : String := "6"
 
 /-- Checks `certificate`, and says why when it doesn't hold. -/
 def check (certificate : Sexp) : Check Checked := do
@@ -347,9 +348,12 @@ def check (certificate : Sexp) : Check Checked := do
       .expr (.atom "source-symbols" :: sourceSymbols),
       -- The simplification steps relate the sources to the original program. The Scala checker
       -- replays them; this checker doesn't yet, so its result holds over the simplified program.
-      .expr (.atom "simplifications" :: _),
+      .expr (.atom "simplifications" :: simplifications),
+      .expr (.atom "input" :: input),
       .expr (.atom "cpc" :: cpc)] =>
     if v != version then fail s!"the certificate has version {v}, and the checker checks version {version}"
+    -- the constraints of the input are encoded as the certificate states
+    let _ ← Encoders.check input sourceDefinitions sourceSymbols simplifications
     let clauses := assertsOf script
     let templateClauses := assertsOf templateScript
 

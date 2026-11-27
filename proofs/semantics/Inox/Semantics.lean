@@ -178,7 +178,7 @@ inductive Value : Type where
   | SetV (base : Ty) (elems : List Value) : Value
   | BagV (base : Ty) (entries : List BagEntry) : Value
   | MapV (keys : Ty) (values : Ty) (entries : List MapEntry) (default : Value) : Value
-  | ADTV (ctor : Id) (args : List Value) : Value
+  | ADTV (ctor : Id) (tps : List Ty) (args : List Value) : Value
 
 inductive BagEntry : Type where
   | BagEntry (elem : Value) (count : Int) : BagEntry
@@ -200,7 +200,7 @@ inductive Constructor : Type where
   | Constructor (id : Id) (sort : Id) (fields : List Param) : Constructor
 
 inductive ADTSort : Type where
-  | Sort (id : Id) (tparams : List Id) (invariant : Option Id) : ADTSort
+  | Sort (id : Id) (tparams : List Id) (invariant : Option Id) (equality : Option Id) : ADTSort
 
 inductive Interpretation : Type where
   | Interpretation (id : Id) (tps : List Ty) (params : List Id) (body : Expr) : Interpretation
@@ -260,6 +260,7 @@ recursion that Lean accepts, so the semantics is relative to an oracle that give
 `Oracle.Sound` states that the oracle gives them as the semantics defines them. -/
 structure Oracle : Type where
   value_eq : Program → Value → Value → (Result Bool)
+  adt_equal : Program → Id → (List Ty) → Value → Value → (Result Bool)
   values_eq : Program → (List Value) → (List Value) → (Result Bool)
   set_contains : Program → (List Value) → Value → (Result Bool)
   subset : Program → (List Value) → (List Value) → (Result Bool)
@@ -388,7 +389,7 @@ def lookup_sort (ss : List ADTSort) (s : Id) : Result ADTSort :=
     Result.Stuck
   | (List.cons srt rest) =>
     (match srt with
-    | (ADTSort.Sort t _ _) =>
+    | (ADTSort.Sort t _ _ _) =>
       (if _h : s = t then
         (Result.Ok srt)
       else
@@ -1725,7 +1726,7 @@ def eval (O : Oracle) (P : Program) (fuel : Int) (env : Env) (e : Expr) : Result
     (match (eval O P fuel env adt) with
     | Result.Ok v =>
       (match v with
-      | (Value.ADTV d _) =>
+      | (Value.ADTV d _ _) =>
         (Result.Ok (Value.BoolV (decide (c = d))))
       | _ =>
         Result.Stuck)
@@ -1735,7 +1736,7 @@ def eval (O : Oracle) (P : Program) (fuel : Int) (env : Env) (e : Expr) : Result
     (match (eval O P fuel env adt) with
     | Result.Ok v =>
       (match v with
-      | (Value.ADTV c vs) =>
+      | (Value.ADTV c _ vs) =>
         (match P with
         | (Program.Program _ cs _ _ _) =>
           (match (lookup_ctor cs c) with
@@ -2690,14 +2691,14 @@ def construct (O : Oracle) (P : Program) (fuel : Int) (env : Env) (c : Id) (tps 
         (match (lookup_sort ss s) with
         | Result.Ok srt =>
           (match srt with
-          | (ADTSort.Sort _ _ Option.none) =>
-            (Result.Ok (Value.ADTV c vs))
-          | (ADTSort.Sort _ _ (Option.some inv)) =>
-            (match (call O P fuel inv tps (env_types env) (List.cons (Value.ADTV c vs) List.nil)) with
+          | (ADTSort.Sort _ _ Option.none _) =>
+            (Result.Ok (Value.ADTV c (O.resolve_all (env_types env) tps) vs))
+          | (ADTSort.Sort _ _ (Option.some inv) _) =>
+            (match (call O P fuel inv tps (env_types env) (List.cons (Value.ADTV c (O.resolve_all (env_types env) tps) vs) List.nil)) with
             | Result.Ok holds =>
               (match holds with
               | (Value.BoolV true) =>
-                (Result.Ok (Value.ADTV c vs))
+                (Result.Ok (Value.ADTV c (O.resolve_all (env_types env) tps) vs))
               | _ =>
                 Result.Stuck)
             | Result.Stuck => Result.Stuck
@@ -2842,6 +2843,19 @@ def eval_map_entries (O : Oracle) (P : Program) (fuel : Int) (env : Env) (acc : 
 termination_by (fuel.toNat, sizeOf es, 0)
 end
 
+def sort_equality (P : Program) (c : Id) : Option Id :=
+  (match P with
+  | (Program.Program _ cs ss _ _) =>
+    (match (lookup_ctor cs c) with
+    | (Result.Ok (Constructor.Constructor _ s _)) =>
+      (match (lookup_sort ss s) with
+      | (Result.Ok (ADTSort.Sort _ _ _ eq)) =>
+        eq
+      | _ =>
+        Option.none)
+    | _ =>
+      Option.none))
+
 def param_types (ps : List Param) : List Ty :=
   (match ps with
   | List.nil =>
@@ -2983,15 +2997,28 @@ structure Oracle.Sound (O : Oracle) : Prop where
         | Result.OutOfFuel => Result.OutOfFuel)
       | _ =>
         (Result.Ok false))
-    | (Value.ADTV c xs) =>
+    | (Value.ADTV c tps xs) =>
       (match b with
-      | (Value.ADTV d ys) =>
-        (if _h : c = d then
-          (O.values_eq P xs ys)
-        else
-          (Result.Ok false))
+      | (Value.ADTV d _ ys) =>
+        (match (sort_equality P c) with
+        | (Option.some f) =>
+          (O.adt_equal P f tps a b)
+        | Option.none =>
+          (if _h : c = d then
+            (O.values_eq P xs ys)
+          else
+            (Result.Ok false)))
       | _ =>
         (Result.Ok false))
+    )
+  adt_equal : ∀ (P : Program) (f : Id) (tps : List Ty) (a : Value) (b : Value), O.adt_equal P f tps a b = (
+    (if _h : (decide (∃ (fuel : Int), (decide ((call O P fuel f tps List.nil (List.cons a (List.cons b List.nil))) = (Result.Ok (Value.BoolV true)))) = true)) = true then
+      (Result.Ok true)
+    else
+      (if _h : (decide (∃ (fuel : Int), (decide ((call O P fuel f tps List.nil (List.cons a (List.cons b List.nil))) = (Result.Ok (Value.BoolV false)))) = true)) = true then
+        (Result.Ok false)
+      else
+        Result.Stuck))
     )
   values_eq : ∀ (P : Program) (xs : List Value) (ys : List Value), O.values_eq P xs ys = (
     (match xs with
@@ -3248,14 +3275,14 @@ structure Oracle.Sound (O : Oracle) : Prop where
         false)
     | (Ty.ADTType s args) =>
       (match v with
-      | (Value.ADTV c vs) =>
+      | (Value.ADTV c tps vs) =>
         (match P with
         | (Program.Program _ cs ss _ _) =>
           (match (lookup_ctor cs c) with
           | (Result.Ok (Constructor.Constructor _ s2 fields)) =>
             (match (lookup_sort ss s) with
-            | (Result.Ok (ADTSort.Sort _ tparams inv)) =>
-              ((decide (s = s2)) && ((O.params_have_types P (Env.Env (bind_types tparams args (env_types env)) List.nil) vs fields) && (match inv with
+            | (Result.Ok (ADTSort.Sort _ tparams inv _)) =>
+              (((decide (s = s2)) && (decide (tps = (O.resolve_all (env_types env) args)))) && ((O.params_have_types P (Env.Env (bind_types tparams args (env_types env)) List.nil) vs fields) && (match inv with
               | Option.none =>
                 true
               | (Option.some f) =>

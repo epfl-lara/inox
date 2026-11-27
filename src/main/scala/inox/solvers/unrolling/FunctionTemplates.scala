@@ -27,8 +27,10 @@ trait FunctionTemplates { self: Templates =>
     val templates: MutableMap[TypedFunDef, FunctionTemplate] = MutableMap.empty
     /** The body of each function that certificates define it with (see [[definitionBody]]). */
     val bodies: MutableMap[Identifier, Expr] = MutableMap.empty
-    /** The steps of the simplification of each of the [[bodies]] (see [[definitionSteps]]). */
-    val steps: MutableMap[Identifier, Seq[(String, Expr)]] = MutableMap.empty
+    /** The steps of the simplification of each of the [[bodies]] (see [[definitionSteps]]), in
+      * the order of the definitions. */
+    val steps: scala.collection.mutable.LinkedHashMap[Identifier, Seq[(String, Expr)]] =
+      scala.collection.mutable.LinkedHashMap.empty
     /** The template of the interpretation of each uninterpreted function (see [[InterpretedTemplate]]). */
     val interpreted: MutableMap[Interpreted, FunctionTemplate] = MutableMap.empty
     /** The rank function of each function, and its encoding (see [[rankClauses]]). */
@@ -74,6 +76,10 @@ trait FunctionTemplates { self: Templates =>
     val encoder = mkEncoder(Map.empty)
     functionCaches.steps(id).map((rule, body) => rule -> encoder(body))
   }
+
+  /** The functions that certificates define (see [[definitionBody]]), in the order of their
+    * definitions. */
+  private[unrolling] def definedFunctions: Seq[Identifier] = functionCaches.steps.keys.toSeq
 
   /** The definition of the function `id` in the solver's terms (see [[definitionBody]]). */
   def definition(id: Identifier): Encoded = mkEncoder(Map.empty)(definitionBody(id))

@@ -225,10 +225,13 @@ object Embedding {
     // the types of fields only matter to quantifiers, which these tests enumerate on finite types
     list(symbols.constructors.values.toSeq.map(c => S.Constructor(c.id, c.sort,
       list(c.fields.map(vd => S.Param(vd.id, tpe(vd.tpe).getOrElse(S.UnitType()))))))),
-    list(symbols.sorts.values.toSeq.map(s => S.Sort(s.id, list(s.tparams.map(_.id)), s.invariant.map(_.id) match {
-      case scala.Some(id) => S.Some(id)
-      case scala.None => S.None()
-    }))),
+    list(symbols.sorts.values.toSeq.map { s =>
+      def option(id: scala.Option[Identifier]): S.Option[Identifier] = id match {
+        case scala.Some(id) => S.Some(id)
+        case scala.None => S.None()
+      }
+      S.Sort(s.id, list(s.tparams.map(_.id)), option(s.invariant.map(_.id)), option(s.equality.map(_.id)))
+    }),
     S.Nil(),
     S.NoFunctionEquality())
 
@@ -270,6 +273,12 @@ object Embedding {
     def function_has_type(P: S.Program, env: S.Env, f: S.Value, from: S.List[S.Type], to: S.Type): Boolean = throw Unsupported()
     def pi_has_type(P: S.Program, env: S.Env, f: S.Value, ps: S.List[S.Param], to: S.Type): Boolean = throw Unsupported()
     def closures_equal(P: S.Program, f: S.Value, g: S.Value): Boolean = throw Unsupported()
+    // the equality of a sort, with the fuel of the evaluation
+    def adt_equal(P: S.Program, f: Identifier, tps: S.List[S.Type], a: S.Value, b: S.Value): S.Result[Boolean] =
+      call(P, fuel, f, tps, S.Nil(), S.Cons(a, S.Cons(b, S.Nil()))) match {
+        case S.Ok(S.BoolV(same)) => S.Ok(same)
+        case _ => S.Stuck()
+      }
   }
 
   /** A value of Inox's evaluator in the semantics, or `None` for one that contains a function,
@@ -292,7 +301,9 @@ object Embedding {
       case FPLiteral(ex, sig, bs) => scala.Some(S.FPV(BigInt(ex), BigInt(sig), bitSet(bs)))
       case GenericValue(_, id) => scala.Some(S.IntV(BigInt(id)))
       case Tuple(es) => all(es).map(S.TupleV(_))
-      case ADT(id, _, args) => all(args).map(S.ADTV(id, _))
+      case ADT(id, tps, args) =>
+        val ts = tps.map(tpe)
+        if (ts.forall(_.isDefined)) all(args).map(S.ADTV(id, list(ts.flatten), _)) else scala.None
       case FiniteSet(es, b) => for (xs <- all(es); t <- tpe(b)) yield S.SetV(t, xs)
       case FiniteBag(ps, b) =>
         val es = ps.map { case (k, IntegerLiteral(n)) => value(k).map(S.BagEntry(_, n)); case _ => scala.None }

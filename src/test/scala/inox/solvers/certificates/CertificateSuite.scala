@@ -83,7 +83,7 @@ class CertificateSuite extends AnyFunSuite {
         assert(scriptRefs.exists(_.isInstanceOf[Ref.Variable]), scriptRefs)
         assert(certificate.proof.cpc.flatMap(refs).nonEmpty, text)
         assert(certificate.proof.asserts.size == certificate.rules.flatMap(_.asserts).toSet.size + certificate.assumptions.query.size + certificate.assumptions.complete.size, text)
-        assert(text.startsWith("(inox-certificate 5\n(script\n(set-logic ALL)\n"), text)
+        assert(text.startsWith("(inox-certificate 6\n(script\n(set-logic ALL)\n"), text)
         assert(text.contains("\n(templates\n(script\n"), text)
         // the templates of the query and of the function that it unfolds have their sources
         assert(certificate.templates.head.source.isInstanceOf[Source.Expression[?]] && text.contains(") (expression ("), text)
@@ -94,6 +94,9 @@ class CertificateSuite extends AnyFunSuite {
         // the sources define the functions once, with the bodies that the templates unfold
         assert(text.contains("\n(source-definitions\n(") && text.contains("\n(define-fun") && text.contains("\n(source-symbols\n("), text)
         assert(text.contains("\n(rules\n") && text.contains("\n(Root "), text)
+        // the input: the encoders, the definitions before them, and the constraint with its encoding
+        assert(text.contains("\n(input\n(encoders \"propositions\"") && text.contains("\n(constraint ") &&
+          text.contains(" (encoded "), text)
         assert(text.contains("\n(Unfold (args (blocker "), text)
         // the rules have their arguments, and the symbols what they stand for
         val root = certificate.rules.find(_.kind == "Root").get

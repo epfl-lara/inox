@@ -388,6 +388,30 @@ class SemanticsSuite extends AnyFunSuite {
       assert(compare(e, sp, "unit") != Outcome.Skipped)
   }
 
+  test("The values of a sort with an equality are compared with it") {
+    import dsl._
+    val (parityId, evenId, eqId, nId) = (FreshIdentifier("Parity"), FreshIdentifier("P"), FreshIdentifier("eq"), FreshIdentifier("n"))
+    // integers, up to their parity
+    val Parity = mkSort(parityId, HasADTEquality(eqId))() { _ => Seq((evenId, Seq(ValDef(nId, IntegerType())))) }
+    val eq = mkFunDef(eqId)() { _ =>
+      (Seq("a" :: T(parityId)(), "b" :: T(parityId)()), BooleanType(), { case Seq(a, b) =>
+        Modulo(a.getField(nId), E(BigInt(2))) === Modulo(b.getField(nId), E(BigInt(2)))
+      })
+    }
+    given symbols: Symbols = NoSymbols.withSorts(Seq(Parity)).withFunctions(Seq(eq))
+    val sp = program(coveredFunctions)
+    def p(n: Int) = ADT(evenId, Seq(), Seq(IntegerLiteral(n)))
+    def run(e: Expr) = Sem.eval(sp, fuel, S.Env(S.Nil(), S.Nil()), expr(e).get)
+
+    assert(run(Equals(p(1), p(3))) == S.Ok(S.BoolV(true)))
+    assert(run(Equals(p(1), p(2))) == S.Ok(S.BoolV(false)))
+    // also inside other values, and as the elements of a set
+    assert(run(Equals(Tuple(Seq(p(1), p(4))), Tuple(Seq(p(3), p(2))))) == S.Ok(S.BoolV(true)))
+    assert(run(ElementOfSet(p(5), FiniteSet(Seq(p(1), p(2)), T(parityId)()))) == S.Ok(S.BoolV(true)))
+    for (e <- Seq(Equals(p(1), p(3)), Equals(p(1), p(2)), Equals(Tuple(Seq(p(1), p(4))), Tuple(Seq(p(3), p(2))))))
+      assert(compare(e, sp, "unit") == Outcome.Value)
+  }
+
   /** Random well-typed expressions, which nest the operations of all the theories with lets,
     * conditionals, closures, function calls and ADTs. */
   class Fuzzer(rnd: scala.util.Random, listId: Identifier, nilId: Identifier, consId: Identifier,

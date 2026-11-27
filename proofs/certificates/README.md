@@ -175,6 +175,28 @@ rule of `unrolling.RuleKernel` builds. Two things are left to the reader:
     simplifier, whose output is the original that the steps start from;
   - the rules themselves, which the Lean checker doesn't prove yet (it skips
     the section, and its result holds over the simplified program).
+
+  The certificate also holds the input of the solver: its constraints before
+  the solver's encoders, each with the term that the encoders make of it. The
+  checker checks that term against the constraint
+  ([`Encoders.scala`](../src/main/scala/inox/certificates/Encoders.scala)):
+  both have the same shape, a symbol of the input facing the symbol of the
+  sources of the same identifier, except where the input has a term of an
+  encoder's theory, which faces what the encoder makes of it, such as
+  `(bag.union a b)` and `(Node 0 a b)`. It knows the encoders that cvc5 runs
+  with (`propositions`, `bags` and `map-merge`), and refuses a certificate
+  that names another. It checks that the datatype of bags and its functions
+  `get` and `inv` in the source definitions are those of the encoder of
+  bags. It doesn't check the sorts that only the encoded term has, nor the
+  encoder's equality of bags and its `mapMerge`.
+
+  The same goes for the functions: the input gives, for each function of the
+  source definitions, its body after the encoders, which the checker checks
+  against the definition of the function in the input, and which must be the
+  original of the function in the `simplifications` section, whose steps lead
+  to the body of the source definition, or that body when the section has no
+  entry for the function. The datatypes of the input are checked against those
+  of the sources in the same way.
 - **The side conditions of the rules.** The checker checks the shape of each
   rule, and that the symbols that `Define`, `Hypothesis` and `Root` introduce
   are introduced once. It doesn't check what a rule states about the program,

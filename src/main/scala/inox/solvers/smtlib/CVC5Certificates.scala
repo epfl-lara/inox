@@ -123,14 +123,21 @@ trait CVC5Certificates extends CVC5Solver with SymbolRefs with certificates.Cert
     * It keeps the declarations and the definitions of functions that it prints, so that the
     * sources can be typed and the body of a function is printed once: it defines a function with
     * the body that the solver unfolds (see [[define]]). */
-  private class SourcePrinter(names: SymbolNames)
-    extends inox.smtlib3.Printer(program, context, java.io.Writer.nullWriter()) with SymbolRefs
+  private class SourcePrinter(names: SymbolNames, printed: InoxProgram = program, encode: Expr => Expr = identity)
+    extends inox.smtlib3.Printer(printed, context, java.io.Writer.nullWriter()) with SymbolRefs
       with certificates.Certificates.Printer[Expr] {
     import certificates.Ref
 
     def printTerms(es: Seq[Expr]): certificates.Certificates.Printed = CVC5Certificates.this.printTerms(es)
 
     override protected def symbolNames = names
+
+    // a proposition of the input is printed as a Boolean, as the encoder of propositions makes it
+    // (the session's program has none)
+    override protected def sortOf(t: Type)(using bindings: Map[Identifier, Term]): Sort = t match {
+      case PropType() => super.sortOf(BooleanType())
+      case _ => super.sortOf(t)
+    }
 
     /** `e` as the text of a term, where the variables that `bindings` binds are their terms. */
     def termText(e: Expr, bindings: Map[Identifier, Term]): String = {
@@ -173,7 +180,7 @@ trait CVC5Certificates extends CVC5Solver with SymbolRefs with certificates.Cert
     // selector or tester of a datatype with type parameters, the type arguments of a function,
     // the function type of an application, and the type of a tuple.
     override protected def toSMT(e: Expr)(using bindings: Map[Identifier, Term]): Term = {
-      import program.symbols.given
+      import printed.symbols.given
       keyedSMT(e)
     }
     private def keyedSMT(e: Expr)(using bindings: Map[Identifier, Term], symbols: Symbols): Term = e match {
@@ -244,6 +251,12 @@ trait CVC5Certificates extends CVC5Solver with SymbolRefs with certificates.Cert
       printedOriginals.values.toSeq
     }
 
+    // the input is that of a program of the trees of the session's, which this printer names
+    // the identifiers of as it does those of the session's
+    override def input(program: Program, encode: Expr => Expr): Option[certificates.Certificates.Printer[Expr]] =
+      if (program.trees ne printed.trees) None
+      else Some(new SourcePrinter(names, program.asInstanceOf[InoxProgram], encode))
+
     // the declarations and definitions that printing made: those of datatypes, sorts and functions
     private val kept = ListBuffer.empty[SExpr]
 
@@ -310,7 +323,7 @@ trait CVC5Certificates extends CVC5Solver with SymbolRefs with certificates.Cert
 
     /** The variables `vs` bound to their symbols in the session, which the session declares. */
     private def sessionBindings(vs: Seq[Variable]): Map[Identifier, Term] = vs.map { v =>
-      val term = CVC5Certificates.this.toSMT(v)(using Map())
+      val term = CVC5Certificates.this.toSMT(encode(v))(using Map())
       term match {
         case QualifiedIdentifier(SMTIdentifier(s, Seq()), None) =>
           val ref = Ref.Variable(v)

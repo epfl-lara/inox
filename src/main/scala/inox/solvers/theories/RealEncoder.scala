@@ -12,7 +12,9 @@ class RealEncoder private(override val sourceProgram: Program)
     realDec(sourceProgram)(theory),
     theory.extraFunctions,
     theory.extraSorts
-  )
+  ) {
+  override def encoders: Seq[String] = Seq("reals")
+}
 
 /** @param guardDivisions Whether a division by zero makes its path infeasible, as in the template
   *                       generator (see [[ast.SymbolOps.definedness]]), or yields an unspecified value. */

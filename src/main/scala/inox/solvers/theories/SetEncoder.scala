@@ -14,7 +14,9 @@ class SetEncoder private(override val sourceProgram: Program)
     setDec(sourceProgram)(theory),
     theory.extraFunctions,
     theory.extraSorts
-  )
+  ) {
+  override def encoders: Seq[String] = Seq("sets")
+}
 
 private class SetTheory[Trees <: ast.Trees](val trees: Trees) {
   import trees._

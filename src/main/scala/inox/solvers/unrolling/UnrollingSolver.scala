@@ -131,6 +131,15 @@ abstract class AbstractUnrollingSolver private
     * its session prints them (see [[certificates.Certificates.CertificatePrinter]]). */
   protected def certificatePrinter: Option[certificates.Certificates.Printer[Encoded]] = None
 
+  /** The input of the solver for its certificates, which `printer` prints the sources of: the
+    * constraints that were asserted, before the encoders of the program, and what they make of
+    * them (see [[certificates.Certificates.Encoding]]). None when the input can't be printed. */
+  protected def certificateInput(printer: certificates.Certificates.Printer[Encoded]):
+      Option[certificates.Certificates.Encoding[Encoded]] = None
+
+  /** The constraints that were asserted, in the scopes of the solver. */
+  protected final def assertedConstraints: Seq[Expr] = constraints.toSeq
+
   /** The certificate of a check of a query under `queryAssumptions`, which answers unsat from a
     * check of the underlying solver under `assumptions` that it proved unsat with `proof`: the
     * clauses that the underlying solver has, the assumptions, and the rules that gave them. */
@@ -168,7 +177,8 @@ abstract class AbstractUnrollingSolver private
             val templateSeq = contents.map(c => TemplateClauses(c.pathVar._2 +: c.args, c.clauses, c.source.get))
             printer.define(templates.definition)
             printer.defineSteps(templates.definitionSteps)
-            certificates.Certificates.certificate(proof, Refutation(clauses, assumed, templateSeq, ruleSeq), printer,
+            certificates.Certificates.certificate(proof,
+              Refutation(clauses, assumed, templateSeq, ruleSeq, certificateInput(printer)), printer,
               functionEquality.toString.toLowerCase)
           case None => Left("the underlying solver's session doesn't print the solver's terms")
         }
@@ -2120,6 +2130,19 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
     case s: (underlying.type & certificates.Certificates.CertificatePrinter) => Some(s.certificatePrinter)
     case _ => None
   }
+
+  // the input is printed when the program is one of the trees of the session's
+  override protected def certificateInput(printer: certificates.Certificates.Printer[Encoded]):
+      Option[certificates.Certificates.Encoding[Encoded]] =
+    if ((program.trees: AnyRef) ne t) None
+    else printer.input(program, (e: t.Expr) => encode(e.asInstanceOf[Expr])).map { input =>
+      certificates.Certificates.Encoding(programEncoder.encoders, input,
+        assertedConstraints.map(c => c.asInstanceOf[t.Expr] -> encode(c)),
+        () => templates.definedFunctions.map { id =>
+          val fd = targetProgram.symbols.getFunction(id)
+          (fd.typed(using targetProgram.symbols).applied(fd.params.map(_.toVariable)), fd.fullBody)
+        })
+    }
 
   override val templates = new TemplatesImpl(targetProgram, context)
 

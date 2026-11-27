@@ -29,7 +29,7 @@ object Checker {
   private[certificates] def fail(msg: String): Nothing = throw new Failure(msg)
 
   /** The version of the certificates that the checker checks. */
-  val Version = "5"
+  val Version = "6"
 
   /** The s-expressions of `text`, whose atoms keep their text. */
   def parse(text: String): List[SExpr] = {
@@ -303,9 +303,13 @@ object Checker {
       SList(Atom("source-definitions") :: sourceDefinitions),
       SList(Atom("source-symbols") :: sourceSymbols),
       SList(Atom("simplifications") :: simplifications),
+      SList(Atom("input") :: input),
       SList(Atom("cpc") :: cpc))) =>
 
       if (version != Version) fail(s"the certificate has version $version, and the checker checks version $Version")
+
+      // the constraints of the input are encoded as the certificate states
+      Encoders.check(input, sourceDefinitions, sourceSymbols, simplifications)
 
       val clauses = asserts(script)
       val templateClauses = asserts(templateScript)

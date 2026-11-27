@@ -17,6 +17,11 @@ trait ProgramTransformer { self =>
     val t: self.sourceProgram.trees.type
   }
 
+  /** The names of the encoders that this transformer applies, in their order: those that the
+    * certificates of a solver name (see [[solvers.certificates.Input]]). A transformer that is
+    * none of them has none. */
+  def encoders: Seq[String] = Seq()
+
   def encode(vd: sourceProgram.trees.ValDef) = encoder.transform(vd)
   def decode(vd: targetProgram.trees.ValDef) = decoder.transform(vd)
 
@@ -38,7 +43,9 @@ trait ProgramTransformer { self =>
     class ComposeImpl(override val sourceProgram: that.sourceProgram.type,
                       override val targetProgram: self.targetProgram.type,
                       override val encoder: enc.type,
-                      override val decoder: dec.type) extends ProgramTransformer
+                      override val decoder: dec.type) extends ProgramTransformer {
+      override def encoders: Seq[String] = that.encoders ++ self.encoders
+    }
 
     new ComposeImpl(that.sourceProgram, self.targetProgram, enc, dec)
   }
@@ -52,7 +59,9 @@ trait ProgramTransformer { self =>
     class AndThenImpl(override val sourceProgram: self.sourceProgram.type,
                       override val targetProgram: that.targetProgram.type,
                       override val encoder: enc.type,
-                      override val decoder: dec.type) extends ProgramTransformer
+                      override val decoder: dec.type) extends ProgramTransformer {
+      override def encoders: Seq[String] = self.encoders ++ that.encoders
+    }
 
     new AndThenImpl(self.sourceProgram, that.targetProgram, enc, dec)
   }

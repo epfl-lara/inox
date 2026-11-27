@@ -245,6 +245,25 @@ final case class Value[T](symbol: T, value: T)
   * or disjunction is `complete` (see [[unrolling.OpenJunctions]]). */
 final case class Assumptions(query: Seq[Int], complete: Seq[Int])
 
+/** A constraint of the input of a solver, and what the encoders make of it, as a source. The
+  * `simplifications` of the certificate relate that term to the source of its template. */
+final case class Constraint(input: SExpr, encoded: SExpr)
+
+/** The input of the solver of a [[Certificate]]: the names of the encoders that give the program
+  * of the session from the program of the input, in their order (see
+  * [[transformers.ProgramTransformer.encoders]]), the declarations of the datatypes and the
+  * definitions of the functions of the input, as its printer made them, the constraints that
+  * were asserted, the sorts of the variables and uninterpreted functions of the input, and for
+  * each function that the sources define, the call of the function on its parameters (as the
+  * `input` of a [[Constraint]]) and its body after the encoders, as sources. */
+final case class Input(encoders: Seq[String], definitions: Seq[SExpr], constraints: Seq[Constraint],
+                       sorts: Map[Ref, SExpr] = Map(), functions: Seq[Constraint] = Seq()) {
+  /** What the symbols of the input stand for, by their text and in its order: those of the
+    * printer that printed it, and the variables of the session. */
+  def symbols: Seq[(String, Ref)] =
+    (definitions ++ constraints.map(_.input) ++ sorts.values).flatMap(_.symbols).map(s => s.text -> s.ref).distinct.sortBy(_._1)
+}
+
 /** The certificate that the unrolling solver's query has no model: the underlying solver's
   * `proof`, whose asserts are the clauses that the solver asserted and then the assumptions of
   * its check, the rules that gave the clauses, and the templates that rules instantiate, whose
@@ -252,7 +271,7 @@ final case class Assumptions(query: Seq[Int], complete: Seq[Int])
 final case class Certificate(proof: ScriptProof, templateScript: Seq[SExpr], templates: Seq[Template],
                              rules: Seq[Rule], assumptions: Assumptions, sourceDefinitions: Seq[SExpr] = Seq(),
                              solverSorts: Map[Ref, SExpr] = Map(), sourceSorts: Map[Ref, SExpr] = Map(),
-                             simplifications: Seq[SExpr] = Seq()) extends Proof {
+                             simplifications: Seq[SExpr] = Seq(), input: Option[Input] = None) extends Proof {
   /** What the symbols of the solver's session stand for, by their text and in its order. */
   def solverSymbols: Seq[(String, Ref)] =
     (proof.script ++ templateScript ++ proof.cpc).flatMap(_.symbols).map(s => s.text -> s.ref).distinct.sortBy(_._1)
@@ -260,7 +279,8 @@ final case class Certificate(proof: ScriptProof, templateScript: Seq[SExpr], tem
   /** What the symbols of the sources of the templates stand for, by their text and in its order:
     * those of the printer that printed them, and the variables of the session. */
   def sourceSymbols: Seq[(String, Ref)] =
-    (templates.flatMap(_.source.terms) ++
+    (templates.flatMap(_.source.terms) ++ input.toSeq.flatMap(in => in.constraints ++ in.functions).map(_.encoded) ++
+      input.toSeq.flatMap(_.functions).map(_.input) ++
       sourceDefinitions ++ sourceSorts.values ++ simplifications).flatMap(_.symbols).map(s => s.text -> s.ref).distinct.sortBy(_._1)
 
   override def toString: String = {
@@ -288,13 +308,19 @@ final case class Certificate(proof: ScriptProof, templateScript: Seq[SExpr], tem
       Proof.block("source-definitions", sourceDefinitions) + "\n" +
       "(source-symbols\n" + symbolLines(sourceSymbols, sourceSorts).map(_ + "\n").mkString + ")\n" +
       Proof.block("simplifications", simplifications) + "\n" +
+      input.map { in =>
+        "(input\n(encoders" + in.encoders.map(" " + string(_)).mkString + ")\n" + Proof.block("definitions", in.definitions) + "\n" +
+          in.constraints.map(c => s"(constraint ${c.input} (encoded ${c.encoded}))\n").mkString +
+          in.functions.map(f => s"(function ${f.input} (encoded ${f.encoded}))\n").mkString +
+          "(symbols\n" + symbolLines(in.symbols, in.sorts).map(_ + "\n").mkString + "))\n"
+      }.getOrElse("(input)\n") +
       Proof.block("cpc", proof.cpc) + ")"
   }
 }
 
 object Certificate {
   /** The version of the format that certificates print in, which changes with it. */
-  val version = 5
+  val version = 6
 }
 
 object Proof {

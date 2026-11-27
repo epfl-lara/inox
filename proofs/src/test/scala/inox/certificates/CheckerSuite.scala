@@ -16,7 +16,7 @@ class CheckerSuite extends AnyFunSuite {
   // A template with the parameters `s` and `p` and its own symbol `c`, instantiated once under
   // the root blocker, a definition, an implication between blockers and an assumption.
   val certificate: String =
-    """(inox-certificate 5
+    """(inox-certificate 6
       |(script
       |(declare-const start Bool)
       |(declare-const b Bool)
@@ -58,6 +58,7 @@ class CheckerSuite extends AnyFunSuite {
       |(simplifications
       |(function-equality none)
       |)
+      |(input)
       |(cpc
       |(assume @p1 start)
       |(define @t1 () (> x 0))
@@ -100,7 +101,7 @@ class CheckerSuite extends AnyFunSuite {
   }
 
   test("A certificate of another version is refused") {
-    assert(refused(changed("(inox-certificate 5", "(inox-certificate 2")).contains("version 2"))
+    assert(refused(changed("(inox-certificate 6", "(inox-certificate 2")).contains("version 2"))
   }
 
   test("An assert that no rule names is refused") {

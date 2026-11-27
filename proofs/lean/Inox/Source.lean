@@ -1192,7 +1192,8 @@ theorem lookup_ctor_of : ∀ {D : List Data} {c : Id} {d : Data} {i : Nat} {fs :
       exact lookup_ctor_of h
 
 theorem lookup_sort_of : ∀ {D : List Data} {d : Data}, d ∈ D →
-    lookup_sort (D.map fun d => ADTSort.Sort d.name [] none) d.name = .Ok (.Sort d.name [] none)
+    lookup_sort (D.map fun d => ADTSort.Sort d.name [] none none) d.name =
+      .Ok (.Sort d.name [] none none)
   | [], _, h => by cases h
   | a :: D, d, h => by
     rw [List.map_cons, lookup_sort]
@@ -1251,7 +1252,7 @@ def dataOf (r : TermSteps) : List Data :=
 /-- The program of the functions that the equations define, with the datatypes `D`, which have no
 type parameters and no invariants. -/
 def programOf (D : List Data) (eqs : List Equation) : Program :=
-  .Program (eqs.map funOf) (D.flatMap ctorsOfData) (D.map fun d => .Sort d.name [] none) []
+  .Program (eqs.map funOf) (D.flatMap ctorsOfData) (D.map fun d => .Sort d.name [] none none) []
     .NoFunctionEquality
 
 theorem progData_programOf (D : List Data) (eqs : List Equation) :
