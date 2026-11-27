@@ -855,7 +855,9 @@ abstract class AbstractUnrollingSolver private
 
     // The membership of `e` in `tpe`, where only refinements are checked
     def refinementsOf(e: Expr, tpe: Type): Expr = tpe match {
-      case RefinementType(vd, pred) => and(refinementsOf(e, vd.tpe), exprOps.replaceFromSymbols(Map(vd -> e), pred))
+      case tpe: RefinementType =>
+        val (base, preds) = typeOps.refinements(tpe, e)
+        andJoin(refinementsOf(e, base) +: preds)
       case TupleType(tps) => andJoin(tps.zipWithIndex.map((tpe, i) => refinementsOf(TupleSelect(e, i + 1), tpe)))
       case SigmaType(params, to) =>
         // the components are the values of the bound variables, which the later types refer to

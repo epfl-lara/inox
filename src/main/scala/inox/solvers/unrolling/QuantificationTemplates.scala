@@ -151,16 +151,11 @@ trait QuantificationTemplates { self: Templates =>
       // a function is unfolded once for given arguments, whatever its type arguments are: there
       // are finitely many functions and tuples of variables, also when the recursion is polymorphic
       val unfolded = scala.collection.mutable.Set[(Identifier, Seq[Expr])]()
-      // the refinements of the return type of a call, which say of its result what a postcondition
-      // in its body would (see [[FunctionTemplates.returnTyped]])
-      def refinements(tpe: Type, result: Expr): Seq[Expr] = tpe match {
-        case RefinementType(vd, pred) => refinements(vd.tpe, result) :+ exprOps.replaceFromSymbols(Map(vd -> result), pred)
-        case _ => Seq.empty
-      }
       def unfold(fi: FunctionInvocation): Unit = {
         val tfd = fi.tfd
         val result = tfd.applied(tfd.params.map(_.toVariable))
-        for (e <- tfd.fullBody +: refinements(tfd.returnType, result)) exprOps.preTraversal {
+        // the refinements of the return type say of the result what a postcondition in the body would
+        for (e <- tfd.fullBody +: typeOps.refinements(tfd.returnType, result)._2) exprOps.preTraversal {
           case call: FunctionInvocation if quantified(call.args) && variables(call.args) =>
             seen += call
             if (unfolded.add(call.id -> call.args)) unfold(call)

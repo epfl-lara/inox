@@ -152,12 +152,6 @@ class Parser(reader: Reader, file: Option[File]) extends tip.Parser(reader, file
       .setPos(sym.optPos)
   }
 
-  /** `tpe` without its top-level refinements. */
-  private def stripRefinements(tpe: Type): Type = tpe match {
-    case RefinementType(vd, _) => stripRefinements(vd.tpe)
-    case _ => tpe
-  }
-
   /** A parameter `(x S)` whose sort `S` isn't a plain sort, which parses as a term. */
   private object NamedParam {
     def unapply(sort: Sort): Option[(SSymbol, Term)] = sort match {
@@ -626,7 +620,7 @@ class Parser(reader: Reader, file: Option[File]) extends tip.Parser(reader, file
     /** Applies the constructor `sym`, of the datatype type `sort`, to `args`. */
     private def construct(sym: SSymbol, sort: Sort, args: Seq[Term], term: Term)(using ctx: Context): Expr = {
       val cons = symbols.getConstructor(ctx.getConstructor(sym))
-      val tps = stripRefinements(fromSMT(sort)) match {
+      val tps = typeOps.stripRefinements(fromSMT(sort)) match {
         case ADTType(_, tps) => tps
         case tpe => error(s"unexpected type $tpe for constructor $sym", term.optPos)
       }
