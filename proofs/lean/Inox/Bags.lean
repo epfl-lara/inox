@@ -388,6 +388,70 @@ theorem adt_equal_eq {O : Oracle} (hO : O.Sound) {P : Program} {N : Names} (hN :
     rw [dite_eq_right_of_eq_false (eq_false (fun h => h1 (of_decide_eq_true h))),
       dite_eq_left_of_eq_true (eq_true (decide_eq_true ⟨_, decide_eq_true hd⟩))]
 
+/-! ## The construction of the encoder's values -/
+
+/-- The body of the invariant of the encoder's datatype on the parameter `bi`. -/
+def invBody (N : Names) (bi : Id) : Expr :=
+  .IfExpr (.IsConstructor (.Variable bi) N.elem)
+    (.GreaterEquals (.ADTSelector (.Variable bi) N.value) (.IntegerLiteral 0))
+    (.BooleanLiteral true)
+
+/-- The program defines the encoder's sort, with its invariant `inv` and its equality `eq`,
+and the constructor `Leaf`. -/
+def HasSort (N : Names) (inv bi eq : Id) : Program → Prop
+  | .Program fs cs ss _ _ =>
+    lookup_fun fs inv = .Ok (.FunDef inv [N.T] [bi] (invBody N bi)) ∧
+    lookup_sort ss N.bag = .Ok (.Sort N.bag [N.T] (some inv) (some eq)) ∧
+    lookup_ctor cs N.leaf = .Ok (.Constructor N.leaf N.bag [])
+
+section Construct
+variable {O : Oracle} {P : Program} {N : Names} {inv bi eq : Id}
+
+theorem construct_leaf (hN : N.Distinct) (hS : HasSort N inv bi eq P) {fuel : Int}
+    (hf : 0 < fuel) (env : Env) (tps : List Ty) :
+    construct O P fuel env N.leaf tps [] =
+      .Ok (.ADTV N.leaf (O.resolve_all (env_types env) tps) []) := by
+  cases P with
+  | Program fs cs ss is eqs =>
+  obtain ⟨hinv, hsort, hleaf⟩ := hS
+  rw [construct]
+  simp only [hleaf, hsort]
+  rw [call, dite_eq_right_of_eq_false (eq_false (by omega))]
+  simp only [hinv, bind_all, invBody]
+  simp [eval, eval_bool, lookup_var, env_vars, hN.elem_leaf]
+
+theorem construct_node (hN : N.Distinct) (hP : HasBags N P) (hS : HasSort N inv bi eq P)
+    {fuel : Int} (hf : 0 < fuel) (env : Env) (tps : List Ty) (vs : List Value) :
+    construct O P fuel env N.node tps vs =
+      .Ok (.ADTV N.node (O.resolve_all (env_types env) tps) vs) := by
+  cases P with
+  | Program fs cs ss is eqs =>
+  obtain ⟨hinv, hsort, hleaf⟩ := hS
+  obtain ⟨hget, hnode, helem⟩ := hP
+  rw [construct]
+  simp only [hnode, hsort]
+  rw [call, dite_eq_right_of_eq_false (eq_false (by omega))]
+  simp only [hinv, bind_all, invBody]
+  simp [eval, eval_bool, lookup_var, env_vars, hN.node_elem, hN.node_elem.symm]
+
+theorem construct_elem (hN : N.Distinct) (hP : HasBags N P) (hS : HasSort N inv bi eq P)
+    {fuel : Int} (hf : 0 < fuel) (env : Env) (tps : List Ty) (k : Value) {n : Int}
+    (hn : 0 ≤ n) :
+    construct O P fuel env N.elem tps [k, .IntV n] =
+      .Ok (.ADTV N.elem (O.resolve_all (env_types env) tps) [k, .IntV n]) := by
+  cases P with
+  | Program fs cs ss is eqs =>
+  obtain ⟨hinv, hsort, hleaf⟩ := hS
+  obtain ⟨hget, hnode, helem⟩ := hP
+  rw [construct]
+  simp only [helem, hsort]
+  rw [call, dite_eq_right_of_eq_false (eq_false (by omega))]
+  simp only [hinv, bind_all, invBody]
+  simp [eval, eval_bool, lookup_var, env_vars, helem, select_field, hN.key_value, arith_le,
+    arith_lt, Int.not_lt.2 hn]
+
+end Construct
+
 /-! ## The bags of the semantics
 
 A bag of the semantics is a list of entries, which its operations build without two equal
@@ -835,5 +899,287 @@ theorem enc_equal {O : Oracle} (hO : O.Sound) {P : Program} {N : Names} (hN : N.
   exact adt_equal_eq hO hN hP hQ h1x h2x h12 hK h1 h2
 
 end Encoding
+
+/-! ## Expressions
+
+What the encoder makes of an expression evaluates to the encoding of the value of the
+expression, for expressions of integers, of elements and of bags of them. -/
+
+/-- The kinds of expressions that the theorem covers. -/
+inductive Kind where
+  | elem
+  | int
+  | bool
+  | bag
+
+/-- The value `v` of the input and the value `v'` of the encoded program are the same value,
+or `v'` encodes the bag `v`. -/
+def Rel (O : Oracle) (P : Program) (N : Names) (K : Value → Prop) (E : Value → Value → Bool)
+    (T0 : Ty) : Kind → Value → Value → Prop
+  | .elem, v, v' => v' = v ∧ K v
+  | .int, v, v' => v' = v ∧ ∃ n, v = .IntV n
+  | .bool, v, v' => v' = v ∧ ∃ b, v = .BoolV b
+  | .bag, v, v' => ∃ t xs c args, v = .BagV t xs ∧ Canon E K xs ∧ Enc O P N K E xs v' ∧
+      v' = .ADTV c [T0] args ∧ (c = N.node ∨ c = N.elem ∨ c = N.leaf)
+
+/-- `e'` is what the encoder makes of `e`, an expression of the kind `k`, with `Te` the type
+of the elements and `Γ` the kinds of the variables. -/
+inductive Encodes (N : Names) (Γ : Id → Option Kind) (Te : Ty) :
+    Expr → Expr → Kind → Prop where
+  | var (x : Id) (k : Kind) (h : Γ x = some k) : Encodes N Γ Te (.Variable x) (.Variable x) k
+  | int (n : Int) : Encodes N Γ Te (.IntegerLiteral n) (.IntegerLiteral n) .int
+  | plus {a a' b b' : Expr} (ha : Encodes N Γ Te a a' .int) (hb : Encodes N Γ Te b b' .int) :
+      Encodes N Γ Te (.Plus a b) (.Plus a' b') .int
+  | empty (base : Ty) : Encodes N Γ Te (.FiniteBag [] base) (.ADT N.leaf [Te] []) .bag
+  | add {b b' e e' : Expr} (hb : Encodes N Γ Te b b' .bag) (he : Encodes N Γ Te e e' .elem) :
+      Encodes N Γ Te (.BagAdd b e)
+        (.ADT N.node [Te] [.IntegerLiteral 0, b', .ADT N.elem [Te] [e', .IntegerLiteral 1]]) .bag
+  | union {a a' b b' : Expr} (ha : Encodes N Γ Te a a' .bag) (hb : Encodes N Γ Te b b' .bag) :
+      Encodes N Γ Te (.BagUnion a b) (.ADT N.node [Te] [.IntegerLiteral 0, a', b']) .bag
+  | difference {a a' b b' : Expr} (ha : Encodes N Γ Te a a' .bag)
+      (hb : Encodes N Γ Te b b' .bag) :
+      Encodes N Γ Te (.BagDifference a b) (.ADT N.node [Te] [.IntegerLiteral 1, a', b']) .bag
+  | intersection {a a' b b' : Expr} (ha : Encodes N Γ Te a a' .bag)
+      (hb : Encodes N Γ Te b b' .bag) :
+      Encodes N Γ Te (.BagIntersection a b) (.ADT N.node [Te] [.IntegerLiteral 2, a', b']) .bag
+  | mult {e e' b b' : Expr} (he : Encodes N Γ Te e e' .elem) (hb : Encodes N Γ Te b b' .bag) :
+      Encodes N Γ Te (.MultiplicityInBag e b) (.FunctionInvocation N.get [Te] [b', e']) .int
+  | eqBag {a a' b b' : Expr} (ha : Encodes N Γ Te a a' .bag) (hb : Encodes N Γ Te b b' .bag) :
+      Encodes N Γ Te (.Equals a b) (.Equals a' b') .bool
+  | eqInt {a a' b b' : Expr} (ha : Encodes N Γ Te a a' .int) (hb : Encodes N Γ Te b b' .int) :
+      Encodes N Γ Te (.Equals a b) (.Equals a' b') .bool
+
+section Expressions
+variable {O : Oracle} {P : Program} {N : Names} {K : Value → Prop} {E : Value → Value → Bool}
+
+theorem eval_bag_ok {fuel : Int} {env : Env} {e : Expr} {b : Value}
+    (h : eval_bag O P fuel env e = .Ok b) :
+    eval O P fuel env e = .Ok b ∧ ∃ t xs, b = .BagV t xs := by
+  rw [eval_bag] at h
+  split at h
+  · next v hv =>
+    split at h
+    · next t xs => cases h; exact ⟨hv, t, xs, rfl⟩
+    · cases h
+  · cases h
+  · cases h
+
+theorem sort_equality_bag {inv bi eq : Id} (hP : HasBags N P) (hS : HasSort N inv bi eq P)
+    {c : Id} (hc : c = N.node ∨ c = N.elem ∨ c = N.leaf) : sort_equality P c = some eq := by
+  cases P with
+  | Program fs cs ss is eqs =>
+  obtain ⟨hinv, hsort, hleaf⟩ := hS
+  obtain ⟨hget, hnode, helem⟩ := hP
+  rcases hc with rfl | rfl | rfl <;> simp [sort_equality, hnode, helem, hleaf, hsort]
+
+/-- An encoded expression evaluates, with enough fuel, to a value that relates to the value
+of the expression. -/
+theorem encodes_eval (hO : O.Sound) (hN : N.Distinct) (hP : HasBags N P) {inv bi eq b1 b2 : Id}
+    (hS : HasSort N inv bi eq P) (hQ : HasEquals N eq b1 b2 P) (h1x : b1 ≠ N.x)
+    (h2x : b2 ≠ N.x) (h12 : b1 ≠ b2) (hE : KeyEq O P K E) {T0 Te : Ty}
+    (hK : ∀ bs vs, O.params_have_types P (Env.Env (bind_types [N.T] [T0] []) bs) vs
+        [.Param N.x (.TypeParameter N.T)] = true ↔ ∃ v, vs = [v] ∧ K v)
+    {env env' : Env} (hT : O.resolve_all (env_types env') [Te] = [T0])
+    {Γ : Id → Option Kind}
+    (hΓ : ∀ x k, Γ x = some k → ∃ v v', lookup_var (env_vars env) x = .Ok v ∧
+      lookup_var (env_vars env') x = .Ok v' ∧ Rel O P N K E T0 k v v')
+    {e e' : Expr} {k : Kind} (h : Encodes N Γ Te e e' k) :
+    ∀ (fuel : Int) (v : Value), eval O P fuel env e = .Ok v →
+      ∃ (v' : Value) (n : Int), Rel O P N K E T0 k v v' ∧
+        ∀ fuel' : Int, n ≤ fuel' → eval O P fuel' env' e' = .Ok v' := by
+  induction h with
+  | var x k hx =>
+    intro fuel v hv
+    obtain ⟨w, w', h1, h2, hR⟩ := hΓ x k hx
+    simp only [eval, h1] at hv
+    cases hv
+    exact ⟨w', 0, hR, fun _ _ => by simp only [eval, h2]⟩
+  | int n =>
+    intro fuel v hv
+    simp only [eval] at hv
+    cases hv
+    exact ⟨_, 0, ⟨rfl, n, rfl⟩, fun _ _ => by simp only [eval]⟩
+  | plus _ _ iha ihb =>
+    intro fuel v hv
+    simp only [eval] at hv
+    split at hv
+    · next va ha =>
+      split at hv
+      · next vb hb =>
+        obtain ⟨_, n1, ⟨rfl, p, rfl⟩, e1⟩ := iha fuel va ha
+        obtain ⟨_, n2, ⟨rfl, q, rfl⟩, e2⟩ := ihb fuel vb hb
+        simp only [arith_plus] at hv
+        cases hv
+        exact ⟨_, max n1 n2, ⟨rfl, _, rfl⟩, fun f hf => by
+          simp only [eval, e1 f (by omega), e2 f (by omega), arith_plus]⟩
+      · cases hv
+      · cases hv
+    · cases hv
+    · cases hv
+  | empty base =>
+    intro fuel v hv
+    simp only [eval, eval_bag_entries] at hv
+    cases hv
+    refine ⟨.ADTV N.leaf [T0] [], 1, ⟨_, [], N.leaf, [], rfl, trivial, enc_empty _, rfl,
+      Or.inr (Or.inr rfl)⟩, fun f hf => ?_⟩
+    simp only [eval, eval_list, construct_leaf hN hS (show 0 < f by omega), hT]
+  | add _ _ ihb ihe =>
+    intro fuel v hv
+    simp only [eval] at hv
+    split at hv
+    · next vb hb =>
+      split at hv
+      · next ve he =>
+        obtain ⟨hb, _⟩ := eval_bag_ok hb
+        obtain ⟨vb', n1, ⟨t, xs, c, args, rfl, hxs, henc, rfl, hc⟩, e1⟩ := ihb fuel vb hb
+        obtain ⟨ve', n2, ⟨hve, hk⟩, e2⟩ := ihe fuel ve he
+        rw [hve] at e2
+        simp only [bag_entries, bag_get_eq hO hE hxs hk, bag_set_eq hE hxs hk, bag_with] at hv
+        cases hv
+        refine ⟨.ADTV N.node [T0] [.IntV 0, .ADTV c [T0] args, .ADTV N.elem [T0] [ve, .IntV 1]],
+          max (max n1 n2) 1, ⟨_, _, N.node, _, rfl, canon_set hE hxs hk _,
+            enc_add hE hxs henc hk _ _, rfl, Or.inl rfl⟩, fun f hf => ?_⟩
+        simp only [eval, eval_list, e1 f (by omega), e2 f (by omega),
+          construct_elem hN hP hS (show 0 < f by omega) env' [Te] ve
+            (show (0 : Int) ≤ 1 by omega),
+          construct_node hN hP hS (show 0 < f by omega), hT]
+      · cases hv
+      · cases hv
+    · cases hv
+    · cases hv
+  | union _ _ iha ihb =>
+    intro fuel v hv
+    simp only [eval] at hv
+    split at hv
+    · next va ha =>
+      split at hv
+      · next vb hb =>
+        obtain ⟨ha, _⟩ := eval_bag_ok ha
+        obtain ⟨hb, _⟩ := eval_bag_ok hb
+        obtain ⟨va', n1, ⟨t, xs, c, args, rfl, hxs, hea, rfl, hc⟩, e1⟩ := iha fuel va ha
+        obtain ⟨vb', n2, ⟨u, ys, c2, args2, rfl, hys, heb, rfl, hc2⟩, e2⟩ := ihb fuel vb hb
+        simp only [bag_entries, bag_add_all_eq hO hE hxs hys, bag_with] at hv
+        cases hv
+        refine ⟨.ADTV N.node [T0] [.IntV 0, .ADTV c [T0] args, .ADTV c2 [T0] args2],
+          max (max n1 n2) 1, ⟨_, _, N.node, _, rfl, canon_addAll hE hxs hys,
+            enc_union hE hxs hys hea heb _, rfl, Or.inl rfl⟩, fun f hf => ?_⟩
+        simp only [eval, eval_list, e1 f (by omega), e2 f (by omega),
+          construct_node hN hP hS (show 0 < f by omega), hT]
+      · cases hv
+      · cases hv
+    · cases hv
+    · cases hv
+  | difference _ _ iha ihb =>
+    intro fuel v hv
+    simp only [eval] at hv
+    split at hv
+    · next va ha =>
+      split at hv
+      · next vb hb =>
+        obtain ⟨ha, _⟩ := eval_bag_ok ha
+        obtain ⟨hb, _⟩ := eval_bag_ok hb
+        obtain ⟨va', n1, ⟨t, xs, c, args, rfl, hxs, hea, rfl, hc⟩, e1⟩ := iha fuel va ha
+        obtain ⟨vb', n2, ⟨u, ys, c2, args2, rfl, hys, heb, rfl, hc2⟩, e2⟩ := ihb fuel vb hb
+        simp only [bag_entries, bag_merge_eq hO hE .DifferenceOp hys (acc := []) trivial hxs,
+          bag_with] at hv
+        cases hv
+        refine ⟨.ADTV N.node [T0] [.IntV 1, .ADTV c [T0] args, .ADTV c2 [T0] args2],
+          max (max n1 n2) 1, ⟨_, _, N.node, _, rfl, canon_merge hE _ ys (acc := []) trivial hxs,
+            enc_difference hE hxs hys hea heb _, rfl, Or.inl rfl⟩, fun f hf => ?_⟩
+        simp only [eval, eval_list, e1 f (by omega), e2 f (by omega),
+          construct_node hN hP hS (show 0 < f by omega), hT]
+      · cases hv
+      · cases hv
+    · cases hv
+    · cases hv
+  | intersection _ _ iha ihb =>
+    intro fuel v hv
+    simp only [eval] at hv
+    split at hv
+    · next va ha =>
+      split at hv
+      · next vb hb =>
+        obtain ⟨ha, _⟩ := eval_bag_ok ha
+        obtain ⟨hb, _⟩ := eval_bag_ok hb
+        obtain ⟨va', n1, ⟨t, xs, c, args, rfl, hxs, hea, rfl, hc⟩, e1⟩ := iha fuel va ha
+        obtain ⟨vb', n2, ⟨u, ys, c2, args2, rfl, hys, heb, rfl, hc2⟩, e2⟩ := ihb fuel vb hb
+        simp only [bag_entries, bag_merge_eq hO hE .IntersectionOp hys (acc := []) trivial hxs,
+          bag_with] at hv
+        cases hv
+        refine ⟨.ADTV N.node [T0] [.IntV 2, .ADTV c [T0] args, .ADTV c2 [T0] args2],
+          max (max n1 n2) 1, ⟨_, _, N.node, _, rfl, canon_merge hE _ ys (acc := []) trivial hxs,
+            enc_intersection hE hxs hys hea heb _, rfl, Or.inl rfl⟩, fun f hf => ?_⟩
+        simp only [eval, eval_list, e1 f (by omega), e2 f (by omega),
+          construct_node hN hP hS (show 0 < f by omega), hT]
+      · cases hv
+      · cases hv
+    · cases hv
+    · cases hv
+  | mult _ _ ihe ihb =>
+    intro fuel v hv
+    simp only [eval] at hv
+    split at hv
+    · next ve he =>
+      split at hv
+      · next vb hb =>
+        obtain ⟨hb, _⟩ := eval_bag_ok hb
+        obtain ⟨vb', n1, ⟨t, xs, c, args, rfl, hxs, ⟨d, hd⟩, rfl, hc⟩, e1⟩ :=
+          ihb fuel vb hb
+        obtain ⟨ve', n2, ⟨hve, hk⟩, e2⟩ := ihe fuel ve he
+        rw [hve] at e2
+        simp only [bag_entries, bag_get_eq hO hE hxs hk] at hv
+        cases hv
+        refine ⟨_, max (max n1 n2) (d + 1), ⟨rfl, _, rfl⟩, fun f hf => ?_⟩
+        simp only [eval, eval_list, e1 f (by omega), e2 f (by omega)]
+        exact get_eval hO hN hP (hd ve hk) f _ _ (by omega)
+      · cases hv
+      · cases hv
+    · cases hv
+    · cases hv
+  | eqBag _ _ iha ihb =>
+    intro fuel v hv
+    simp only [eval] at hv
+    split at hv
+    · next va ha =>
+      split at hv
+      · next vb hb =>
+        obtain ⟨va', n1, ⟨t, xs, c, args, rfl, hxs, hea, rfl, hc⟩, e1⟩ := iha fuel va ha
+        obtain ⟨vb', n2, ⟨u, ys, c2, args2, rfl, hys, heb, rfl, hc2⟩, e2⟩ := ihb fuel vb hb
+        split at hv
+        · next same hsame =>
+          cases hv
+          refine ⟨_, max n1 n2, ⟨rfl, _, rfl⟩, fun f hf => ?_⟩
+          have heq := enc_equal hO hN hP hQ h1x h2x h12 hE (hK _) hxs hys hea heb t u
+          simp only [eval, e1 f (by omega), e2 f (by omega)]
+          rw [hO.value_eq]
+          simp only [sort_equality_bag hP hS hc, heq, hsame]
+        · cases hv
+        · cases hv
+      · cases hv
+      · cases hv
+    · cases hv
+    · cases hv
+  | eqInt _ _ iha ihb =>
+    intro fuel v hv
+    simp only [eval] at hv
+    split at hv
+    · next va ha =>
+      split at hv
+      · next vb hb =>
+        obtain ⟨_, n1, ⟨rfl, _⟩, e1⟩ := iha fuel va ha
+        obtain ⟨_, n2, ⟨rfl, _⟩, e2⟩ := ihb fuel vb hb
+        split at hv
+        · next same hsame =>
+          cases hv
+          exact ⟨_, max n1 n2, ⟨rfl, _, rfl⟩, fun f hf => by
+            simp only [eval, e1 f (by omega), e2 f (by omega), hsame]⟩
+        · cases hv
+        · cases hv
+      · cases hv
+      · cases hv
+    · cases hv
+    · cases hv
+
+end Expressions
 
 end Inox.Bags

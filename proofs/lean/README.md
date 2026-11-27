@@ -1179,8 +1179,14 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   the encodings of two bags is the equality of the bags (`enc_equal`). They
   assume that the program defines `get`, `equals` and the constructors as the
   encoder does, which the checker checks for `get` and the constructors, and
-  that the elements have an equality that is an equivalence. They aren't yet
-  put together into a theorem about a whole constraint.
+  that the elements have an equality that is an equivalence. `encodes_eval`
+  puts them together for expressions: when an expression of integers, of
+  elements and of bags of them (variables, sums, the bag operations above,
+  multiplicities and equalities) evaluates to a value, what the encoder makes
+  of it evaluates, with enough fuel, to the same value or to the encoding of
+  the bag. It assumes the invariant of the datatype as the encoder defines
+  it, and doesn't cover bag literals with elements, bags of bags, nor the
+  other expressions of a constraint yet.
 - **The link between the proof and the script.** The checker checks that each
   assumption of the proof is the text of an assert of the script, up to how
   cvc5 prints testers (`(is C e)` for `((_ is C) e)`), once the terms that the
