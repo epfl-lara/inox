@@ -329,10 +329,22 @@ trait TemplateGenerator { self: Templates =>
         newBlocker
       })
 
+      // An argument that differs between the branches is named by a fresh variable: passing the
+      // `if` itself would copy both branches into the callee's arguments at each unrolling, which
+      // doubles the terms of recursions such as `f(if (c) x - 1 else -(x + 1))`
       val newArgs = (thenCall.args zip elseCall.args).map { case (thenArg, elseArg) =>
-        val (newArg, argClauses) = mkExprClauses(newBlocker, ifExpr(condVar, thenArg, elseArg), builder.localSubst)
+        val merged = ifExpr(condVar, thenArg, elseArg)
+        val (newArg, argClauses) = mkExprClauses(newBlocker, merged, builder.localSubst)
         builder ++= argClauses
-        newArg
+        newArg match {
+          case v: Variable => v
+          case _ if thenArg == elseArg => newArg
+          case _ =>
+            val argVar: Variable = Variable.fresh("arg", merged.getType, true)
+            builder.storeExpr(argVar)
+            builder.storeDefinition(newBlocker, argVar, newArg)
+            argVar
+        }
       }
 
       val newCall = thenCall.tfd.applied(newArgs)
