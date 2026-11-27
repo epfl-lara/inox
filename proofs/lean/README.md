@@ -1191,9 +1191,10 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   reads the constraints of a certificate's input and their encoded terms as
   expressions of the semantics, for these expressions only, and
   `covers_encoded` states the theorem for them: where the constraints that
-  are read all evaluate to `true`, so do their encoded terms, in a program
-  that defines the encoder's datatype as the encoder does and on values of
-  the free variables that are the same, or a bag and its encoding.
+  are read all evaluate to `true` in a program, so do their encoded terms in
+  a program that defines the encoder's datatype as the encoder does, on
+  values of the free variables that are the same, or a bag and its encoding,
+  when both programs have the same equality on the elements.
   `inox-solution --input` says how many constraints of each certificate that
   covers, and what the first of the others has that isn't read. On the
   corpus it covers none of the 36 constraints: 22 call functions of the

@@ -1031,14 +1031,15 @@ theorem sort_equality_bag {inv bi eq : Id} (hP : HasBags N P) (hS : HasSort N in
 of the expression. -/
 theorem encodes_eval (hO : O.Sound) (hN : N.Distinct) (hP : HasBags N P) {inv bi eq b1 b2 : Id}
     (hS : HasSort N inv bi eq P) (hQ : HasEquals N eq b1 b2 P) (h1x : b1 ≠ N.x)
-    (h2x : b2 ≠ N.x) (h12 : b1 ≠ b2) (hE : KeyEq O P K E) {T0 Te : Ty}
+    (h2x : b2 ≠ N.x) (h12 : b1 ≠ b2) (hE : KeyEq O P K E) {Ps : Program}
+    (hEs : KeyEq O Ps K E) {T0 Te : Ty}
     (hK : ∀ bs vs, O.params_have_types P (Env.Env (bind_types [N.T] [T0] []) bs) vs
         [.Param N.x (.TypeParameter N.T)] = true ↔ ∃ v, vs = [v] ∧ K v)
     {Γ : Id → Option Kind} {e e' : Expr} {k : Kind} (h : Encodes N Te Γ e e' k) :
     ∀ (env env' : Env), O.resolve_all (env_types env') [Te] = [T0] →
       (∀ x k, Γ x = some k → ∃ v v', lookup_var (env_vars env) x = .Ok v ∧
         lookup_var (env_vars env') x = .Ok v' ∧ Rel O P N K E T0 k v v') →
-      ∀ (fuel : Int) (v : Value), eval O P fuel env e = .Ok v →
+      ∀ (fuel : Int) (v : Value), eval O Ps fuel env e = .Ok v →
         ∃ (v' : Value) (n : Int), Rel O P N K E T0 k v v' ∧
           ∀ fuel' : Int, n ≤ fuel' → eval O P fuel' env' e' = .Ok v' := by
   induction h with
@@ -1089,7 +1090,7 @@ theorem encodes_eval (hO : O.Sound) (hN : N.Distinct) (hP : HasBags N P) {inv bi
           ihb env env' hT hΓ fuel vb hb
         obtain ⟨ve', n2, ⟨hve, hk⟩, e2⟩ := ihe env env' hT hΓ fuel ve he
         rw [hve] at e2
-        simp only [bag_entries, bag_get_eq hO hE hxs hk, bag_set_eq hE hxs hk, bag_with] at hv
+        simp only [bag_entries, bag_get_eq hO hEs hxs hk, bag_set_eq hEs hxs hk, bag_with] at hv
         cases hv
         refine ⟨.ADTV N.node [T0] [.IntV 0, .ADTV c [T0] args, .ADTV N.elem [T0] [ve, .IntV 1]],
           max (max n1 n2) 1, ⟨_, _, N.node, _, rfl, canon_set hE hxs hk _,
@@ -1115,7 +1116,7 @@ theorem encodes_eval (hO : O.Sound) (hN : N.Distinct) (hP : HasBags N P) {inv bi
           iha env env' hT hΓ fuel va ha
         obtain ⟨vb', n2, ⟨u, ys, c2, args2, rfl, hys, heb, rfl, hc2⟩, e2⟩ :=
           ihb env env' hT hΓ fuel vb hb
-        simp only [bag_entries, bag_add_all_eq hO hE hxs hys, bag_with] at hv
+        simp only [bag_entries, bag_add_all_eq hO hEs hxs hys, bag_with] at hv
         cases hv
         refine ⟨.ADTV N.node [T0] [.IntV 0, .ADTV c [T0] args, .ADTV c2 [T0] args2],
           max (max n1 n2) 1, ⟨_, _, N.node, _, rfl, canon_addAll hE hxs hys,
@@ -1139,7 +1140,7 @@ theorem encodes_eval (hO : O.Sound) (hN : N.Distinct) (hP : HasBags N P) {inv bi
           iha env env' hT hΓ fuel va ha
         obtain ⟨vb', n2, ⟨u, ys, c2, args2, rfl, hys, heb, rfl, hc2⟩, e2⟩ :=
           ihb env env' hT hΓ fuel vb hb
-        simp only [bag_entries, bag_merge_eq hO hE .DifferenceOp hys (acc := []) trivial hxs,
+        simp only [bag_entries, bag_merge_eq hO hEs .DifferenceOp hys (acc := []) trivial hxs,
           bag_with] at hv
         cases hv
         refine ⟨.ADTV N.node [T0] [.IntV 1, .ADTV c [T0] args, .ADTV c2 [T0] args2],
@@ -1164,7 +1165,7 @@ theorem encodes_eval (hO : O.Sound) (hN : N.Distinct) (hP : HasBags N P) {inv bi
           iha env env' hT hΓ fuel va ha
         obtain ⟨vb', n2, ⟨u, ys, c2, args2, rfl, hys, heb, rfl, hc2⟩, e2⟩ :=
           ihb env env' hT hΓ fuel vb hb
-        simp only [bag_entries, bag_merge_eq hO hE .IntersectionOp hys (acc := []) trivial hxs,
+        simp only [bag_entries, bag_merge_eq hO hEs .IntersectionOp hys (acc := []) trivial hxs,
           bag_with] at hv
         cases hv
         refine ⟨.ADTV N.node [T0] [.IntV 2, .ADTV c [T0] args, .ADTV c2 [T0] args2],
@@ -1188,7 +1189,7 @@ theorem encodes_eval (hO : O.Sound) (hN : N.Distinct) (hP : HasBags N P) {inv bi
           ihb env env' hT hΓ fuel vb hb
         obtain ⟨ve', n2, ⟨hve, hk⟩, e2⟩ := ihe env env' hT hΓ fuel ve he
         rw [hve] at e2
-        simp only [bag_entries, bag_get_eq hO hE hxs hk] at hv
+        simp only [bag_entries, bag_get_eq hO hEs hxs hk] at hv
         cases hv
         refine ⟨_, max (max n1 n2) (d + 1), ⟨rfl, _, rfl⟩, fun f hf => ?_⟩
         simp only [eval, eval_list, e1 f (by omega), e2 f (by omega)]
@@ -1213,9 +1214,12 @@ theorem encodes_eval (hO : O.Sound) (hN : N.Distinct) (hP : HasBags N P) {inv bi
           cases hv
           refine ⟨_, max n1 n2, ⟨rfl, _, rfl⟩, fun f hf => ?_⟩
           have heq := enc_equal hO hN hP hQ h1x h2x h12 hE (hK _) hxs hys hea heb t u
+          rw [bag_value_eq hO hE hxs hys] at heq
+          rw [bag_value_eq hO hEs hxs hys] at hsame
+          cases hsame
           simp only [eval, e1 f (by omega), e2 f (by omega)]
           rw [hO.value_eq]
-          simp only [sort_equality_bag hP hS hc, heq, hsame]
+          simp only [sort_equality_bag hP hS hc, heq]
         · cases hv
         · cases hv
       · cases hv
@@ -1229,13 +1233,15 @@ theorem encodes_eval (hO : O.Sound) (hN : N.Distinct) (hP : HasBags N P) {inv bi
     · next va ha =>
       split at hv
       · next vb hb =>
-        obtain ⟨_, n1, ⟨rfl, _⟩, e1⟩ := iha env env' hT hΓ fuel va ha
-        obtain ⟨_, n2, ⟨rfl, _⟩, e2⟩ := ihb env env' hT hΓ fuel vb hb
+        obtain ⟨_, n1, ⟨rfl, p, rfl⟩, e1⟩ := iha env env' hT hΓ fuel va ha
+        obtain ⟨_, n2, ⟨rfl, q, rfl⟩, e2⟩ := ihb env env' hT hΓ fuel vb hb
         split at hv
         · next same hsame =>
           cases hv
+          simp only [hO.value_eq] at hsame
+          cases hsame
           exact ⟨_, max n1 n2, ⟨rfl, _, rfl⟩, fun f hf => by
-            simp only [eval, e1 f (by omega), e2 f (by omega), hsame]⟩
+            simp only [eval, e1 f (by omega), e2 f (by omega), hO.value_eq]⟩
         · cases hv
         · cases hv
       · cases hv

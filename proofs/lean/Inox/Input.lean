@@ -190,14 +190,16 @@ theorem encodesCheck_sound {N : Names} {Γ : List (Id × Kind)} {Te : Ty} {e e' 
     · exact .let_ _ (a4 ha) (b4 hb)
   · cases h
 
-/-- Where the constraints of the input all evaluate to `true`, so do their encoded terms: the
-program defines the datatype of the encoder, its `get`, its invariant and its equality as the
-encoder does, and the values of the free variables are the same in both, or a bag and its
-encoding (`hΓ`). -/
+/-- Where the constraints of the input all evaluate to `true` in the program `Ps` of the input,
+so do their encoded terms in the encoded program `P`: it defines the datatype of the encoder,
+its `get`, its invariant and its equality as the encoder does, the values of the free variables
+are the same in both, or a bag and its encoding (`hΓ`), and both programs have the same
+equality on the elements. -/
 theorem input_encoded {O : Oracle} (hO : O.Sound) {P : Program} {N : Names} (hN : N.Distinct)
     (hP : HasBags N P) {inv bi eq b1 b2 : Id} (hS : HasSort N inv bi eq P)
     (hQ : HasEquals N eq b1 b2 P) (h1x : b1 ≠ N.x) (h2x : b2 ≠ N.x) (h12 : b1 ≠ b2)
-    {K : Value → Prop} {E : Value → Value → Bool} (hE : KeyEq O P K E) {T0 Te : Ty}
+    {K : Value → Prop} {E : Value → Value → Bool} (hE : KeyEq O P K E) {Ps : Program}
+    (hEs : KeyEq O Ps K E) {T0 Te : Ty}
     (hK : ∀ bs vs, O.params_have_types P (Env.Env (bind_types [N.T] [T0] []) bs) vs
         [.Param N.x (.TypeParameter N.T)] = true ↔ ∃ v, vs = [v] ∧ K v)
     {env env' : Env} (hT : O.resolve_all (env_types env') [Te] = [T0])
@@ -205,11 +207,11 @@ theorem input_encoded {O : Oracle} (hO : O.Sound) {P : Program} {N : Names} (hN 
     (hΓ : ∀ x k, Γ.lookup x = some k → ∃ v v', lookup_var (env_vars env) x = .Ok v ∧
       lookup_var (env_vars env') x = .Ok v' ∧ Rel O P N K E T0 k v v')
     {cs : List (Expr × Expr)} (hc : ∀ p ∈ cs, encodesCheck N Te Γ p.1 p.2 .bool = true)
-    (hsol : ∀ p ∈ cs, ∃ n, eval O P n env p.1 = .Ok (.BoolV true)) :
+    (hsol : ∀ p ∈ cs, ∃ n, eval O Ps n env p.1 = .Ok (.BoolV true)) :
     ∀ p ∈ cs, ∃ n, eval O P n env' p.2 = .Ok (.BoolV true) := by
   intro p hp
   obtain ⟨n, hn⟩ := hsol p hp
-  obtain ⟨_, m, ⟨rfl, _⟩, hm⟩ := encodes_eval hO hN hP hS hQ h1x h2x h12 hE hK
+  obtain ⟨_, m, ⟨rfl, _⟩, hm⟩ := encodes_eval hO hN hP hS hQ h1x h2x h12 hE hEs hK
     (encodesCheck_sound (hc p hp)) env env' hT hΓ n _ hn
   exact ⟨m, hm m (Int.le_refl m)⟩
 
@@ -384,7 +386,7 @@ theorem covers_encoded (certificate : Sexp) {O : Oracle} (hO : O.Sound) {P : Pro
     (hQ : HasEquals (covers certificate).names eq b1 b2 P)
     (h1x : b1 ≠ (covers certificate).names.x) (h2x : b2 ≠ (covers certificate).names.x)
     (h12 : b1 ≠ b2) {K : Value → Prop} {E : Value → Value → Bool} (hE : KeyEq O P K E)
-    {T0 : Ty}
+    {Ps : Program} (hEs : KeyEq O Ps K E) {T0 : Ty}
     (hK : ∀ bs vs, O.params_have_types P
         (Env.Env (bind_types [(covers certificate).names.T] [T0] []) bs) vs
         [.Param (covers certificate).names.x (.TypeParameter (covers certificate).names.T)] =
@@ -393,8 +395,9 @@ theorem covers_encoded (certificate : Sexp) {O : Oracle} (hO : O.Sound) {P : Pro
     (hΓ : ∀ x k, (covers certificate).vars.lookup x = some k → ∃ v v',
       lookup_var (env_vars env) x = .Ok v ∧ lookup_var (env_vars env') x = .Ok v' ∧
         Rel O P (covers certificate).names K E T0 k v v')
-    (hsol : ∀ p ∈ (covers certificate).covered, ∃ n, eval O P n env p.1 = .Ok (.BoolV true)) :
+    (hsol : ∀ p ∈ (covers certificate).covered,
+      ∃ n, eval O Ps n env p.1 = .Ok (.BoolV true)) :
     ∀ p ∈ (covers certificate).covered, ∃ n, eval O P n env' p.2 = .Ok (.BoolV true) :=
-  input_encoded hO hN hP hS hQ h1x h2x h12 hE hK hT hΓ (covers_check certificate) hsol
+  input_encoded hO hN hP hS hQ h1x h2x h12 hE hEs hK hT hΓ (covers_check certificate) hsol
 
 end Inox.Input
