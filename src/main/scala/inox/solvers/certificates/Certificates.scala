@@ -244,35 +244,44 @@ object Certificates {
       val encoded = encoding.map { case Encoding(encoders, _, constraints, _, equality) =>
         val after = printer.printSources(constraints.map(_._2)).terms
         val steps = constraints.map(c => c._3.map(_._1) zip printer.printSources(c._3.map(_._2)).terms)
-        // printing a function may define more of them, until the sources define them all
-        val definitions = Iterator.iterate(Vector.empty[Constraint]) { done =>
-          done ++ encoding.get.definitions().drop(done.size).map { (call, body, steps) =>
+        Input(encoders, Seq(), (after zip steps).map { case (a, s) => Constraint(a, a, s) }, functionEquality = equality)
+      }
+      // the functions that the sources define, after those of `done`: printing a function may
+      // define more of them, until the sources define them all
+      def definitions(done: Seq[Constraint]): Seq[Constraint] = encoding.fold(done) { e =>
+        Iterator.iterate(done.toVector) { done =>
+          done ++ e.definitions().drop(done.size).map { (call, body, steps) =>
             val printed = printer.printSources(call +: body +: steps.map(_._2)).terms
             Constraint(printed(0), printed(1), steps.map(_._1) zip printed.drop(2))
           }
         }.sliding(2).collectFirst { case Seq(a, b) if a.size == b.size => b }.get
-        Input(encoders, Seq(), (after zip steps).map { case (a, s) => Constraint(a, a, s) }, functions = definitions,
-          functionEquality = equality)
       }
-      val certificate = Certificate(proof, declarations ++ sessionDeclarations ++ templateAsserts, templateSeq, ruleSeq,
-        Assumptions(query, complete), simplifications = simplifications, input = encoded)
+      def withDefinitions(c: Certificate): Certificate =
+        c.copy(input = c.input.map(in => in.copy(functions = definitions(in.functions))))
+      val certificate = withDefinitions(Certificate(proof, declarations ++ sessionDeclarations ++ templateAsserts, templateSeq,
+        ruleSeq, Assumptions(query, complete), simplifications = simplifications, input = encoded))
       // the sorts of the symbols, which may declare more datatypes in the printer, whose
       // declarations are then those of the sources: of the symbols of the session that depend on a
       // type, and of the variables and uninterpreted functions of the sources and definitions
       def sorts(refs: Seq[Ref]): Map[Ref, SExpr] = refs.distinct.flatMap(ref => printer.sort(ref).map(ref -> _)).toMap
       def ofSources(ref: Ref) = ref.isInstanceOf[Ref.Variable] || ref.isInstanceOf[Ref.Uninterpreted]
       val solverSorts = sorts(certificate.solverSymbols.map(_._2).filterNot(_.isInstanceOf[Ref.Variable]))
-      val sourceSorts = sorts(certificate.copy(sourceDefinitions = printer.declarations).sourceSymbols.map(_._2).filter(ofSources))
+      // printing the sorts may define more functions (such as the equality of a sort), which may
+      // have symbols with more sorts
+      val (withSorts, sourceSorts) = Iterator.iterate((certificate, Map.empty[Ref, SExpr])) { (c, _) =>
+        val sourceSorts = sorts(c.copy(sourceDefinitions = printer.declarations).sourceSymbols.map(_._2).filter(ofSources))
+        (withDefinitions(c), sourceSorts)
+      }.drop(1).sliding(2).collectFirst { case Seq(a, b) if a._1 == b._1 => b }.get
       // the input: its constraints are printed by its printer, whose declarations they make
       val input = encoding.map { case Encoding(encoders, inputPrinter, constraints, _, equality) =>
         val before = inputPrinter.printSources(constraints.map(_._1)).terms
         val in = Input(encoders, inputPrinter.declarations, (before zip encoded.get.constraints).map { case (b, c) => c.copy(input = b) },
-          functions = encoded.get.functions, functionEquality = equality)
+          functions = withSorts.input.get.functions, functionEquality = equality)
         val inputSorts = in.symbols.map(_._2).filter(ofSources).distinct.flatMap(ref => inputPrinter.sort(ref).map(ref -> _)).toMap
         // the sorts may declare more datatypes
         in.copy(definitions = inputPrinter.declarations, sorts = inputSorts)
       }
-      Right(certificate.copy(sourceDefinitions = printer.declarations, solverSorts = solverSorts, sourceSorts = sourceSorts,
+      Right(withSorts.copy(sourceDefinitions = printer.declarations, solverSorts = solverSorts, sourceSorts = sourceSorts,
         input = input))
     } catch {
       case e: Throwable if !e.isInstanceOf[VirtualMachineError] =>
