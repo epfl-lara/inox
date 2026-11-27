@@ -29,7 +29,7 @@ object Checker {
   private[certificates] def fail(msg: String): Nothing = throw new Failure(msg)
 
   /** The version of the certificates that the checker checks. */
-  val Version = "4"
+  val Version = "5"
 
   /** The s-expressions of `text`, whose atoms keep their text. */
   def parse(text: String): List[SExpr] = {
@@ -254,7 +254,11 @@ object Checker {
 
   /** What a certificate has, once checked. */
   final case class Checked(asserts: Int, rules: Int, instances: Int, assumptions: Int, cpc: List[SExpr],
-                           templates: Int = 0)
+                           templates: Int = 0, unexplained: List[String] = Nil) {
+    /** Whether the certificate is over the program and the query that the solver was given: whether
+      * the steps of all of its simplifications are given (and they then hold). */
+    def original: Boolean = unexplained.isEmpty
+  }
 
   /** Checks `certificate`, and fails with a [[Failure]] that says why when it doesn't hold. */
   def check(certificate: SExpr): Checked = certificate match {
@@ -266,6 +270,7 @@ object Checker {
       SList(Atom("solver-symbols") :: solverSymbols),
       SList(Atom("source-definitions") :: sourceDefinitions),
       SList(Atom("source-symbols") :: sourceSymbols),
+      SList(Atom("simplifications") :: simplifications),
       SList(Atom("cpc") :: cpc))) =>
 
       if (version != Version) fail(s"the certificate has version $version, and the checker checks version $Version")
@@ -281,6 +286,12 @@ object Checker {
           catch { case r: Lowering.Refused => fail(s"the source of template $n can't be lowered: ${r.why}") }
         case (_, n) => fail(s"template $n has no source")
       }.toVector
+
+      // the simplifications rewrite the program and the expressions that the solver was given
+      // into the source definitions and the expressions of the sources
+      val unexplained = Simplifications.check(simplifications, sourceDefinitions, i => templateLines.lift(i).collect {
+        case SList(_ :: _ :: Sources.Source(Sources.Expression(e, _)) :: _) => e
+      })
 
       // the functions are those that the scripts declare, and those that templates define
       val declared = Sources.Signature(script ++ templateScript)
@@ -399,7 +410,7 @@ object Checker {
         case _ =>
       }
 
-      Checked(clauses.size, ruleLines.size, instances, queryIndices.size + completeIndices.size, cpc, templates.size)
+      Checked(clauses.size, ruleLines.size, instances, queryIndices.size + completeIndices.size, cpc, templates.size, unexplained)
 
     case SList(Atom("inox-certificate") :: Atom(version) :: _) if version != Version =>
       fail(s"the certificate has version $version, and the checker checks version $Version")
@@ -453,7 +464,8 @@ object Checker {
           try {
             val checked = check(certificate)
             println(s"ok   $file ${n + 1}: ${checked.asserts} asserts, ${checked.rules} rules, ${checked.instances} instances, " +
-              s"${checked.templates} templates")
+              s"${checked.templates} templates, " +
+              (if (checked.original) "over the original program" else s"over the simplified program (${checked.unexplained.head})"))
             for (dir <- cpcDir)
               Files.writeString(dir.resolve(s"${path.getFileName}.${n + 1}.cpc"), checked.cpc.map(_.toString + "\n").mkString)
           } catch {

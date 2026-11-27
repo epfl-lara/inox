@@ -192,6 +192,10 @@ trait CVC5Certificates extends CVC5Solver with SymbolRefs with certificates.Cert
       case Application(caller, args) =>
         Keyed(QualifiedIdentifier(SMTIdentifier(SSymbol("@"))), Seq(sortOf(caller.getType)), false, (caller +: args).map(toSMT))
       case Tuple(_) => keyed(super.toSMT(e), Seq(sortOf(e.getType)))
+      // the connectives are printed as they are, where the target drops their trivial operands:
+      // a step of a simplification is told by the term that it gives
+      case And(es) => FunctionApplication(QualifiedIdentifier(SMTIdentifier(SSymbol("and"))), es.map(toSMT))
+      case Or(es) => FunctionApplication(QualifiedIdentifier(SMTIdentifier(SSymbol("or"))), es.map(toSMT))
       case TupleSelect(t, _) => keyed(super.toSMT(e), Seq(sortOf(t.getType)))
       case _ => super.toSMT(e)
     }
@@ -208,10 +212,37 @@ trait CVC5Certificates extends CVC5Solver with SymbolRefs with certificates.Cert
         unrolling.TemplateGenerator.markers.map(id => id2sym(id).name -> Ref.Uninterpreted(id))
     }
 
-    // the body that each function is defined with (see `define`)
+    // the body that each function is defined with (see `define`), and the functions defined so far
     private var bodies: Option[Identifier => Expr] = None
+    private val defined = ListBuffer.empty[FunDef]
     override def define(body: Identifier => Expr): Unit = bodies = Some(body)
-    override protected def definitionBody(fd: FunDef): Expr = bodies.fold(fd.fullBody)(_(fd.id))
+    override protected def definitionBody(fd: FunDef): Expr = {
+      defined += fd
+      bodies.fold(fd.fullBody)(_(fd.id))
+    }
+
+    // the steps of the simplification of the body of each function (see `defineSteps`)
+    private var steps: Option[Identifier => Seq[(String, Expr)]] = None
+    override def defineSteps(steps: Identifier => Seq[(String, Expr)]): Unit = this.steps = Some(steps)
+
+    // the original bodies printed so far, and the steps of their simplifications, by function
+    private type Original = (certificates.SExpr, certificates.SExpr, Seq[(String, certificates.SExpr)])
+    private val printedOriginals = scala.collection.mutable.LinkedHashMap[Identifier, Original]()
+
+    override def originals: Seq[Original] = {
+      // printing an original body, or a body between two steps, may define the functions that it calls
+      while (defined.exists(fd => !printedOriginals.contains(fd.id))) {
+        for (fd <- defined.toList if !printedOriginals.contains(fd.id)) {
+          val (_, _, bindings) = signature(fd)
+          def print(e: Expr): certificates.SExpr = proofSExpr(declaring(termText(e, bindings))._1, sourceSymbols)
+          // without steps, the body that the function is defined with is one step from the original
+          val recorded = steps.fold(Seq("unrecorded" -> bodies.fold(fd.fullBody)(_(fd.id))))(_(fd.id))
+          printedOriginals(fd.id) = (proofSExpr(RecursivePrinter.toString(id2sym(fd.id)), sourceSymbols),
+            print(fd.fullBody), recorded.map((rule, body) => rule -> print(body)))
+        }
+      }
+      printedOriginals.values.toSeq
+    }
 
     // the declarations and definitions that printing made: those of datatypes, sorts and functions
     private val kept = ListBuffer.empty[SExpr]

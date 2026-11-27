@@ -7,8 +7,9 @@ states is that no values of the free variables make the query evaluate to
 
 Its fenced `inox-sem` blocks are read by `inox.semantics.Codegen`, which writes
 the semantics for each tool that needs it. Today that is a Scala evaluator,
-[`src/test/scala/inox/semantics/generated/Semantics.scala`](src/test/scala/inox/semantics/generated/Semantics.scala),
-which `SemanticsSuite` compares with Inox's `RecursiveEvaluator` on the
+[`src/main/scala/inox/semantics/generated/Semantics.scala`](src/main/scala/inox/semantics/generated/Semantics.scala),
+which the checker of certificates evaluates closed terms with, and which
+`SemanticsSuite` compares with Inox's `RecursiveEvaluator` on the
 functions of the regression files and on random expressions over every theory.
 The functions that quantify over values (`forall`, `exists`) can't be computed,
 so the evaluator leaves them abstract, and the tests give them by enumerating
