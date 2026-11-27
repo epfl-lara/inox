@@ -711,6 +711,8 @@ object Simplifications {
 
     private def value(t: SExpr): Boolean = literal(t) || (t match {
       case SList(Atom("lambda") :: _) => true
+      case SList(List(Atom("as"), Atom("emptyset"), _)) => true
+      case SList(Atom("insert") :: set :: es) => es.nonEmpty && value(set) && es.forall(value)
       case Atom(c) => program.constructors.contains(c)
       case _ => program.construction(t).exists(_._2.forall(value))
     })
@@ -732,6 +734,14 @@ object Simplifications {
         case _ if literal(t) => Some(t)
         case SList(Atom("lambda") :: _) => Some(selected(t))
         case Atom(c) if program.constructors.contains(c) => Some(t)
+        case SList(List(Atom("as"), Atom("emptyset"), _)) => Some(t)
+        // the insertions into a set are those into the set that it inserts into
+        case SList(Atom("insert") :: set :: es) if es.nonEmpty =>
+          val values = es.map(reduce)
+          if (values.exists(_.isEmpty)) None else reduce(set).collect {
+            case SList(Atom("insert") :: base :: inner) => SList(Atom("insert") :: base :: (inner ++ values.flatten))
+            case empty @ SList(List(Atom("as"), Atom("emptyset"), _)) => SList(Atom("insert") :: empty :: values.flatten)
+          }
         case Atom(f) if program.functions.get(f).exists(fn => fn.params.isEmpty && fn.tparams.isEmpty) => reduce(program.functions(f).body)
         case SList(List(Atom("let"), SList(bindings), body)) =>
           val values = bindings.map {
@@ -764,11 +774,20 @@ object Simplifications {
       // deeper than the stack
       catch { case _: Failure | _: StackOverflowError => false }
 
-    /** The inputs that tell closures apart: integers and Booleans. */
-    private def inputs(sort: SExpr): Option[List[SExpr]] = sort match {
-      case Atom("Int") => Some(List(Atom("0"), Atom("1"), app("-", Atom("1")), Atom("2")))
+    /** The inputs that tell closures apart: integers, those that the closures write and the ones
+      * next to them, and Booleans. */
+    private def inputs(sort: SExpr, written: Set[BigInt]): Option[List[SExpr]] = sort match {
+      case Atom("Int") =>
+        val ns = (Set(BigInt(0), BigInt(1), BigInt(-1), BigInt(2)) ++ written.flatMap(n => Set(n - 1, n, n + 1))).toList.sorted
+        Some(ns.map(n => if (n < 0) app("-", Atom((-n).toString)) else Atom(n.toString)))
       case Atom("Bool") => Some(List(Atom("true"), Atom("false")))
       case _ => None
+    }
+
+    private def integers(t: SExpr): Set[BigInt] = t match {
+      case Atom(x) if x.nonEmpty && x.forall(_.isDigit) => Set(BigInt(x))
+      case SList(items) => items.flatMap(integers).toSet
+      case _ => Set()
     }
 
     /** Whether the closed terms `a` and `b` are closures that differ on some input, where the
@@ -776,7 +795,7 @@ object Simplifications {
     private def differ(a: SExpr, b: SExpr): Boolean = (reduce(a), reduce(b)) match {
       case (Some(Binder("lambda", xs, ds, f)), Some(Binder("lambda", ys, _, g))) if xs.size == ys.size =>
         val domains = ds.map {
-          case SList(List(_, sort)) => inputs(sort)
+          case SList(List(_, sort)) => inputs(sort, integers(f) ++ integers(g))
           case _ => None
         }
         domains.forall(_.nonEmpty) && {
@@ -787,11 +806,16 @@ object Simplifications {
       case _ => false
     }
 
-    /** The elements of the closed term `s` of a set, when it is written with insertions. */
-    private def elements(s: SExpr): Option[List[SExpr]] = s match {
-      case SList(List(Atom("as"), Atom("emptyset"), _)) => Some(Nil)
-      case SList(Atom("insert") :: set :: es) if es.nonEmpty => elements(set).map(_ ++ es)
-      case _ => None
+    /** The elements of the closed term `s` of a set, when it reduces to insertions. */
+    private def elements(s: SExpr): Option[List[SExpr]] = reduce(s).collect {
+      case SList(List(Atom("as"), Atom("emptyset"), _)) => Nil
+      case SList(Atom("insert") :: _ :: es) => es
+    }
+
+    /** Whether the closed terms `a` and `b` reduce to the same closure, which equals itself. */
+    private def same(a: SExpr, b: SExpr): Boolean = (reduce(a), reduce(b)) match {
+      case (Some(f @ SList(Atom("lambda") :: _)), Some(g)) => alpha(f, g)
+      case _ => false
     }
 
     /** Whether the closed term `a` is false, as an equality of closures that differ, or as the
@@ -800,6 +824,16 @@ object Simplifications {
       try a match {
         case SList(List(Atom("="), x, y)) => differ(x, y)
         case SList(List(Atom("member"), x, set)) => elements(set).exists(_.forall(differ(x, _)))
+        case _ => false
+      }
+      catch { case _: Failure | _: StackOverflowError => false }
+
+    /** Whether the closed term `a` is true, as an equality of the same closure, or as the
+      * membership of a closure in a set that has it. */
+    def proves(a: SExpr): Boolean =
+      try a match {
+        case SList(List(Atom("="), x, y)) => same(x, y)
+        case SList(List(Atom("member"), x, set)) => elements(set).exists(_.exists(same(x, _)))
         case _ => false
       }
       catch { case _: Failure | _: StackOverflowError => false }
@@ -1052,10 +1086,14 @@ object Simplifications {
           case Some(false) => fail(s"no evaluate step at ${deepest.mkString("(", " ", ")")} gives $subterm: ${at(term, deepest)} has another value")
           // the value of a function is the lambda that the term reduces to
           case None =>
-            // or the equality of closures that differ is false
+            // or an equality or a membership of closures that is decided
             if (!deepest.inits.exists { pos =>
               val reduction = new Reduction(program, exact)
-              reduction.gives(at(term, pos), at(rewritten, pos)) || (at(rewritten, pos) == Atom("false") && reduction.refutes(at(term, pos)))
+              reduction.gives(at(term, pos), at(rewritten, pos)) || (at(rewritten, pos) match {
+                case Atom("false") => reduction.refutes(at(term, pos))
+                case Atom("true") => reduction.proves(at(term, pos))
+                case _ => false
+              })
             }) unknown += rule
         }
       }
@@ -1132,10 +1170,13 @@ object Simplifications {
     }
   }
 
-  /** Whether `t` always has a value: a literal, or a symbol that is not a function nor a
-    * constructor of the program (a variable or a constant). */
+  /** Whether `t` always has a value: a literal, a symbol that is not a function nor a
+    * constructor of the program (a variable or a constant), or a constructor without fields of a
+    * sort without an invariant. */
   private def total(t: SExpr, program: Program): Boolean = literal(t).nonEmpty || (t match {
-    case Atom(x) => !program.functions.contains(x) && !program.constructors.contains(x)
+    case Atom(x) if program.constructors.contains(x) =>
+      program.construction(t).exists(_._2.isEmpty) && !program.datatypeOf.get(x).exists(program.invariants.contains)
+    case Atom(x) => !program.functions.contains(x)
     case _ => false
   })
 

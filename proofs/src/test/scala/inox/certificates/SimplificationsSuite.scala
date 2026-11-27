@@ -85,6 +85,8 @@ class SimplificationsSuite extends AnyFunSuite {
     reported(original, simplified, "(steps (logic (2) (> x 1)))", equality = "intensional")
     // an equivalence is checked
     holds("(lambda ((x Int)) (and (> x 0) true))", "(lambda ((x Int)) (> x 0))", "(steps (logic (2) (> x 0)))", equality = "extensional")
+    // a selection drops a constructor without fields, which has a value
+    holds("(lambda ((x Int)) (head (Cons x Nil)))", "(lambda ((x Int)) x)", "(steps (select (2) x))", equality = "extensional")
     holds("(lambda ((x Int)) (f x))", "(lambda ((x Int)) (let ((y x)) (and (> y 0) true)))",
       "(steps (unfold (2) (let ((y x)) (and (> y 0) true))))", equality = "extensional")
     // a call has no value where its argument has none
@@ -417,8 +419,18 @@ class SimplificationsSuite extends AnyFunSuite {
     holds(s"(member $one (insert (as emptyset (-> Int Bool)) $two (get (single 3))))", "false", "(steps (evaluate () false))", equality = "extensional")
     // closures that agree on every input, or that the inputs don't tell apart, are not known to differ
     reported(s"(= $one (lambda ((y Int)) (= 1 y)))", "false", "(steps (evaluate () false))", equality = "extensional")
-    reported("(= (lambda ((z Int)) (= z 7)) (lambda ((z Int)) (= z 8)))", "false", "(steps (evaluate () false))", equality = "extensional")
+    reported("(= (lambda ((z Int)) (= (* z z) 49)) (lambda ((z Int)) (= z 7)))", "false", "(steps (evaluate () false))", equality = "extensional")
     reported(s"(member $one (insert (as emptyset (-> Int Bool)) $two $one))", "false", "(steps (evaluate () false))", equality = "extensional")
+    // the inputs are also the integers that the closures write, and the ones next to them
+    holds("(= (lambda ((z Int)) (+ z 1)) (lambda ((z Int)) (ite (= z 5) 0 (+ z 1))))", "false", "(steps (evaluate () false))", equality = "extensional")
+    // a set is the insertions into the set that it inserts into
+    holds(s"(member $one (insert (insert (as emptyset (-> Int Bool)) $two) (get (single 3))))", "false", "(steps (evaluate () false))", equality = "extensional")
+    holds(s"(= u (insert (insert (as emptyset (-> Int Bool)) $two) (get (single 1))))", s"(= u (insert (as emptyset (-> Int Bool)) $two $one))",
+      s"(steps (evaluate (2) (insert (as emptyset (-> Int Bool)) $two $one)))", equality = "extensional")
+    // the same closure is equal to itself, and a member of a set that has it
+    holds(s"(= (get (single 1)) $one)", "true", "(steps (evaluate () true))", equality = "extensional")
+    holds(s"(member (lambda ((y Int)) (= y 1)) (insert (as emptyset (-> Int Bool)) $two (get (single 1))))", "true", "(steps (evaluate () true))", equality = "extensional")
+    reported(s"(= $one (lambda ((y Int)) (= 1 y)))", "true", "(steps (evaluate () true))", equality = "extensional")
     // nor are closures over other sorts, or a set that is not written with insertions
     reported("(= (lambda ((l List)) true) (lambda ((l List)) false))", "false", "(steps (evaluate () false))", equality = "extensional")
     reported(s"(member $one (union (as emptyset (-> Int Bool)) (insert (as emptyset (-> Int Bool)) $two)))", "false", "(steps (evaluate () false))", equality = "extensional")

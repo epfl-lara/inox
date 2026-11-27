@@ -131,7 +131,8 @@ rule of `unrolling.RuleKernel` builds. Two things are left to the reader:
   to literals, lambdas and constructions, which is how it checks the values
   of functions, and takes an equality of closures, or the membership of a
   closure in a set of closures, to be false where the evaluator gives the
-  closures different values on an integer or Boolean input), and of the steps that a simplifier
+  closures different values on an integer or Boolean input, and true where
+  they reduce to the same lambda), and of the steps that a simplifier
   can't tell are ones of `logic`, which the checker checks as such, and
   reports when they are not: an assumption that is lifted out of a binder
   (`lift-assumptions`, a step of `logic` out of a quantifier over sorts
