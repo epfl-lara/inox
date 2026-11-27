@@ -1,6 +1,6 @@
 name: Lean proofs
-# The theorems of the certificate checker in Lean (proofs/lean/verification), when they or the
-# generated semantics that they are about (proofs/semantics) change.
+# The theorems of the certificate checker in Lean (proofs/lean/verification), and the semantics
+# generated from proofs/semantics.md (proofs/semantics) that they are about, when either changes.
 # They take the soundness of Logos as a hypothesis, and so only need its definitions, its proof
 # that a well-formed model exists, and Mathlib, from its cache. Run by hand with `closed`, the
 # workflow also builds the proofs of Logos, which take hours, to check the theorems without that
@@ -16,6 +16,7 @@ on:
     paths:
       - 'proofs/lean/**'
       - 'proofs/semantics/**'
+      - 'proofs/semantics.md'
       - '.github/workflows/lean-proofs.yml'
   push:
     branches:
@@ -23,6 +24,7 @@ on:
     paths:
       - 'proofs/lean/**'
       - 'proofs/semantics/**'
+      - 'proofs/semantics.md'
       - '.github/workflows/lean-proofs.yml'
 
 concurrency:
@@ -30,6 +32,18 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  semantics:
+    name: Semantics (Lean)
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v7
+    # Lean checks that the generated definitions are total
+    - name: Build the Lean semantics
+      uses: leanprover/lean-action@v1
+      with:
+        lake-package-directory: proofs/semantics
+
   proofs:
     name: Lean proofs
     runs-on: ubuntu-latest
