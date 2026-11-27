@@ -85,7 +85,7 @@ class ProofsSuite extends AnyFunSuite {
         assert(c.assumptions == Assumptions(Seq(2), Seq(3)))
         assert(c.solverSymbols == Seq("c0" -> Ref.Variable(x)))
         assert(c.toString ==
-          "(inox-certificate 5\n(script\n(assert c0)\n(assert c1)\n(assert a)\n(assert r)\n(check-sat)\n)\n" +
+          "(inox-certificate 6\n(script\n(assert c0)\n(assert c1)\n(assert a)\n(assert r)\n(check-sat)\n)\n" +
           "(templates\n(script\n(declare-const p Bool)\n(assert tc)\n)\n(0 (params p) (expression tc) 0)\n)\n" +
           "(rules\n(Root (args (start c0)) 0)\n(Unfold (args (blocker c0) (flag)) (instance 0 ((p c0))) 1)\n)\n" +
           "(assumptions (query 2) (complete 3))\n" +

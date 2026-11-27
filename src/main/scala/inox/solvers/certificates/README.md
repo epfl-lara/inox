@@ -3,7 +3,7 @@
 A `(get-proof)` after a `(check-sat)` that Inox answers `unsat` prints the
 certificate of that query on standard output:
 
-    (inox-certificate 5
+    (inox-certificate 6
     (script
     <the SMT-LIB script of the clauses that the unrolling solver checked>
     )

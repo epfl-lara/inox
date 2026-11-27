@@ -329,7 +329,7 @@ final case class Certificate(proof: ScriptProof, templateScript: Seq[SExpr], tem
 
 object Certificate {
   /** The version of the format that certificates print in, which changes with it. */
-  val version = 5
+  val version = 6
 }
 
 object Proof {

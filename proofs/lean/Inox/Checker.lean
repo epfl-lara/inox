@@ -333,7 +333,7 @@ def checkRule (clauses : Array Sexp) (templates : Array Template) (sources : Arr
   | other => fail s!"{text other} is not a rule"
 
 /-- The version of the format that the checker checks. -/
-def version : String := "5"
+def version : String := "6"
 
 /-- Checks `certificate`, and says why when it doesn't hold. -/
 def check (certificate : Sexp) : Check Checked := do

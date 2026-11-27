@@ -29,7 +29,7 @@ object Checker {
   private[certificates] def fail(msg: String): Nothing = throw new Failure(msg)
 
   /** The version of the certificates that the checker checks. */
-  val Version = "5"
+  val Version = "6"
 
   /** The s-expressions of `text`, whose atoms keep their text. */
   def parse(text: String): List[SExpr] = {
