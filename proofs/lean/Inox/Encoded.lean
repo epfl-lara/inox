@@ -86,19 +86,21 @@ structure Sig where
   flat : Id → Bool
 
 mutual
-/-- Whether a kind has no functions in it. -/
-def foKind : Kind → Bool
+/-- Whether a kind has no functions in it, given the sorts `A` that have none. -/
+def foKind (A : Id → Bool) : Kind → Bool
   | .fn _ _ => false
-  | .tuple ks => foKinds ks
+  | .tuple ks => foKinds A ks
+  | .adt s => A s
   | _ => true
-def foKinds : List Kind → Bool
+def foKinds (A : Id → Bool) : List Kind → Bool
   | [] => true
-  | k :: ks => foKind k && foKinds ks
+  | k :: ks => foKind A k && foKinds A ks
 end
 
-/-- No constructor of the signature has a function in its fields. -/
-def Sig.fo (S : Sig) : Prop :=
-  ∀ c s fs, S.ctors c = some (s, fs) → foKinds (fs.map Prod.snd) = true
+/-- The sorts `A` have no functions in them: no constructor of theirs has a function in its
+fields. -/
+def Sig.fo (S : Sig) (A : Id → Bool) : Prop :=
+  ∀ c s fs, S.ctors c = some (s, fs) → A s = true → foKinds A (fs.map Prod.snd) = true
 
 /-- The kind of the component `i` of a tuple, counted from 1. -/
 def nthKind : List Kind → Int → Option Kind
@@ -148,8 +150,9 @@ inductive Encodes (N : Names) (S : Sig) (Te : Ty) :
   | ge {Γ : Id → Option Kind} {u : Bool} {a a' b b' : Expr}
       (ha : Encodes N S Te Γ a a' .int u) (hb : Encodes N S Te Γ b b' .int u) :
       Encodes N S Te Γ (.GreaterEquals a b) (.GreaterEquals a' b') .bool u
-  | eq {Γ : Id → Option Kind} {u : Bool} {a a' b b' : Expr} {k : Kind} (hk : foKind k = true)
-      (hS : S.fo) (ha : Encodes N S Te Γ a a' k u) (hb : Encodes N S Te Γ b b' k u) :
+  | eq {Γ : Id → Option Kind} {u : Bool} {a a' b b' : Expr} {k : Kind} {A : Id → Bool}
+      (hk : foKind A k = true) (hS : S.fo A) (ha : Encodes N S Te Γ a a' k u)
+      (hb : Encodes N S Te Γ b b' k u) :
       Encodes N S Te Γ (.Equals a b) (.Equals a' b') .bool u
   | not {Γ : Id → Option Kind} {u : Bool} {a a' : Expr} (ha : Encodes N S Te Γ a a' .bool u) :
       Encodes N S Te Γ (.Not a) (.Not a') .bool u
@@ -329,8 +332,9 @@ theorem sort_equality_ctor {c s : Id} {fs : List (Id × Kind)} {Q : Program}
 
 /-- Values without functions in them that relate are equal in the input when they are in the
 encoded program. -/
-theorem rel_value_eq (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) (hS : S.fo) :
-    ∀ {k : Kind} {a a' : Value}, Rel O P N K E T0 S k a a' → foKind k = true →
+theorem rel_value_eq (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) {A : Id → Bool}
+    (hS : S.fo A) :
+    ∀ {k : Kind} {a a' : Value}, Rel O P N K E T0 S k a a' → foKind A k = true →
       ∀ {b b' : Value}, Rel O P N K E T0 S k b b' →
         O.value_eq Ps a b = O.value_eq P a' b' := by
   intro k a a' h
@@ -383,7 +387,7 @@ theorem rel_value_eq (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) (hS : S.fo) :
         have hfs := h.symm.trans h2
         simp only [Option.some.injEq, Prod.mk.injEq] at hfs
         obtain ⟨_, rfl⟩ := hfs
-        have e := ih (by simpa [foKind] using hS _ _ _ h) hr2
+        have e := ih (by simpa [foKind] using hS _ _ _ h (by simpa [foKind] using hk)) hr2
         rw [hB.sound.value_eq, hB.sound.value_eq (P := P)] at e
         simp only [] at e
         simp [e]
