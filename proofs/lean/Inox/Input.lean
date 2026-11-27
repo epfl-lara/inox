@@ -822,26 +822,21 @@ def covers (certificate : Sexp) : Coverage :=
       | .ok body' => some (f, body, body')
       | .error _ => none
     | _, _ => none
-  -- those whose encoded bodies are what the encoder makes of them, given the others
-  let rec keep : Nat → List (Fun × Expr × Expr) → List (Fun × Expr × Expr)
-    | 0, fs => fs
-    | n + 1, fs =>
-      let S : CSig := ⟨ctors, fs.map (fun (f, _, _) => f.entry), unints, []⟩
-      let kept := fs.filter fun (f, body, body') =>
-        encodesCheck N S f.elem (kindOf S) (f.params.zip f.kinds) body body' f.kind false
-      if kept.length == fs.length then fs else keep n kept
-  let funs := keep read.length read
-  -- those whose bodies have no operations of bags, given the others
-  let rec flat : Nat → List Id → List Id
-    | 0, fs => fs
-    | n + 1, fs =>
-      let S : CSig := ⟨ctors, funs.map (fun (f, _, _) => f.entry), unints, fs⟩
-      let kept := fs.filter fun name => unints.any (·.1 == name) ||
-        funs.any fun (f, body, body') => f.name == name &&
-          encodesCheck N S f.elem (kindOf S) (f.params.zip f.kinds) body body' f.kind true
-      if kept.length == fs.length then fs else flat n kept
-  let S : CSig := ⟨ctors, funs.map (fun (f, _, _) => f.entry), unints,
-    flat (funs.length + 1) (unints.map (·.1) ++ funs.map fun (f, _, _) => f.name)⟩
+  -- those whose encoded bodies are what the encoder makes of them, given the others, and
+  -- among them those whose bodies have no operations of bags (`flat`)
+  let rec keep : Nat → List (Fun × Expr × Expr) → List Id → List (Fun × Expr × Expr) × List Id
+    | 0, fs, flat => (fs, flat)
+    | n + 1, fs, flat =>
+      let S : CSig := ⟨ctors, fs.map (fun (f, _, _) => f.entry), unints, flat⟩
+      let check (u : Bool) : Fun × Expr × Expr → Bool := fun (f, body, body') =>
+        encodesCheck N S f.elem (kindOf S) (f.params.zip f.kinds) body body' f.kind u
+      let flat' := unints.map (·.1) ++ (fs.filter (check true)).map (·.1.name)
+      let kept := fs.filter fun p => check (flat'.contains p.1.name) p
+      if kept.length == fs.length && flat'.length == flat.length then (fs, flat)
+      else keep n kept flat'
+  let (funs, flat) := keep (2 * read.length + 2) read
+    (unints.map (·.1) ++ read.map fun (f, _, _) => f.name)
+  let S : CSig := ⟨ctors, funs.map (fun (f, _, _) => f.entry), unints, flat⟩
   let defs := funs.map fun (f, body, body') => (f.name, f.params, body, body')
   let cin : Ctx := ⟨tin, top, ints⟩
   let Γ := symbols.filterMap fun
