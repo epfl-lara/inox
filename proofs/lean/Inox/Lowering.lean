@@ -20,6 +20,11 @@ one session symbol of its definition. Sorts are compared without their refinemen
 `:restrict`). The bodies of the `source-definitions` are generic: their keys mention the type
 parameters of the definition, which the type arguments of a call, the key of its head, replace.
 
+An error `(error S "message")` is lowered to an assumption that never holds, `(assume false v)`,
+where `v` is a value of its sort that Logos reads, `0` or `false`, in place of the Scala
+checker's `(error S')`: the terms of a source are read by Logos. An error of another sort is
+refused.
+
 It refuses a symbol of which the session has no symbol or several, and lambdas, `tuple.unit`,
 bags, string operations and floating points, which it doesn't lower.
 -/
@@ -384,6 +389,12 @@ where
         else pure (.expr (.atom "set.insert" :: (← rest.mapM (lower bound)) ++ [singleton]))
       else pure (.expr (.atom "set.insert" :: (← (first :: rest).mapM (lower bound)) ++ [← lower bound empty]))
     | .expr [.atom "insert", s, x] => do pure (app "set.insert" [← lower bound x, ← lower bound s])
+    | .expr [.atom "error", s, _] => do
+      -- an error is an assumption that never holds, of some value of its sort
+      match ← t.lowerSort s with
+      | .atom "Bool" => pure (app "assume" [ff, ff])
+      | .atom "Int" => pure (app "assume" [ff, .atom "0"])
+      | other => refuse s!"an error of sort {text other} is not lowered yet"
     | .expr (.atom op :: args) =>
       match setOperations.lookup op with
       | some op' => do pure (app op' (← args.mapM (lower bound)))
@@ -465,11 +476,15 @@ partial def unmark (meanings : List (Sexp × Sexp)) (seen : List Sexp) (e : Sexp
     | .expr items => .expr (items.map (unmark meanings seen))
     | a => a
 
-/-- `e` without its assumptions, `(assume c b)` being `b`, and without the conjuncts that have
-markers, of its conjunctions that hold where `e` does. -/
+/-- `e` without the conjuncts that have markers, of its conjunctions that hold where `e` does and
+of the conditions of its assumptions there, and without the assumptions whose conditions are
+then `true` or still have a marker, `(assume c b)` being `b`. The other assumptions are kept,
+for the readings of `Inox/Terms.lean`. -/
 partial def strip (e : Sexp) : Sexp :=
   match e with
-  | .expr [.atom "assume", _, b] => strip b
+  | .expr [.atom "assume", c, b] =>
+    let c := strip c
+    if t.hasMarker c || c == tt then strip b else .expr [.atom "assume", c, strip b]
   | .expr (.atom "and" :: cs) =>
     match (cs.map strip).filter (!t.hasMarker ·) with
     | [] => tt
@@ -479,10 +494,12 @@ partial def strip (e : Sexp) : Sexp :=
 
 /-- What the checker in Lean states of the expression of a lowered source of kind `expression`,
 which an instance of `expression` kind asserts: the expression, with the meanings that the source
-gives to its markers in place of the markers, without its assumptions, and without the conjuncts
-that have markers left; nothing if a marker is left outside of them. This is the expression, or a
-weaker one: a model of the source's expression is one of it, given the meanings of the markers,
-which only the Scala checker checks against the clauses of the template. -/
+gives to its markers in place of the markers, without the conjuncts that have markers left and
+without the assumptions that `strip` drops; nothing if a marker is left outside of them. The
+assumptions that are kept are left out or marked when Logos reads it (`Inox/Terms.lean`). This
+is the expression, or a weaker one: a model of the source's expression is one of it, given the
+meanings of the markers, which only the Scala checker checks against the clauses of the
+template. -/
 def statement : Source → Option Sexp
   | .expression e meanings =>
     let terms := meanings.filter fun (l, _) => match l with | .expr _ => true | _ => false

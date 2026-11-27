@@ -9,29 +9,42 @@ trait SimplifierWithPath extends SimplifierWithPC {
   import trees._
   import symbols.{given, _}
 
+  /** A path of conditions and bindings, with what a simplification is given for the term that
+    * it simplifies: the `recorder` of its steps, the `evaluator` of its ground terms, if it
+    * evaluates them, and whether the path is `underLambda`, the body of a lambda. */
   class Env private(
     private val conditions: Set[Expr],
-    private val exprSubst: Map[Variable, Expr]
+    private val exprSubst: Map[Variable, Expr],
+    override val recorder: Recorder = noRecorder,
+    val evaluator: Option[Expr => Option[Expr]] = None,
+    val underLambda: Boolean = false
   ) extends PathLike[Env] with SolvingPath {
+
+    private def copy(conditions: Set[Expr] = conditions, exprSubst: Map[Variable, Expr] = exprSubst,
+                     underLambda: Boolean = underLambda): Env =
+      new Env(conditions, exprSubst, recorder, evaluator, underLambda)
 
     override def withBinding(p: (ValDef, Expr)): Env = p match {
       case (vd, expr @ (_: ADT | _: Tuple | _: Lambda)) =>
-        new Env(conditions, exprSubst + (vd.toVariable -> expr))
+        copy(exprSubst = exprSubst + (vd.toVariable -> expr))
       case (vd, v: Variable) =>
         val exp = expand(v)
-        if (v != exp) new Env(conditions, exprSubst + (vd.toVariable -> exp))
+        if (v != exp) copy(exprSubst = exprSubst + (vd.toVariable -> exp))
         else this
       case _ => this
     }
 
     override def withBound(vd: ValDef): Env = this // We don't need to track such bounds.
 
-    override def withCond(cond: Expr): Env = new Env(conditions + cond, exprSubst)
+    override def withCond(cond: Expr): Env = copy(conditions = conditions + cond)
 
-    override def negate: Env = new Env(Set(not(and(conditions.toSeq*))), exprSubst)
+    override def negate: Env = copy(conditions = Set(not(and(conditions.toSeq*))))
 
     override def merge(that: Env): Env =
-      new Env(conditions ++ that.conditions, exprSubst ++ that.exprSubst)
+      copy(conditions = conditions ++ that.conditions, exprSubst = exprSubst ++ that.exprSubst)
+
+    /** This path in the body of a lambda. */
+    def inLambda: Env = if (underLambda) this else copy(underLambda = true)
 
     override def expand(expr: Expr): Expr = expr match {
       case v: Variable => exprSubst.getOrElse(v, v)
@@ -45,6 +58,11 @@ trait SimplifierWithPath extends SimplifierWithPC {
 
   object Env extends PathProvider[Env] {
     def empty = new Env(Set(), Map())
+
+    /** The empty path of a simplification that records its steps in `recorder` and evaluates
+      * its ground terms with `evaluator`, if any. */
+    def of(recorder: Recorder, evaluator: Option[Expr => Option[Expr]]): Env =
+      new Env(Set(), Map(), recorder, evaluator)
   }
 
   override def initEnv = Env.empty

@@ -126,7 +126,7 @@ object Certificates {
     * followed by `(where (<lhs> <rhs>) ...)` when the source names
     * markers or symbols of the template whose meanings it gives (see [[unrolling.TemplateGenerator.markers]]).
     * Every template has a source. Sources are terms of Inox's SMT-LIB 3 syntax (see
-    * [[inox.smtlib3.Printer]]), with the `(assume <condition> <body>)` of Inox's expressions,
+    * [[inox.smtlib3.Printer]]), with the `(assume <condition> <body>)` and `(error <sort> "<message>")` of Inox's expressions,
     * whose symbols are those of the printer and, for their variables, those of the session: the
     * source symbols say what they stand for. A marker of the sources is applied to its arguments
     * and qualified by the sort of the type that it is about, such as

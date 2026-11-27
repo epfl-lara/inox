@@ -24,8 +24,9 @@ private[smtlib3] case class TypeDefinition(params: Seq[Either[inox.trees.TypePar
 /** Parses SMT-LIB 3 scripts (see https://smt-lib.org/version3.shtml) into Inox programs.
   *
   * The parser extends the TIP parser of [[inox.tip.Parser]], so it also accepts TIP inputs and the
-  * Inox extensions to it (e.g. `datatype-invariant` and `assume`). On top of these, it
-  * supports the following SMT-LIB 3 features:
+  * Inox extensions to it (e.g. `datatype-invariant`, `assume`, and `(error T "message")` for an
+  * expression of type `T` whose evaluation fails). On top of these, it supports the following
+  * SMT-LIB 3 features:
   *
   *  - Function types `(-> A B C)` (also spelled `→`), and dependent function types whose parameters
   *    bind variables with `(! A :var x)`, which become Inox `PiType`s.

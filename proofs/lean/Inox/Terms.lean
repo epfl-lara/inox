@@ -761,16 +761,39 @@ def declarations (checked : Checked) : List Sexp :=
     | none => false
   ofProof ++ ofScript
 
+/-- `e` without its assumptions: each `(assume c b)` is `b`. -/
+def dropAssumes : Sexp → Sexp
+  | .expr [.atom "assume", _, b] => dropAssumes b
+  | .expr es => .expr (es.attach.map fun ⟨e, _⟩ => dropAssumes e)
+  | a => a
+
+/-- `e` with its assumptions marked in a form that Logos reads: each `(assume c b)` is
+`(ite (xor c false) b b)`, which has the value of `b`, and which no other expression is read
+as. -/
+def markAssumes : Sexp → Sexp
+  | .expr [.atom "assume", c, b] =>
+    .expr [.atom "ite", .expr [.atom "xor", markAssumes c, .atom "false"], markAssumes b,
+      markAssumes b]
+  | .expr es => .expr (es.attach.map fun ⟨e, _⟩ => markAssumes e)
+  | a => a
+
+/-- `e` has an assumption. -/
+def hasAssume : Sexp → Bool
+  | .expr [.atom "assume", _, _] => true
+  | .expr es => es.attach.any fun ⟨e, _⟩ => hasAssume e
+  | _ => false
+
 /-- The clauses: those of the query's assumptions, of each rule, and of the completeness
 assumptions, the definitions of the local symbols of the instances, and the source expressions
-of the instances of `expression` kind. -/
-def allClauses (checked : Checked) : List Sexp :=
+of the instances of `expression` kind, whose assumptions `f` reads: without them (`dropAssumes`),
+or marked (`markAssumes`). -/
+def allClauses (checked : Checked) (f : Sexp → Sexp := dropAssumes) : List Sexp :=
   checked.query ++ checked.applied.flatMap (·.2) ++ checked.complete ++
-    checked.defined.flatMap (·.map fun (v, m) => app "=" [v, m]) ++ checked.expressions
+    checked.defined.flatMap (·.map fun (v, m) => app "=" [v, m]) ++ checked.expressions.map f
 
 /-- The declarations and one `assume` per clause. -/
-def clauseText (checked : Checked) : String :=
-  let assumes := (allClauses checked).zipIdx.map fun (c, i) =>
+def clauseText (checked : Checked) (f : Sexp → Sexp := dropAssumes) : String :=
+  let assumes := (allClauses checked f).zipIdx.map fun (c, i) =>
     Sexp.expr [.atom "assume", .atom s!"inox.clause.{i}", c]
   "\n".intercalate ((declarations checked ++ assumes).map text) ++ "\n"
 
@@ -871,6 +894,8 @@ structure Equation where
   term : Term
   args : List Term
   params : List (SmtEval.native_String × SmtType)
+  /-- the equation with its assumptions marked (`markAssumes`), if its body has some -/
+  source : Option Term := none
 
 /-- The arguments of a call, if it is one. -/
 def callArgs : Term → Option (List Term)
@@ -967,22 +992,24 @@ def equationText (checked : Checked) : String :=
     Sexp.expr [.atom "assume", .atom s!"inox.source.{i}", c]
   "\n".intercalate ((decls ++ ofTemplates ++ assumes).map text) ++ "\n"
 
-/-- `e` without its assumptions: each `(assume c b)` is `b`. -/
-def dropAssumes : Sexp → Sexp
-  | .expr [.atom "assume", _, b] => dropAssumes b
-  | .expr es => .expr (es.attach.map fun ⟨e, _⟩ => dropAssumes e)
-  | a => a
-
 /-- The defining equations of the functions of a certificate, as Logos reads them, if it can,
 without their assumptions, which Logos doesn't read in a term: each `(assume c b)` is `b`. Where
 the call has a value, its evaluation went through each assumption it met, which held, so the call
 equals the body without them: the equation holds on the calls that have values, which is what the
-intended model gives (`GoodOn`). -/
+intended model gives (`GoodOn`). When a body has assumptions, each equation also has its `source`,
+read with the assumptions marked, which says where the body assumes what. -/
 def equations (checked : Checked) : List Equation :=
-  let checked := { checked with sources := checked.sources.map dropAssumes }
-  match parseProof (equationText checked) with
-  | .ok (terms, _) => terms.filterMap equationOf
-  | .error _ => []
+  let read (f : Sexp → Sexp) : List Equation :=
+    match parseProof (equationText { checked with sources := checked.sources.map f }) with
+    | .ok (terms, _) => terms.filterMap equationOf
+    | .error _ => []
+  let plain := read dropAssumes
+  if checked.sources.any hasAssume then
+    let marked := read markAssumes
+    if marked.length = plain.length then
+      List.zipWith (fun e m => { e with source := some m.term }) plain marked
+    else plain
+  else plain
 
 /-- What the second parse gives: the proof's assumptions as Logos reads them, the base clauses
 (the query's assumptions), the fresh-symbol steps and the facts. -/
@@ -996,6 +1023,8 @@ structure TermSteps where
   equations : List Equation := []
   /-- the instances of templates: the definitions of their local symbols, and their clauses -/
   instances : List (List Term × List Term) := []
+  /-- the base clauses with the assumptions of the source expressions marked (`markAssumes`) -/
+  query : List Term := []
   /-- how many of the defining equations are the reflexivity of an equality -/
   axioms : Nat := 0
   /-- how many base clauses are source expressions, and completeness assumptions -/
@@ -1222,6 +1251,11 @@ def unconstrained (eqs : List Equation) (base : List Term) (fresh : List Step) (
     | none => false
   (ends.eraseDups.filter ok).map Step.root
 
+/-- The source expressions among the clauses `terms` of the second parse, which come last. -/
+def expressionTerms (checked : Checked) (terms : List Term) : List Term :=
+  terms.drop (checked.query.length + ((checked.applied.map fun (_, cs) => cs.length).sum) +
+    checked.complete.length + (checked.defined.map List.length).sum)
+
 /-- The steps of the clauses `terms` of the second parse: the base clauses are the query's
 assumptions, the source expressions of the instances of `expression` kind and the completeness
 assumptions, those of the latter two that mention none of the constants of the steps of the
@@ -1272,7 +1306,16 @@ def termSteps (checked : Checked) : Except String TermSteps :=
     let checked := usableDefinitions checked
     match parseProof (clauseText checked) with
     | .error e => .error s!"Logos can't read the clauses: {e}"
-    | .ok (terms, _) => (termStepsOf checked terms).map fun r => { r with assums }
+    | .ok (terms, _) => (termStepsOf checked terms).map fun r =>
+      -- the source expressions that have assumptions, each with its marked reading
+      let marked :=
+        if checked.expressions.any hasAssume then
+          match parseProof (clauseText checked markAssumes) with
+          | .ok (ms, _) => (expressionTerms checked terms).zip (expressionTerms checked ms)
+          | .error _ => []
+        else []
+      { r with assums,
+               query := r.base.map fun t => ((marked.find? (·.1 == t)).map (·.2)).getD t }
 
 /-- A hash of a term, for the set of the clauses: equal terms have equal hashes, which is all
 `Std.HashSet` needs of it. -/

@@ -113,14 +113,13 @@ class TransformationRecorderSuite extends AnyFunSuite {
     assert(rec.result(first) == Seq("logic" -> And(p, Or(t, q)), "logic" -> p))
   }
 
-  test("postMap records what it makes of each subterm") {
-    val e = And(Not(Not(p)), Or(q, Not(Not(r))))
-    val rec = recorder(e)
-    val res = rec.postMap("double-negation") {
-      case Not(Not(e)) => Some(e)
-      case _ => None
-    } () (e)
-    assert(res == And(p, Or(q, r)))
-    assert(rec.result(res) == Seq("double-negation" -> And(p, Or(q, Not(Not(r)))), "double-negation" -> res))
+  test("The recorder of a transformation that is not recorded is never active") {
+    val rec = TransformationRecorder.none(inox.trees)
+    assert(!rec.active)
+    // the transformation runs, and none of its steps is recorded
+    assert(rec.at(And(p, q), "pass") { rec.rewrite("logic", t); t } == t)
+    assert(rec.suspended(rec.active) == false)
+    assert(!rec.active)
+    assert(rec.result(t) == Seq())
   }
 }

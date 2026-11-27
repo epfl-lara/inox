@@ -14,10 +14,11 @@ defining equations and the base clauses of the certificate are their translation
 - `programOf`, `sigsOf`, `varsOf` and `queryOf` are the program, its signatures, the free
   variables and the query that the equations and the base clauses denote;
 - `sourceCheck` holds when each equation is the translation of the body read from it, each base
-  clause that of the expression read from it, and the names and the types are those of the
-  fragment. It gives the hypotheses of `no_solution` on the program and the query
-  (`no_solution_of_check`). When the check of the certificate covers every fact, nothing is
-  assumed of its clauses (`no_solution_of_covered`).
+  clause that of an expression of the query, which is read from the base clauses with the
+  assumptions of the source expressions marked (`TermSteps.query`), and the names and the types
+  are those of the fragment. It gives the hypotheses of `no_solution` on the program and the
+  query (`no_solution_of_check`). When the check of the certificate covers every fact, nothing
+  is assumed of its clauses (`no_solution_of_covered`).
 
 The names are those that Logos gives the constants, and an n-ary operation is read as Logos
 reads it: `(+ a b)` is `a + (b + 0)`. That this program and this query are the ones that Inox
@@ -48,11 +49,13 @@ def tyOf : SmtType → Ty
 
 mutual
 /-- The expression that the term `t` is read as. A term outside the fragment is read as `Error`,
-which no check accepts. -/
+which no check accepts. An assumption is read from its mark (`markAssumes` of
+`Inox/Terms.lean`), and `mod` as `Modulo`, which is `Remainder` on integers. -/
 def back : SmtTerm → Expr
   | .UConst s _ => .Variable (idOf s)
   | .Numeral i => .IntegerLiteral i
   | .Boolean b => .BooleanLiteral b
+  | .ite (.xor c (.Boolean false)) a _ => .Assume (back c) (back a)
   | .ite c a b => .IfExpr (back c) (back a) (back b)
   | .not a => .Not (back a)
   | .imp a b => .Implies (back a) (back b)
@@ -60,6 +63,8 @@ def back : SmtTerm → Expr
   | .plus a b => .Plus (back a) (back b)
   | .neg a b => .Minus (back a) (back b)
   | .mult a b => .Times (back a) (back b)
+  | .div a b => .Division (back a) (back b)
+  | .mod a b => .Modulo (back a) (back b)
   | .uneg a => .UMinus (back a)
   | .lt a b => .LessThan (back a) (back b)
   | .gt a b => .GreaterThan (back a) (back b)
@@ -98,8 +103,9 @@ def consts : SmtTerm → List (native_String × SmtType)
   | .UConst s T => [(s, T)]
   | .ite c a b => consts c ++ consts a ++ consts b
   | .not a | .uneg a => consts a
-  | .imp a b | .eq a b | .plus a b | .neg a b | .mult a b | .lt a b | .gt a b | .leq a b
-  | .geq a b | .and a b | .or a b => consts a ++ consts b
+  | .xor a b => consts a ++ consts b
+  | .imp a b | .eq a b | .plus a b | .neg a b | .mult a b | .div a b | .mod a b | .lt a b
+  | .gt a b | .leq a b | .geq a b | .and a b | .or a b => consts a ++ consts b
   | .Apply (.UConst _ _) a => consts a
   | .Apply f a => consts f ++ consts a
   | _ => []
@@ -141,7 +147,7 @@ def infer (S : List Sig) (Γ : List (Id × Ty)) : Expr → Option Bool
     match infer S Γ a, infer S Γ b with
     | some k, some k' => if k = k' then some true else none
     | _, _ => none
-  | .Plus a b | .Minus a b | .Times a b =>
+  | .Plus a b | .Minus a b | .Times a b | .Division a b | .Remainder a b | .Modulo a b =>
     if infer S Γ a = some false ∧ infer S Γ b = some false then some false else none
   | .UMinus a => if infer S Γ a = some false then some false else none
   | .LessThan a b | .GreaterThan a b | .LessEquals a b | .GreaterEquals a b =>
@@ -150,6 +156,7 @@ def infer (S : List Sig) (Γ : List (Id × Ty)) : Expr → Option Bool
     match findSig S f with
     | some s => if inferArgs S Γ args (s.params.map Prod.snd) then kind s.ret else none
     | none => none
+  | .Assume p b => if infer S Γ p = some true then infer S Γ b else none
   | _ => none
 
 /-- The expressions `es` are Booleans. -/
@@ -251,6 +258,27 @@ theorem infer_sound (S : List Sig) (Γ : List (Id × Ty)) :
       simp only [Option.some.injEq] at h; subst h
       exact .times (infer_sound S Γ a false hab.1) (infer_sound S Γ b false hab.2)
     · cases h
+  | .Division a b, k, h => by
+    simp only [infer] at h
+    split at h
+    · rename_i hab
+      simp only [Option.some.injEq] at h; subst h
+      exact .div (infer_sound S Γ a false hab.1) (infer_sound S Γ b false hab.2)
+    · cases h
+  | .Remainder a b, k, h => by
+    simp only [infer] at h
+    split at h
+    · rename_i hab
+      simp only [Option.some.injEq] at h; subst h
+      exact .rem (infer_sound S Γ a false hab.1) (infer_sound S Γ b false hab.2)
+    · cases h
+  | .Modulo a b, k, h => by
+    simp only [infer] at h
+    split at h
+    · rename_i hab
+      simp only [Option.some.injEq] at h; subst h
+      exact .mod (infer_sound S Γ a false hab.1) (infer_sound S Γ b false hab.2)
+    · cases h
   | .UMinus a, k, h => by
     simp only [infer] at h
     split at h
@@ -300,14 +328,20 @@ theorem infer_sound (S : List Sig) (Γ : List (Id × Ty)) :
       · cases h
     · cases h
   | .FunctionInvocation f (_ :: _) args, k, h => by simp [infer] at h
-  | .Assume _ _, k, h | .Let _ _ _, k, h | .Application _ _, k, h | .Lambda _ _, k, h
+  | .Assume p b, k, h => by
+    simp only [infer] at h
+    split at h
+    · rename_i hp
+      exact .assume (infer_sound S Γ p true hp) (infer_sound S Γ b k h)
+    · cases h
+  | .Let _ _ _, k, h | .Application _ _, k, h | .Lambda _ _, k, h
   | .Forall _ _, k, h | .UninterpretedCall _ _ _, k, h | .Error, k, h | .CharLiteral _, k, h
   | .BVLiteral _ _ _, k, h | .FractionLiteral _ _, k, h | .FPLiteral _ _ _, k, h
   | .StringLiteral _, k, h | .UnitLiteral, k, h | .RoundNearestTiesToEven, k, h
   | .RoundNearestTiesToAway, k, h | .RoundTowardPositive, k, h | .RoundTowardNegative, k, h
   | .RoundTowardZero, k, h | .ADT _ _ _, k, h | .IsConstructor _ _, k, h | .ADTSelector _ _, k, h
   | .StringConcat _ _, k, h | .SubString _ _ _, k, h | .StringLength _, k, h
-  | .Division _ _, k, h | .Remainder _ _, k, h | .Modulo _ _, k, h | .BVNot _, k, h
+  | .BVNot _, k, h
   | .BVAnd _ _, k, h | .BVOr _ _, k, h | .BVXor _ _, k, h | .BVShiftLeft _ _, k, h
   | .BVAShiftRight _ _, k, h | .BVLShiftRight _ _, k, h | .BVNarrowingCast _ _, k, h
   | .BVWideningCast _ _, k, h | .BVUnsignedToSigned _, k, h | .BVSignedToUnsigned _, k, h
@@ -371,6 +405,9 @@ theorem HasTy.frag {S : List Sig} {Γ : List (Id × Ty)} {e : Expr} {T : Ty} (h 
   | plus _ _ iha ihb => exact .plus iha ihb
   | minus _ _ iha ihb => exact .minus iha ihb
   | times _ _ iha ihb => exact .times iha ihb
+  | div _ _ iha ihb => exact .div iha ihb
+  | rem _ _ iha ihb => exact .rem iha ihb
+  | mod _ _ iha ihb => exact .mod iha ihb
   | uminus _ ih => exact .uminus ih
   | lt _ _ iha ihb => exact .lt iha ihb
   | gt _ _ iha ihb => exact .gt iha ihb
@@ -406,9 +443,10 @@ def sigOf (e : Equation) : Sig :=
       ret := tyOf (resultTy e.params.length (headTy lhs)) }
   | _ => { name := "", params := [], ret := .UnitType }
 
-/-- The body of the function that the equation `e` defines. -/
+/-- The body of the function that the equation `e` defines, with its assumptions when the
+equation has its source. -/
 def bodyOf (e : Equation) : Expr :=
-  match __eo_to_smt e.term with
+  match __eo_to_smt (e.source.getD e.term) with
   | .eq _ rhs => back rhs
   | _ => .Error
 
@@ -423,13 +461,14 @@ def sigsOf (eqs : List Equation) : List Sig := eqs.map sigOf
 def programOf (eqs : List Equation) : Program :=
   .Program (eqs.map funOf) [] [] [] .NoFunctionEquality
 
-/-- The free variables of the base clauses: their constants, other than the functions of `S`. -/
+/-- The free variables of the clauses `base`: their constants, other than the functions of `S`. -/
 def varsOf (S : List Sig) (base : List Term) : List (Id × Ty) :=
   (((base.flatMap fun t => consts (__eo_to_smt t)).eraseDups.map
     fun p => (idOf p.1, tyOf p.2)).filter fun p => S.all fun s => p.1 != s.name)
 
-/-- The query: the expressions that the base clauses read as. -/
-def queryOf (base : List Term) : List Expr := base.map fun t => back (__eo_to_smt t)
+/-- The query: the expressions that the clauses `query` read as, which are the base clauses with
+the assumptions of the source expressions marked (`TermSteps.query`). -/
+def queryOf (query : List Term) : List Expr := query.map fun t => back (__eo_to_smt t)
 
 /-- The signatures `S` are of the fragment, with distinct names. -/
 def sigCheck (S : List Sig) : Bool :=
@@ -450,18 +489,18 @@ def eqCheck (S : List Sig) (e : Equation) : Bool :=
 def varsCheck (S : List Sig) (Γ : List (Id × Ty)) : Bool :=
   Γ.all fun p => (kind p.2).isSome && S.all fun s => p.1 != s.name
 
-/-- Each base clause is the translation of the expression read from it, which is a Boolean. -/
-def baseCheck (S : List Sig) (Γ : List (Id × Ty)) (base : List Term) : Bool :=
-  base.all fun t =>
-    let q := back (__eo_to_smt t)
-    decide (infer S Γ q = some true) && decide (__eo_to_smt t = tr S Γ q)
+/-- Each expression of the query is a Boolean, and each base clause is the translation of one,
+which leaves its assumptions out. -/
+def baseCheck (S : List Sig) (Γ : List (Id × Ty)) (base query : List Term) : Bool :=
+  (query.all fun s => decide (infer S Γ (back (__eo_to_smt s)) = some true)) &&
+    base.all fun t => query.any fun s => decide (__eo_to_smt t = tr S Γ (back (__eo_to_smt s)))
 
 /-- The equations and the base clauses of `r` are the translations of the program and of the
 query read from them, which are of the fragment. -/
 def sourceCheck (r : TermSteps) : Bool :=
   let S := sigsOf r.equations
-  let Γ := varsOf S r.base
-  sigCheck S && r.equations.all (eqCheck S) && varsCheck S Γ && baseCheck S Γ r.base
+  let Γ := varsOf S r.query
+  sigCheck S && r.equations.all (eqCheck S) && varsCheck S Γ && baseCheck S Γ r.base r.query
 
 theorem fragTy_of_kind {T : Ty} (h : (kind T).isSome = true) : FragTy T := by
   cases T <;> simp [kind] at h <;> trivial
@@ -528,11 +567,21 @@ theorem varsFresh_of_check {S : List Sig} {Γ : List (Id × Ty)} (h : varsCheck 
   simp only [varsCheck, Bool.and_eq_true, List.all_eq_true, bne_iff_ne] at h
   exact ⟨fun p hp => fragTy_of_kind (h p hp).1, fun p hp s hs => (h p hp).2 s hs⟩
 
-theorem baseFor_of_check {S : List Sig} {Γ : List (Id × Ty)} {base : List Term}
-    (h : baseCheck S Γ base = true) : BaseFor S Γ (queryOf base) base := by
-  simp only [baseCheck, Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true] at h
+theorem baseFor_of_check {S : List Sig} {Γ : List (Id × Ty)} {base query : List Term}
+    (h : baseCheck S Γ base query = true) : BaseFor S Γ (queryOf query) base := by
+  simp only [baseCheck, Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true,
+    List.any_eq_true] at h
   intro t ht
-  exact ⟨_, List.mem_map_of_mem ht, infer_sound S Γ _ true (h t ht).1, (h t ht).2⟩
+  obtain ⟨s, hs, hts⟩ := h.2 t ht
+  exact ⟨_, List.mem_map_of_mem hs, infer_sound S Γ _ true (h.1 s hs), hts⟩
+
+/-- The expressions of the query are Booleans. -/
+theorem query_ty_of_check {S : List Sig} {Γ : List (Id × Ty)} {base query : List Term}
+    (h : baseCheck S Γ base query = true) : ∀ q ∈ queryOf query, HasTy S Γ q .BooleanType := by
+  simp only [baseCheck, Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true] at h
+  intro q hq
+  obtain ⟨s, hs, rfl⟩ := List.mem_map.mp hq
+  exact infer_sound S Γ _ true (h.1 s hs)
 
 /-- The query of an accepted certificate has no solution in the program of the certificate, when
 the check of this file holds (`hsrc`) and every call of the program gives a value (`htot`), given
@@ -544,8 +593,8 @@ theorem no_solution_of_check (sound : LogosSound) (hO : O.Sound) (hty : LogosTyp
     (hcheck : r.check = true) (hkeeps : r.keeps = true) (hsrc : sourceCheck r = true)
     (htot : Total O (programOf r.equations) (sigsOf r.equations))
     (hfacts : FactsHoldExcept (Good r.equations) r.covered (extend r.base r.fresh) r.facts) :
-    ∀ vs, ¬ Solution O (programOf r.equations) (varsOf (sigsOf r.equations) r.base)
-      (queryOf r.base) vs := by
+    ∀ vs, ¬ Solution O (programOf r.equations) (varsOf (sigsOf r.equations) r.query)
+      (queryOf r.query) vs := by
   simp only [sourceCheck, Bool.and_eq_true] at hsrc
   obtain ⟨⟨⟨hS, hE⟩, hΓ⟩, hB⟩ := hsrc
   exact no_solution sound hO hty (sigOk_of_check hS) (progFrag_of_check hS hE)
@@ -562,8 +611,8 @@ theorem no_solution_of_covered (sound : LogosSound) (hO : O.Sound) (hty : LogosT
     (hcheck : r.check = true) (hkeeps : r.keeps = true) (hsrc : sourceCheck r = true)
     (hcovered : r.facts.all r.covered = true)
     (htot : Total O (programOf r.equations) (sigsOf r.equations)) :
-    ∀ vs, ¬ Solution O (programOf r.equations) (varsOf (sigsOf r.equations) r.base)
-      (queryOf r.base) vs :=
+    ∀ vs, ¬ Solution O (programOf r.equations) (varsOf (sigsOf r.equations) r.query)
+      (queryOf r.query) vs :=
   no_solution_of_check sound hO hty hAccept hr hcheck hkeeps hsrc htot
     (factsHoldExcept_of_all hcovered)
 

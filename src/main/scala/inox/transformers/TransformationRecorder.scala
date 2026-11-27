@@ -17,8 +17,11 @@ package transformers
   * of any, and it runs without being recorded on a term that the recorder doesn't find, which
   * then shows as such a step where the result is used. The steps always lead from the original
   * term to the result: whoever reads them decides what each rule is worth.
+  *
+  * The recorder of a transformation that is not recorded ([[TransformationRecorder.none]]) is
+  * never [[active]]: a transformation is always given a recorder.
   */
-final class TransformationRecorder private (val trees: ast.Trees)(original: trees.Expr) {
+final class TransformationRecorder private (val trees: ast.Trees)(original: trees.Expr, recording: Boolean) {
   import trees._
 
   // A subterm that the transformation is at: `index` is its place among the subterms of the
@@ -33,8 +36,9 @@ final class TransformationRecorder private (val trees: ast.Trees)(original: tree
   private var suspensions: Int = 0
 
   /** Whether steps are recorded: not while the transformation runs on a term that is not a
-    * subterm of the recorded one. */
-  def active: Boolean = suspensions == 0
+    * subterm of the recorded one, and never by the recorder of a transformation that is not
+    * recorded. What a transformation only does to record its steps, it does when this holds. */
+  def active: Boolean = recording && suspensions == 0
 
   /** The subterm that the transformation is at, as the steps so far rewrite it. */
   def node: Expr = top.current
@@ -107,25 +111,9 @@ final class TransformationRecorder private (val trees: ast.Trees)(original: tree
   }
 
   /** Runs `body` without recording: on terms that are not subterms of the recorded one. */
-  def suspended[A](body: => A): A = {
+  def suspended[A](body: => A): A = if (!recording) body else {
     suspensions += 1
     try body finally suspensions -= 1
-  }
-
-  /** `exprOps.postMap` of `f`, where what `f` makes of a subterm, once its subterms are
-    * transformed, is a step of `rule`, after the steps that `record` records from the subterm
-    * to what it becomes, if it records some. */
-  def postMap(rule: String)(f: Expr => Option[Expr])(record: (Expr, Expr) => Unit = (_, _) => ())(e: Expr): Expr = {
-    def go(e: Expr): Expr = at(e) {
-      val Operator(es, recons) = e: @unchecked
-      val nes = es.map(go)
-      val ne = if ((es zip nes).exists((a, b) => a ne b)) recons(nes).copiedFrom(e) else e
-      f(ne) match {
-        case Some(v) => at(ne, rule) { record(ne, v); v }
-        case None => ne
-      }
-    }
-    go(e)
   }
 
   /** The steps that rewrite the original term into `result`, which the transformation made. */
@@ -141,7 +129,12 @@ object TransformationRecorder {
 
   /** A recorder of the steps of a transformation of `e`, a term of `t`. */
   def apply(t: ast.Trees)(e: t.Expr): TransformationRecorder { val trees: t.type } =
-    new TransformationRecorder(t)(e).asInstanceOf[TransformationRecorder { val trees: t.type }]
+    new TransformationRecorder(t)(e, true).asInstanceOf[TransformationRecorder { val trees: t.type }]
+
+  /** The recorder of the transformations of terms of `t` that are not recorded: it is never
+    * active, and has no state. */
+  def none(t: ast.Trees): TransformationRecorder { val trees: t.type } =
+    new TransformationRecorder(t)(null, false).asInstanceOf[TransformationRecorder { val trees: t.type }]
 
   /** `e`, a term of `t`, with a copy of each occurrence of its variables. A recorder finds
     * subterms by their identity, and a term has the same object of a variable wherever it

@@ -95,27 +95,30 @@ trait SymbolOps extends TypeOps { self =>
   }
 
   /** A simplifier of formulas: [[simplifier]], with the passes of [[simplifyFormula]]. It records
-    * the steps of what it does in `recorder`, for certificates, unless it is `null`. */
-  protected def formulaSimplifierWithPC(popts: PurityOptions, recorder: Recorder): SimplifierWithPC & transformers.FormulaSimplifier = {
+    * the steps of what it does, for certificates, in the recorder that it is given with a
+    * formula. */
+  protected def formulaSimplifierWithPC(popts: PurityOptions): SimplifierWithPC & transformers.FormulaSimplifier = {
     class Impl(override val trees: self.trees.type,
                override val symbols: self.symbols.type,
                override val s: self.trees.type,
                override val t: self.trees.type,
-               override val opts: inox.solvers.PurityOptions,
-               override protected val recorder: Recorder)
-      extends SimplifierWithPC with transformers.SimplifierWithPath with transformers.FormulaSimplifier
+               override val opts: inox.solvers.PurityOptions)
+      extends SimplifierWithPC with transformers.FormulaSimplifier
 
-    new Impl(self.trees, self.symbols, self.trees, self.trees, popts, recorder)
+    new Impl(self.trees, self.symbols, self.trees, self.trees, popts)
   }
 
   private val formulaSimplifierCache: MutableMap[PurityOptions, SimplifierWithPC & transformers.FormulaSimplifier] = MutableMap.empty
   private[inox] def formulaSimplifier(using purityOpts: PurityOptions): SimplifierWithPC & transformers.FormulaSimplifier = synchronized {
-    formulaSimplifierCache.getOrElseUpdate(purityOpts, formulaSimplifierWithPC(purityOpts, null))
+    formulaSimplifierCache.getOrElseUpdate(purityOpts, formulaSimplifierWithPC(purityOpts))
   }
 
   /** A recorder of the steps of a simplification, for certificates (see [[simplifyFormulaRecorded]]),
-    * or `null` for a simplification that is not recorded. */
+    * which is [[noRecorder]] for a simplification that is not recorded. */
   private[inox] type Recorder = transformers.TransformationRecorder { val trees: self.trees.type }
+
+  /** The recorder of the simplifications that are not recorded, which is never active. */
+  private[inox] lazy val noRecorder: Recorder = transformers.TransformationRecorder.none(trees)
 
   /** Whether `a` is `b` up to the names of the variables that they bind. */
   private[inox] def sameUpToLocals(a: Expr, b: Expr): Boolean = (a == b) || {
@@ -885,12 +888,12 @@ trait SymbolOps extends TypeOps { self =>
    *   forall((x: BigInt) => x + 1 == x + 1)
    * }}}
    */
-  def inlineLambdas(e: Expr)(using PurityOptions): Expr = inlineLambdas(e, null)
+  def inlineLambdas(e: Expr)(using PurityOptions): Expr = inlineLambdas(e, noRecorder)
 
-  /** [[inlineLambdas]], which records its steps in `r` unless it is `null`. */
+  /** [[inlineLambdas]], which records its steps in `r` when it is active. */
   private[inox] def inlineLambdas(e: Expr, r: Recorder)(using PurityOptions): Expr = {
-    inline def recordedAt(e: Expr, rule: String = null)(inline body: Expr): Expr = if (r eq null) body else r.at(e, rule)(body)
-    inline def recorded(rule: String, inline to: Expr): Unit = if (r ne null) r.rewrite(rule, to)
+    inline def recordedAt(e: Expr, rule: String = null)(inline body: Expr): Expr = if (!r.active) body else r.at(e, rule)(body)
+    inline def recorded(rule: String, inline to: Expr): Unit = if (r.active) r.rewrite(rule, to)
 
     def rec(e: Expr, lambdas: Map[Variable, Lambda], inForall: Boolean): Expr = recordedAt(e)(e match {
       case Let(vd, l: Lambda, b) =>
@@ -913,58 +916,6 @@ trait SymbolOps extends TypeOps { self =>
 
     rec(e, Map.empty, false)
   }
-
-  /** Decides which functions [[simplifyForalls]] inlines: those reachable from the formula that
-    * contain a quantifier outside assumptions and are not (mutually) recursive. Calls are followed
-    * through ADT equalities, which count as calls to the sort's equality function.
-    *
-    * The call edges and the per-function decision only depend on the symbols, so they are cached
-    * here instead of being recomputed for every formula. */
-  private[inox] object forallInlining {
-    import java.util.concurrent.ConcurrentHashMap
-
-    private val callees = new ConcurrentHashMap[Identifier, Set[Identifier]]
-    private val inlinable = new ConcurrentHashMap[Identifier, java.lang.Boolean]
-
-    private def calleesOf(id: Identifier): Set[Identifier] =
-      callees.computeIfAbsent(id, id => exprOps.collect[Identifier] {
-        case fi: FunctionInvocation => Set(fi.id)
-        case Equals(IsTyped(_, adt: ADTType), _) if adt.getSort.hasEquality => Set(adt.getSort.equality.get.id)
-        case _ => Set.empty
-      } (getFunction(id).fullBody))
-
-    /** The functions in `roots` and those they transitively call. */
-    private def reachable(roots: Set[Identifier]): Set[Identifier] = {
-      val seen = MutableSet.empty[Identifier]
-      var todo = roots.toList
-      while (todo.nonEmpty) {
-        val id = todo.head
-        todo = todo.tail
-        if (seen.add(id)) todo = calleesOf(id).toList ++ todo
-      }
-      seen.toSet
-    }
-
-    private def hasForall(e: Expr): Boolean = e match {
-      case _: Forall => true
-      case Assume(_, body) => hasForall(body)
-      case Operator(es, _) => es.exists(hasForall)
-    }
-
-    private def isInlinable(id: Identifier): Boolean =
-      inlinable.computeIfAbsent(id, id => java.lang.Boolean.valueOf(
-        hasForall(getFunction(id).fullBody) && !reachable(calleesOf(id)).contains(id)
-      )).booleanValue
-
-    /** The functions to inline in `e`. */
-    def toInline(e: Expr): Set[Identifier] = reachable(functionCallsOf(e).map(_.id)).filter(isInlinable)
-  }
-
-  /** Pre-processing for solvers that handle universal quantification
-    * in order to increase the precision of polarity analysis for
-    * quantification instantiations.
-    */
-  def simplifyForalls(e: Expr)(using opts: PurityOptions): Expr = formulaSimplifier.simplifyForalls(e)
 
   def simplifyLets(expr: Expr): Expr = preMap {
     case l1 @ Let(v1, Let(v2, e2, b2), b1) => Some(Let(v2, e2, Let(v1, b2, b1).copiedFrom(l1)).copiedFrom(l1))
@@ -1221,7 +1172,7 @@ trait SymbolOps extends TypeOps { self =>
     // subterms are found by their identity
     val original = transformers.TransformationRecorder.unshared(trees)(e)
     val recorder = transformers.TransformationRecorder(trees)(original)
-    val res = formulaSimplifierWithPC(PurityOptions(ctx), recorder).simplifyFormula(original)
+    val res = formulaSimplifier(using PurityOptions(ctx)).simplifyFormula(original, recorder)
     (res, recorder.result(res))
   }
 
@@ -1441,7 +1392,7 @@ trait SymbolOps extends TypeOps { self =>
     * `unused` of certificates for the types that are known to have values. */
   private def recordedForall(args: Seq[ValDef], body: Expr, r: Recorder): Expr = {
     val res = forall(args, body)
-    if ((r ne null) && r.active && r.node != res) {
+    if (r.active && r.node != res) {
       val vars = exprOps.variablesOf(body)
       val dropped = args.filterNot(vd => vars(vd.toVariable))
       val known = body == BooleanLiteral(true) || dropped.forall(vd => certifiablyInhabited(vd.tpe))
@@ -1476,12 +1427,12 @@ trait SymbolOps extends TypeOps { self =>
   private[inox] def applied(l: Lambda, args: Seq[Expr]): Expr =
     (l.params zip args).foldRight(l.body) { case ((vd, e), body) => Let(vd, e, body) }
 
-  def simpForall(args: Seq[ValDef], body: Expr): Expr = simpForall(args, body, null)
+  def simpForall(args: Seq[ValDef], body: Expr): Expr = simpForall(args, body, noRecorder)
 
-  /** [[simpForall]], which records its steps in `r` unless it is `null`: the quantifier is then
+  /** [[simpForall]], which records its steps in `r` when it is active: the quantifier is then
     * the subterm that the recorded simplification is at. */
   private[inox] def simpForall(args: Seq[ValDef], body: Expr, r: Recorder): Expr =
-    if (r eq null) simpForallSteps(args, body, r) else r.at(Forall(args, body), "quantifiers")(simpForallSteps(args, body, r))
+    if (!r.active) simpForallSteps(args, body, r) else r.at(Forall(args, body), "quantifiers")(simpForallSteps(args, body, r))
 
   private def simpForallSteps(args: Seq[ValDef], body: Expr, r: Recorder): Expr = {
     // The quantifiers of the operands `es` of the body that `lifted` holds of become the outer
@@ -1504,10 +1455,10 @@ trait SymbolOps extends TypeOps { self =>
       val newBody = recons(allBodies)
       if (flatArgs.isEmpty) {
         // the constructor of the connective may simplify it
-        if (r ne null) r.at(body, "logic")(newBody)
+        if (r.active) r.at(body, "logic")(newBody)
         recordedForall(args, newBody, r)
       } else {
-        if ((r ne null) && r.active) {
+        if (r.active) {
           // the rule `prenex` of certificates is that of the types that are known to have values
           val Operator(_, same) = body: @unchecked
           val lifted = same(allBodies)
@@ -1521,7 +1472,7 @@ trait SymbolOps extends TypeOps { self =>
 
     body match {
       case Forall(args2, body) =>
-        if (r ne null) r.rewrite("merge", Forall(args ++ args2, body))
+        if (r.active) r.rewrite("merge", Forall(args ++ args2, body))
         simpForall(args ++ args2, body, r)
       case And(es) => liftForalls(es, andJoin, (f, _) => f.params.forall(vd => certifiablyInhabited(vd.tpe)))
       case Or(es) => liftForalls(es, orJoin, (_, _) => true)

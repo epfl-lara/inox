@@ -11,7 +11,7 @@ import smtlib.extensions.tip.Terms.{Application => SMTApplication, Lambda => SMT
 import smtlib.extensions.tip.Commands._
 import smtlib.Interpreter
 
-import Terms.{Assume => SMTAssume}
+import Terms.{Assume => SMTAssume, Error => SMTError}
 import Commands._
 
 import java.io.Writer
@@ -362,6 +362,8 @@ class Printer private(override val program: InoxProgram,
     case Application(caller, args) => SMTApplication(toSMT(caller), args.map(toSMT))
 
     case Assume(pred, body) => SMTAssume(toSMT(pred), toSMT(body))
+
+    case Error(tpe, message) => SMTError(declareSort(tpe), message)
 
     case FiniteBag(elems, base) =>
       elems.foldLeft(Bags.EmptyBag(declareSort(base))) { case (b, (k, v)) =>
