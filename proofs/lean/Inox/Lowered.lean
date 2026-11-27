@@ -5,15 +5,18 @@ import Inox.Encoded
 # What the lowering to SMT-LIB makes of an expression
 
 The query of `Inox/Reached.lean` is read back from the terms of Logos (`back`), which aren't
-the expressions of the input: their symbols have other names, an error is an assumption that
-fails, and a sum of two terms has a trailing `+ 0`, as Logos reads the sums of SMT-LIB. An
-expression of the input relates to what it is lowered to (`Lowers`) up to these, and where an
-expression of the input evaluates to a value, the expression that it is lowered to evaluates to
-the same value with enough fuel (`lowers_eval`), in a program whose functions are what those of
-the input are lowered to (`Funs`).
+the expressions of the input: their symbols have other names, their constructors and their
+fields too, an error is an assumption that fails, and a sum or a product of two integers has
+a trailing `+ 0` or `* 1`, as Logos reads the sums and the products of SMT-LIB. An expression
+of the input relates to what it is lowered to (`Lowers`) up to these, and where an expression
+of the input evaluates to a value, the expression that it is lowered to evaluates with enough
+fuel to the same value up to the names of its constructors (`lowers_eval`), in a program whose
+functions are what those of the input are lowered to (`Funs`) and whose constructors are those
+of the input (`Ctors`).
 
-The relation is of first-order expressions over integers and other primitive values, with calls
-of functions without type parameters: no datatypes, no lets and no lambdas yet.
+The relation is of first-order expressions over integers, other primitive values and values
+of datatypes without invariants, with calls of functions without type parameters: no lets and
+no lambdas yet.
 -/
 
 namespace Inox.Lowered
@@ -52,13 +55,46 @@ theorem has_sub {k k' : LK} (hs : Sub k k' = true) {v : Value} (h : Has k v) : H
     | exact .any v
     | (cases h; exact .prim rfl)
 
-/-- The functions of the input, each with the function that it is lowered to, the kinds of its
-parameters and the kind of its result. -/
-abbrev LSig := Id → Option (Id × List LK × LK)
+/-- What the lowering does with the names of the input: each function with the function that
+it is lowered to, the kinds of its parameters and the kind of its result, each constructor
+with the constructor that it is lowered to, and each field with its field. -/
+structure LSig where
+  funs : Id → Option (Id × List LK × LK)
+  ctors : Id → Option Id
+  fields : Id → Option Id
+
+mutual
+/-- The value `v` of the input is the value `v'` of the lowered program up to the names of
+the constructors, which are those of `K`. -/
+inductive VR (K : Id → Option Id) : Value → Value → Prop where
+  | prim {v : Value} (h : IsPrim v = true) : VR K v v
+  | adt {c c' : Id} {tps tps' : List Ty} {vs vs' : List Value} (h : K c = some c')
+      (hs : VRs K vs vs') : VR K (.ADTV c tps vs) (.ADTV c' tps' vs')
+  | tuple {vs vs' : List Value} (hs : VRs K vs vs') : VR K (.TupleV vs) (.TupleV vs')
+inductive VRs (K : Id → Option Id) : List Value → List Value → Prop where
+  | nil : VRs K [] []
+  | cons {v v' : Value} {vs vs' : List Value} (h : VR K v v') (hs : VRs K vs vs') :
+      VRs K (v :: vs) (v' :: vs')
+end
+
+theorem vr_prim {K : Id → Option Id} {v v' : Value} (h : VR K v v') (hp : IsPrim v = true) :
+    v' = v := by
+  cases h with
+  | prim _ => rfl
+  | adt _ _ => simp [IsPrim] at hp
+  | tuple _ => simp [IsPrim] at hp
+
+theorem vr_has {K : Id → Option Id} {v v' : Value} (h : VR K v v') :
+    ∀ {k : LK}, Has k v → k = .int ∨ k = .prim → v' = v
+  | _, .int _, _ => vr_prim h rfl
+  | _, .prim hp, _ => vr_prim h hp
+  | _, .any _, hk => by simp at hk
+  | _, .tupleNil, hk => by simp at hk
+  | _, .tupleCons _ _, hk => by simp at hk
 
 /-- `Lowers S Γ e e' k`: the expression `e` of the input is lowered to `e'`, and its values are
 of the kind `k`, where each variable `x` of `Γ` is the variable `y` of `Γ x = some (y, k)`, of
-the kind `k`, and each function `f` of `S` is the function of `S f`. -/
+the kind `k`, and the functions, the constructors and the fields of the input are those of `S`. -/
 inductive Lowers (S : LSig) : (Id → Option (Id × LK)) → Expr → Expr → LK → Prop where
   | var {Γ : Id → Option (Id × LK)} {x y : Id} {k : LK} (h : Γ x = some (y, k)) :
       Lowers S Γ (.Variable x) (.Variable y) k
@@ -92,6 +128,16 @@ inductive Lowers (S : LSig) : (Id → Option (Id × LK)) → Expr → Expr → L
       Lowers S Γ (.UMinus a) (.UMinus a') .int
   | uminus {Γ : Id → Option (Id × LK)} {a a' : Expr} (ha : Lowers S Γ a a' .any) :
       Lowers S Γ (.UMinus a) (.UMinus a') .prim
+  /-- A product of two integers, as Logos reads it. -/
+  | timesOne {Γ : Id → Option (Id × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .int)
+      (hb : Lowers S Γ b b' .int) :
+      Lowers S Γ (.Times a b) (.Times a' (.Times b' (.IntegerLiteral 1))) .int
+  | divInt {Γ : Id → Option (Id × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .int)
+      (hb : Lowers S Γ b b' .int) : Lowers S Γ (.Division a b) (.Division a' b') .int
+  | modInt {Γ : Id → Option (Id × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .int)
+      (hb : Lowers S Γ b b' .int) : Lowers S Γ (.Modulo a b) (.Modulo a' b') .int
+  | remInt {Γ : Id → Option (Id × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .int)
+      (hb : Lowers S Γ b b' .int) : Lowers S Γ (.Remainder a b) (.Remainder a' b') .int
   | div {Γ : Id → Option (Id × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .any)
       (hb : Lowers S Γ b b' .any) : Lowers S Γ (.Division a b) (.Division a' b') .prim
   | rem {Γ : Id → Option (Id × LK)} {a a' b b' : Expr} (ha : Lowers S Γ a a' .any)
@@ -134,9 +180,18 @@ inductive Lowers (S : LSig) : (Id → Option (Id × LK)) → Expr → Expr → L
       Lowers S Γ (.Tuple (e :: es)) (.Tuple (e' :: es')) (.tuple (k :: ks))
   /-- A call of a function without type parameters, whatever its type arguments. -/
   | call {Γ : Id → Option (Id × LK)} {f g : Id} {ks : List LK} {k : LK} {tps tps' : List Ty}
-      {es es' : List Expr} (hf : S f = some (g, ks, k))
+      {es es' : List Expr} (hf : S.funs f = some (g, ks, k))
       (ha : Lowers S Γ (.Tuple es) (.Tuple es') (.tuple ks)) :
       Lowers S Γ (.FunctionInvocation f tps es) (.FunctionInvocation g tps' es') k
+  /-- A construction, of a constructor of a sort without an invariant (`Ctors`). -/
+  | adt {Γ : Id → Option (Id × LK)} {c c' : Id} {ks : List LK} {tps tps' : List Ty}
+      {es es' : List Expr} (hc : S.ctors c = some c')
+      (ha : Lowers S Γ (.Tuple es) (.Tuple es') (.tuple ks)) :
+      Lowers S Γ (.ADT c tps es) (.ADT c' tps' es') .any
+  | isCtor {Γ : Id → Option (Id × LK)} {e e' : Expr} {c c' : Id} (hc : S.ctors c = some c')
+      (he : Lowers S Γ e e' .any) : Lowers S Γ (.IsConstructor e c) (.IsConstructor e' c') .prim
+  | sel {Γ : Id → Option (Id × LK)} {e e' : Expr} {f f' : Id} (hf : S.fields f = some f')
+      (he : Lowers S Γ e e' .any) : Lowers S Γ (.ADTSelector e f) (.ADTSelector e' f') .any
 
 /-- The variables of the body of a function: its parameters `params`, which are the parameters
 `params'` of the function that it is lowered to, of the kinds `ks`. -/
@@ -146,10 +201,36 @@ def paramsCtx (params params' : List Id) (ks : List LK) : Id → Option (Id × L
 /-- The functions of `S` are those of `Ps`, without type parameters, and their bodies are
 lowered to those of their functions in `P`, whose parameters are distinct. -/
 def Funs (Ps P : Program) (S : LSig) : Prop :=
-  ∀ f g ks k, S f = some (g, ks, k) → ∃ params params' body body',
+  ∀ f g ks k, S.funs f = some (g, ks, k) → ∃ params params' body body',
     FunIn f [] params body Ps ∧ FunIn g [] params' body' P ∧ params'.Nodup ∧
       params.length = ks.length ∧ params'.length = ks.length ∧
       Lowers S (paramsCtx params params' ks) body body' k
+
+/-- The program has the constructor `c`, with the fields `fs`, of a sort without an
+invariant. -/
+def CtorOf (c : Id) (fs : List Param) : Program → Prop
+  | .Program _ cs ss _ _ => ∃ s tps eq, lookup_ctor cs c = .Ok (.Constructor c s fs) ∧
+      lookup_sort ss s = .Ok (.Sort s tps none eq)
+
+/-- The names of the fields. -/
+def fieldNames : List Param → List Id
+  | [] => []
+  | .Param f _ :: fs => f :: fieldNames fs
+
+/-- The fields `fs'` are those of `F` of the fields `fs`, position by position. -/
+def FieldsOk (F : Id → Option Id) : List Id → List Id → Prop
+  | [], [] => True
+  | f :: fs, f' :: fs' => F f = some f' ∧ FieldsOk F fs fs'
+  | _, _ => False
+
+/-- The constructors of `S` are those of `Ps`, of sorts without invariants, and their
+constructors in `P` are too, with the fields of `S` at the same positions. The constructors and
+the fields of `S` are distinct, as their names in `P` are. -/
+structure Ctors (Ps P : Program) (S : LSig) : Prop where
+  ctor : ∀ c c', S.ctors c = some c' → ∃ fs fs', CtorOf c fs Ps ∧ CtorOf c' fs' P ∧
+    FieldsOk S.fields (fieldNames fs) (fieldNames fs')
+  ctorInj : ∀ c d c', S.ctors c = some c' → S.ctors d = some c' → c = d
+  fieldInj : ∀ f g f', S.fields f = some f' → S.fields g = some f' → f = g
 
 /-! ## Values -/
 
@@ -201,68 +282,160 @@ theorem mem_of_lookup {β : Type} : ∀ {l : List (Id × β)} {c : Id} {v : β},
       simp only [List.lookup, hb] at h
       exact List.mem_cons_of_mem _ (mem_of_lookup h)
 
-/-- Binding the arguments of a call to the parameters of a function and to those of the
-function that it is lowered to gives the variables of its body their values. -/
-theorem bind_lowered : ∀ {params params' : List Id} {ks : List LK} {vs : List Value},
+
+theorem plus_args {a b v : Value} (h : arith_plus a b = .Ok v) :
+    IsPrim a = true ∧ IsPrim b = true := by
+  cases a <;> cases b <;> simp_all [arith_plus, IsPrim]
+
+theorem minus_args {a b v : Value} (h : arith_minus a b = .Ok v) :
+    IsPrim a = true ∧ IsPrim b = true := by
+  cases a <;> cases b <;> simp_all [arith_minus, IsPrim]
+
+theorem times_args {a b v : Value} (h : arith_times a b = .Ok v) :
+    IsPrim a = true ∧ IsPrim b = true := by
+  cases a <;> cases b <;> simp_all [arith_times, IsPrim]
+
+theorem div_args {a b v : Value} (h : arith_div a b = .Ok v) :
+    IsPrim a = true ∧ IsPrim b = true := by
+  cases a <;> cases b <;> simp_all [arith_div, IsPrim]
+
+theorem rem_args {a b v : Value} (h : arith_rem a b = .Ok v) :
+    IsPrim a = true ∧ IsPrim b = true := by
+  cases a <;> cases b <;> simp_all [arith_rem, IsPrim]
+
+theorem mod_args {a b v : Value} (h : arith_mod a b = .Ok v) :
+    IsPrim a = true ∧ IsPrim b = true := by
+  cases a <;> cases b <;> simp_all [arith_mod, IsPrim]
+
+theorem neg_args {a v : Value} (h : arith_neg a = .Ok v) : IsPrim a = true := by
+  cases a <;> simp_all [arith_neg, IsPrim]
+
+theorem lt_args {a b : Value} {r : Bool} (h : arith_lt a b = .Ok r) :
+    IsPrim a = true ∧ IsPrim b = true := by
+  cases a <;> cases b <;> simp_all [arith_lt, IsPrim]
+
+theorem le_args {a b : Value} {r : Bool} (h : arith_le a b = .Ok r) :
+    IsPrim a = true ∧ IsPrim b = true := by
+  cases a <;> cases b <;> simp_all [arith_le, arith_lt, IsPrim]
+
+theorem vrs_length {K : Id → Option Id} : ∀ {vs vs' : List Value}, VRs K vs vs' →
+    vs.length = vs'.length
+  | _, _, .nil => rfl
+  | _, _, .cons _ hs => by simp [vrs_length hs]
+
+/-- Selecting a field of the values `vs` and the field of `S` of the lowered values `vs'`. -/
+theorem select_lowered {S : LSig} (hinj : ∀ f g f', S.fields f = some f' → S.fields g = some f' →
+    f = g) : ∀ {fs fs' : List Param} {vs vs' : List Value},
+    FieldsOk S.fields (fieldNames fs) (fieldNames fs') →
+    VRs S.ctors vs vs' → ∀ {sel sel' : Id} {v : Value}, S.fields sel = some sel' →
+      select_field fs vs sel = .Ok v → ∃ v', select_field fs' vs' sel' = .Ok v' ∧ VR S.ctors v v'
+  | [], [], _, _, _, _, _, _, _, _, h => by simp [select_field] at h
+  | .Param f _ :: fs, .Param f' _ :: fs', v :: vs, v' :: vs', hf, .cons hv hvs, sel, sel', w,
+      hs, h => by
+    simp only [fieldNames, FieldsOk] at hf
+    obtain ⟨hff, hr⟩ := hf
+    · by_cases hfs : f = sel
+      · subst hfs
+        rw [hs] at hff
+        cases hff
+        simp [select_field] at h
+        subst h
+        exact ⟨v', by simp [select_field], hv⟩
+      · have hne : f' ≠ sel' := fun e => hfs (hinj _ _ _ hff (e ▸ hs))
+        simp only [select_field, hfs, dite_false] at h
+        obtain ⟨u, hu, hr'⟩ := select_lowered hinj hr hvs hs h
+        exact ⟨u, by simp [select_field, hne, hu], hr'⟩
+  | .Param _ _ :: _, .Param _ _ :: _, [], _, _, hv, _, _, _, _, h => by simp [select_field] at h
+  | .Param _ _ :: _, .Param _ _ :: _, _ :: _, [], _, hv, _, _, _, _, _ => by cases hv
+  | [], .Param _ _ :: _, _, _, hf, _, _, _, _, _, _ => by simp [fieldNames, FieldsOk] at hf
+  | .Param _ _ :: _, [], _, _, hf, _, _, _, _, _, _ => by simp [fieldNames, FieldsOk] at hf
+
+/-- Binding the arguments of a call to the parameters of a function and the lowered arguments
+to those of the function that it is lowered to gives the variables of its body their values. -/
+theorem bind_lowered {K : Id → Option Id} : ∀ {params params' : List Id} {ks : List LK}
+    {vs vs' : List Value},
     params'.Nodup → params.length = ks.length → params'.length = ks.length →
-    Has (.tuple ks) (.TupleV vs) → ∀ {bs : List Binding}, bind_all params vs = .Ok bs →
-      ∃ bs', bind_all params' vs = .Ok bs' ∧
+    Has (.tuple ks) (.TupleV vs) → VRs K vs vs' → ∀ {bs : List Binding},
+      bind_all params vs = .Ok bs →
+      ∃ bs', bind_all params' vs' = .Ok bs' ∧
         ∀ x y k, paramsCtx params params' ks x = some (y, k) →
-          ∃ v, lookup_var bs x = .Ok v ∧ lookup_var bs' y = .Ok v ∧ Has k v
-  | [], [], [], [], _, _, _, _, bs, hb => by
+          ∃ v v', lookup_var bs x = .Ok v ∧ lookup_var bs' y = .Ok v' ∧ VR K v v' ∧ Has k v
+  | [], [], [], [], [], _, _, _, _, _, bs, hb => by
     simp [bind_all] at hb
     subst hb
     exact ⟨[], by simp [bind_all], fun x y k hx => by simp [paramsCtx] at hx⟩
-  | p :: ps, p' :: ps', k :: ks, v :: vs, hnd, hl1, hl2, h, bs, hb => by
+  | p :: ps, p' :: ps', k :: ks, v :: vs, v' :: vs', hnd, hl1, hl2, h, hvr, bs, hb => by
     cases h with
     | tupleCons hv hr =>
+      cases hvr with
+      | cons hvv hvrs =>
       rw [bind_all] at hb
       split at hb
       · next bs1 hbs1 =>
         cases hb
         have hnd' := (List.nodup_cons.mp hnd)
         obtain ⟨bs1', hb1', hl⟩ :=
-          bind_lowered hnd'.2 (by simpa using hl1) (by simpa using hl2) hr hbs1
-        refine ⟨.Binding p' v :: bs1', by simp [bind_all, hb1'], fun x y k2 hx => ?_⟩
+          bind_lowered hnd'.2 (by simpa using hl1) (by simpa using hl2) hr hvrs hbs1
+        refine ⟨.Binding p' v' :: bs1', by simp [bind_all, hb1'], fun x y k2 hx => ?_⟩
         by_cases hxp : x = p
         · subst hxp
           simp [paramsCtx] at hx
           obtain ⟨rfl, rfl⟩ := hx
-          exact ⟨v, by simp [lookup_var], by simp [lookup_var], hv⟩
+          exact ⟨v, v', by simp [lookup_var], by simp [lookup_var], hvv, hv⟩
         · have hb : (x == p) = false := by simpa using hxp
           have hx' : paramsCtx ps ps' ks x = some (y, k2) := by
             simpa only [paramsCtx, List.zip_cons_cons, List.lookup, hb] using hx
-          obtain ⟨u, h1, h2, h3⟩ := hl x y k2 hx'
+          obtain ⟨u, u', h1, h2, h3, h4⟩ := hl x y k2 hx'
           have hy : y ∈ ps' := (List.of_mem_zip (List.of_mem_zip (mem_of_lookup hx')).2).1
           have hyp : y ≠ p' := fun e => hnd'.1 (e ▸ hy)
-          exact ⟨u, by simp [lookup_var, hxp, h1], by simp [lookup_var, hyp, h2], h3⟩
+          exact ⟨u, u', by simp [lookup_var, hxp, h1], by simp [lookup_var, hyp, h2], h3, h4⟩
       · cases hb
       · cases hb
-  | [], [], [], _ :: _, _, _, _, h, _, _ => by cases h
-  | [], _ :: _, _, _, _, hl1, hl2, _, _, _ => by simp at hl1 hl2; omega
-  | _ :: _, [], _, _, _, hl1, hl2, _, _, _ => by simp at hl1 hl2; omega
-  | [], [], _ :: _, _, _, hl1, _, _, _, _ => by simp at hl1
-  | _ :: _, _ :: _, [], _, _, hl1, _, _, _, _ => by simp at hl1
-  | _ :: _, _ :: _, _ :: _, [], _, _, _, h, _, _ => by cases h
+  | [], [], [], _ :: _, _, _, _, _, h, _, _, _ => by cases h
+  | [], _ :: _, _, _, _, _, hl1, hl2, _, _, _, _ => by simp at hl1 hl2; omega
+  | _ :: _, [], _, _, _, _, hl1, hl2, _, _, _, _ => by simp at hl1 hl2; omega
+  | [], [], _ :: _, _, _, _, hl1, _, _, _, _, _ => by simp at hl1
+  | _ :: _, _ :: _, [], _, _, _, hl1, _, _, _, _, _ => by simp at hl1
+  | _ :: _, _ :: _, _ :: _, [], _, _, _, _, h, _, _, _ => by cases h
+  | _ :: _, _ :: _, _ :: _, _ :: _, [], _, _, _, _, hvr, _, _ => by cases hvr
+  | [], [], [], [], _ :: _, _, _, _, _, hvr, _, _ => by cases hvr
+theorem vr_tuple_inv {K : Id → Option Id} {vs : List Value} {t : Value}
+    (h : VR K (.TupleV vs) t) : ∃ vs', t = .TupleV vs' ∧ VRs K vs vs' := by
+  cases h with
+  | prim hp => simp [IsPrim] at hp
+  | tuple hs => exact ⟨_, rfl, hs⟩
+
+theorem vr_bool {K : Id → Option Id} {b : Bool} {t : Value} (h : VR K (.BoolV b) t) :
+    t = .BoolV b :=
+  vr_prim h rfl
+
+theorem construct_of {O : Oracle} {Q : Program} {c : Id} {fs : List Param} (h : CtorOf c fs Q)
+    (fuel : Int) (env : Env) (tps : List Ty) (vs : List Value) :
+    construct O Q fuel env c tps vs = .Ok (.ADTV c (O.resolve_all (env_types env) tps) vs) := by
+  cases Q with
+  | Program fns cs ss is eqs =>
+  obtain ⟨s, tps0, eq, hc, hs⟩ := h
+  simp [construct, hc, hs]
 
 /-! ## Evaluation -/
 
 section Evaluation
 variable {O : Oracle} {Ps P : Program} {S : LSig}
 
-/-- The variables of `Γ` have the same values in `env` and `env'`, of their kinds. -/
-def EnvOk (Γ : Id → Option (Id × LK)) (env env' : Env) : Prop :=
-  ∀ x y k, Γ x = some (y, k) → ∃ v, lookup_var (env_vars env) x = .Ok v ∧
-    lookup_var (env_vars env') y = .Ok v ∧ Has k v
+/-- The variables of `Γ` have values in `env` and `env'` that relate, of their kinds. -/
+def EnvOk (K : Id → Option Id) (Γ : Id → Option (Id × LK)) (env env' : Env) : Prop :=
+  ∀ x y k, Γ x = some (y, k) → ∃ v v', lookup_var (env_vars env) x = .Ok v ∧
+    lookup_var (env_vars env') y = .Ok v' ∧ VR K v v' ∧ Has k v
 
 /-- Where an expression of the input evaluates to a value, the expression that it is lowered
-to evaluates to the same value with enough fuel, and it is of the kind of the relation. -/
-theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) :
+to evaluates with enough fuel to a value that relates to it, and it is of the kind of the
+relation. -/
+theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) (hC : Ctors Ps P S) :
     ∀ (n : Nat) {Γ : Id → Option (Id × LK)} {e e' : Expr} {k : LK}, Lowers S Γ e e' k →
-      ∀ (env env' : Env), EnvOk Γ env env' →
+      ∀ (env env' : Env), EnvOk S.ctors Γ env env' →
         ∀ (fuel : Int), fuel ≤ n → ∀ (v : Value), eval O Ps fuel env e = .Ok v →
-          Has k v ∧
-            ∃ m : Int, ∀ fuel' : Int, m ≤ fuel' → eval O P fuel' env' e' = .Ok v := by
+          Has k v ∧ ∃ (v' : Value) (m : Int), VR S.ctors v v' ∧
+            ∀ fuel' : Int, m ≤ fuel' → eval O P fuel' env' e' = .Ok v' := by
   intro n
   induction n using Nat.strongRecOn with
   | _ n ihn =>
@@ -270,32 +443,33 @@ theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) :
   induction h with
   | var hx =>
     intro env env' hΓ fuel hfn v hv
-    obtain ⟨w, h1, h2, hk⟩ := hΓ _ _ _ hx
+    obtain ⟨w, w', h1, h2, hr, hk⟩ := hΓ _ _ _ hx
     simp only [eval, h1] at hv
     cases hv
-    exact ⟨hk, 0, fun _ _ => by simp only [eval, h2]⟩
+    exact ⟨hk, w', 0, hr, fun _ _ => by simp only [eval, h2]⟩
   | int n =>
     intro env env' hΓ fuel hfn v hv
     simp only [eval] at hv
     cases hv
-    exact ⟨.int n, 0, fun _ _ => by simp only [eval]⟩
+    exact ⟨.int n, _, 0, .prim rfl, fun _ _ => by simp only [eval]⟩
   | bool b =>
     intro env env' hΓ fuel hfn v hv
     simp only [eval] at hv
     cases hv
-    exact ⟨.prim rfl, 0, fun _ _ => by simp only [eval]⟩
+    exact ⟨.prim rfl, _, 0, .prim rfl, fun _ _ => by simp only [eval]⟩
   | frac n d =>
     intro env env' hΓ fuel hfn v hv
     simp only [eval] at hv
-    exact ⟨.prim (real_prim hv), 0, fun _ _ => by simp only [eval]; exact hv⟩
+    exact ⟨.prim (real_prim hv), v, 0, .prim (real_prim hv),
+      fun _ _ => by simp only [eval]; exact hv⟩
   | error e' k =>
     intro env env' hΓ fuel hfn v hv
     simp only [eval] at hv
     cases hv
   | weaken _ hs ih =>
     intro env env' hΓ fuel hfn v hv
-    obtain ⟨hk, m, e1⟩ := ih env env' hΓ fuel hfn v hv
-    exact ⟨has_sub hs hk, m, e1⟩
+    obtain ⟨hk, v', m, hr, e1⟩ := ih env env' hΓ fuel hfn v hv
+    exact ⟨has_sub hs hk, v', m, hr, e1⟩
   | plusInt _ _ iha ihb =>
     intro env env' hΓ fuel hfn v hv
     simp only [eval] at hv
@@ -303,11 +477,12 @@ theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) :
     · next va ha =>
       split at hv
       · next vb hb =>
-        obtain ⟨hka, n1, e1⟩ := iha env env' hΓ fuel hfn va ha
-        obtain ⟨hkb, n2, e2⟩ := ihb env env' hΓ fuel hfn vb hb
+        obtain ⟨hka, va', n1, ra, e1⟩ := iha env env' hΓ fuel hfn va ha
+        obtain ⟨hkb, vb', n2, rb, e2⟩ := ihb env env' hΓ fuel hfn vb hb
         cases hka; cases hkb
+        rw [vr_prim ra rfl] at e1; rw [vr_prim rb rfl] at e2
         simp only [arith_plus] at hv; cases hv
-        refine ⟨.int _, max n1 n2, fun f hf => ?_⟩
+        refine ⟨.int _, _, max n1 n2, .prim rfl, fun f hf => ?_⟩
         simp only [eval, e1 f (by omega), e2 f (by omega), arith_plus]
       · cases hv
       · cases hv
@@ -320,11 +495,12 @@ theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) :
     · next va ha =>
       split at hv
       · next vb hb =>
-        obtain ⟨hka, n1, e1⟩ := iha env env' hΓ fuel hfn va ha
-        obtain ⟨hkb, n2, e2⟩ := ihb env env' hΓ fuel hfn vb hb
+        obtain ⟨hka, va', n1, ra, e1⟩ := iha env env' hΓ fuel hfn va ha
+        obtain ⟨hkb, vb', n2, rb, e2⟩ := ihb env env' hΓ fuel hfn vb hb
         cases hka; cases hkb
+        rw [vr_prim ra rfl] at e1; rw [vr_prim rb rfl] at e2
         simp only [arith_plus] at hv; cases hv
-        refine ⟨.int _, max n1 n2, fun f hf => ?_⟩
+        refine ⟨.int _, _, max n1 n2, .prim rfl, fun f hf => ?_⟩
         simp only [eval, e1 f (by omega), e2 f (by omega), arith_plus, Int.add_zero]
       · cases hv
       · cases hv
@@ -337,9 +513,11 @@ theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) :
     · next va ha =>
       split at hv
       · next vb hb =>
-        obtain ⟨hka, n1, e1⟩ := iha env env' hΓ fuel hfn va ha
-        obtain ⟨hkb, n2, e2⟩ := ihb env env' hΓ fuel hfn vb hb
-        refine ⟨.prim (plus_prim hv), max n1 n2, fun f hf => ?_⟩
+        obtain ⟨hka, va', n1, ra, e1⟩ := iha env env' hΓ fuel hfn va ha
+        obtain ⟨hkb, vb', n2, rb, e2⟩ := ihb env env' hΓ fuel hfn vb hb
+        obtain ⟨pa, pb⟩ := plus_args hv
+        rw [vr_prim ra pa] at e1; rw [vr_prim rb pb] at e2
+        refine ⟨.prim (plus_prim hv), v, max n1 n2, .prim (plus_prim hv), fun f hf => ?_⟩
         simp only [eval, e1 f (by omega), e2 f (by omega)]
         exact hv
       · cases hv
@@ -353,11 +531,12 @@ theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) :
     · next va ha =>
       split at hv
       · next vb hb =>
-        obtain ⟨hka, n1, e1⟩ := iha env env' hΓ fuel hfn va ha
-        obtain ⟨hkb, n2, e2⟩ := ihb env env' hΓ fuel hfn vb hb
+        obtain ⟨hka, va', n1, ra, e1⟩ := iha env env' hΓ fuel hfn va ha
+        obtain ⟨hkb, vb', n2, rb, e2⟩ := ihb env env' hΓ fuel hfn vb hb
         cases hka; cases hkb
+        rw [vr_prim ra rfl] at e1; rw [vr_prim rb rfl] at e2
         simp only [arith_minus] at hv; cases hv
-        refine ⟨.int _, max n1 n2, fun f hf => ?_⟩
+        refine ⟨.int _, _, max n1 n2, .prim rfl, fun f hf => ?_⟩
         simp only [eval, e1 f (by omega), e2 f (by omega), arith_minus]
       · cases hv
       · cases hv
@@ -370,9 +549,11 @@ theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) :
     · next va ha =>
       split at hv
       · next vb hb =>
-        obtain ⟨hka, n1, e1⟩ := iha env env' hΓ fuel hfn va ha
-        obtain ⟨hkb, n2, e2⟩ := ihb env env' hΓ fuel hfn vb hb
-        refine ⟨.prim (minus_prim hv), max n1 n2, fun f hf => ?_⟩
+        obtain ⟨hka, va', n1, ra, e1⟩ := iha env env' hΓ fuel hfn va ha
+        obtain ⟨hkb, vb', n2, rb, e2⟩ := ihb env env' hΓ fuel hfn vb hb
+        obtain ⟨pa, pb⟩ := minus_args hv
+        rw [vr_prim ra pa] at e1; rw [vr_prim rb pb] at e2
+        refine ⟨.prim (minus_prim hv), v, max n1 n2, .prim (minus_prim hv), fun f hf => ?_⟩
         simp only [eval, e1 f (by omega), e2 f (by omega)]
         exact hv
       · cases hv
@@ -386,11 +567,12 @@ theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) :
     · next va ha =>
       split at hv
       · next vb hb =>
-        obtain ⟨hka, n1, e1⟩ := iha env env' hΓ fuel hfn va ha
-        obtain ⟨hkb, n2, e2⟩ := ihb env env' hΓ fuel hfn vb hb
+        obtain ⟨hka, va', n1, ra, e1⟩ := iha env env' hΓ fuel hfn va ha
+        obtain ⟨hkb, vb', n2, rb, e2⟩ := ihb env env' hΓ fuel hfn vb hb
         cases hka; cases hkb
+        rw [vr_prim ra rfl] at e1; rw [vr_prim rb rfl] at e2
         simp only [arith_times] at hv; cases hv
-        refine ⟨.int _, max n1 n2, fun f hf => ?_⟩
+        refine ⟨.int _, _, max n1 n2, .prim rfl, fun f hf => ?_⟩
         simp only [eval, e1 f (by omega), e2 f (by omega), arith_times]
       · cases hv
       · cases hv
@@ -403,11 +585,120 @@ theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) :
     · next va ha =>
       split at hv
       · next vb hb =>
-        obtain ⟨hka, n1, e1⟩ := iha env env' hΓ fuel hfn va ha
-        obtain ⟨hkb, n2, e2⟩ := ihb env env' hΓ fuel hfn vb hb
-        refine ⟨.prim (times_prim hv), max n1 n2, fun f hf => ?_⟩
+        obtain ⟨hka, va', n1, ra, e1⟩ := iha env env' hΓ fuel hfn va ha
+        obtain ⟨hkb, vb', n2, rb, e2⟩ := ihb env env' hΓ fuel hfn vb hb
+        obtain ⟨pa, pb⟩ := times_args hv
+        rw [vr_prim ra pa] at e1; rw [vr_prim rb pb] at e2
+        refine ⟨.prim (times_prim hv), v, max n1 n2, .prim (times_prim hv), fun f hf => ?_⟩
         simp only [eval, e1 f (by omega), e2 f (by omega)]
         exact hv
+      · cases hv
+      · cases hv
+    · cases hv
+    · cases hv
+  | uminusInt _ iha =>
+    intro env env' hΓ fuel hfn v hv
+    simp only [eval] at hv
+    split at hv
+    · next va ha =>
+      obtain ⟨hka, va', n1, ra, e1⟩ := iha env env' hΓ fuel hfn va ha
+      cases hka
+      rw [vr_prim ra rfl] at e1
+      simp only [arith_neg] at hv; cases hv
+      exact ⟨.int _, _, n1, .prim rfl, fun f hf => by simp only [eval, e1 f hf, arith_neg]⟩
+    · cases hv
+    · cases hv
+  | uminus _ iha =>
+    intro env env' hΓ fuel hfn v hv
+    simp only [eval] at hv
+    split at hv
+    · next va ha =>
+      obtain ⟨hka, va', n1, ra, e1⟩ := iha env env' hΓ fuel hfn va ha
+      rw [vr_prim ra (neg_args hv)] at e1
+      exact ⟨.prim (neg_prim hv), v, n1, .prim (neg_prim hv),
+        fun f hf => by simp only [eval, e1 f hf]; exact hv⟩
+    · cases hv
+    · cases hv
+  | timesOne _ _ iha ihb =>
+    intro env env' hΓ fuel hfn v hv
+    simp only [eval] at hv
+    split at hv
+    · next va ha =>
+      split at hv
+      · next vb hb =>
+        obtain ⟨hka, va', n1, ra, e1⟩ := iha env env' hΓ fuel hfn va ha
+        obtain ⟨hkb, vb', n2, rb, e2⟩ := ihb env env' hΓ fuel hfn vb hb
+        cases hka; cases hkb
+        rw [vr_prim ra rfl] at e1; rw [vr_prim rb rfl] at e2
+        simp only [arith_times] at hv; cases hv
+        refine ⟨.int _, _, max n1 n2, .prim rfl, fun f hf => ?_⟩
+        simp only [eval, e1 f (by omega), e2 f (by omega), arith_times, Int.mul_one]
+      · cases hv
+      · cases hv
+    · cases hv
+    · cases hv
+  | divInt _ _ iha ihb =>
+    intro env env' hΓ fuel hfn v hv
+    simp only [eval] at hv
+    split at hv
+    · next va ha =>
+      split at hv
+      · next vb hb =>
+        obtain ⟨hka, va', n1, ra, e1⟩ := iha env env' hΓ fuel hfn va ha
+        obtain ⟨hkb, vb', n2, rb, e2⟩ := ihb env env' hΓ fuel hfn vb hb
+        cases hka; cases hkb
+        rw [vr_prim ra rfl] at e1; rw [vr_prim rb rfl] at e2
+        simp only [arith_div] at hv
+        split at hv
+        · cases hv
+        · cases hv
+          refine ⟨.int _, _, max n1 n2, .prim rfl, fun f hf => ?_⟩
+          simp only [eval, e1 f (by omega), e2 f (by omega), arith_div]
+          simp_all
+      · cases hv
+      · cases hv
+    · cases hv
+    · cases hv
+  | modInt _ _ iha ihb =>
+    intro env env' hΓ fuel hfn v hv
+    simp only [eval] at hv
+    split at hv
+    · next va ha =>
+      split at hv
+      · next vb hb =>
+        obtain ⟨hka, va', n1, ra, e1⟩ := iha env env' hΓ fuel hfn va ha
+        obtain ⟨hkb, vb', n2, rb, e2⟩ := ihb env env' hΓ fuel hfn vb hb
+        cases hka; cases hkb
+        rw [vr_prim ra rfl] at e1; rw [vr_prim rb rfl] at e2
+        simp only [arith_mod] at hv
+        split at hv
+        · cases hv
+        · cases hv
+          refine ⟨.int _, _, max n1 n2, .prim rfl, fun f hf => ?_⟩
+          simp only [eval, e1 f (by omega), e2 f (by omega), arith_mod]
+          simp_all
+      · cases hv
+      · cases hv
+    · cases hv
+    · cases hv
+  | remInt _ _ iha ihb =>
+    intro env env' hΓ fuel hfn v hv
+    simp only [eval] at hv
+    split at hv
+    · next va ha =>
+      split at hv
+      · next vb hb =>
+        obtain ⟨hka, va', n1, ra, e1⟩ := iha env env' hΓ fuel hfn va ha
+        obtain ⟨hkb, vb', n2, rb, e2⟩ := ihb env env' hΓ fuel hfn vb hb
+        cases hka; cases hkb
+        rw [vr_prim ra rfl] at e1; rw [vr_prim rb rfl] at e2
+        simp only [arith_rem] at hv
+        split at hv
+        · cases hv
+        · cases hv
+          refine ⟨.int _, _, max n1 n2, .prim rfl, fun f hf => ?_⟩
+          simp only [eval, e1 f (by omega), e2 f (by omega), arith_rem]
+          simp_all
       · cases hv
       · cases hv
     · cases hv
@@ -419,9 +710,11 @@ theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) :
     · next va ha =>
       split at hv
       · next vb hb =>
-        obtain ⟨hka, n1, e1⟩ := iha env env' hΓ fuel hfn va ha
-        obtain ⟨hkb, n2, e2⟩ := ihb env env' hΓ fuel hfn vb hb
-        refine ⟨.prim (div_prim hv), max n1 n2, fun f hf => ?_⟩
+        obtain ⟨hka, va', n1, ra, e1⟩ := iha env env' hΓ fuel hfn va ha
+        obtain ⟨hkb, vb', n2, rb, e2⟩ := ihb env env' hΓ fuel hfn vb hb
+        obtain ⟨pa, pb⟩ := div_args hv
+        rw [vr_prim ra pa] at e1; rw [vr_prim rb pb] at e2
+        refine ⟨.prim (div_prim hv), v, max n1 n2, .prim (div_prim hv), fun f hf => ?_⟩
         simp only [eval, e1 f (by omega), e2 f (by omega)]
         exact hv
       · cases hv
@@ -435,9 +728,11 @@ theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) :
     · next va ha =>
       split at hv
       · next vb hb =>
-        obtain ⟨hka, n1, e1⟩ := iha env env' hΓ fuel hfn va ha
-        obtain ⟨hkb, n2, e2⟩ := ihb env env' hΓ fuel hfn vb hb
-        refine ⟨.prim (rem_prim hv), max n1 n2, fun f hf => ?_⟩
+        obtain ⟨hka, va', n1, ra, e1⟩ := iha env env' hΓ fuel hfn va ha
+        obtain ⟨hkb, vb', n2, rb, e2⟩ := ihb env env' hΓ fuel hfn vb hb
+        obtain ⟨pa, pb⟩ := rem_args hv
+        rw [vr_prim ra pa] at e1; rw [vr_prim rb pb] at e2
+        refine ⟨.prim (rem_prim hv), v, max n1 n2, .prim (rem_prim hv), fun f hf => ?_⟩
         simp only [eval, e1 f (by omega), e2 f (by omega)]
         exact hv
       · cases hv
@@ -451,9 +746,11 @@ theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) :
     · next va ha =>
       split at hv
       · next vb hb =>
-        obtain ⟨hka, n1, e1⟩ := iha env env' hΓ fuel hfn va ha
-        obtain ⟨hkb, n2, e2⟩ := ihb env env' hΓ fuel hfn vb hb
-        refine ⟨.prim (mod_prim hv), max n1 n2, fun f hf => ?_⟩
+        obtain ⟨hka, va', n1, ra, e1⟩ := iha env env' hΓ fuel hfn va ha
+        obtain ⟨hkb, vb', n2, rb, e2⟩ := ihb env env' hΓ fuel hfn vb hb
+        obtain ⟨pa, pb⟩ := mod_args hv
+        rw [vr_prim ra pa] at e1; rw [vr_prim rb pb] at e2
+        refine ⟨.prim (mod_prim hv), v, max n1 n2, .prim (mod_prim hv), fun f hf => ?_⟩
         simp only [eval, e1 f (by omega), e2 f (by omega)]
         exact hv
       · cases hv
@@ -467,12 +764,19 @@ theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) :
     · next va ha =>
       split at hv
       · next vb hb =>
-        obtain ⟨hka, n1, e1⟩ := iha env env' hΓ fuel hfn va ha
-        obtain ⟨hkb, n2, e2⟩ := ihb env env' hΓ fuel hfn vb hb
+        obtain ⟨hka, va', n1, ra, e1⟩ := iha env env' hΓ fuel hfn va ha
+        obtain ⟨hkb, vb', n2, rb, e2⟩ := ihb env env' hΓ fuel hfn vb hb
         split at hv
         · next r hr =>
           cases hv
-          refine ⟨.prim rfl, max n1 n2, fun f hf => ?_⟩
+          have hp : IsPrim va = true ∧ IsPrim vb = true := by
+            first
+              | exact lt_args hr
+              | exact (lt_args hr).symm
+              | exact le_args hr
+              | exact (le_args hr).symm
+          rw [vr_prim ra hp.1] at e1; rw [vr_prim rb hp.2] at e2
+          refine ⟨.prim rfl, _, max n1 n2, .prim rfl, fun f hf => ?_⟩
           simp only [eval, e1 f (by omega), e2 f (by omega), hr]
         · cases hv
         · cases hv
@@ -487,12 +791,19 @@ theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) :
     · next va ha =>
       split at hv
       · next vb hb =>
-        obtain ⟨hka, n1, e1⟩ := iha env env' hΓ fuel hfn va ha
-        obtain ⟨hkb, n2, e2⟩ := ihb env env' hΓ fuel hfn vb hb
+        obtain ⟨hka, va', n1, ra, e1⟩ := iha env env' hΓ fuel hfn va ha
+        obtain ⟨hkb, vb', n2, rb, e2⟩ := ihb env env' hΓ fuel hfn vb hb
         split at hv
         · next r hr =>
           cases hv
-          refine ⟨.prim rfl, max n1 n2, fun f hf => ?_⟩
+          have hp : IsPrim va = true ∧ IsPrim vb = true := by
+            first
+              | exact lt_args hr
+              | exact (lt_args hr).symm
+              | exact le_args hr
+              | exact (le_args hr).symm
+          rw [vr_prim ra hp.1] at e1; rw [vr_prim rb hp.2] at e2
+          refine ⟨.prim rfl, _, max n1 n2, .prim rfl, fun f hf => ?_⟩
           simp only [eval, e1 f (by omega), e2 f (by omega), hr]
         · cases hv
         · cases hv
@@ -507,12 +818,19 @@ theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) :
     · next va ha =>
       split at hv
       · next vb hb =>
-        obtain ⟨hka, n1, e1⟩ := iha env env' hΓ fuel hfn va ha
-        obtain ⟨hkb, n2, e2⟩ := ihb env env' hΓ fuel hfn vb hb
+        obtain ⟨hka, va', n1, ra, e1⟩ := iha env env' hΓ fuel hfn va ha
+        obtain ⟨hkb, vb', n2, rb, e2⟩ := ihb env env' hΓ fuel hfn vb hb
         split at hv
         · next r hr =>
           cases hv
-          refine ⟨.prim rfl, max n1 n2, fun f hf => ?_⟩
+          have hp : IsPrim va = true ∧ IsPrim vb = true := by
+            first
+              | exact lt_args hr
+              | exact (lt_args hr).symm
+              | exact le_args hr
+              | exact (le_args hr).symm
+          rw [vr_prim ra hp.1] at e1; rw [vr_prim rb hp.2] at e2
+          refine ⟨.prim rfl, _, max n1 n2, .prim rfl, fun f hf => ?_⟩
           simp only [eval, e1 f (by omega), e2 f (by omega), hr]
         · cases hv
         · cases hv
@@ -527,12 +845,19 @@ theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) :
     · next va ha =>
       split at hv
       · next vb hb =>
-        obtain ⟨hka, n1, e1⟩ := iha env env' hΓ fuel hfn va ha
-        obtain ⟨hkb, n2, e2⟩ := ihb env env' hΓ fuel hfn vb hb
+        obtain ⟨hka, va', n1, ra, e1⟩ := iha env env' hΓ fuel hfn va ha
+        obtain ⟨hkb, vb', n2, rb, e2⟩ := ihb env env' hΓ fuel hfn vb hb
         split at hv
         · next r hr =>
           cases hv
-          refine ⟨.prim rfl, max n1 n2, fun f hf => ?_⟩
+          have hp : IsPrim va = true ∧ IsPrim vb = true := by
+            first
+              | exact lt_args hr
+              | exact (lt_args hr).symm
+              | exact le_args hr
+              | exact (le_args hr).symm
+          rw [vr_prim ra hp.1] at e1; rw [vr_prim rb hp.2] at e2
+          refine ⟨.prim rfl, _, max n1 n2, .prim rfl, fun f hf => ?_⟩
           simp only [eval, e1 f (by omega), e2 f (by omega), hr]
         · cases hv
         · cases hv
@@ -547,16 +872,17 @@ theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) :
     · next va ha =>
       split at hv
       · next vb hb =>
-        obtain ⟨hka, n1, e1⟩ := iha env env' hΓ fuel hfn va ha
-        obtain ⟨hkb, n2, e2⟩ := ihb env env' hΓ fuel hfn vb hb
+        obtain ⟨hka, va', n1, ra, e1⟩ := iha env env' hΓ fuel hfn va ha
+        obtain ⟨hkb, vb', n2, rb, e2⟩ := ihb env env' hΓ fuel hfn vb hb
         split at hv
         · next r hr =>
           cases hv
+          rw [vr_has ra hka (by simp)] at e1; rw [vr_has rb hkb (by simp)] at e2
           have hr' : O.value_eq P va vb = .Ok r := by
             rw [← hr, hO.value_eq, hO.value_eq (P := Ps)]
             cases hka with
             | prim hp => cases va <;> simp_all [IsPrim]
-          refine ⟨.prim rfl, max n1 n2, fun f hf => ?_⟩
+          refine ⟨.prim rfl, _, max n1 n2, .prim rfl, fun f hf => ?_⟩
           simp only [eval, e1 f (by omega), e2 f (by omega), hr']
         · cases hv
         · cases hv
@@ -564,34 +890,15 @@ theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) :
       · cases hv
     · cases hv
     · cases hv
-  | uminusInt _ iha =>
-    intro env env' hΓ fuel hfn v hv
-    simp only [eval] at hv
-    split at hv
-    · next va ha =>
-      obtain ⟨hka, n1, e1⟩ := iha env env' hΓ fuel hfn va ha
-      cases hka
-      simp only [arith_neg] at hv; cases hv
-      exact ⟨.int _, n1, fun f hf => by simp only [eval, e1 f hf, arith_neg]⟩
-    · cases hv
-    · cases hv
-  | uminus _ iha =>
-    intro env env' hΓ fuel hfn v hv
-    simp only [eval] at hv
-    split at hv
-    · next va ha =>
-      obtain ⟨hka, n1, e1⟩ := iha env env' hΓ fuel hfn va ha
-      exact ⟨.prim (neg_prim hv), n1, fun f hf => by simp only [eval, e1 f hf]; exact hv⟩
-    · cases hv
-    · cases hv
   | not _ iha =>
     intro env env' hΓ fuel hfn v hv
     simp only [eval] at hv
     split at hv
     · next b hb =>
-      obtain ⟨_, n1, e1⟩ := iha env env' hΓ fuel hfn _ (eval_bool_ok hb)
+      obtain ⟨_, _, n1, r1, e1⟩ := iha env env' hΓ fuel hfn _ (eval_bool_ok hb)
+      rw [vr_bool r1] at e1
       cases hv
-      exact ⟨.prim rfl, n1, fun f hf => by simp [eval, eval_bool, e1 f hf]⟩
+      exact ⟨.prim rfl, _, n1, .prim rfl, fun f hf => by simp [eval, eval_bool, e1 f hf]⟩
     · cases hv
     · cases hv
   | implies _ _ iha ihb =>
@@ -599,22 +906,24 @@ theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) :
     simp only [eval] at hv
     split at hv
     · next a ha =>
-      obtain ⟨_, n1, e1⟩ := iha env env' hΓ fuel hfn _ (eval_bool_ok ha)
+      obtain ⟨_, _, n1, r1, e1⟩ := iha env env' hΓ fuel hfn _ (eval_bool_ok ha)
+      rw [vr_bool r1] at e1
       cases a with
       | true =>
         simp only [dite_true] at hv
         split at hv
         · next b hb =>
-          obtain ⟨_, n2, e2⟩ := ihb env env' hΓ fuel hfn _ (eval_bool_ok hb)
+          obtain ⟨_, _, n2, r2, e2⟩ := ihb env env' hΓ fuel hfn _ (eval_bool_ok hb)
+          rw [vr_bool r2] at e2
           cases hv
-          exact ⟨.prim rfl, max n1 n2, fun f hf => by
+          exact ⟨.prim rfl, _, max n1 n2, .prim rfl, fun f hf => by
             simp [eval, eval_bool, e1 f (by omega), e2 f (by omega)]⟩
         · cases hv
         · cases hv
       | false =>
         simp at hv
         cases hv
-        exact ⟨.prim rfl, n1, fun f hf => by simp [eval, eval_bool, e1 f hf]⟩
+        exact ⟨.prim rfl, _, n1, .prim rfl, fun f hf => by simp [eval, eval_bool, e1 f hf]⟩
     · cases hv
     · cases hv
   | andNil =>
@@ -622,19 +931,20 @@ theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) :
     simp only [eval] at hv
     rw [eval_and] at hv
     cases hv
-    exact ⟨.prim rfl, 0, fun _ _ => by simp only [eval]; rw [eval_and]⟩
+    exact ⟨.prim rfl, _, 0, .prim rfl, fun _ _ => by simp only [eval]; rw [eval_and]⟩
   | andCons _ _ iha ihr =>
     intro env env' hΓ fuel hfn v hv
     simp only [eval] at hv
     rw [eval_and] at hv
     split at hv
     · next b hb =>
-      obtain ⟨_, n1, e1⟩ := iha env env' hΓ fuel hfn _ (eval_bool_ok hb)
+      obtain ⟨_, _, n1, r1, e1⟩ := iha env env' hΓ fuel hfn _ (eval_bool_ok hb)
+      rw [vr_bool r1] at e1
       cases b with
       | true =>
         simp only [dite_true] at hv
-        obtain ⟨hk, n2, e2⟩ := ihr env env' hΓ fuel hfn v (by simp only [eval]; exact hv)
-        refine ⟨hk, max n1 n2, fun f hf => ?_⟩
+        obtain ⟨hk, v', n2, r2, e2⟩ := ihr env env' hΓ fuel hfn v (by simp only [eval]; exact hv)
+        refine ⟨hk, v', max n1 n2, r2, fun f hf => ?_⟩
         have h2 := e2 f (by omega)
         simp only [eval] at h2 ⊢
         rw [eval_and]
@@ -642,7 +952,7 @@ theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) :
       | false =>
         simp at hv
         cases hv
-        refine ⟨.prim rfl, n1, fun f hf => ?_⟩
+        refine ⟨.prim rfl, _, n1, .prim rfl, fun f hf => ?_⟩
         simp only [eval]
         rw [eval_and]
         simp [eval_bool, e1 f hf]
@@ -653,19 +963,20 @@ theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) :
     simp only [eval] at hv
     rw [eval_or] at hv
     cases hv
-    exact ⟨.prim rfl, 0, fun _ _ => by simp only [eval]; rw [eval_or]⟩
+    exact ⟨.prim rfl, _, 0, .prim rfl, fun _ _ => by simp only [eval]; rw [eval_or]⟩
   | orCons _ _ iha ihr =>
     intro env env' hΓ fuel hfn v hv
     simp only [eval] at hv
     rw [eval_or] at hv
     split at hv
     · next b hb =>
-      obtain ⟨_, n1, e1⟩ := iha env env' hΓ fuel hfn _ (eval_bool_ok hb)
+      obtain ⟨_, _, n1, r1, e1⟩ := iha env env' hΓ fuel hfn _ (eval_bool_ok hb)
+      rw [vr_bool r1] at e1
       cases b with
       | false =>
         simp at hv
-        obtain ⟨hk, n2, e2⟩ := ihr env env' hΓ fuel hfn v (by simp only [eval]; exact hv)
-        refine ⟨hk, max n1 n2, fun f hf => ?_⟩
+        obtain ⟨hk, v', n2, r2, e2⟩ := ihr env env' hΓ fuel hfn v (by simp only [eval]; exact hv)
+        refine ⟨hk, v', max n1 n2, r2, fun f hf => ?_⟩
         have h2 := e2 f (by omega)
         simp only [eval] at h2 ⊢
         rw [eval_or]
@@ -673,7 +984,7 @@ theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) :
       | true =>
         simp only [dite_true] at hv
         cases hv
-        refine ⟨.prim rfl, n1, fun f hf => ?_⟩
+        refine ⟨.prim rfl, _, n1, .prim rfl, fun f hf => ?_⟩
         simp only [eval]
         rw [eval_or]
         simp [eval_bool, e1 f hf]
@@ -684,17 +995,18 @@ theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) :
     simp only [eval] at hv
     split at hv
     · next c hc =>
-      obtain ⟨_, n1, e1⟩ := ihc env env' hΓ fuel hfn _ (eval_bool_ok hc)
+      obtain ⟨_, _, n1, r1, e1⟩ := ihc env env' hΓ fuel hfn _ (eval_bool_ok hc)
+      rw [vr_bool r1] at e1
       cases c with
       | true =>
         simp only [dite_true] at hv
-        obtain ⟨hk, n2, e2⟩ := iha env env' hΓ fuel hfn v hv
-        exact ⟨hk, max n1 n2, fun f hf => by
+        obtain ⟨hk, v', n2, r2, e2⟩ := iha env env' hΓ fuel hfn v hv
+        exact ⟨hk, v', max n1 n2, r2, fun f hf => by
           simp [eval, eval_bool, e1 f (by omega), e2 f (by omega)]⟩
       | false =>
         simp at hv
-        obtain ⟨hk, n2, e2⟩ := ihb env env' hΓ fuel hfn v hv
-        exact ⟨hk, max n1 n2, fun f hf => by
+        obtain ⟨hk, v', n2, r2, e2⟩ := ihb env env' hΓ fuel hfn v hv
+        exact ⟨hk, v', max n1 n2, r2, fun f hf => by
           simp [eval, eval_bool, e1 f (by omega), e2 f (by omega)]⟩
     · cases hv
     · cases hv
@@ -703,12 +1015,13 @@ theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) :
     simp only [eval] at hv
     split at hv
     · next c hc =>
-      obtain ⟨_, n1, e1⟩ := ihp env env' hΓ fuel hfn _ (eval_bool_ok hc)
+      obtain ⟨_, _, n1, r1, e1⟩ := ihp env env' hΓ fuel hfn _ (eval_bool_ok hc)
+      rw [vr_bool r1] at e1
       cases c with
       | true =>
         simp only [dite_true] at hv
-        obtain ⟨hk, n2, e2⟩ := ihb env env' hΓ fuel hfn v hv
-        exact ⟨hk, max n1 n2, fun f hf => by
+        obtain ⟨hk, v', n2, r2, e2⟩ := ihb env env' hΓ fuel hfn v hv
+        exact ⟨hk, v', max n1 n2, r2, fun f hf => by
           simp [eval, eval_bool, e1 f (by omega), e2 f (by omega)]⟩
       | false =>
         simp at hv
@@ -718,7 +1031,7 @@ theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) :
     intro env env' hΓ fuel hfn v hv
     simp only [eval, eval_list] at hv
     cases hv
-    exact ⟨.tupleNil, 0, fun _ _ => by simp only [eval, eval_list]⟩
+    exact ⟨.tupleNil, _, 0, .tuple .nil, fun _ _ => by simp only [eval, eval_list]⟩
   | tupleCons _ _ ihe ihr =>
     intro env env' hΓ fuel hfn v hv
     simp only [eval] at hv
@@ -731,10 +1044,11 @@ theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) :
         split at hvs
         · next ws hws =>
           cases hvs
-          obtain ⟨hk1, n1, e1⟩ := ihe env env' hΓ fuel hfn w hw
-          obtain ⟨hk2, n2, e2⟩ :=
+          obtain ⟨hk1, w', n1, r1, e1⟩ := ihe env env' hΓ fuel hfn w hw
+          obtain ⟨hk2, t', n2, r2, e2⟩ :=
             ihr env env' hΓ fuel hfn (.TupleV ws) (by simp only [eval, hws])
-          refine ⟨.tupleCons hk1 hk2, max n1 n2, fun f hf => ?_⟩
+          obtain ⟨ws', rfl, hws'⟩ := vr_tuple_inv r2
+          refine ⟨.tupleCons hk1 hk2, _, max n1 n2, .tuple (.cons r1 hws'), fun f hf => ?_⟩
           simp only [eval]
           rw [eval_list]
           simp only [e1 f (by omega), eval_tuple_inv (e2 f (by omega))]
@@ -751,18 +1065,81 @@ theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) :
     split at hv
     · next vs hvs =>
       obtain ⟨hpos, bs, hbs, hbody⟩ := call_inv hFS hv
-      obtain ⟨hHas, n1, e1⟩ := iha env env' hΓ fuel hfn (.TupleV vs) (by simp only [eval, hvs])
-      obtain ⟨bs', hbs', hl⟩ := bind_lowered hnd hl1 hl2 hHas hbs
+      obtain ⟨hHas, t', n1, rt, e1⟩ :=
+        iha env env' hΓ fuel hfn (.TupleV vs) (by simp only [eval, hvs])
+      obtain ⟨vs', rfl, hvrs⟩ := vr_tuple_inv rt
+      obtain ⟨bs', hbs', hl⟩ := bind_lowered hnd hl1 hl2 hHas hvrs hbs
       cases n with
       | zero => omega
       | succ m =>
-      obtain ⟨hk, m2, e2⟩ := ihn m (Nat.lt_succ_self m) hlow
+      obtain ⟨hk, v', m2, rv, e2⟩ := ihn m (Nat.lt_succ_self m) hlow
         (Env.Env (bind_types [] tps (env_types env)) bs)
         (Env.Env (bind_types [] tps' (env_types env')) bs') hl (fuel - 1) (by omega) v hbody
-      refine ⟨hk, max (max n1 (m2 + 1)) 1, fun f' hf' => ?_⟩
+      refine ⟨hk, v', max (max n1 (m2 + 1)) 1, rv, fun f' hf' => ?_⟩
       simp only [eval, eval_tuple_inv (e1 f' (by omega))]
       rw [call_fun hFP (by omega) _ _ hbs']
       exact e2 (f' - 1) (by omega)
+    · cases hv
+    · cases hv
+  | @adt c c' ks tps tps' es es' hc _ iha =>
+    intro env env' hΓ fuel hfn v hv
+    obtain ⟨fs, fs', hS, hP, _⟩ := hC.ctor c c' hc
+    simp only [eval] at hv
+    split at hv
+    · next vs hvs =>
+      rw [construct_of hS] at hv
+      cases hv
+      obtain ⟨_, t', n1, rt, e1⟩ :=
+        iha env env' hΓ fuel hfn (.TupleV vs) (by simp only [eval, hvs])
+      obtain ⟨vs', rfl, hvrs⟩ := vr_tuple_inv rt
+      refine ⟨.any _, .ADTV c' (O.resolve_all (env_types env') tps') vs', n1, .adt hc hvrs,
+        fun f hf => ?_⟩
+      simp only [eval, eval_tuple_inv (e1 f hf)]
+      rw [construct_of hP]
+    · cases hv
+    · cases hv
+  | @isCtor e e' c c' hc _ ihe =>
+    intro env env' hΓ fuel hfn v hv
+    simp only [eval] at hv
+    split at hv
+    · next va ha =>
+      obtain ⟨_, va', n1, ra, e1⟩ := ihe env env' hΓ fuel hfn va ha
+      cases ra with
+      | prim hp => cases va <;> simp [IsPrim] at hp <;> simp at hv
+      | tuple _ => simp at hv
+      | @adt d d' tps tps' ws ws' hd _ =>
+        simp only at hv
+        cases hv
+        have hiff : (c = d) ↔ (c' = d') := by
+          constructor
+          · intro h; subst h; rw [hc] at hd; cases hd; rfl
+          · intro h; subst h; exact hC.ctorInj _ _ _ hc hd
+        refine ⟨.prim rfl, _, n1, .prim rfl, fun f hf => ?_⟩
+        simp only [eval, e1 f hf]
+        simp [hiff]
+    · cases hv
+    · cases hv
+  | @sel e e' f0 f0' hf _ ihe =>
+    intro env env' hΓ fuel hfn v hv
+    simp only [eval] at hv
+    split at hv
+    · next va ha =>
+      obtain ⟨_, va', n1, ra, e1⟩ := ihe env env' hΓ fuel hfn va ha
+      cases ra with
+      | prim hp => cases va <;> simp [IsPrim] at hp <;> simp at hv
+      | tuple _ => simp at hv
+      | @adt c c' tps tps' ws ws' hc hws =>
+        obtain ⟨fs, fs', hS, hP, hfs⟩ := hC.ctor c c' hc
+        cases Ps with
+        | Program fns cs ss is eqs =>
+        cases P with
+        | Program fns' cs' ss' is' eqs' =>
+        obtain ⟨s, tp0, eq0, hcs, _⟩ := hS
+        obtain ⟨s', tp0', eq0', hcs', _⟩ := hP
+        simp only [hcs] at hv
+        obtain ⟨v', hv', rv⟩ := select_lowered hC.fieldInj hfs hws hf hv
+        refine ⟨.any _, v', n1, rv, fun f hf' => ?_⟩
+        simp only [eval, e1 f hf', hcs', hv']
     · cases hv
     · cases hv
 
@@ -796,16 +1173,23 @@ def lowersCheck (S : LSig) : Nat → (Id → Option (Id × LK)) → Expr → Exp
       (Sub .int k && lowersCheck S n Γ a a' .int && lowersCheck S n Γ b b' .int) ||
       (Sub .prim k && lowersCheck S n Γ a a' .any && lowersCheck S n Γ b b' .any)
     | .Times a b, .Times a' b' =>
+      (Sub .int k && lowersCheck S n Γ a a' .int &&
+        match b' with
+        | .Times b'' (.IntegerLiteral z) => z == 1 && lowersCheck S n Γ b b'' .int
+        | _ => false) ||
       (Sub .int k && lowersCheck S n Γ a a' .int && lowersCheck S n Γ b b' .int) ||
       (Sub .prim k && lowersCheck S n Γ a a' .any && lowersCheck S n Γ b b' .any)
     | .UMinus a, .UMinus a' =>
       (Sub .int k && lowersCheck S n Γ a a' .int) || (Sub .prim k && lowersCheck S n Γ a a' .any)
     | .Division a b, .Division a' b' =>
-      Sub .prim k && lowersCheck S n Γ a a' .any && lowersCheck S n Γ b b' .any
+      (Sub .int k && lowersCheck S n Γ a a' .int && lowersCheck S n Γ b b' .int) ||
+      (Sub .prim k && lowersCheck S n Γ a a' .any && lowersCheck S n Γ b b' .any)
     | .Remainder a b, .Remainder a' b' =>
-      Sub .prim k && lowersCheck S n Γ a a' .any && lowersCheck S n Γ b b' .any
+      (Sub .int k && lowersCheck S n Γ a a' .int && lowersCheck S n Γ b b' .int) ||
+      (Sub .prim k && lowersCheck S n Γ a a' .any && lowersCheck S n Γ b b' .any)
     | .Modulo a b, .Modulo a' b' =>
-      Sub .prim k && lowersCheck S n Γ a a' .any && lowersCheck S n Γ b b' .any
+      (Sub .int k && lowersCheck S n Γ a a' .int && lowersCheck S n Γ b b' .int) ||
+      (Sub .prim k && lowersCheck S n Γ a a' .any && lowersCheck S n Γ b b' .any)
     | .LessThan a b, .LessThan a' b' =>
       Sub .prim k && lowersCheck S n Γ a a' .any && lowersCheck S n Γ b b' .any
     | .GreaterThan a b, .GreaterThan a' b' =>
@@ -825,8 +1209,20 @@ def lowersCheck (S : LSig) : Nat → (Id → Option (Id × LK)) → Expr → Exp
       lowersCheck S n Γ c c' .any && lowersCheck S n Γ a a' k && lowersCheck S n Γ b b' k
     | .Assume p a, .Assume p' a' => lowersCheck S n Γ p p' .any && lowersCheck S n Γ a a' k
     | .FunctionInvocation f _ es, .FunctionInvocation g _ es' =>
-      match S f with
+      match S.funs f with
       | some (g0, ks, k0) => g0 == g && Sub k0 k && lowersArgs S n Γ es es' ks
+      | none => false
+    | .ADT c _ es, .ADT c' _ es' =>
+      match S.ctors c with
+      | some c0 => c0 == c' && Sub .any k && lowersArgs S n Γ es es' (es.map fun _ => .any)
+      | none => false
+    | .IsConstructor a c, .IsConstructor a' c' =>
+      match S.ctors c with
+      | some c0 => c0 == c' && Sub .prim k && lowersCheck S n Γ a a' .any
+      | none => false
+    | .ADTSelector a f, .ADTSelector a' f' =>
+      match S.fields f with
+      | some f0 => f0 == f' && Sub .any k && lowersCheck S n Γ a a' .any
       | none => false
     | _, _ => false
 
@@ -897,23 +1293,37 @@ theorem lowers_sound (S : LSig) : ∀ n : Nat,
         rcases h with ⟨⟨hs, ha⟩, hb⟩ | ⟨⟨hs, ha⟩, hb⟩
         · exact .weaken (.minusInt (ih _ _ _ _ ha) (ih _ _ _ _ hb)) hs
         · exact .weaken (.minus (ih _ _ _ _ ha) (ih _ _ _ _ hb)) hs
-      · simp only [Bool.and_eq_true, Bool.or_eq_true] at h
-        rcases h with ⟨⟨hs, ha⟩, hb⟩ | ⟨⟨hs, ha⟩, hb⟩
-        · exact .weaken (.timesInt (ih _ _ _ _ ha) (ih _ _ _ _ hb)) hs
-        · exact .weaken (.times (ih _ _ _ _ ha) (ih _ _ _ _ hb)) hs
+      · simp only [Bool.or_eq_true] at h
+        rcases h with (h | h) | h
+        · simp only [Bool.and_eq_true] at h
+          obtain ⟨⟨hs, ha⟩, hm⟩ := h
+          split at hm
+          · simp only [Bool.and_eq_true, beq_iff_eq] at hm
+            obtain ⟨rfl, hb⟩ := hm
+            exact .weaken (.timesOne (ih _ _ _ _ ha) (ih _ _ _ _ hb)) hs
+          · cases hm
+        · simp only [Bool.and_eq_true] at h
+          obtain ⟨⟨hs, ha⟩, hb⟩ := h
+          exact .weaken (.timesInt (ih _ _ _ _ ha) (ih _ _ _ _ hb)) hs
+        · simp only [Bool.and_eq_true] at h
+          obtain ⟨⟨hs, ha⟩, hb⟩ := h
+          exact .weaken (.times (ih _ _ _ _ ha) (ih _ _ _ _ hb)) hs
       · simp only [Bool.and_eq_true, Bool.or_eq_true] at h
         rcases h with ⟨hs, ha⟩ | ⟨hs, ha⟩
         · exact .weaken (.uminusInt (ih _ _ _ _ ha)) hs
         · exact .weaken (.uminus (ih _ _ _ _ ha)) hs
-      · simp only [Bool.and_eq_true] at h
-        obtain ⟨⟨hs, ha⟩, hb⟩ := h
-        exact .weaken (.div (ih _ _ _ _ ha) (ih _ _ _ _ hb)) hs
-      · simp only [Bool.and_eq_true] at h
-        obtain ⟨⟨hs, ha⟩, hb⟩ := h
-        exact .weaken (.rem (ih _ _ _ _ ha) (ih _ _ _ _ hb)) hs
-      · simp only [Bool.and_eq_true] at h
-        obtain ⟨⟨hs, ha⟩, hb⟩ := h
-        exact .weaken (.mod (ih _ _ _ _ ha) (ih _ _ _ _ hb)) hs
+      · simp only [Bool.and_eq_true, Bool.or_eq_true] at h
+        rcases h with ⟨⟨hs, ha⟩, hb⟩ | ⟨⟨hs, ha⟩, hb⟩
+        · exact .weaken (.divInt (ih _ _ _ _ ha) (ih _ _ _ _ hb)) hs
+        · exact .weaken (.div (ih _ _ _ _ ha) (ih _ _ _ _ hb)) hs
+      · simp only [Bool.and_eq_true, Bool.or_eq_true] at h
+        rcases h with ⟨⟨hs, ha⟩, hb⟩ | ⟨⟨hs, ha⟩, hb⟩
+        · exact .weaken (.remInt (ih _ _ _ _ ha) (ih _ _ _ _ hb)) hs
+        · exact .weaken (.rem (ih _ _ _ _ ha) (ih _ _ _ _ hb)) hs
+      · simp only [Bool.and_eq_true, Bool.or_eq_true] at h
+        rcases h with ⟨⟨hs, ha⟩, hb⟩ | ⟨⟨hs, ha⟩, hb⟩
+        · exact .weaken (.modInt (ih _ _ _ _ ha) (ih _ _ _ _ hb)) hs
+        · exact .weaken (.mod (ih _ _ _ _ ha) (ih _ _ _ _ hb)) hs
       · simp only [Bool.and_eq_true] at h
         obtain ⟨⟨hs, ha⟩, hb⟩ := h
         exact .weaken (.lt (ih _ _ _ _ ha) (ih _ _ _ _ hb)) hs
@@ -952,6 +1362,24 @@ theorem lowers_sound (S : LSig) : ∀ n : Nat,
           simp only [Bool.and_eq_true, beq_iff_eq] at h
           obtain ⟨⟨rfl, hs⟩, ha⟩ := h
           exact .weaken (.call hf (ihs _ _ _ _ ha)) hs
+        · cases h
+      · split at h
+        · next hc =>
+          simp only [Bool.and_eq_true, beq_iff_eq] at h
+          obtain ⟨⟨rfl, hs⟩, ha⟩ := h
+          exact .weaken (.adt hc (ihs _ _ _ _ ha)) hs
+        · cases h
+      · split at h
+        · next hc =>
+          simp only [Bool.and_eq_true, beq_iff_eq] at h
+          obtain ⟨⟨rfl, hs⟩, ha⟩ := h
+          exact .weaken (.isCtor hc (ih _ _ _ _ ha)) hs
+        · cases h
+      · split at h
+        · next hf =>
+          simp only [Bool.and_eq_true, beq_iff_eq] at h
+          obtain ⟨⟨rfl, hs⟩, ha⟩ := h
+          exact .weaken (.sel hf (ih _ _ _ _ ha)) hs
         · cases h
       · cases h
     · cases es with

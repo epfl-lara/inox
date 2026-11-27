@@ -14,15 +14,15 @@ expressions of the query that Logos reads, up to the names of their symbols, whi
 matches (`linkCheck`). Then no values of the variables of the input make all its constraints
 evaluate to `true` in its program (`no_input_solution`).
 
-The input is read where it is first-order, without datatypes, and its variables are integers,
-booleans or reals.
+The input is read where it is first-order, with datatypes without type parameters nor
+invariants, and its variables are integers, booleans or reals.
 -/
 
 namespace Inox.Joined
 
 open Inox.Semantics Inox.Bridge Inox.Lowered Logos
 open Inox.Input (sectionOf Table Ctx funsOf readExpr)
-open Inox.Encoded (FunIn)
+open Inox.Encoded (FunIn IsPrim)
 
 /-! ## The input -/
 
@@ -58,11 +58,14 @@ structure InputRead where
   sigs : List (Id × List LK × LK)
   query : List Expr
   vars : List (Id × Ty)
+  ctors : List Constructor
+  sorts : List ADTSort
   extEq : Bool
 
 /-- The program of the input. -/
 def InputRead.program (R : InputRead) : Program :=
-  .Program R.funs [] [] [] (if R.extEq then .ExtensionalEquality else .NoFunctionEquality)
+  .Program R.funs R.ctors R.sorts []
+    (if R.extEq then .ExtensionalEquality else .NoFunctionEquality)
 
 def orThrow {α : Type} (o : Option α) (why : String) : Except String α :=
   match o with
@@ -70,7 +73,8 @@ def orThrow {α : Type} (o : Option α) (why : String) : Except String α :=
   | none => .error why
 
 /-- The input of the certificate, or why it isn't read: every definition is that of a function
-without type parameters over the sorts that are read, and every constraint is read. -/
+without type parameters over the sorts that are read or that of a datatype without type
+parameters, and every constraint is read. -/
 def readInput (certificate : Sexp) : Except String InputRead := do
   let input := sectionOf certificate "input"
   let symbols := input.flatMap fun | .expr (.atom "symbols" :: rows) => rows | _ => []
@@ -81,14 +85,21 @@ def readInput (certificate : Sexp) : Except String InputRead := do
   let t := Table.of symbols
   let c : Ctx := ⟨t, "Int", true, []⟩
   let fs := funsOf t true "Int" definitions
-  if fs.length != definitions.length then
-    throw "a definition of the input is not that of a function that is read"
+  let sorts := Inox.Input.sortsOf t true "Int" definitions
+  if fs.length + sorts.length != definitions.length then
+    throw "a definition of the input is not that of a function or a datatype that is read"
+  if sorts.any (fun s => !s.2.1.isEmpty) then throw "a datatype has type parameters"
+  -- the kind of a sort: that of its type, or any value for a datatype
+  let kindOf (s : Sexp) : Option LK := match primTy s, s with
+    | some T, _ => some (kindOfTy T)
+    | none, .atom a => if t.kind a == "sort" then some .any else none
+    | none, _ => none
   let read ← fs.mapM fun f => do
     if !f.tparams.isEmpty then throw s!"the function {f.name} has type parameters"
     let body ← (readExpr f.ctx 1000 f.body).mapError (s!"the body of {f.name} has `{·}`")
     let ks ← f.sorts.mapM fun s =>
-      orThrow ((primTy s).map kindOfTy) s!"a parameter of {f.name} is of a sort that isn't read"
-    let k ← orThrow ((primTy f.ret).map kindOfTy) s!"{f.name} is of a sort that isn't read"
+      orThrow (kindOf s) s!"a parameter of {f.name} is of a sort that isn't read"
+    let k ← orThrow (kindOf f.ret) s!"{f.name} is of a sort that isn't read"
     pure (FunDef.FunDef f.name [] f.params body, (f.name, ks, k))
   let query ← constraints.mapM fun i =>
     (readExpr c 1000 i).mapError (s!"a constraint has `{·}`")
@@ -98,6 +109,8 @@ def readInput (certificate : Sexp) : Except String InputRead := do
       orThrow ((primTy s).map (x, ·)) s!"the variable {x} is of a sort that isn't read"
   pure
     { funs := read.map (·.1), sigs := read.map (·.2), query, vars
+      ctors := sorts.flatMap fun (s, _, cs) => cs.map fun (c, ps) => .Constructor c s ps
+      sorts := sorts.map fun (s, _, _) => .Sort s [] none none
       extEq := !(sectionOf certificate "simplifications").contains
         (.expr [.atom "function-equality", .atom "none"]) }
 
@@ -125,37 +138,58 @@ def kids : Expr → Option (Nat × List Expr)
   | .Assume p a => some (17, [p, a])
   | _ => none
 
-/-- The variables and the functions of `e` with those of `e'` at the same positions. They are
-only candidates, which the check checks. -/
-def pairs : Nat → Expr → Expr → List (Id × Id) × List (Id × Id)
-  | 0, _, _ => ([], [])
+/-- The names of the input matched with those of the lowered expressions: of variables, of
+functions, of constructors and of fields. -/
+structure Names where
+  vars : List (Id × Id) := []
+  funs : List (Id × Id) := []
+  ctors : List (Id × Id) := []
+  fields : List (Id × Id) := []
+
+def Names.app (a b : Names) : Names :=
+  ⟨a.vars ++ b.vars, a.funs ++ b.funs, a.ctors ++ b.ctors, a.fields ++ b.fields⟩
+
+/-- The names of `e` with those of `e'` at the same positions. They are only candidates, which
+the check checks. -/
+def pairs : Nat → Expr → Expr → Names
+  | 0, _, _ => {}
   | n + 1, e, e' =>
-    let all (es es' : List Expr) : List (Id × Id) × List (Id × Id) :=
-      (es.zip es').foldl (fun (vs, fs) (a, a') =>
-        let (vs', fs') := pairs n a a'
-        (vs ++ vs', fs ++ fs')) ([], [])
+    let all (es es' : List Expr) : Names :=
+      (es.zip es').foldl (fun acc (a, a') => acc.app (pairs n a a')) {}
     match e, e' with
-    | .Variable x, .Variable y => ([(x, y)], [])
+    | .Variable x, .Variable y => { vars := [(x, y)] }
     | .FunctionInvocation f _ es, .FunctionInvocation g _ es' =>
-      let (vs, fs) := all es es'
-      (vs, (f, g) :: fs)
+      ({ funs := [(f, g)] } : Names).app (all es es')
+    | .ADT c _ es, .ADT c' _ es' => ({ ctors := [(c, c')] } : Names).app (all es es')
+    | .IsConstructor a c, .IsConstructor a' c' =>
+      ({ ctors := [(c, c')] } : Names).app (pairs n a a')
+    | .ADTSelector a f, .ADTSelector a' f' =>
+      ({ fields := [(f, f')] } : Names).app (pairs n a a')
     | .Plus a b, .Plus a' (.Plus b' (.IntegerLiteral 0)) => all [a, b] [a', b']
+    | .Times a b, .Times a' (.Times b' (.IntegerLiteral 1)) => all [a, b] [a', b']
     | e, e' =>
       match kids e, kids e' with
-      | some (i, es), some (j, es') => if i == j then all es es' else ([], [])
-      | _, _ => ([], [])
+      | some (i, es), some (j, es') => if i == j then all es es' else {}
+      | _, _ => {}
 
 /-- The functions of the input with those that they are lowered to: those that the constraints
 call, and those that their bodies call, `n` calls deep. -/
-def funPairs (R : InputRead) (P : List FunDef) : Nat → List (Id × Id) → List (Id × Id)
-  | 0, φ => φ
-  | n + 1, φ =>
-    let more := φ.flatMap fun (f, g) =>
+def funPairs (R : InputRead) (P : List FunDef) : Nat → Names → Names
+  | 0, N => N
+  | n + 1, N =>
+    let more := N.funs.map fun (f, g) =>
       match lookup_fun R.funs f, lookup_fun P g with
-      | .Ok (.FunDef _ _ _ b), .Ok (.FunDef _ _ _ b') => (pairs 1000 b b').2
-      | _, _ => []
-    let φ' := (φ ++ more).eraseDups
-    if φ'.length == φ.length then φ else funPairs R P n φ'
+      | .Ok (.FunDef _ _ _ b), .Ok (.FunDef _ _ _ b') => pairs 1000 b b'
+      | _, _ => {}
+    let N' := more.foldl Names.app N
+    let φ' := N'.funs.eraseDups
+    if φ'.length == N.funs.eraseDups.length then N' else funPairs R P n N'
+
+/-- The fields of the constructor `c` of the constructors `cs`. -/
+def fieldsOf (cs : List Constructor) (c : Id) : List Id :=
+  match lookup_ctor cs c with
+  | .Ok (.Constructor _ _ fs) => fieldNames fs
+  | _ => []
 
 /-- The matching of the names of the input with those of the query of Logos. -/
 structure Link where
@@ -163,18 +197,30 @@ structure Link where
   ρ : List (Id × Id)
   /-- the functions of the input, with those of the program of Logos -/
   φ : List (Id × Id)
+  /-- the constructors of the input, with those of the program of Logos -/
+  κ : List (Id × Id)
+  /-- the fields of the input, with those of the program of Logos -/
+  σ : List (Id × Id)
 
 def Link.of (R : InputRead) (r : TermSteps) : Link :=
-  let ps := (R.query.zip (queryOf r.query)).map fun (q, q') => pairs 1000 q q'
-  let ρ := (ps.flatMap (·.1)).eraseDups
-  let φ := funPairs R (r.equations.map funOf) (R.funs.length + 1) (ps.flatMap (·.2)).eraseDups
-  ⟨ρ, φ⟩
+  let P := r.equations.map funOf
+  let N0 := ((R.query.zip (queryOf r.query)).map fun (q, q') => pairs 1000 q q').foldl
+    Names.app {}
+  let N := funPairs R P (R.funs.length + 1) N0
+  let κ := N.ctors.eraseDups
+  let cs := (dataOf r).flatMap ctorsOfData
+  -- the fields of the constructors, position by position
+  let σ := (N.fields ++
+    κ.flatMap fun (c, c') => (fieldsOf R.ctors c).zip (fieldsOf cs c')).eraseDups
+  ⟨N.vars.eraseDups, N.funs.eraseDups, κ, σ⟩
 
-/-- The signature of the functions of the input that are matched. -/
-def Link.sig (L : Link) (R : InputRead) : LSig := fun f =>
-  match L.φ.lookup f, R.sigs.lookup f with
-  | some g, some (ks, k) => some (g, ks, k)
-  | _, _ => none
+/-- The signature of the names of the input that are matched. -/
+def Link.sig (L : Link) (R : InputRead) : LSig where
+  funs f := match L.φ.lookup f, R.sigs.lookup f with
+    | some g, some (ks, k) => some (g, ks, k)
+    | _, _ => none
+  ctors c := L.κ.lookup c
+  fields f := L.σ.lookup f
 
 /-- The variables of the input that are matched, with their kinds. -/
 def Link.ctx (L : Link) (R : InputRead) : Id → Option (Id × LK) := fun x =>
@@ -194,6 +240,49 @@ def funCheck (S : LSig) (fs P : List FunDef) (f g : Id) (ks : List LK) (k : LK) 
       lowersCheck S 1000 (paramsCtx ps ps' ks) b b' k
   | _, _ => false
 
+/-- The fields `fs'` are those of `F` of the fields `fs`, position by position. -/
+def fieldsOkB (F : Id → Option Id) : List Id → List Id → Bool
+  | [], [] => true
+  | f :: fs, f' :: fs' => F f == some f' && fieldsOkB F fs fs'
+  | _, _ => false
+
+theorem fieldsOk_of {F : Id → Option Id} : ∀ {fs fs' : List Id}, fieldsOkB F fs fs' = true →
+    FieldsOk F fs fs'
+  | [], [], _ => trivial
+  | f :: fs, f' :: fs', h => by
+    simp only [fieldsOkB, Bool.and_eq_true, beq_iff_eq] at h
+    exact ⟨h.1, fieldsOk_of h.2⟩
+  | [], _ :: _, h => by simp [fieldsOkB] at h
+  | _ :: _, [], h => by simp [fieldsOkB] at h
+
+/-- The sort `s` of the sorts `ss` has no invariant. -/
+def noInv (ss : List ADTSort) (s : Id) : Bool :=
+  match lookup_sort ss s with
+  | .Ok (.Sort s0 _ none _) => s0 == s
+  | _ => false
+
+/-- The constructor `c` of the input is the constructor `c'` of `cs'`, with the fields of `S`
+at the same positions, both of sorts without invariants. -/
+def ctorCheck (S : LSig) (cs : List Constructor) (ss : List ADTSort) (cs' : List Constructor)
+    (ss' : List ADTSort) (c c' : Id) : Bool :=
+  match lookup_ctor cs c, lookup_ctor cs' c' with
+  | .Ok (.Constructor c0 s fs), .Ok (.Constructor c1 s' fs') =>
+    c0 == c && c1 == c' && noInv ss s && noInv ss' s' &&
+      fieldsOkB S.fields (fieldNames fs) (fieldNames fs')
+  | _, _ => false
+
+theorem ctorOf_of {cs : List Constructor} {ss : List ADTSort} {c s : Id} {fs : List Param}
+    {fns : List FunDef} {is : List Interpretation} {eqm : FunctionEquality}
+    (hc : lookup_ctor cs c = .Ok (.Constructor c s fs)) (hs : noInv ss s = true) :
+    CtorOf c fs (.Program fns cs ss is eqm) := by
+  unfold noInv at hs
+  split at hs
+  · next s0 tps eq h =>
+    simp only [beq_iff_eq] at hs
+    subst hs
+    exact ⟨s0, tps, eq, hc, h⟩
+  · cases hs
+
 /-- The input is lowered to the program and the query that Logos reads from the certificate:
 each expression of the query is what the constraint at its position is lowered to, the
 functions that they call are lowered to those of the program, and each variable of the query is
@@ -207,7 +296,7 @@ def linkCheck (R : InputRead) (r : TermSteps) : Bool :=
   R.vars.all (fun p => isPrimTy p.2) &&
     Qt.length == R.query.length &&
     (R.query.zip Qt).all (fun (q, q') => lowersCheck S 1000 Γ q q' .any) &&
-    L.φ.all (fun (f, _) => match S f with
+    L.φ.all (fun (f, _) => match S.funs f with
       | some (g, ks, k) => funCheck S R.funs (r.equations.map funOf) f g ks k
       | none => true) &&
     Γt.all (fun (y, T) => match L.pre y with
@@ -221,7 +310,13 @@ def linkCheck (R : InputRead) (r : TermSteps) : Bool :=
       | none => false) &&
     L.ρ.all (fun (x, _) => match Γ x with
       | some (y, _) => L.pre y == some x && Γt.any (·.1 == y)
-      | none => true)
+      | none => true) &&
+    L.κ.all (fun (c, _) => match S.ctors c with
+      | some c' => ctorCheck S R.ctors R.sorts ((dataOf r).flatMap ctorsOfData)
+          ((dataOf r).map fun d => .Sort d.name [] none none) c c'
+      | none => true) &&
+    L.κ.all (fun (c, _) => L.κ.all fun (d, _) => !(S.ctors c == S.ctors d) || c == d) &&
+    L.σ.all (fun (f, _) => L.σ.all fun (g, _) => !(S.fields f == S.fields g) || f == g)
 
 /-! ## The theorem -/
 
@@ -235,6 +330,9 @@ theorem has_of_hasV {D : List Data} {T : Ty} (hT : isPrimTy T = true) {v : Value
   · exact .int _
   · exact .prim rfl
   · exact .prim rfl
+
+theorem prim_of_kind {T : Ty} {v : Value} (h : Has (kindOfTy T) v) : IsPrim v = true := by
+  cases T <;> simp only [kindOfTy] at h <;> cases h <;> first | rfl | assumption
 
 /-- Binding the names `ys` to the values that `g` gives them. -/
 theorem bind_map (g : Id → Value) : ∀ ys : List Id,
@@ -279,12 +377,12 @@ theorem no_input_solution {O : Oracle} (sound : LogosSound) (hO : O.Sound)
   intro vs ⟨hvs, bs, hbs, hsol⟩
   unfold linkCheck at hlink
   simp only [Bool.and_eq_true, List.all_eq_true, beq_iff_eq] at hlink
-  obtain ⟨⟨⟨⟨⟨hprim, hlen⟩, hq⟩, hfuns⟩, hvars⟩, hρ⟩ := hlink
-  generalize hL : Link.of R r = L at hq hfuns hvars hρ
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨hprim, hlen⟩, hq⟩, hfuns⟩, hvars⟩, hρ⟩, hctors⟩, hκ⟩, hσ⟩ := hlink
+  generalize hL : Link.of R r = L at hq hfuns hvars hρ hctors hκ hσ
   have hF : Funs R.program (programOf (dataOf r) r.equations) (L.sig R) := by
     intro f g ks k hf
     have hf' := hf
-    unfold Link.sig at hf'
+    simp only [Link.sig] at hf'
     split at hf'
     · next g0 ks0 k0 h1 h2 =>
       cases hf'
@@ -298,6 +396,27 @@ theorem no_input_solution {O : Oracle} (sound : LogosSound) (hO : O.Sound)
         exact ⟨ps, ps', b, b', hb, hb', hnd, hl1, hl2, (lowers_sound _ 1000).1 _ _ _ _ hl⟩
       · cases hc
     · cases hf'
+  have hC : Ctors R.program (programOf (dataOf r) r.equations) (L.sig R) := by
+    refine ⟨fun c c' hc => ?_, fun c d c' hc hd => ?_, fun f g f' hf hg => ?_⟩
+    · have hk := hctors (c, c') (Inox.Lowered.mem_of_lookup hc)
+      simp only [show (L.sig R).ctors c = some c' from hc] at hk
+      unfold ctorCheck at hk
+      split at hk
+      · next c0 s fs c1 s' fs' h1 h2 =>
+        simp only [Bool.and_eq_true, beq_iff_eq] at hk
+        obtain ⟨⟨⟨⟨rfl, rfl⟩, hs⟩, hs'⟩, hfs⟩ := hk
+        exact ⟨fs, fs', ctorOf_of h1 hs, ctorOf_of h2 hs', fieldsOk_of hfs⟩
+      · cases hk
+    · have hk := hκ (c, c') (Inox.Lowered.mem_of_lookup hc) (d, c')
+        (Inox.Lowered.mem_of_lookup hd)
+      simp only [show (L.sig R).ctors c = some c' from hc,
+        show (L.sig R).ctors d = some c' from hd] at hk
+      simpa using hk
+    · have hk := hσ (f, f') (Inox.Lowered.mem_of_lookup hf) (g, f')
+        (Inox.Lowered.mem_of_lookup hg)
+      simp only [show (L.sig R).fields f = some f' from hf,
+        show (L.sig R).fields g = some f' from hg] at hk
+      simpa using hk
   -- the values of the variables of the query: those of the variables of the input
   let g : Id → Value := fun y => match L.pre y with
     | some x => match lookup_var bs x with
@@ -310,7 +429,7 @@ theorem no_input_solution {O : Oracle} (sound : LogosSound) (hO : O.Sound)
     obtain ⟨v, hv1, hv2⟩ := bind_lookup R.vars vs bs hbs hvs x T hx
     exact ⟨v, hv1, hv2, by simp only [g, hy, hv1]⟩
   obtain ⟨bs', hbs', hl'⟩ := bind_map g ((varsOf (sigsOf r.equations) r.query).map Prod.fst)
-  have hEnv : EnvOk (L.ctx R) (Env.Env [] bs) (Env.Env [] bs') := by
+  have hEnv : EnvOk (L.sig R).ctors (L.ctx R) (Env.Env [] bs) (Env.Env [] bs') := by
     intro x y k hx
     have hx' := hx
     unfold Link.ctx at hx'
@@ -321,7 +440,8 @@ theorem no_input_solution {O : Oracle} (sound : LogosSound) (hO : O.Sound)
       simp only [hx, Bool.and_eq_true, beq_iff_eq, List.any_eq_true] at hc
       obtain ⟨hpre, y1, hy1, hy⟩ := hc
       obtain ⟨v, hv1, hv2, hgv⟩ := hg x T y h2 hpre
-      refine ⟨v, hv1, ?_, has_of_hasV (hprim (x, T) (Inox.Lowered.mem_of_lookup h2)) hv2⟩
+      have hk := has_of_hasV (hprim (x, T) (Inox.Lowered.mem_of_lookup h2)) hv2
+      refine ⟨v, v, hv1, ?_, .prim (prim_of_kind hk), hk⟩
       rw [show lookup_var (env_vars (Env.Env [] bs')) y = lookup_var bs' y from rfl,
         hl' y (List.mem_map.mpr ⟨y1, hy1, hy⟩), hgv]
     · cases hx'
@@ -347,7 +467,8 @@ theorem no_input_solution {O : Oracle} (sound : LogosSound) (hO : O.Sound)
   obtain ⟨q, hqq⟩ := mem_zip_right hlen hq'
   obtain ⟨n, hn⟩ := hsol q (List.of_mem_zip hqq).1
   have hl := (lowers_sound _ 1000).1 _ _ _ _ (hq (q, q') hqq)
-  obtain ⟨_, m, hm⟩ := lowers_eval hO hF n.toNat hl _ _ hEnv n (Int.self_le_toNat n) _ hn
+  obtain ⟨_, v', m, rv, hm⟩ := lowers_eval hO hF hC n.toNat hl _ _ hEnv n (Int.self_le_toNat n) _ hn
+  rw [vr_bool rv] at hm
   exact ⟨m, hm m (Int.le_refl m)⟩
 
 end Inox.Joined
