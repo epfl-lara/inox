@@ -111,6 +111,7 @@ structure CSig where
   /-- The constructors of the sorts with type parameters, whose fields refer to them by their
   position. -/
   pctors : List (Id × Id × List (Id × Kind)) := []
+  merge : Option (Id × Id) := none
 
 mutual
 /-- The equality of types of `PureTy`. -/
@@ -199,6 +200,7 @@ def CSig.sig (S : CSig) : Sig where
   extEq := S.extEq
   funsAt f tps := S.inst f tps
   pctors c := S.pctors.lookup c
+  merge := S.merge
 
 
 /-- Whether an expression is a predicate on `x` of `PureExpr`. -/
@@ -541,6 +543,7 @@ theorem keep_sound {Γ : List (Id × Kind)} : ∀ p ∈ keep Γ, Γ.lookup p.1 =
   · next k hl => rw [hl, kindEq_eq h]
   · cases h
 
+set_option maxHeartbeats 1000000 in
 /-- Whether `e'` is what the encoder of bags makes of `e`, an expression of the kind `k`.
 `g` gives the kinds of subexpressions where the check needs one: the check holds for any `g`,
 and accepts more with one that gives the right kinds. -/
@@ -683,6 +686,11 @@ def encodesCheck (N : Names) (S : CSig) (Te : Ty) (g : List (Id × Kind) → Exp
     encodesCheck N S Te g Γ a a' (.set k) u && encodesCheck N S Te g Γ b b' (.set k) u
   | Γ, .SetDifference a b, .SetDifference a' b', .set k, u =>
     encodesCheck N S Te g Γ a a' (.set k) u && encodesCheck N S Te g Γ b b' (.set k) u
+  | Γ, .MapMerge m a b, .FunctionInvocation f _ [m', a', b'], .map kk kv, u =>
+    !u && (match S.merge with | some (f0, _) => f == f0 | none => false) && setKind kk &&
+      setKind kv && encodesCheck N S Te g Γ m m' (.set kk) false &&
+      encodesCheck N S Te g Γ a a' (.map kk kv) false &&
+      encodesCheck N S Te g Γ b b' (.map kk kv) false
   | Γ, .FiniteMap [] d kt vt, .FiniteMap [] d' kt' vt', .map kk kv, u =>
     closedSame Te kt kt' && closedSame Te vt vt' && setKind kk && setKind kv &&
       encodesCheck N S Te g Γ d d' kv u
@@ -941,6 +949,17 @@ theorem encodesCheck_sound {N : Names} {S : CSig} {Te : Ty}
   · next iha ihb =>
     simp only [Bool.and_eq_true] at h
     exact .setDiff (iha h.1) (ihb h.2)
+  · next ihm iha ihb =>
+    simp only [Bool.and_eq_true] at h
+    obtain ⟨⟨⟨⟨⟨⟨hu, h0⟩, hk⟩, hv⟩, hm⟩, ha⟩, hb⟩ := h
+    simp only [Bool.not_eq_true'] at hu
+    subst hu
+    split at h0
+    · next f0 g hS =>
+      simp only [beq_iff_eq] at h0
+      subst h0
+      exact .mapMerge hS hk hv (ihm hm) (iha ha) (ihb hb)
+    · cases h0
   · next ihd =>
     simp only [Bool.and_eq_true] at h
     obtain ⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩ := h
@@ -1009,6 +1028,8 @@ def kindOfSort (c : Ctx) : Nat → Sexp → Except String Kind
       if let some i := c.params.idxOf? a then .ok (.param i)
       else if a == c.elem then .ok (if c.ints then .int else .elem)
       else if c.table.kind a == "sort" then .ok (.adt (c.table.id a))
+      -- another type parameter of the input
+      else if c.table.kind a == "" && a.contains '!' then .ok (.other a)
       else .error s!"the sort {a}"
     | .expr [.atom "Bag", x] =>
       if x == .atom c.elem then .ok .bag else .error "a bag of other than elements"
@@ -1054,6 +1075,7 @@ def kindTy (elem : Id) : Kind → Ty
   | .tuple ks => .TupleType (kindTys elem ks)
   | .fn ks k => .FunctionType (kindTys elem ks) (kindTy elem k)
   | .set k => .SetType (kindTy elem k)
+  | .other a => .TypeParameter a
   | .map k v => .MapType (kindTy elem k) (kindTy elem v)
   | .prim | .app _ _ | .param _ => .UnitType
 def kindTys (elem : Id) : List Kind → List Ty
@@ -1202,6 +1224,8 @@ def readExpr (c : Ctx) : Nat → Sexp → Except String Expr
       pure (.BagDifference (← readExpr c n a) (← readExpr c n b))
     | .expr [.atom "bag.intersection", a, b] => do
       pure (.BagIntersection (← readExpr c n a) (← readExpr c n b))
+    | .expr [.atom "map.merge", m, a, b] => do
+      pure (.MapMerge (← readExpr c n m) (← readExpr c n a) (← readExpr c n b))
     | .expr [.atom "bag.multiplicity", e, b] => do
       pure (.MultiplicityInBag (← readExpr c n e) (← readExpr c n b))
     | .expr [.expr [.atom "as", .expr [.atom "_", .atom "is", .atom k], _], e] => do
@@ -1299,6 +1323,7 @@ partial def kindOf (S : CSig) (Γ : List (Id × Kind)) : Expr → Kind
   | .FiniteMap _ _ kt vt => .map (tyKind kt) (tyKind vt)
   | .MapApply m _ => match kindOf S Γ m with | .map _ v => v | _ => .int
   | .MapUpdated m _ _ => kindOf S Γ m
+  | .MapMerge _ a _ => kindOf S Γ a
   | .SetAdd a _ | .SetUnion a _ | .SetIntersection a _ | .SetDifference a _ => kindOf S Γ a
   | .FiniteBag _ _ | .BagAdd _ _ | .BagUnion _ _ | .BagDifference _ _
   | .BagIntersection _ _ => .bag
@@ -1530,7 +1555,7 @@ theorem inst_mem {S : CSig} {f : Id} {tps : List Ty} {x : Ty × List Kind × Kin
     exact hm
 
 def Coverage.none (n : Nat) (why : String) : Coverage :=
-  { names := namesOf ⟨[]⟩, sig := ⟨[], [], [], [], [], .int, true, [], []⟩, defs := [],
+  { names := namesOf ⟨[]⟩, sig := ⟨[], [], [], [], [], .int, true, [], [], Option.none⟩, defs := [],
     elem := .UnitType, vars := [],
     covered := [], constraints := n, first := some why }
 
@@ -1578,13 +1603,20 @@ def coversAt (certificate : Sexp) (top : String) : Coverage :=
   let ints := top == "Int"
   let ctors := ctorsOf tin ints definitions
   let pctors := ctorsOf tin ints definitions true
+  -- the function that the encoder of merges of maps calls, and the function that it calls
+  let merge : Option (Id × Id) :=
+    let find (kind name : String) := tout.rows.find? fun (_, k, ds) => k == kind &&
+      (ds.head?.map fun d => String.ofList (d.toList.takeWhile (· != '$'))) == some name
+    match find "function" "mapMerge", find "uninterpreted" "merged" with
+    | some (f, _, _), some (g, _, _) => some (tout.id f, tout.id g)
+    | _, _ => none
   let κ : Kind := if ints then .int else .elem
   -- the sorts that are checked, removing the others until none is removed
   let rec okSorts : Nat → List (Id × List Id × List (Id × List Param)) →
       List (Id × List Id × List (Id × List Param))
     | 0, ss => ss
     | n + 1, ss =>
-      let kept := ss.filter (sortOk ⟨ctors, [], [], [], ss, κ, true, [], pctors⟩)
+      let kept := ss.filter (sortOk ⟨ctors, [], [], [], ss, κ, true, [], pctors, none⟩)
       if kept.length == ss.length then ss else okSorts n kept
   let sorts := okSorts (definitions.length + 1) (sortsOf tin ints top definitions)
   let bodies := encodedBodies input
@@ -1618,7 +1650,7 @@ def coversAt (certificate : Sexp) (top : String) : Coverage :=
     | 0, fs, flat => (fs, flat)
     | n + 1, fs, flat =>
       let S : CSig :=
-        ⟨ctors, fs.map (fun (f, _, _) => f.entry), unints, flat, sorts, κ, extEq, [], pctors⟩
+        ⟨ctors, fs.map (fun (f, _, _) => f.entry), unints, flat, sorts, κ, extEq, [], pctors, merge⟩
       let check (u : Bool) : Fun × Expr × Expr → Bool := fun (f, body, body') =>
         encodesCheck N S f.elem (kindOf S) (f.params.zip f.kinds) body body' f.kind u
       let flat' := unints.map (·.1) ++ (fs.filter (check true)).map (·.1.name)
@@ -1628,7 +1660,7 @@ def coversAt (certificate : Sexp) (top : String) : Coverage :=
   let (funs, flat) := keep (2 * read.length + 2) read
     (unints.map (·.1) ++ read.map fun (f, _, _) => f.name)
   let S0 : CSig :=
-    ⟨ctors, funs.map (fun (f, _, _) => f.entry), unints, flat, sorts, κ, extEq, [], pctors⟩
+    ⟨ctors, funs.map (fun (f, _, _) => f.entry), unints, flat, sorts, κ, extEq, [], pctors, merge⟩
   let cin : Ctx := ⟨tin, top, ints, []⟩
   let Te := readTy (.atom top)
   -- the functions with a type parameter that the constraints call at other types than the
@@ -1712,8 +1744,9 @@ datatype of the encoder as the encoder does, both programs have the constructors
 read and each function that is read, with its body in the input for `Ps` and its body after
 the encoders for `P` (`hdefs`), and the values of the free variables relate (`hΓ`). -/
 theorem Coverage.encoded {C : Coverage} (hC : C.Ok) {O : Oracle} {Ps P : Program}
-    {K : Value → Prop} {E : Value → Value → Bool} {T0 : Ty} {inv bi eq b1 b2 : Id}
-    (hB : Base O Ps P C.names K E T0 C.sig.sig inv bi eq b1 b2)
+    {K : Value → Prop} {E : Value → Value → Bool} {T0 : Ty} {Ko : Value → Prop}
+    {inv bi eq b1 b2 : Id}
+    (hB : Base O Ps P C.names K E T0 Ko C.sig.sig inv bi eq b1 b2)
     (hdefs : ∀ f tparams Tf ks k params body body',
       C.sig.funs.lookup f = some (tparams, Tf, ks, k) →
       C.defs.lookup f = some (params, body, body') →
@@ -1732,7 +1765,7 @@ theorem Coverage.encoded {C : Coverage} (hC : C.Ok) {O : Oracle} {Ps P : Program
     (hT : O.resolve_all (env_types env) [C.elem] = [T0] ∧
       O.resolve_all (env_types env') [C.elem] = [T0])
     (hΓ : ∀ x k, C.vars.lookup x = some k → ∃ v v', lookup_var (env_vars env) x = .Ok v ∧
-      lookup_var (env_vars env') x = .Ok v' ∧ Rel O P C.names K E T0 C.sig.sig k v v')
+      lookup_var (env_vars env') x = .Ok v' ∧ Rel O P C.names K E T0 Ko C.sig.sig k v v')
     (hsol : ∀ p ∈ C.covered, ∃ n, eval O Ps n env p.1 = .Ok (.BoolV true)) :
     ∀ p ∈ C.covered, ∃ n, eval O P n env' p.2 = .Ok (.BoolV true) := by
   have hF : Funs O Ps P C.names T0 C.sig.sig := by
@@ -1763,8 +1796,9 @@ theorem Coverage.encoded {C : Coverage} (hC : C.Ok) {O : Oracle} {Ps P : Program
 
 /-- `Coverage.encoded` for the constraints of a certificate that `covers` gives. -/
 theorem covers_encoded (certificate : Sexp) {O : Oracle} {Ps P : Program}
-    {K : Value → Prop} {E : Value → Value → Bool} {T0 : Ty} {inv bi eq b1 b2 : Id}
-    (hB : Base O Ps P (covers certificate).names K E T0 (covers certificate).sig.sig
+    {K : Value → Prop} {E : Value → Value → Bool} {T0 : Ty} {Ko : Value → Prop}
+    {inv bi eq b1 b2 : Id}
+    (hB : Base O Ps P (covers certificate).names K E T0 Ko (covers certificate).sig.sig
       inv bi eq b1 b2)
     (hdefs : ∀ f tparams Tf ks k params body body',
       (covers certificate).sig.funs.lookup f = some (tparams, Tf, ks, k) →
@@ -1787,7 +1821,7 @@ theorem covers_encoded (certificate : Sexp) {O : Oracle} {Ps P : Program}
       O.resolve_all (env_types env') [(covers certificate).elem] = [T0])
     (hΓ : ∀ x k, (covers certificate).vars.lookup x = some k → ∃ v v',
       lookup_var (env_vars env) x = .Ok v ∧ lookup_var (env_vars env') x = .Ok v' ∧
-        Rel O P (covers certificate).names K E T0 (covers certificate).sig.sig k v v')
+        Rel O P (covers certificate).names K E T0 Ko (covers certificate).sig.sig k v v')
     (hsol : ∀ p ∈ (covers certificate).covered,
       ∃ n, eval O Ps n env p.1 = .Ok (.BoolV true)) :
     ∀ p ∈ (covers certificate).covered, ∃ n, eval O P n env' p.2 = .Ok (.BoolV true) :=

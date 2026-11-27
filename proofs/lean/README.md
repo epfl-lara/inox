@@ -1194,7 +1194,8 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   conditionals, lets, assumptions, the bag operations above, multiplicities,
   where integers may be the elements of bags when the elements are integers,
   the operations of sets of elements, integers or booleans and of maps from
-  these to these, which the encoders keep, the divisions of reals and of
+  these to these, which the encoders keep, the merges of maps, which the
+  encoder of merges makes calls of its function, the divisions of reals and of
   bitvectors and the casts of bitvectors between signed and unsigned, which
   they keep too, tuples, the constructors, selectors and testers of the sorts
   of the program, at any type arguments for sorts with type parameters, whose
@@ -1221,29 +1222,31 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   its expression, and covers quantifiers, lambdas and functions whose bodies
   are of these. It assumes the invariant of the datatype as the encoder defines
   it, sorts of the program without invariants nor equalities, an input without
-  equality on functions when the certificate says so, one type of elements,
-  which the type parameters of functions and of sorts with one type parameter
-  are instantiated with and that is of integers, booleans or a type parameter
-  (integers where the input has no type parameter), in the input as in the
-  encoded program, and doesn't cover bag literals with elements, bags of bags,
-  quantifiers over other values nor the other theories yet.
-  [`Input.lean`](Inox/Input.lean) reads the definitions and the constraints of
-  a certificate's input and what the encoders make of them as expressions of
-  the semantics, decides whether each encoded expression is what the encoder
-  makes of its expression (`encodesCheck`, proven sound), and `covers_encoded`
-  states the theorem for a certificate: where the constraints that are covered
-  all evaluate to `true` in a program that has the functions of the input, so
-  do their encoded terms in a program that has their bodies after the encoders
-  and defines the encoder's datatype as the encoder does, on values of the free
-  variables that relate. `inox-solution --input` says how many constraints of
-  each certificate that covers, and what the first of the others has that isn't
-  read. On the corpus it covers 35 of the 36 constraints, among which that of
-  `bags/split-preserves-content`, with its two recursive functions, and those
-  with quantifiers, uninterpreted functions, errors, sets, maps, reals or
-  bitvectors: the other has an encoder that rewrites a merge of maps into a
-  call, on two types of elements. Nor is this theorem joined to
-  `no_solution_of_reached` yet, whose program has neither sorts with type
-  parameters nor sorts with an equality.
+  equality on functions when the certificate says so, values of other type
+  parameters than that of the elements on which both programs have the same
+  equality, the function of the encoder of merges of maps in the encoded
+  program, whose body calls an uninterpreted function that the program
+  interprets as the merge, one type of elements, which the type parameters of
+  functions and of sorts with one type parameter are instantiated with and that
+  is of integers, booleans or a type parameter (integers where the input has no
+  type parameter), in the input as in the encoded program, and doesn't cover
+  bag literals with elements, bags of bags, quantifiers over other values nor
+  the other theories yet. [`Input.lean`](Inox/Input.lean) reads the definitions
+  and the constraints of a certificate's input and what the encoders make of
+  them as expressions of the semantics, decides whether each encoded expression
+  is what the encoder makes of its expression (`encodesCheck`, proven sound),
+  and `covers_encoded` states the theorem for a certificate: where the
+  constraints that are covered all evaluate to `true` in a program that has the
+  functions of the input, so do their encoded terms in a program that has their
+  bodies after the encoders and defines the encoder's datatype as the encoder
+  does, on values of the free variables that relate. `inox-solution --input`
+  says how many constraints of each certificate that covers, and what the first
+  of the others has that isn't read. On the corpus it covers all 36
+  constraints, among which that of `bags/split-preserves-content`, with its two
+  recursive functions, and those with quantifiers, uninterpreted functions,
+  errors, sets, maps, merges of maps, reals or bitvectors. Nor is this theorem
+  joined to `no_solution_of_reached` yet, whose program has neither sorts with
+  type parameters nor sorts with an equality.
 - **The link between the proof and the script.** The checker checks that each
   assumption of the proof is the text of an assert of the script, up to how
   cvc5 prints testers (`(is C e)` for `((_ is C) e)`), once the terms that the
