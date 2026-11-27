@@ -1196,25 +1196,27 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   the operations of sets of elements, integers or booleans, which the encoders
   keep, the divisions of reals and of bitvectors and the casts of bitvectors
   between signed and unsigned, which they keep too, tuples, the constructors,
-  selectors and testers of the sorts of the program, calls of its functions,
-  whose bodies in the encoded program are what the encoder makes of their
-  bodies in the input (`Funs`), lambdas and applications, quantifiers over
-  integers, booleans, elements and sorts whose fields are of these or
-  refinements of these by predicates on integers, which both programs define as
-  the input does ([`Typing.lean`](Inox/Typing.lean) proves that their values
-  are typed alike in both), quantifiers whose bodies don't use their
-  parameters, of types that have values in any program such as functions to
-  integers, errors, and calls of uninterpreted functions without type arguments
-  or at the elements, whose interpretations in the encoded program are what the
-  encoder makes of their interpretations in the input. An equality is covered
-  where its operands have no functions in them. A quantifier holds when all of
-  its instances hold with the same fuel, so the theorem also bounds the fuel of
-  an encoding that has no operations of bags by the fuel of its expression, and
-  covers quantifiers, lambdas and functions whose bodies are of these. It
-  assumes the invariant of the datatype as the encoder defines it, sorts of the
-  program without invariants nor equalities, one type of elements, which the
-  type parameters of functions and sorts are instantiated with and that is of
-  integers, booleans or a type parameter (integers where the input has no type
+  selectors and testers of the sorts of the program, at any type arguments for
+  sorts with several type parameters, whose fields have the kinds of these,
+  calls of its functions, whose bodies in the encoded program are what the
+  encoder makes of their bodies in the input (`Funs`), lambdas and
+  applications, quantifiers over integers, booleans, elements and sorts whose
+  fields are of these or refinements of these by predicates on integers, which
+  both programs define as the input does ([`Typing.lean`](Inox/Typing.lean)
+  proves that their values are typed alike in both), quantifiers whose bodies
+  don't use their parameters, of types that have values in any program such as
+  functions to integers, errors, and calls of uninterpreted functions without
+  type arguments or at the elements, whose interpretations in the encoded
+  program are what the encoder makes of their interpretations in the input. An
+  equality is covered where its operands have no functions in them. A
+  quantifier holds when all of its instances hold with the same fuel, so the
+  theorem also bounds the fuel of an encoding that has no operations of bags by
+  the fuel of its expression, and covers quantifiers, lambdas and functions
+  whose bodies are of these. It assumes the invariant of the datatype as the
+  encoder defines it, sorts of the program without invariants nor equalities,
+  one type of elements, which the type parameters of functions and of sorts
+  with one type parameter are instantiated with and that is of integers,
+  booleans or a type parameter (integers where the input has no type
   parameter), in the input as in the encoded program, and doesn't cover bag
   literals with elements, bags of bags, quantifiers over other values nor the
   other theories yet. [`Input.lean`](Inox/Input.lean) reads the definitions and
@@ -1227,13 +1229,14 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   after the encoders and defines the encoder's datatype as the encoder does, on
   values of the free variables that relate. `inox-solution --input` says how
   many constraints of each certificate that covers, and what the first of the
-  others has that isn't read. On the corpus it covers 29 of the 36 constraints,
+  others has that isn't read. On the corpus it covers 31 of the 36 constraints,
   among which that of `bags/split-preserves-content`, with its two recursive
-  functions, twelve with quantifiers, three with sets, two with reals or
-  bitvectors, and eight with uninterpreted functions or errors: the others have
-  encoders that rewrite terms, maps, or sorts whose type arguments are not the
-  elements. Nor is this theorem joined to `no_solution_of_reached` yet, whose
-  program has neither sorts with type parameters nor sorts with an equality.
+  functions, and those with quantifiers, uninterpreted functions, errors, sets,
+  reals or bitvectors: the others have encoders that rewrite terms, maps, an
+  equality on a sort with functions, or a polymorphic function called at
+  another type than the elements. Nor is this theorem joined to
+  `no_solution_of_reached` yet, whose program has neither sorts with type
+  parameters nor sorts with an equality.
 - **The link between the proof and the script.** The checker checks that each
   assumption of the proof is the text of an assert of the script, up to how
   cvc5 prints testers (`(is C e)` for `((_ is C) e)`), once the terms that the

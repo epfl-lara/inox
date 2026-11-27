@@ -20,7 +20,9 @@ open Inox.Semantics Inox.Bags Inox.Typing
 /-- The kinds of values: elements of bags, which are the same in both programs, integers,
 booleans, bags of elements, values of a sort of the program, tuples, functions, from the
 kinds of their arguments to the kind of their result, sets, which the encoders keep, and
-the other primitive values, such as reals and bitvectors, which the encoders keep too. -/
+the other primitive values, such as reals and bitvectors, which the encoders keep too. A sort
+with several type parameters has the kinds of its type arguments (`app`), which its fields
+refer to by their position (`param`). -/
 inductive Kind where
   | elem
   | int
@@ -31,6 +33,8 @@ inductive Kind where
   | fn (ks : List Kind) (k : Kind)
   | set (k : Kind)
   | prim
+  | app (s : Id) (ks : List Kind)
+  | param (i : Nat)
 
 mutual
 /-- Whether two kinds are the same. -/
@@ -44,6 +48,8 @@ def kindEq : Kind → Kind → Bool
   | .fn ks k, .fn ls l => kindsEq ks ls && kindEq k l
   | .set k, .set l => kindEq k l
   | .prim, .prim => true
+  | .app s ks, .app t ls => s == t && kindsEq ks ls
+  | .param i, .param j => i == j
   | _, _ => false
 def kindsEq : List Kind → List Kind → Bool
   | [], [] => true
@@ -53,37 +59,21 @@ end
 
 mutual
 theorem kindEq_eq : ∀ {a b : Kind}, kindEq a b = true → a = b
-  | .elem, .elem, _ => rfl
-  | .int, .int, _ => rfl
-  | .bool, .bool, _ => rfl
-  | .bag, .bag, _ => rfl
-  | .adt s, .adt t, h => by simp only [kindEq, beq_iff_eq] at h; rw [h]
-  | .tuple ks, .tuple ls, h => by simp only [kindEq] at h; rw [kindsEq_eq h]
-  | .fn ks k, .fn ls l, h => by
-    simp only [kindEq, Bool.and_eq_true] at h
-    rw [kindsEq_eq h.1, kindEq_eq h.2]
-  | .set k, .set l, h => by simp only [kindEq] at h; rw [kindEq_eq h]
-  | .prim, .prim, _ => rfl
-  | .prim, .elem, h | .prim, .int, h | .prim, .bool, h | .prim, .bag, h
-  | .prim, .adt _, h | .prim, .tuple _, h | .prim, .fn _ _, h | .prim, .set _, h
-  | .elem, .prim, h | .int, .prim, h | .bool, .prim, h | .bag, .prim, h
-  | .adt _, .prim, h | .tuple _, .prim, h | .fn _ _, .prim, h | .set _, .prim, h
-  | .set _, .elem, h | .set _, .int, h | .set _, .bool, h | .set _, .bag, h
-  | .set _, .adt _, h | .set _, .tuple _, h | .set _, .fn _ _, h
-  | .elem, .set _, h | .int, .set _, h | .bool, .set _, h | .bag, .set _, h
-  | .adt _, .set _, h | .tuple _, .set _, h | .fn _ _, .set _, h
-  | .elem, .fn _ _, h | .int, .fn _ _, h | .bool, .fn _ _, h | .bag, .fn _ _, h
-  | .adt _, .fn _ _, h | .tuple _, .fn _ _, h
-  | .fn _ _, .elem, h | .fn _ _, .int, h | .fn _ _, .bool, h | .fn _ _, .bag, h
-  | .fn _ _, .adt _, h | .fn _ _, .tuple _, h
-  | .elem, .int, h | .elem, .bool, h | .elem, .bag, h | .elem, .adt _, h | .elem, .tuple _, h
-  | .int, .elem, h | .int, .bool, h | .int, .bag, h | .int, .adt _, h | .int, .tuple _, h
-  | .bool, .elem, h | .bool, .int, h | .bool, .bag, h | .bool, .adt _, h | .bool, .tuple _, h
-  | .bag, .elem, h | .bag, .int, h | .bag, .bool, h | .bag, .adt _, h | .bag, .tuple _, h
-  | .adt _, .elem, h | .adt _, .int, h | .adt _, .bool, h | .adt _, .bag, h
-  | .adt _, .tuple _, h
-  | .tuple _, .elem, h | .tuple _, .int, h | .tuple _, .bool, h | .tuple _, .bag, h
-  | .tuple _, .adt _, h => by simp [kindEq] at h
+  | .elem, b, h | .int, b, h | .bool, b, h | .bag, b, h | .prim, b, h => by
+    cases b <;> simp [kindEq] at h ⊢
+  | .adt s, b, h | .param s, b, h => by cases b <;> simp_all [kindEq]
+  | .tuple ks, b, h => by
+    cases b <;> simp [kindEq] at h ⊢
+    exact kindsEq_eq h
+  | .fn ks k, b, h => by
+    cases b <;> simp [kindEq] at h ⊢
+    exact ⟨kindsEq_eq h.1, kindEq_eq h.2⟩
+  | .set k, b, h => by
+    cases b <;> simp [kindEq] at h ⊢
+    exact kindEq_eq h
+  | .app s ks, b, h => by
+    cases b <;> simp [kindEq] at h ⊢
+    exact ⟨h.1, kindsEq_eq h.2⟩
 theorem kindsEq_eq : ∀ {a b : List Kind}, kindsEq a b = true → a = b
   | [], [], _ => rfl
   | k :: ks, l :: ls, h => by
@@ -98,6 +88,24 @@ def IsPrim : Value → Bool
   | .IntV _ | .BoolV _ | .UnitV | .CharV _ | .RealV _ _ | .StringV _ | .BVV _ _ _ | .FPV _ _ _
   | .RoundingModeV _ => true
   | _ => false
+
+mutual
+/-- The kind `k` where the type arguments of a sort have the kinds `ks`. -/
+def substKind (ks : List Kind) : Kind → Kind
+  | .param i => (ks[i]?).getD .int
+  | .tuple ls => .tuple (substKinds ks ls)
+  | .fn ls l => .fn (substKinds ks ls) (substKind ks l)
+  | .set l => .set (substKind ks l)
+  | .app s ls => .app s (substKinds ks ls)
+  | k => k
+def substKinds (ks : List Kind) : List Kind → List Kind
+  | [] => []
+  | k :: ls => substKind ks k :: substKinds ks ls
+end
+
+/-- The fields `fs` where the type arguments of their sort have the kinds `ks`. -/
+def substFields (ks : List Kind) (fs : List (Id × Kind)) : List (Id × Kind) :=
+  fs.map fun f => (f.1, substKind ks f.2)
 
 /-- The kinds of the elements of bags: `elem`, or integers where the elements are integers. -/
 def BagKind (κ : Kind) (k : Kind) : Prop := k = .elem ∨ (k = .int ∧ κ = .int)
@@ -122,7 +130,7 @@ structure Sig where
 mutual
 /-- Whether a kind has no functions in it, given the sorts `A` that have none. -/
 def foKind (A : Id → Bool) : Kind → Bool
-  | .fn _ _ => false
+  | .fn _ _ | .app _ _ | .param _ => false
   | .tuple ks => foKinds A ks
   | .adt s => A s
   | _ => true
@@ -293,6 +301,19 @@ inductive Encodes (N : Names) (S : Sig) (Te : Ty) :
   | isCtor {Γ : Id → Option Kind} {u : Bool} {e e' : Expr} {s : Id} (c : Id)
       (he : Encodes N S Te Γ e e' (.adt s) u) :
       Encodes N S Te Γ (.IsConstructor e c) (.IsConstructor e' c) .bool u
+  | adtApp {Γ : Id → Option Kind} {u : Bool} {c s : Id} {fs : List (Id × Kind)} {ks : List Kind}
+      (tps tps' : List Ty) {es es' : List Expr} (hc : S.ctors c = some (s, fs))
+      (ha : Encodes N S Te Γ (.Tuple es) (.Tuple es') (.tuple ((substFields ks fs).map Prod.snd))
+        u) :
+      Encodes N S Te Γ (.ADT c tps es) (.ADT c tps' es') (.app s ks) u
+  | selApp {Γ : Id → Option Kind} {u : Bool} {e e' : Expr} {s : Id} {ks : List Kind} (sel : Id)
+      {k : Kind} (he : Encodes N S Te Γ e e' (.app s ks) u)
+      (hk : ∀ c fs, S.ctors c = some (s, fs) → ∀ k', fieldKind fs sel = some k' →
+        substKind ks k' = k) :
+      Encodes N S Te Γ (.ADTSelector e sel) (.ADTSelector e' sel) k u
+  | isCtorApp {Γ : Id → Option Kind} {u : Bool} {e e' : Expr} {s : Id} {ks : List Kind}
+      (c : Id) (he : Encodes N S Te Γ e e' (.app s ks) u) :
+      Encodes N S Te Γ (.IsConstructor e c) (.IsConstructor e' c) .bool u
   | callPoly {Γ : Id → Option Kind} {u : Bool} {f A : Id} {ks : List Kind} {k : Kind}
       {es es' : List Expr} (hf : S.funs f = some ([A], .TypeParameter A, ks, k))
       (hu : u = true → S.flat f = true)
@@ -393,6 +414,11 @@ inductive Rel (O : Oracle) (P : Program) (N : Names) (K : Value → Prop)
       Rel O P N K E T0 S (.fn ks k) (.ClosureV ps body (.Env tys vars))
         (.ClosureV ps' body' (.Env tys' vars'))
   | prim (v : Value) (h : IsPrim v = true) : Rel O P N K E T0 S .prim v v
+  | app {c s : Id} {fs : List (Id × Kind)} {ks : List Kind} {tps tps' : List Ty}
+      {vs vs' : List Value} (h : S.ctors c = some (s, fs))
+      (hr : Rel O P N K E T0 S (.tuple ((substFields ks fs).map Prod.snd)) (.TupleV vs)
+        (.TupleV vs')) :
+      Rel O P N K E T0 S (.app s ks) (.ADTV c tps vs) (.ADTV c tps' vs')
   | set {k : Kind} (t : Ty) (xs : List Value) (hk : setKind k = true)
       (h : ∀ x ∈ xs, Rel O P N K E T0 S k x x) :
       Rel O P N K E T0 S (.set k) (.SetV t xs) (.SetV t xs)
@@ -579,6 +605,7 @@ theorem rel_value_eq (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) {A : Id → B
   intro k a a' h
   induction h with
   | closure _ _ _ _ _ _ _ => intro hk; simp [foKind] at hk
+  | app _ _ _ => intro hk; simp [foKind] at hk
   | prim v hv =>
     intro _ b b' hb
     cases hb with
@@ -917,6 +944,21 @@ def fieldsOf : Program → Id → List Param
     match lookup_ctor cs c with
     | .Ok (.Constructor _ _ ps) => ps
     | _ => []
+
+theorem substFields_names (ks : List Kind) (fs : List (Id × Kind)) :
+    (substFields ks fs).map Prod.fst = fs.map Prod.fst := by
+  simp [substFields]
+
+theorem fieldKind_subst (ks : List Kind) (sel : Id) :
+    ∀ fs : List (Id × Kind),
+      fieldKind (substFields ks fs) sel = (fieldKind fs sel).map (substKind ks)
+  | [] => by simp [substFields, fieldKind]
+  | (f, k) :: fs => by
+    by_cases h : f = sel
+    · simp [substFields, fieldKind, h]
+    · have := fieldKind_subst ks sel fs
+      simp only [substFields] at this
+      simp [substFields, fieldKind, h, this]
 
 theorem sel_eval {Q : Program} {c s : Id} {fs : List (Id × Kind)} (h : CtorIn c s fs Q)
     {fuel : Int} {env : Env} {e : Expr} {tps : List Ty} {vs : List Value}
@@ -1895,6 +1937,52 @@ theorem encodes_eval (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) (hSo : S.Ok)
       obtain ⟨w', n1, bd1, hR, e1⟩ := ihe env env' hT hΓ fuel hfn w hw
       cases hR with
       | adt hc hr =>
+      simp only [] at hv
+      cases hv
+      exact ⟨_, n1, fun hu => by bnd hu, .bool _, fun f hf => by simp only [eval, e1 f hf]⟩
+    · cases hv
+    · cases hv
+  | adtApp tps tps' hc _ iha =>
+    intro env env' hT hΓ fuel hfn v hv
+    simp only [eval] at hv
+    split at hv
+    · next vs hvs =>
+      rw [construct_ctor (hB.ctorS _ _ _ hc)] at hv
+      cases hv
+      obtain ⟨t', n1, bd1, hR, e1⟩ :=
+        iha env env' hT hΓ fuel hfn (.TupleV vs) (by simp only [eval, hvs])
+      obtain ⟨_, vs', h1, rfl⟩ := rel_tuple_inv hR rfl
+      cases h1
+      exact ⟨.ADTV _ (O.resolve_all (env_types env') tps') vs', n1, fun hu => by bnd hu,
+          .app hc hR, fun f hf => by
+        simp only [eval, eval_tuple_inv (e1 f hf), construct_ctor (hB.ctor _ _ _ hc)]⟩
+    · cases hv
+    · cases hv
+  | @selApp Γ u e e' s ks sel k _ hk ihe =>
+    intro env env' hT hΓ fuel hfn v hv
+    obtain ⟨w, hw⟩ := sel_inv hv
+    obtain ⟨w', n1, bd1, hR, e1⟩ := ihe env env' hT hΓ fuel hfn w hw
+    cases hR with
+    | @app c _ fs _ tps tps' vs vs' hc hr =>
+    obtain ⟨hps, hsel⟩ := sel_eval (hB.ctorS _ _ _ hc) hw sel
+    rw [hsel] at hv
+    obtain ⟨hps', _⟩ := sel_eval (hB.ctor _ _ _ hc) (e1 n1 (Int.le_refl _)) sel
+    rw [← substFields_names ks] at hps hps'
+    obtain ⟨v', k2, hk2, hs', hRv⟩ := rel_select hps hps' hr hv
+    rw [fieldKind_subst] at hk2
+    obtain ⟨k3, hk3, rfl⟩ := Option.map_eq_some_iff.1 hk2
+    cases hk c fs hc k3 hk3
+    refine ⟨v', n1, fun hu => by bnd hu, hRv, fun f hf => ?_⟩
+    rw [(sel_eval (hB.ctor _ _ _ hc) (e1 f hf) sel).2]
+    exact hs'
+  | isCtorApp c _ ihe =>
+    intro env env' hT hΓ fuel hfn v hv
+    simp only [eval] at hv
+    split at hv
+    · next w hw =>
+      obtain ⟨w', n1, bd1, hR, e1⟩ := ihe env env' hT hΓ fuel hfn w hw
+      cases hR with
+      | app hc hr =>
       simp only [] at hv
       cases hv
       exact ⟨_, n1, fun hu => by bnd hu, .bool _, fun f hf => by simp only [eval, e1 f hf]⟩
