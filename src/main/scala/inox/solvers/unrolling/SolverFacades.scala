@@ -75,7 +75,7 @@ trait SolverFacades { self: Templates =>
     def nextRound(): Seq[LambdaPair] = self.nextRound()
 
     /** @see [[WitnessTemplates.lambdaComparison]] */
-    def comparison(p: LambdaPair): (Encoded, Seq[Encoded], Clauses) = self.lambdaComparison(p)
+    def comparison(p: LambdaPair): (Seq[Encoded], Seq[Encoded], Clauses) = self.lambdaComparison(p)
 
     /** @see [[WitnessTemplates.lambdaCaptures]] */
     def captures(p: LambdaPair): Seq[(Encoded, Type)] = self.lambdaCaptures(p)

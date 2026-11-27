@@ -463,9 +463,11 @@ tells distinct functions apart. Without the model check, `(λz. z = 0) ∈ {λz.
 SAT this way. So when a model makes such lambdas equal (and the structural rule doesn't), validation
 compares their bodies (`Templates.instantiateComparison`). It instantiates the bodies on fresh
 arguments `w̄`, as the bodies of fresh functions rather than of the lambdas themselves, since the
-query may make the lambdas equal and their applications on `w̄` would then be equal too. Under a
-fresh literal `k_p` and `c_p`, `w̄` lies in the parameter types, and the bodies differ on `w̄`
-(exactly one fails, or neither does and their results differ). The checks below assume `c_p` with
+query may make the lambdas equal and their applications on `w̄` would then be equal too. Under
+fresh literals `k_p` and `c_p`, `w̄` lies in the parameter types, and the bodies differ on `w̄`
+(exactly one fails, or neither does and their results differ). `k_p` stands for two literals, one
+that unfolds the bodies and one that states they differ, so that certificates define each symbol
+before the symbols whose definitions mention it. The checks below assume `c_p` with
 `k_p`, which holds in `M`. Then:
 
 - If the check under the refutation assumptions, `k_p` and `c_p` is UNSAT, no solution has the bodies differ

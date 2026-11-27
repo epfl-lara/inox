@@ -1666,14 +1666,14 @@ abstract class AbstractUnrollingSolver private
     }
 
     /** Checks under the comparison of the bodies of the lambdas of `p` (see [[Templates.instantiateComparison]]),
-      * whose literal holds with the condition of `p`, and under `extra`, with the given unfolding assumptions. */
+      * whose literals hold with the condition of `p`, and under `extra`, with the given unfolding assumptions. */
     private def checkComparison(p: templates.witnesses.LambdaPair, extra: Set[Encoded], refuting: Boolean): Response = {
-      val (literal, _, clauses) = templates.witnesses.comparison(p)
+      val (literals, _, clauses) = templates.witnesses.comparison(p)
       for (cl <- clauses) assertClause(cl)
       val unfolding = if (refuting) templates.unfolding.refutationAssumptions else templates.unfolding.satisfactionAssumptions
       context.timers.solvers.unrolling.check.run {
         checkUnderlying(Configuration(model = !refuting, unsatAssumptions = false))(
-          ListSet.from(encodedAssumptions) ++ unfolding ++ extra + literal + p.cond)
+          ListSet.from(encodedAssumptions) ++ unfolding ++ extra ++ literals + p.cond)
       }
     }
 

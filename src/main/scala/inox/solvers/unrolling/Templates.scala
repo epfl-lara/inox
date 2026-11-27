@@ -1214,17 +1214,22 @@ trait Templates
     *
     * The bodies are instantiated on fresh arguments `ws`, as the bodies of fresh functions `c1` and
     * `c2` rather than of the lambdas themselves: the query may make the lambdas equal, and their
-    * applications on `ws` would then be equal as well, whatever their bodies. Under the literal and
-    * `cond`, the arguments lie in their types, and the bodies differ on them: exactly one of them
-    * fails, or neither does and their results differ. So if a check that assumes the literal and
-    * `cond` is unsatisfiable, the bodies agree on every input wherever `cond` holds. Like the other
-    * hypotheses, the clauses hold when the literal is false.
+    * applications on `ws` would then be equal as well, whatever their bodies. The bodies are
+    * unfolded under a first literal `unfold`, under which the arguments also lie in their types, and
+    * a second literal `differ` states, with `cond`, that the bodies differ on them: exactly one of
+    * them fails, or neither does and their results differ. So if a check that assumes both literals
+    * and `cond` is unsatisfiable, the bodies agree on every input wherever `cond` holds. Like the
+    * other hypotheses, the clauses hold when the literals are false.
     *
-    * `cond` is the hypothesis's condition rather than part of its fact, so that its clause has the
-    * shape `(=> (and literal cond) fact)` that the checkers of certificates read: a condition
-    * `true` would make the solver print `(=> literal fact)`. */
-  def instantiateComparison(cond: Encoded, t1: LambdaTemplate, t2: LambdaTemplate): (Encoded, Seq[Encoded], Clauses) = {
+    * The literals are two so that each symbol of the comparison is defined before the symbols whose
+    * definitions mention it, as the checkers of certificates check the fresh symbols in that order:
+    * the failures of the bodies are defined under `unfold`, and the fact of `differ` mentions them.
+    * The fact of `unfold` is `cond` itself, which only gives it a hypothesis of its own. Both have
+    * the condition `cond`, so that their clauses have the shape `(=> (and literal cond) fact)` that
+    * the checkers read, which a condition `true` would simplify. */
+  def instantiateComparison(cond: Encoded, t1: LambdaTemplate, t2: LambdaTemplate): (Seq[Encoded], Seq[Encoded], Clauses) = {
     val tpe = t1.tpe
+    val unfold = encodeSymbol(Variable.fresh("b_unf", BooleanType(), true))
     val literal = encodeSymbol(Variable.fresh("b_cmp", BooleanType(), true))
     val ws = tpe.from.map(tp => Variable.fresh("w", tp, true))
     val wsT = ws.map(encodeSymbol)
@@ -1234,7 +1239,7 @@ trait Templates
       val copy = encodeSymbol(Variable.fresh("body", tpe, true))
       val template = t.substitute(mkSubstituter(Map(t.ids._2 -> copy)), Map.empty)
       val failure = if (partial) Some(encodeSymbol(Variable.fresh("fails", BooleanType(), true))) else None
-      (mkApp(copy, tpe, wsT), failure, Rule.Unfold(template, literal, wsT.map(Left(_)), failure).clauses)
+      (mkApp(copy, tpe, wsT), failure, Rule.Unfold(template, unfold, wsT.map(Left(_)), failure).clauses)
     }
     val (res1, fail1, clauses1) = body(t1)
     val (res2, fail2, clauses2) = body(t2)
@@ -1254,12 +1259,13 @@ trait Templates
       }
       val source = ws.foldRight(BooleanLiteral(true): Expr)((w, e) => Assume(freeTyping(w.tpe, w), e))
       (tpeClauses.foldLeft(mkClauses0(start, BooleanLiteral(true), substMap))(_ ++ _), Some(source), None)
-    }, root = Rule.Define(None, _, literal).clauses)
+    }, root = Rule.Define(None, _, unfold).clauses)
 
-    val clauses = Rule.Hypothesis(literal, cond, distinguished).clauses ++
-      clauses1 ++ clauses2 ++ typing ++ newFailureDefinitions()
+    val clauses = Rule.Hypothesis(unfold, cond, cond).clauses ++
+      clauses1 ++ clauses2 ++ typing ++ newFailureDefinitions() ++
+      Rule.Hypothesis(literal, cond, distinguished).clauses
     for (cl <- clauses) reporter.debug("  . " + cl)
-    (literal, wsT, clauses)
+    (Seq(unfold, literal), wsT, clauses)
   }
 
   /** Instantiates the applications of the functions `f1` and `f2` of type `tpe` to the values `args`
