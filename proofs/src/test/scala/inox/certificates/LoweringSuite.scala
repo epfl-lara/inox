@@ -126,4 +126,13 @@ class LoweringSuite extends AnyFunSuite {
     assert(refused("Nil!9").contains("the session has several"))
     assert(refused("(lambda ((y Int)) y)").contains("lambda is no symbol of the sources"))
   }
+
+  test("An assumption of whose symbols the session has none is left out") {
+    val missing = "(= x!0 ((as size!9 (Real)) (as Nil!9 (List!9 Real))))"
+    assert(lowered(s"(assume $missing (> x!0 0))") == "(> x!0 0)")
+    assert(lowered("(assume (> x!0 1) (> x!0 0))") == "(assume (> x!0 1) (> x!0 0))")
+    // not what is assumed, nor an assumption that is refused for another reason
+    assert(refused(s"(assume (> x!0 0) $missing)").contains("the session has no"))
+    assert(refused("(assume (= Nil!9 Nil!9) (> x!0 0))").contains("the session has several"))
+  }
 }

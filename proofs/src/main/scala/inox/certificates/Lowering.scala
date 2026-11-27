@@ -59,13 +59,16 @@ package certificates
   *    `(_ BitVec 16)` for `Char`, `Int` for the function sorts `(-> ..)`, elementwise for `Array`
   *    and `Set`, and to the session's sort of the same SMT-LIB 3 sort otherwise.
   *
-  * It refuses a symbol of which the session has no symbol, or one for which it has several, and
+  * It refuses a symbol of which the session has no symbol, outside of an assumption, which it
+  * leaves out then, or one for which it has several, and
   * the constructs that the corpus doesn't use and that it doesn't lower: lambdas, `tuple.unit`,
   * bags, strings operations and floating points. */
 object Lowering {
   import Checker._
 
-  final class Refused(val why: String) extends Exception(why)
+  sealed class Refused(val why: String) extends Exception(why)
+  /** The refusal of a symbol of which the session has no symbol. */
+  private final class Missing(why: String) extends Refused(why)
   private def refuse(why: String): Nothing = throw new Refused(why)
 
   private val Bool = Atom("Bool")
@@ -186,7 +189,7 @@ object Lowering {
     /** The one session symbol that `p` holds of. */
     private def unique(what: => String, p: Entry => Boolean): Atom = session.filter(p) match {
       case Seq(e) => e.name
-      case Seq() => refuse(s"the session has no $what")
+      case Seq() => throw new Missing(s"the session has no $what")
       case es => refuse(s"the session has several ${what}s: ${es.map(_.name).mkString(", ")}")
     }
 
@@ -309,7 +312,13 @@ object Lowering {
         case SList(List(Atom("insert"), s, t)) => app("set.insert", rec(t), rec(s))
         case SList(Atom(op) :: args) if setOperations.contains(op) => SList(Atom(setOperations(op)) :: args.map(rec))
 
-        case SList(List(Atom("assume"), p, body)) => app("assume", rec(p), rec(body))
+        // no clause of the session states an assumption of whose symbols it has none, and the
+        // expression without the assumption has the value of the one with it, wherever it has one
+        case SList(List(Atom("assume"), p, body)) =>
+          (try Some(rec(p)) catch { case _: Missing => None }) match {
+            case Some(lowered) => app("assume", lowered, rec(body))
+            case None => rec(body)
+          }
         // an error is an assumption that never holds, of a value that stands for no other
         case SList(List(Atom("error"), s, _)) => app("assume", Atom("false"), app("error", lowerSort(s)))
         case SList(Atom(op) :: args) if same(op) => SList(Atom(op) :: args.map(rec))

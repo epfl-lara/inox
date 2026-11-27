@@ -1459,11 +1459,12 @@ trait SymbolOps extends TypeOps { self =>
         recordedForall(args, newBody, r)
       } else {
         if (r.active) {
-          // the rule `prenex` of certificates is that of the types that are known to have values
+          // The rule `prenex` of certificates: the quantifiers that come out of a conjunction are
+          // over types that are known to have values, and a disjunction or the conclusion of an
+          // implication holds as the quantifier does over a type without values.
           val Operator(_, same) = body: @unchecked
           val lifted = same(allBodies)
-          val known = flatArgs.forall(vd => certifiablyInhabited(vd.tpe))
-          r.rewrite(if (known) "prenex" else "lift-quantifiers", Forall(args ++ flatArgs, lifted))
+          r.rewrite("prenex", Forall(args ++ flatArgs, lifted))
           r.at(lifted, "logic")(newBody)
         }
         simpForall(args ++ flatArgs, newBody, r)

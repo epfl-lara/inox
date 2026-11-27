@@ -8,7 +8,7 @@ import java.io.StringReader
 import semantics.Embedding
 import semantics.generated.{Semantics => S}
 
-import Checker.SExpr
+import Checker.{SExpr, Atom, SList}
 
 /** The evaluation of the closed terms of a certificate, which are terms of Inox's SMT-LIB 3 as
   * its source definitions are: they are read with Inox's parser, and evaluated by the evaluator
@@ -20,12 +20,58 @@ import Checker.SExpr
 private[certificates] final class Evaluation(definitions: List[SExpr]) {
   import inox.trees._
 
+  /** The selectors of the datatypes of the definitions. */
+  private val selectors: Set[String] = {
+    def fields(constructors: List[SExpr]) = constructors.flatMap {
+      case SList(Atom(_) :: fs) => fs.collect { case SList(Atom(s) :: _) => s }
+      case _ => Nil
+    }
+    definitions.flatMap {
+      case SList(List(Atom("declare-datatypes"), _, SList(decls))) => decls.flatMap {
+        case SList(List(Atom("par"), _, SList(cs))) => fields(cs)
+        case SList(cs) => fields(cs)
+        case _ => Nil
+      }
+      case SList(List(Atom("declare-datatype"), _, SList(List(Atom("par"), _, SList(cs))))) => fields(cs)
+      case SList(List(Atom("declare-datatype"), _, SList(cs))) => fields(cs)
+      case _ => Nil
+    }.toSet
+  }
+
+  /** `t` without the sorts that certificates write the symbols of the syntax under (applications,
+    * tuples, their selections and testers), which Inox's parser infers. */
+  private def plain(t: SExpr): SExpr = t match {
+    case SList(List(Atom("as"), a @ Atom("@" | "tuple"), _)) => a
+    case SList(List(Atom("as"), a @ Atom(x), _)) if selectors(x) => a
+    case SList(List(Atom("as"), s @ SList(List(Atom("_"), Atom("tuple.select" | "is"), _)), _)) => s
+    case SList(items) => SList(items.map(plain))
+    case a => a
+  }
+
+  /** The definitions in an order that Inox's parser reads: the functions, which the certificate
+    * may define before those that they call, are defined together, after the rest. */
+  private def script: List[SExpr] = {
+    val functions = definitions.flatMap {
+      case SList(List(Atom("define-fun" | "define-fun-rec"), SList(List(par @ Atom("par"), tps, SList(List(f, ps, sort, body)))))) =>
+        List(SList(List(par, tps, SList(List(f, ps, sort)))) -> body)
+      case SList(List(Atom("define-fun" | "define-fun-rec"), f, ps, sort, body)) => List(SList(List(f, ps, sort)) -> body)
+      case SList(List(Atom("define-funs-rec"), SList(decls), SList(bodies))) if decls.size == bodies.size => decls zip bodies
+      case _ => Nil
+    }
+    val others = definitions.filter {
+      case SList(Atom("define-fun" | "define-fun-rec" | "define-funs-rec") :: _) => false
+      case _ => true
+    }
+    others ++ (if (functions.isEmpty) Nil
+      else List(SList(List(Atom("define-funs-rec"), SList(functions.map(_._1)), SList(functions.map(_._2))))))
+  }
+
   /** The definitions as Inox has them, and the terms that refer to them. */
-  private final class Source extends smtlib3.Parser(new StringReader(definitions.mkString("\n")), None) {
+  private final class Source extends smtlib3.Parser(new StringReader(script.map(plain).mkString("\n")), None) {
     private val locals = newParser(positions.reader).parseScript.commands
       .foldLeft(NoLocals)((locals, cmd) => extractCommand(cmd)(using locals)._2)
     val symbols: Symbols = locals.symbols
-    def term(t: SExpr): Expr = locals.extractTerm(newParser(new StringReader(t.toString)).parseTerm)
+    def term(t: SExpr): Expr = locals.extractTerm(newParser(new StringReader(plain(t).toString)).parseTerm)
   }
 
   // definitions that Inox's parser doesn't read give no value to any term

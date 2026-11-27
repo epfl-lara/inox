@@ -250,7 +250,7 @@ class SimplificationRecorderSuite extends AnyFunSuite with DatastructureUtils {
     assert(rules(Forall(Seq(i.toVal, a.toVal), GreaterThan(i, int(0)))) == Seq())
   }
 
-  test("Quantifiers are lifted by steps of prenex, where the checker knows the types to have values") {
+  test("Quantifiers are lifted by steps of prenex") {
     assert(rules(Forall(Seq(i.toVal), And(Forall(Seq(j.toVal), LessThan(i, j)), p))) == Seq("prenex"))
     assert(rules(Forall(Seq(i.toVal), Implies(p, Forall(Seq(j.toVal), LessThan(i, j))))) == Seq("logic", "prenex"))
     // not from the premise of an implication
@@ -259,8 +259,8 @@ class SimplificationRecorderSuite extends AnyFunSuite with DatastructureUtils {
     val tp = TypeParameter.fresh("T")
     val (a, b) = (Variable.fresh("a", tp), Variable.fresh("b", tp))
     val distinct = Forall(Seq(a.toVal), Not(Equals(a, b)))
-    // a disjunction holds for all values of a type that has none
-    assert(rules(Forall(Seq(i.toVal), Or(distinct, GreaterThan(i, y)))) == Seq("lift-quantifiers"))
+    // a disjunction holds for all values of a type that has none, as the quantifier does
+    assert(rules(Forall(Seq(i.toVal), Or(distinct, GreaterThan(i, y)))) == Seq("prenex"))
     assert(rules(Forall(Seq(i.toVal), And(distinct, GreaterThan(i, y)))) == Seq())
   }
 

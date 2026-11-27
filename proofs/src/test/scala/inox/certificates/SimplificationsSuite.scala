@@ -15,6 +15,8 @@ class SimplificationsSuite extends AnyFunSuite {
     """(declare-datatypes ((List 0)) (((Nil) (Cons (head Int) (tail List)))))
       |(define-fun f ((y Int)) Bool (and (> y 0) true))
       |(define-fun-rec len ((l List)) Int (ite ((_ is Cons) l) (+ 1 (len (tail l))) 0))
+      |(define-fun twice ((y Int)) Int (double y))
+      |(define-fun double ((y Int)) Int (+ y y))
       |(define-fun-rec loop ((y Int)) Int (loop y))""".stripMargin)
 
   /** Checks that `steps` rewrite `original` into the expression `simplified`. */
@@ -184,6 +186,11 @@ class SimplificationsSuite extends AnyFunSuite {
     assert(body("extensional").exists(_.size == 1))
   }
 
+  test("What a simplifier makes of a term without a rule is checked where it is a step of logic") {
+    holds("(let ((v (len l))) (> x 0))", "(> x 0)", "(steps (simplify () (> x 0)))")
+    reported("(> x 0)", "(let ((v (loop 0))) (> x 0))", "(steps (simplify () (let ((v (loop 0))) (> x 0))))")
+  }
+
   test("A step of a rule that the checker doesn't know is reported, and the others are checked") {
     // the certificate then holds over the simplified program
     reported("(and p q)", "p", "(steps (evaluate () p))")
@@ -203,6 +210,10 @@ class SimplificationsSuite extends AnyFunSuite {
     // with the functions of the source definitions
     holds("(= x (len (Cons 1 (Cons 2 Nil))))", "(= x 2)", "(steps (evaluate (2) 2))")
     holds("(and p (f 1))", "p", "(steps (evaluate (2) true) (logic () p))")
+    // which the certificate may define after the ones that call them, and write the sorts of
+    holds("(= x (twice 2))", "(= x 4)", "(steps (evaluate (2) 4))")
+    holds("(= x ((as head List) (Cons 1 Nil)))", "(= x 1)", "(steps (evaluate (2) 1))")
+    holds("(and p ((as (_ is Cons) List) (Cons 1 Nil)))", "p", "(steps (evaluate (2) true) (logic () p))")
     // another value than the one of the term is refused
     refused("(and p (> (+ 1 2) 2))", "(and p false)", "(steps (evaluate (2) false))")
     refused("(= x (len (Cons 1 (Cons 2 Nil))))", "(= x 3)", "(steps (evaluate (2) 3))")
@@ -231,5 +242,83 @@ class SimplificationsSuite extends AnyFunSuite {
     refused("(= \"a\" \"\\u{61}\")", "false", "(steps (arith () false))")
     holds("(= #x0a #x0b)", "false", "(steps (arith () false))")
     holds("(= \"a\" \"b\")", "false", "(steps (arith () false))")
+  }
+
+  test("A construction of the fields of a term is the term, where it is of the constructor") {
+    holds("(ite ((_ is Cons) l) (Cons (head l) (tail l)) l)", "(ite ((_ is Cons) l) l l)", "(steps (eta (2) l))")
+    // which it is when it is of no other constructor
+    holds("(ite ((_ is Nil) l) l (Cons (head l) (tail l)))", "(ite ((_ is Nil) l) l l)", "(steps (eta (3) l))")
+    refused("(ite p (Cons (head l) (tail l)) l)", "(ite p l l)", "(steps (eta (2) l))")
+    refused("(ite ((_ is Cons) l) (Cons (head l) (head l)) l)", "(ite ((_ is Cons) l) l l)", "(steps (eta (2) l))")
+  }
+
+  test("Sums and products are those of their operands, however they nest") {
+    holds("(> (* (* x y) z) 0)", "(> (* x y z) 0)", "(steps (logic () (> (* x y z) 0)))")
+    holds("(and p (> (+ x (+ y z)) 0))", "(and p (> (+ x y z) 0))", "(steps (logic () (and p (> (+ x y z) 0))))")
+    refused("(> (* (+ x y) z) 0)", "(> (* x y z) 0)", "(steps (logic () (> (* x y z) 0)))")
+  }
+
+  test("Logic evaluates the conditionals, bindings and assumptions of the operands of an atom") {
+    holds("(let ((r (ite p x y))) (> r 0))", "(> (ite p x y) 0)", "(steps (logic () (> (ite p x y) 0)))")
+    holds("(> (ite p x y) 0)", "(ite p (> x 0) (> y 0))", "(steps (logic () (ite p (> x 0) (> y 0))))")
+    holds("(> (assume p x) 0)", "(assume p (> x 0))", "(steps (logic () (assume p (> x 0))))")
+    holds("(assume p (> x 0))", "(> (assume p x) 0)", "(steps (logic () (> (assume p x) 0)))")
+    // an assumption that the term doesn't make is not one that a step may add
+    refused("(> x 0)", "(> (assume p x) 0)", "(steps (logic () (> (assume p x) 0)))")
+    refused("(> (ite p x y) 0)", "(> x 0)", "(steps (logic () (> x 0)))")
+  }
+
+  test("Logic evaluates what a quantifier evaluates for all values, where it has values") {
+    holds("(let ((v (assume p x))) (exists ((k Int)) (= v k)))", "(exists ((k Int)) (= (assume p x) k))",
+      "(steps (logic () (exists ((k Int)) (= (assume p x) k))))")
+    // a quantifier whose body always evaluates an assumption that doesn't hold has no value
+    holds("(exists ((k Int)) (= (assume p x) k))", "(assume p (exists ((k Int)) (= x k)))",
+      "(steps (lift-assumptions () (assume p (exists ((k Int)) (= x k)))))")
+    holds("(assume p (exists ((k Int)) (= x k)))", "(exists ((k Int)) (= (assume p x) k))",
+      "(steps (logic () (exists ((k Int)) (= (assume p x) k))))")
+    // unless it has no values to evaluate it for, or doesn't always evaluate it
+    refused("(forall ((k T)) (= (assume p x) (g k)))", "(assume p (forall ((k T)) (= x (g k))))",
+      "(steps (logic () (assume p (forall ((k T)) (= x (g k))))))")
+    refused("(forall ((k Int)) (or (> k 0) (= (assume p x) k)))", "(assume p (forall ((k Int)) (or (> k 0) (= x k))))",
+      "(steps (logic () (assume p (forall ((k Int)) (or (> k 0) (= x k))))))")
+  }
+
+  test("An assumption that is lifted out of a binder is checked where it is a step of logic, and reported otherwise") {
+    holds("(forall ((k Int)) (= (assume p x) k))", "(assume p (forall ((k Int)) (= x k)))",
+      "(steps (lift-assumptions () (assume p (forall ((k Int)) (= x k)))))")
+    reported("(forall ((k Int)) (or (> k 0) (= (assume p x) k)))", "(assume p (forall ((k Int)) (or (> k 0) (= x k))))",
+      "(steps (lift-assumptions () (assume p (forall ((k Int)) (or (> k 0) (= x k))))))")
+    reported("(= h (lambda ((k Int)) (+ (assume p x) k)))", "(assume p (= h (lambda ((k Int)) (+ x k))))",
+      "(steps (lift-assumptions () (assume p (= h (lambda ((k Int)) (+ x k))))))")
+  }
+
+  test("A quantifier comes out of a disjunction over a sort that may have no values") {
+    holds("(forall ((x Int)) (or (forall ((y T)) p) (> x 0)))", "(forall ((x Int) (y T)) (or p (> x 0)))",
+      "(steps (prenex () (forall ((x Int) (y T)) (or p (> x 0)))))")
+    holds("(forall ((x Int)) (=> (> x 0) (forall ((y T)) p)))", "(forall ((x Int) (y T)) (=> (> x 0) p))",
+      "(steps (prenex () (forall ((x Int) (y T)) (=> (> x 0) p))))")
+  }
+
+  test("An existential quantifier is named as the negation of the universal one that is assumed") {
+    val (all, some) = ("(forall ((z Int)) (not (> z x)))", "(exists ((z Int)) (> z x))")
+    assert(named(s"(not (and p $some))", s"(not (and p (not (assume $all true))))", s"((not (assume $all true)) $some)") == Right(Nil))
+    // only where the universal one must hold
+    assert(named(s"(and p $some)", s"(and p (not (assume $all true)))", s"((not (assume $all true)) $some)").isLeft)
+    assert(named(s"(not (or p $some))", s"(not (or p (not (assume $all true))))", s"((not (assume $all true)) $some)") == Right(Nil))
+    assert(named(s"(or p $some)", s"(or p (not (assume $all true)))", s"((not (assume $all true)) $some)").isLeft)
+    // and of the same body
+    assert(named(s"(not (and p (exists ((z Int)) (> z 0))))", s"(not (and p (not (assume $all true))))",
+      s"((not (assume $all true)) (exists ((z Int)) (> z 0)))").isLeft)
+  }
+
+  test("A construction is named under the assumption of its invariant, which is evaluated") {
+    val cons = "(Cons 1 Nil)"
+    def name(invariant: String) = named(s"(= l $cons)", s"(= l (assume $invariant $cons))", s"((assume $invariant $cons) $cons)")
+    assert(name("(> (len (Cons 1 Nil)) 0)") == Right(Nil))
+    assert(name("(> (len (Cons 1 Nil)) 1)").isLeft)
+    // an invariant that has no value in the semantics is reported
+    assert(name("(> (len l) 0)").exists(_.size == 1))
+    // and the assumption is around the construction that it names
+    assert(named(s"(= l $cons)", "(= l (assume true Nil))", s"((assume true Nil) $cons)").isLeft)
   }
 }
