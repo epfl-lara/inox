@@ -1,10 +1,5 @@
 /- Copyright 2009-2026 EPFL, Lausanne -/
-import Cpc.Proofs.TypePreservation.Helpers
-import Cpc.Proofs.Canonical.Maps
-import Cpc.Proofs.Canonical.Ops
-import Cpc.Proofs.RuleSupport.SetsEvalOpSupport
-import Cpc.Proofs.RuleSupport.SetsMemberSupport
-import Cpc.Proofs.RuleSupport.ArraySupport
+import Inox.SetMaps
 
 /-!
 # The sets of Logos, from lists
@@ -135,7 +130,7 @@ theorem union_eq (uc : SmtUSortDom) (A : SmtType) {xs ys : List SmtValue}
   congr 1
   refine map_ext_of_lookup_eq hcan.1 (setOf_canonical uc A _ hxyc)
     (by rw [op_rec_leaf, setOf_leaf, setOf_leaf]) fun v => ?_
-  rw [SetsEvalOpSupport.set_union_lookup (uc := uc) _ _ A v hxt hyt (setOf_canonical uc A xs hxc)
+  rw [SetMaps.set_union_lookup (uc := uc) _ _ A v hxt hyt (setOf_canonical uc A xs hxc)
     (setOf_canonical uc A ys hyc) (setOf_default A xs), lookup_true_iff uc A xs v hxc,
     setOf_lookup uc A ys v hyc, setOf_lookup uc A _ v hxyc]
   by_cases h1 : v ∈ xs <;> simp [native_ite, h1]
@@ -161,7 +156,7 @@ theorem inter_eq (uc : SmtUSortDom) (A : SmtType) {xs ys : List SmtValue}
   congr 1
   refine map_ext_of_lookup_eq hcan.1 (setOf_canonical uc A _ hfc)
     (by rw [op_rec_leaf, setOf_leaf, hxt]; rfl) fun v => ?_
-  rw [SetsEvalOpSupport.set_inter_lookup (uc := uc) _ _ A v hxt hyt (setOf_canonical uc A xs hxc)
+  rw [SetMaps.set_inter_lookup (uc := uc) _ _ A v hxt hyt (setOf_canonical uc A xs hxc)
     (setOf_default A xs), lookup_true_iff uc A xs v hxc, lookup_true_iff uc A ys v hyc,
     setOf_lookup uc A _ v hfc]
   by_cases h1 : v ∈ xs <;> by_cases h2 : v ∈ ys <;>
@@ -189,7 +184,7 @@ theorem minus_eq (uc : SmtUSortDom) (A : SmtType) {xs ys : List SmtValue}
   congr 1
   refine map_ext_of_lookup_eq hcan.1 (setOf_canonical uc A _ hfc)
     (by rw [op_rec_leaf, setOf_leaf, hxt]; rfl) fun v => ?_
-  rw [SetsEvalOpSupport.set_minus_lookup (uc := uc) _ _ A v hxt hyt (setOf_canonical uc A xs hxc)
+  rw [SetMaps.set_minus_lookup (uc := uc) _ _ A v hxt hyt (setOf_canonical uc A xs hxc)
     (setOf_default A xs), lookup_true_iff uc A xs v hxc, lookup_true_iff uc A ys v hyc,
     setOf_lookup uc A _ v hfc]
   by_cases h1 : v ∈ xs <;> by_cases h2 : v ∈ ys <;>
@@ -319,13 +314,13 @@ theorem choose_mem {M : SmtModel} (huc : usort_dom_wf M.usortDom) {A : SmtType} 
   have htm : __smtx_typeof_map_value m = .Map A .Bool := set_map_value_typed ht
   simp only [__smtx_value_canonical, native_and, Bool.and_eq_true, native_veq,
     decide_eq_true_eq] at hc
-  have hDiff := RuleProofs.map_diff_selects_model_eval_eq_false_of_default_eq huc
+  have hDiff := SetMaps.map_diff_selects_model_eval_eq_false_of_default_eq huc
     m (SmtMap.default A (SmtValue.Boolean false)) A SmtType.Bool
     htm (by simp [__smtx_typeof_map_value, __smtx_typeof_value])
     hc.1 (set_empty_map_canonical A) hc.2 (by decide)
     (by simp [__smtx_model_eval_eq, native_veq, hne])
   rcases bool_value_canonical
-    (SetsMemberSupport.set_map_lookup_bool (i := native_eval_map_diff M m
+    (SetMaps.set_map_lookup_bool (i := native_eval_map_diff M m
       (SmtMap.default A (SmtValue.Boolean false))) htm) with ⟨b, hb⟩
   rw [hb]
   rw [__smtx_map_lookup] at hDiff

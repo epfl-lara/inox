@@ -29,7 +29,7 @@ globs = ["Inox.Sexp", "Inox.Lowering", "Inox.Checker", "Inox.Accept", "Inox.Term
 [[lean_lib]]
 name = "InoxVerification"
 roots = []
-globs = ["Inox.Correct", "Inox.NoModel", "Inox.Fresh", "Inox.Extend", "Inox.RuleSteps", "Inox.Unfold", "Inox.Instances", "Inox.Relative", "Inox.Model", "Inox.Codes", "Inox.Mono", "Inox.Data", "Inox.Signed", "Inox.Bits", "Inox.Sets", "Inox.Bridge", "Inox.Reach", "Inox.NoSolution", "Inox.Source", "Inox.Reached"]
+globs = ["Inox.Correct", "Inox.NoModel", "Inox.Fresh", "Inox.Extend", "Inox.RuleSteps", "Inox.Unfold", "Inox.Instances", "Inox.Relative", "Inox.Model", "Inox.Codes", "Inox.Mono", "Inox.Data", "Inox.Signed", "Inox.Bits", "Inox.SetMaps", "Inox.Sets", "Inox.Bridge", "Inox.Reach", "Inox.NoSolution", "Inox.Source", "Inox.Reached"]
 
 # The theorems with the soundness of Logos discharged by its own theorem: `lake build InoxClosed`
 # builds the proofs of Logos.
