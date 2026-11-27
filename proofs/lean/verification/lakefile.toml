@@ -22,7 +22,7 @@ path = "../../semantics"
 [[lean_lib]]
 name = "Inox"
 roots = []
-globs = ["Inox.Sexp", "Inox.Lowering", "Inox.Checker", "Inox.Accept", "Inox.Terms", "Inox.Meanings"]
+globs = ["Inox.Sexp", "Inox.Lowering", "Inox.Encoders", "Inox.Checker", "Inox.Accept", "Inox.Terms", "Inox.Meanings"]
 
 # The theorems, given the soundness of Logos: they only need the definitions of Logos, and its
 # proof that a well-formed model exists.
