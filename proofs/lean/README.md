@@ -1193,13 +1193,15 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   variables, literals, sums, differences, comparisons, equalities, connectives,
   conditionals, lets, assumptions, the bag operations above, multiplicities,
   where integers may be the elements of bags when the elements are integers,
-  the operations of sets of elements, integers or booleans, which the encoders
-  keep, the divisions of reals and of bitvectors and the casts of bitvectors
-  between signed and unsigned, which they keep too, tuples, the constructors,
-  selectors and testers of the sorts of the program, at any type arguments for
-  sorts with several type parameters, whose fields have the kinds of these,
-  calls of its functions, whose bodies in the encoded program are what the
-  encoder makes of their bodies in the input (`Funs`), lambdas and
+  the operations of sets of elements, integers or booleans and of maps from
+  these to these, which the encoders keep, the divisions of reals and of
+  bitvectors and the casts of bitvectors between signed and unsigned, which
+  they keep too, tuples, the constructors, selectors and testers of the sorts
+  of the program, at any type arguments for sorts with type parameters, whose
+  fields have the kinds of these, calls of its functions, whose bodies in the
+  encoded program are what the encoder makes of their bodies in the input
+  (`Funs`), and of its functions with a type parameter at other types than the
+  elements, where the body is checked at the kinds of these, lambdas and
   applications, quantifiers over integers, booleans, elements and sorts whose
   fields are of these or refinements of these by predicates on integers, which
   both programs define as the input does ([`Typing.lean`](Inox/Typing.lean)
@@ -1235,13 +1237,13 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   and defines the encoder's datatype as the encoder does, on values of the free
   variables that relate. `inox-solution --input` says how many constraints of
   each certificate that covers, and what the first of the others has that isn't
-  read. On the corpus it covers 34 of the 36 constraints, among which that of
+  read. On the corpus it covers 35 of the 36 constraints, among which that of
   `bags/split-preserves-content`, with its two recursive functions, and those
   with quantifiers, uninterpreted functions, errors, sets, maps, reals or
-  bitvectors: the others have an encoder that rewrites a merge of maps into a
-  call, or a polymorphic function called at another type than the elements. Nor
-  is this theorem joined to `no_solution_of_reached` yet, whose program has
-  neither sorts with type parameters nor sorts with an equality.
+  bitvectors: the other has an encoder that rewrites a merge of maps into a
+  call, on two types of elements. Nor is this theorem joined to
+  `no_solution_of_reached` yet, whose program has neither sorts with type
+  parameters nor sorts with an equality.
 - **The link between the proof and the script.** The checker checks that each
   assumption of the proof is the text of an assert of the script, up to how
   cvc5 prints testers (`(is C e)` for `((_ is C) e)`), once the terms that the

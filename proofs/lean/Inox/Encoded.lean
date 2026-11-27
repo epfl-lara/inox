@@ -135,6 +135,13 @@ structure Sig where
   ctors : Id → Option (Id × List (Id × Kind))
   funs : Id → Option (List Id × Ty × List Kind × Kind)
   unint : Id → Option (Bool × List Kind × Kind)
+  /-- The constructors of the sorts with type parameters, whose fields have the kinds `.param i`
+  of these. -/
+  pctors : Id → Option (Id × List (Id × Kind))
+  /-- The functions with type parameters called at other types than the elements: at each of
+  these type arguments, the type of the elements in their bodies and the kinds of their
+  parameters and of their bodies. -/
+  funsAt : Id → List Ty → Option (Ty × List Kind × Kind)
   flat : Id → Bool
   sorts : Sorts
   elemKind : Kind
@@ -317,13 +324,13 @@ inductive Encodes (N : Names) (S : Sig) (Te : Ty) :
       (he : Encodes N S Te Γ e e' (.adt s) u) :
       Encodes N S Te Γ (.IsConstructor e c) (.IsConstructor e' c) .bool u
   | adtApp {Γ : Id → Option Kind} {u : Bool} {c s : Id} {fs : List (Id × Kind)} {ks : List Kind}
-      (tps tps' : List Ty) {es es' : List Expr} (hc : S.ctors c = some (s, fs))
+      (tps tps' : List Ty) {es es' : List Expr} (hc : S.pctors c = some (s, fs))
       (ha : Encodes N S Te Γ (.Tuple es) (.Tuple es') (.tuple ((substFields ks fs).map Prod.snd))
         u) :
       Encodes N S Te Γ (.ADT c tps es) (.ADT c tps' es') (.app s ks) u
   | selApp {Γ : Id → Option Kind} {u : Bool} {e e' : Expr} {s : Id} {ks : List Kind} (sel : Id)
       {k : Kind} (he : Encodes N S Te Γ e e' (.app s ks) u)
-      (hk : ∀ c fs, S.ctors c = some (s, fs) → ∀ k', fieldKind fs sel = some k' →
+      (hk : ∀ c fs, S.pctors c = some (s, fs) → ∀ k', fieldKind fs sel = some k' →
         substKind ks k' = k) :
       Encodes N S Te Γ (.ADTSelector e sel) (.ADTSelector e' sel) k u
   | isCtorApp {Γ : Id → Option Kind} {u : Bool} {e e' : Expr} {s : Id} {ks : List Kind}
@@ -339,6 +346,10 @@ inductive Encodes (N : Names) (S : Sig) (Te : Ty) :
       (hu : u = true → S.flat f = true)
       (ha : Encodes N S Te Γ (.Tuple es) (.Tuple es') (.tuple ks) u) :
       Encodes N S Te Γ (.FunctionInvocation f tps es) (.FunctionInvocation f [] es') k u
+  | callAt {Γ : Id → Option Kind} {f : Id} {tps : List Ty} {Tf : Ty} {ks : List Kind}
+      {k : Kind} {es es' : List Expr} (hf : S.funsAt f tps = some (Tf, ks, k))
+      (ha : Encodes N S Te Γ (.Tuple es) (.Tuple es') (.tuple ks) false) :
+      Encodes N S Te Γ (.FunctionInvocation f tps es) (.FunctionInvocation f tps es') k false
   | lambda {Γ : Id → Option Kind} {u : Bool} (Γ0 : List (Id × Kind)) {ps ps' : List Param}
       {body body' : Expr} {ks : List Kind} {k : Kind} (hΓ : ∀ p ∈ Γ0, Γ p.1 = some p.2)
       (hp : param_ids ps = param_ids ps')
@@ -441,7 +452,7 @@ inductive Rel (O : Oracle) (P : Program) (N : Names) (K : Value → Prop)
         (.ClosureV ps' body' (.Env tys' vars'))
   | prim (v : Value) (h : IsPrim v = true) : Rel O P N K E T0 S .prim v v
   | app {c s : Id} {fs : List (Id × Kind)} {ks : List Kind} {tps tps' : List Ty}
-      {vs vs' : List Value} (h : S.ctors c = some (s, fs))
+      {vs vs' : List Value} (h : S.pctors c = some (s, fs))
       (hr : Rel O P N K E T0 S (.tuple ((substFields ks fs).map Prod.snd)) (.TupleV vs)
         (.TupleV vs')) :
       Rel O P N K E T0 S (.app s ks) (.ADTV c tps vs) (.ADTV c tps' vs')
@@ -489,6 +500,8 @@ structure Base (O : Oracle) (Ps P : Program) (N : Names) (K : Value → Prop)
     [.Param N.x (.TypeParameter N.T)] = true ↔ ∃ v, vs = [v] ∧ K v
   ctorS : ∀ c s fs, S.ctors c = some (s, fs) → CtorIn c s fs Ps
   ctor : ∀ c s fs, S.ctors c = some (s, fs) → CtorIn c s fs P
+  pctorS : ∀ c s fs, S.pctors c = some (s, fs) → CtorIn c s fs Ps
+  pctor : ∀ c s fs, S.pctors c = some (s, fs) → CtorIn c s fs P
   simple : SimpleTy T0
   elemsS : ∀ v, O.has_type Ps (.Env [] []) v T0 = true ↔ K v
   ints : S.elemKind = .int → T0 = .IntegerType
@@ -866,8 +879,8 @@ theorem rel_value_eq (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) {A : Id → B
     | @app d _ fs2 _ _ _ ws ws' h2 hr2 =>
       rw [hB.sound.value_eq] at he
       rw [hB.sound.value_eq (P := P)]
-      simp only [sort_equality_ctor (hB.ctorS _ _ _ h)] at he
-      simp only [sort_equality_ctor (hB.ctor _ _ _ h)]
+      simp only [sort_equality_ctor (hB.pctorS _ _ _ h)] at he
+      simp only [sort_equality_ctor (hB.pctor _ _ _ h)]
       by_cases hcd : c = d
       · subst hcd
         have hfs := h.symm.trans h2
@@ -1078,7 +1091,12 @@ def Funs (O : Oracle) (Ps P : Program) (N : Names) (T0 : Ty) (S : Sig) : Prop :=
     ∃ params body body' Tu, InterpIn f (if p then [T0] else []) params body Ps ∧
       InterpIn f (if p then [T0] else []) params body' P ∧
       Encodes N S Tu (fun x => (params.zip ks).lookup x) body body' k (S.flat f) ∧
-      O.resolve_all [] [Tu] = [T0])
+      O.resolve_all [] [Tu] = [T0]) ∧
+  (∀ f tps Tf ks k, S.funsAt f tps = some (Tf, ks, k) →
+    ∃ tparams params body body', FunIn f tparams params body Ps ∧
+      FunIn f tparams params body' P ∧
+      Encodes N S Tf (fun x => (params.zip ks).lookup x) body body' k false ∧
+      ∀ tys, O.resolve_all (bind_types tparams tps tys) [Tf] = [T0])
 
 section Evaluation
 variable {O : Oracle} {Ps P : Program} {N : Names} {K : Value → Prop}
@@ -2203,7 +2221,7 @@ theorem encodes_eval (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) (hSo : S.Ok)
     simp only [eval] at hv
     split at hv
     · next vs hvs =>
-      rw [construct_ctor (hB.ctorS _ _ _ hc)] at hv
+      rw [construct_ctor (hB.pctorS _ _ _ hc)] at hv
       cases hv
       obtain ⟨t', n1, bd1, hR, e1⟩ :=
         iha env env' hT hΓ fuel hfn (.TupleV vs) (by simp only [eval, hvs])
@@ -2211,7 +2229,7 @@ theorem encodes_eval (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) (hSo : S.Ok)
       cases h1
       exact ⟨.ADTV _ (O.resolve_all (env_types env') tps') vs', n1, fun hu => by bnd hu,
           .app hc hR, fun f hf => by
-        simp only [eval, eval_tuple_inv (e1 f hf), construct_ctor (hB.ctor _ _ _ hc)]⟩
+        simp only [eval, eval_tuple_inv (e1 f hf), construct_ctor (hB.pctor _ _ _ hc)]⟩
     · cases hv
     · cases hv
   | @selApp Γ u e e' s ks sel k _ hk ihe =>
@@ -2220,16 +2238,16 @@ theorem encodes_eval (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) (hSo : S.Ok)
     obtain ⟨w', n1, bd1, hR, e1⟩ := ihe env env' hT hΓ fuel hfn w hw
     cases hR with
     | @app c _ fs _ tps tps' vs vs' hc hr =>
-    obtain ⟨hps, hsel⟩ := sel_eval (hB.ctorS _ _ _ hc) hw sel
+    obtain ⟨hps, hsel⟩ := sel_eval (hB.pctorS _ _ _ hc) hw sel
     rw [hsel] at hv
-    obtain ⟨hps', _⟩ := sel_eval (hB.ctor _ _ _ hc) (e1 n1 (Int.le_refl _)) sel
+    obtain ⟨hps', _⟩ := sel_eval (hB.pctor _ _ _ hc) (e1 n1 (Int.le_refl _)) sel
     rw [← substFields_names ks] at hps hps'
     obtain ⟨v', k2, hk2, hs', hRv⟩ := rel_select hps hps' hr hv
     rw [fieldKind_subst] at hk2
     obtain ⟨k3, hk3, rfl⟩ := Option.map_eq_some_iff.1 hk2
     cases hk c fs hc k3 hk3
     refine ⟨v', n1, fun hu => by bnd hu, hRv, fun f hf => ?_⟩
-    rw [(sel_eval (hB.ctor _ _ _ hc) (e1 f hf) sel).2]
+    rw [(sel_eval (hB.pctor _ _ _ hc) (e1 f hf) sel).2]
     exact hs'
   | isCtorApp c _ ihe =>
     intro env env' hT hΓ fuel hfn v hv
@@ -2299,6 +2317,33 @@ theorem encodes_eval (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) (hSo : S.Ok)
     · cases hv
     · cases hv
 
+  | @callAt Γ f tps Tf ks k es es' hf _ iha =>
+    intro env env' hT hΓ fuel hfn v hv
+    obtain ⟨tparams, params, body, body', hFS, hFP, hEnc, hTf⟩ := hF.2.2 _ _ _ _ _ hf
+    simp only [eval] at hv
+    split at hv
+    · next vs hvs =>
+      obtain ⟨hpos, bs, hbs, hbody⟩ := call_inv hFS hv
+      obtain ⟨t', n1, _, hR, e1⟩ :=
+        iha env env' hT hΓ fuel hfn (.TupleV vs) (by simp only [eval, hvs])
+      obtain ⟨_, vs', h1, rfl⟩ := rel_tuple_inv hR rfl
+      cases h1
+      obtain ⟨bs', hbs', hl⟩ := rel_bind hR hbs
+      cases n with
+      | zero => omega
+      | succ m =>
+      obtain ⟨v', m2, _, hRv, e2⟩ := ihn m (Nat.lt_succ_self m) hEnc
+        (Env.Env (bind_types tparams tps (env_types env)) bs)
+        (Env.Env (bind_types tparams tps (env_types env')) bs')
+        ⟨hTf _, hTf _⟩
+        (fun x k hx => hl x k hx) (fuel - 1) (by omega) v hbody
+      refine ⟨v', max (max n1 (m2 + 1)) 1,
+        fun (hu : false = true) => absurd hu Bool.false_ne_true, hRv, fun f' hf' => ?_⟩
+      simp only [eval, eval_tuple_inv (e1 f' (by omega))]
+      rw [call_fun hFP (by omega) _ _ hbs']
+      exact e2 (f' - 1) (by omega)
+    · cases hv
+    · cases hv
   | lambda Γ0 hΓ0 hp _ _ =>
     intro env env' hT hΓ fuel hfn v hv
     cases env with
@@ -2535,7 +2580,7 @@ theorem encodes_eval (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) (hSo : S.Ok)
 
   | @uninterp Γ u p f ks k es es' hf hu0 _ iha =>
     intro env env' hT hΓ fuel hfn v hv
-    obtain ⟨params, body, body', Tu, hIS, hIP, hEnc, hTu⟩ := hF.2 _ _ _ _ hf
+    obtain ⟨params, body, body', Tu, hIS, hIP, hEnc, hTu⟩ := hF.2.1 _ _ _ _ hf
     have hr : ∀ tys, O.resolve_all tys [Te] = [T0] →
         O.resolve_all tys (if p then [Te] else []) = if p then [T0] else [] := by
       intro tys h
