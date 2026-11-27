@@ -1250,21 +1250,28 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   of the `simplifications` scripts, which have operations that the reader
   doesn't read yet, such as `exists` or `str.++`, or compare functions
   extensionally. [`Joined.lean`](Inox/Joined.lean) joins
-  `no_solution_of_reached` to the input where it is lowered without
-  simplifications: [`Lowered.lean`](Inox/Lowered.lean) relates an expression of
-  the input to what Logos reads of its lowering, whose symbols have other
-  names, whose errors are assumptions that fail and whose sums and products of
-  two integers end in `+ 0` and `* 1`, and proves that where the expression
-  evaluates to a value, so does what it is lowered to (`lowers_eval`).
-  `no_input_solution` says that where `no_solution_of_reached` holds and the
-  constraints and the functions of the input are lowered to the query and the
+  `no_solution_of_reached` to the input.
+  [`Simplified.lean`](Inox/Simplified.lean) checks the steps that the
+  certificate records of the simplification of each constraint, of the rule
+  `logic` so far (three-valued propositional reasoning over the atoms of the
+  subterm that a step rewrites, under the facts of the path to it), and proves
+  that what the steps rewrite a constraint into refines it: wherever the
+  constraint has a value, what it becomes has the same (`stepsApply_refines`).
+  [`Lowered.lean`](Inox/Lowered.lean) relates an expression of the input to
+  what Logos reads of its lowering, whose symbols have other names, whose
+  errors are assumptions that fail and whose sums and products of two integers
+  end in `+ 0` and `* 1`, and proves that where the expression evaluates to a
+  value, so does what it is lowered to (`lowers_eval`). `no_input_solution`
+  says that where `no_solution_of_reached` holds and the constraints after
+  their steps and the functions of the input are lowered to the query and the
   program that Logos reads (`linkCheck`), no values of the variables of the
   input make all its constraints evaluate to `true` in its program. It covers
   first-order inputs without type parameters, over integers, booleans, reals
   and datatypes without invariants, whose constructors, testers and selectors
   have other names in the reading of Logos, with lets, which the lowering
-  inlines or drops: on the corpus, the 3 certificates of `error-is-infeasible`,
-  the first 2 of `lets-and-assumptions-around-partial-terms` and the first of
+  inlines or drops, where each step of a constraint is one of `logic`: on the
+  corpus, the 3 certificates of `error-is-infeasible`, the 1st, 2nd and 5th of
+  `lets-and-assumptions-around-partial-terms` and the first of
   `real-division-by-zero-is-infeasible`, `arithmetic-over-partial-operands` and
   `ground-terms-that-evaluate`, as `inox-solution --input` says. The encoders
   aren't in this theorem yet.

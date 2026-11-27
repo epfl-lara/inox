@@ -2,17 +2,19 @@
 import Inox.Reached
 import Inox.Input
 import Inox.Lowered
+import Inox.Simplified
 
 /-!
 # The input has no solution
 
 `no_solution_of_reached` (`Inox/Reached.lean`) is about the program and the query that Logos
 reads from the certificate. This module joins it to the input of the certificate, as
-`Inox/Input.lean` reads it, where the input is lowered to them without simplifications: its
-functions and its constraints are lowered (`Inox/Lowered.lean`) to the functions and the
-expressions of the query that Logos reads, up to the names of their symbols, which the check
-matches (`linkCheck`). Then no values of the variables of the input make all its constraints
-evaluate to `true` in its program (`no_input_solution`).
+`Inox/Input.lean` reads it, where the input is lowered to them: its functions, and its
+constraints after the steps of their simplifications (`Inox/Simplified.lean`), are lowered
+(`Inox/Lowered.lean`) to the functions and the expressions of the query that Logos reads, up to
+the names of their symbols, which the check matches (`linkCheck`). Then no values of the
+variables of the input make all its constraints evaluate to `true` in its program
+(`no_input_solution`).
 
 The input is read where it is first-order, with datatypes without type parameters nor
 invariants, and its variables are integers, booleans or reals.
@@ -21,6 +23,7 @@ invariants, and its variables are integers, booleans or reals.
 namespace Inox.Joined
 
 open Inox.Semantics Inox.Bridge Inox.Lowered Logos
+open Inox.Simplified (Step stepsApply stepsApply_refines Refines)
 open Inox.Input (sectionOf Table Ctx funsOf readExpr)
 open Inox.Encoded (FunIn IsPrim)
 
@@ -61,11 +64,69 @@ structure InputRead where
   ctors : List Constructor
   sorts : List ADTSort
   extEq : Bool
+  /-- the source expressions that the solver simplified, before it did, with the steps that
+  rewrite them -/
+  simps : List (Expr × List Step) := []
 
 /-- The program of the input. -/
 def InputRead.program (R : InputRead) : Program :=
   .Program R.funs R.ctors R.sorts []
     (if R.extEq then .ExtensionalEquality else .NoFunctionEquality)
+
+/-- What the constraint `q` is after the steps of its simplification, if they hold. -/
+def InputRead.finalOf (R : InputRead) (q : Expr) : Expr :=
+  match R.simps.find? (fun p => exprEq 1000 p.1 q) with
+  | some (_, ss) => (stepsApply ss q).getD q
+  | none => q
+
+/-- The constraints after their simplifications. -/
+def InputRead.final (R : InputRead) : List Expr := R.query.map R.finalOf
+
+theorem finalOf_refines {O : Oracle} (R : InputRead) (q : Expr) :
+    Refines O R.program [] q (R.finalOf q) := by
+  unfold InputRead.finalOf
+  split
+  · next ss _ =>
+    cases h : stepsApply ss q with
+    | none => exact Inox.Simplified.refines_refl
+    | some e => simpa [h] using stepsApply_refines ss q e h
+  · exact Inox.Simplified.refines_refl
+
+/-- The expression that a source expression of the simplifications assumes the typing of its
+free variables of, and how many of them it assumes. -/
+def untyped : Nat → Sexp → Nat × Sexp
+  | n + 1, s@(.expr [.atom "assume", .expr [.expr [.atom "as", .atom ty, _], _, _], b]) =>
+    if ty.startsWith "typing" then
+      let (k, e) := untyped n b
+      (k + 1, e)
+    else (0, s)
+  | _, e => (0, e)
+
+/-- The position of a step, as a list of numbers. -/
+def readPos : Sexp → Option (List Nat)
+  | .expr ps => ps.mapM fun | .atom a => a.toNat? | _ => none
+  | _ => none
+
+/-- The steps of a source expression that the solver simplified, with positions in it under the
+`k` assumptions of the typing of its variables, or nothing if one isn't read. -/
+def readSteps (c : Ctx) (k : Nat) (steps : List Sexp) : Option (List Step) :=
+  steps.mapM fun
+    | .expr [.atom rule, pos, sub] => do
+      let p ← readPos pos
+      if p.take k != List.replicate k 2 then none
+      let e ← (readExpr c 1000 sub).toOption
+      pure ⟨rule, p.drop k, e⟩
+    | _ => none
+
+/-- The source expressions of the simplifications without names, with their steps. -/
+def readSimps (c : Ctx) (certificate : Sexp) : List (Expr × List Step) :=
+  (sectionOf certificate "simplifications").filterMap fun
+    | .expr [.atom "expression", _, original, .expr [.atom "names"], .expr (.atom "steps" :: ss)] =>
+      let (k, body) := untyped 100 original
+      match (readExpr c 1000 body).toOption, readSteps c k ss with
+      | some e, some steps => some (e, steps)
+      | _, _ => none
+    | _ => none
 
 def orThrow {α : Type} (o : Option α) (why : String) : Except String α :=
   match o with
@@ -112,7 +173,8 @@ def readInput (certificate : Sexp) : Except String InputRead := do
       ctors := sorts.flatMap fun (s, _, cs) => cs.map fun (c, ps) => .Constructor c s ps
       sorts := sorts.map fun (s, _, _) => .Sort s [] none none
       extEq := !(sectionOf certificate "simplifications").contains
-        (.expr [.atom "function-equality", .atom "none"]) }
+        (.expr [.atom "function-equality", .atom "none"])
+      simps := readSimps c certificate }
 
 /-! ## Matching the names -/
 
@@ -187,7 +249,7 @@ structure Link where
 
 def Link.of (R : InputRead) (r : TermSteps) : Link :=
   let P := r.equations.map funOf
-  let N0 := ((R.query.zip (queryOf r.query)).map fun (q, q') => pairs 1000 q q').foldl
+  let N0 := ((R.final.zip (queryOf r.query)).map fun (q, q') => pairs 1000 q q').foldl
     Names.app {}
   let N := funPairs R P (R.funs.length + 1) N0
   let κ := N.ctors.eraseDups
@@ -277,8 +339,8 @@ def linkCheck (R : InputRead) (r : TermSteps) : Bool :=
   let Γt := varsOf (sigsOf r.equations) r.query
   let Qt := queryOf r.query
   R.vars.all (fun p => isPrimTy p.2) &&
-    Qt.length == R.query.length &&
-    (R.query.zip Qt).all (fun (q, q') => lowersCheck S 1000 Γ q q' .any) &&
+    Qt.length == R.final.length &&
+    (R.final.zip Qt).all (fun (q, q') => lowersCheck S 1000 Γ q q' .any) &&
     L.φ.all (fun (f, _) => match S.funs f with
       | some (g, ks, k) => funCheck S R.funs (r.equations.map funOf) f g ks k
       | none => true) &&
@@ -449,7 +511,10 @@ theorem no_input_solution {O : Oracle} (sound : LogosSound) (hO : O.Sound)
   refine no_solution_of_reached sound hO hty hAccept hr hcheck hsrc hreached _
     ⟨hvs', bs', hbs', fun q' hq' => ?_⟩
   obtain ⟨q, hqq⟩ := mem_zip_right hlen hq'
-  obtain ⟨n, hn⟩ := hsol q (List.of_mem_zip hqq).1
+  obtain ⟨q0, hq0, hfq⟩ := List.mem_map.mp (List.of_mem_zip hqq).1
+  obtain ⟨n, hn0⟩ := hsol q0 hq0
+  have hn := finalOf_refines (O := O) R q0 n _ _ (by simp) hn0
+  rw [hfq] at hn
   have hl := (lowers_sound _ 1000).1 _ _ _ _ (hq (q, q') hqq)
   obtain ⟨_, v', m, rv, hm⟩ := lowers_eval hO hF hC n.toNat hl _ _ hEnv n (Int.self_le_toNat n) _ hn
   rw [vr_bool rv] at hm
