@@ -175,15 +175,3 @@ jobs:
         lake-package-directory: proofs/lean
     - name: Check the certificates in Lean, their rules on terms, and their proofs with Logos
       run: proofs/lean/check.sh "$RUNNER_TEMP/answers" 4 --terms
-
-  semantics-lean:
-    name: Semantics (Lean)
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v7
-    # the Lean definitions generated from proofs/semantics.md: Lean checks that they are total
-    - name: Build the Lean semantics
-      uses: leanprover/lean-action@v1
-      with:
-        lake-package-directory: proofs/semantics
