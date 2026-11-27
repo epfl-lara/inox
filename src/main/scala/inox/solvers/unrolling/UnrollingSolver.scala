@@ -10,7 +10,7 @@ import theories._
 import evaluators._
 import combinators._
 
-import scala.collection.immutable.{ListSet, VectorMap}
+import scala.collection.immutable.{ListMap, ListSet, VectorMap}
 import scala.collection.mutable.{Map => MutableMap, Set => MutableSet, ListBuffer}
 
 object optUnrollBound       extends IntOptionDef("unroll-bound", default = -1, "<Int> | -1 (unbounded)")
@@ -280,9 +280,7 @@ abstract class AbstractUnrollingSolver private
     // Multiple calls to registerForInterrupts are (almost) idempotent and acceptable
     context.interruptManager.registerForInterrupts(this)
 
-    val freeBindings: Map[Variable, Encoded] = (typeOps.variablesOf(vd.tpe) + vd.toVariable).map {
-      v => v -> freeVars.cached(v)(declareVariable(encode(v)))
-    }.toMap
+    val freeBindings: Map[Variable, Encoded] = orderedBindings(typeOps.variablesOf(vd.tpe) + vd.toVariable)
 
     val newClauses = context.timers.solvers.declare.clauses.run {
       templates.unfolding.instantiateVariable(encode(vd.toVariable), freeBindings.map(p => encode(p._1) -> p._2))
@@ -319,6 +317,15 @@ abstract class AbstractUnrollingSolver private
     }
   }
 
+  /** The encodings of `vars`, declared in the order of their identifiers, and in that order in the
+    * map: a set of variables iterates in the order of their hashes, which depend on how many
+    * identifiers were created before, and the order of the declarations and of the clauses about
+    * them changes how much work the underlying solver does. */
+  private def orderedBindings(vars: Set[Variable]): Map[Variable, Encoded] =
+    ListMap.from(vars.toSeq.sortBy(_.id).map {
+      v => v -> freeVars.cached(v)(declareVariable(encode(v)))
+    })
+
   def assertCnstr(expression: Expr): Unit = context.timers.solvers.assert.run(try {
     context.timers.solvers.assert.sanity.run {
       symbols.ensureWellFormed // make sure that the current program is well-formed
@@ -331,9 +338,7 @@ abstract class AbstractUnrollingSolver private
 
     constraints += expression
 
-    val freeBindings: Map[Variable, Encoded] = exprOps.variablesOf(expression).map {
-      v => v -> freeVars.cached(v)(declareVariable(encode(v)))
-    }.toMap
+    val freeBindings: Map[Variable, Encoded] = orderedBindings(exprOps.variablesOf(expression))
 
     val newClauses = context.timers.solvers.assert.clauses.run {
       templates.unfolding.instantiateExpr(

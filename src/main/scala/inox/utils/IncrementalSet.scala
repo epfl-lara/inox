@@ -2,10 +2,13 @@
 
 package inox.utils
 
-import scala.collection.mutable.{Set => MSet, Builder}
+import scala.collection.mutable.{LinkedHashSet => MSet, Builder}
 import scala.collection.Iterable
 
-/** A stack of mutable sets with a set-like API and methods to push and pop */
+/** A stack of mutable sets with a set-like API and methods to push and pop
+  *
+  * The elements are iterated in the order in which they were added, which doesn't depend on their hash codes
+  * (and so on the global numbering of identifiers). */
 class IncrementalSet[A] extends IncrementalState
                         with Iterable[A]
                         with Builder[A, IncrementalSet[A]] {

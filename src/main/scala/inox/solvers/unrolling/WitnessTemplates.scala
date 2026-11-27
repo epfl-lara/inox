@@ -6,6 +6,8 @@ package unrolling
 
 import utils._
 
+import scala.collection.immutable.{ListSet, VectorMap}
+
 /** The distinguishing inputs of first-class functions: whenever two functions of the same type
   * can be distinct, a pair of fresh arguments on which they differ (see `function-witnesses.md`).
   *
@@ -67,7 +69,7 @@ trait WitnessTemplates { self: Templates =>
     * and lambdas a distinguishing input creates on the spot inherit its depth, and the others are only
     * created by later unrollings. */
   protected def witnessEqualities: Map[Encoded, Int] =
-    pendingWitnesses.toSeq.filterNot(_.onDemand).map(w => w.equality -> w.depth).toMap
+    VectorMap.from(pendingWitnesses.toSeq.filterNot(_.onDemand).map(w => w.equality -> w.depth))
 
   /** The pending distinguishing inputs that are only unfolded when model extraction needs them,
     * as the compared functions and the equality literal to instantiate them with.
@@ -142,7 +144,7 @@ trait WitnessTemplates { self: Templates =>
       * they are free) which require distinguishing inputs with other functions of the same type.
       * @see [[Templates.instantiateWitness]]
       */
-    private[WitnessTemplates] val witnessFunctions = new IncrementalMap[FunctionType, Set[(Encoded, Encoded)]].withDefaultValue(Set.empty)
+    private[WitnessTemplates] val witnessFunctions = new IncrementalMap[FunctionType, Set[(Encoded, Encoded)]].withDefaultValue(ListSet.empty)
 
     /** Witness nesting depth of the free functions that were introduced as distinguishing inputs. */
     private[WitnessTemplates] val witnessDepths = new IncrementalMap[Encoded, Int]

@@ -91,9 +91,10 @@ class CallGraphSuite extends AnyFunSuite {
     assert(Seq(main, lone).sorted == Seq(lone, main))
     val ordering = summon[Ordering[FunDef]]
     assert(ordering.compare(lone, main) < 0 && ordering.compare(main, lone) > 0)
-    // functions outside of the call graph are sorted by name
-    assert(ordering.compare(lone, lone2) == loneID.uniqueName.compare(lone2ID.uniqueName))
+    // functions outside of the call graph, and the functions of a component, are sorted by identifier
+    assert(ordering.compare(lone, lone2) < 0 && ordering.compare(lone2, lone) > 0)
     assert(ordering.compare(lone, lone) == 0)
+    assert(ordering.compare(f, g) < 0 && ordering.compare(g, f) > 0)
   }
 
   test("Dependencies of functions and sorts") {

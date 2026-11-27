@@ -6,6 +6,8 @@ package ast
 import utils.Lazy
 import utils.Graphs._
 
+import scala.collection.mutable.{ArrayBuffer, PriorityQueue}
+
 trait CallGraph {
   protected val trees: Trees
   import trees._
@@ -139,9 +141,26 @@ trait CallGraph {
 
   object CallGraphOrderings {
     given componentOrdering: Ordering[Set[FunDef]] with
-      private val components = sccs.topSort.zipWithIndex.map {
-        case (ids, i) => ids.map(symbols.getFunction(_)) -> i
-      }.toMap.withDefaultValue(-1)
+      // A topological order of the components, callers first, that doesn't depend on the hashes of
+      // identifiers: among the components whose callers all come before, the one with the smallest
+      // identifier comes first.
+      private val components = {
+        val graph = sccs
+        val key: Set[Identifier] => Identifier = _.min
+        var callers = graph.N.map(n => n -> (graph.pred(n) - n).size).toMap
+        val ready = PriorityQueue.empty[Set[Identifier]](using Ordering.by(key).reverse)
+        ready ++= graph.N.filter(callers(_) == 0)
+        val order = ArrayBuffer.empty[Set[Identifier]]
+        while (ready.nonEmpty) {
+          val n = ready.dequeue()
+          order += n
+          for (m <- graph.succ(n) if m != n) {
+            callers += m -> (callers(m) - 1)
+            if (callers(m) == 0) ready += m
+          }
+        }
+        order.zipWithIndex.map { case (ids, i) => ids.map(symbols.getFunction(_)) -> i }.toMap.withDefaultValue(-1)
+      }
 
       def compare(a: Set[FunDef], b: Set[FunDef]): Int = {
         components(a).compare(components(b))
@@ -155,10 +174,14 @@ trait CallGraph {
 
       def compare(a: FunDef, b: FunDef): Int = {
         val (c1, c2) = (functionToComponent(a), functionToComponent(b))
-        if (c1.isEmpty && c2.isEmpty) a.id.uniqueName.compare(b.id.uniqueName)
+        if (c1.isEmpty && c2.isEmpty) a.id.compare(b.id)
         else if (c1.isEmpty) -1
         else if (c2.isEmpty) +1
-        else componentOrdering.compare(c1, c2)
+        else {
+          val comp = componentOrdering.compare(c1, c2)
+          // the functions of a component, by identifier
+          if (comp != 0) comp else a.id.compare(b.id)
+        }
       }
   }
 }
