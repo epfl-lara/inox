@@ -120,8 +120,7 @@ rule of `unrolling.RuleKernel` builds. Two things are left to the reader:
   of a rule that the checker doesn't know is applied as it is given, and
   the certificate then holds over the simplified program only, which the
   checker says with the rules. This is the case of the evaluation of ground
-  terms beyond the constants of the program (`evaluate`), of the inlining
-  of the equality function of a sort (`inline-equality`), of an assumption
+  terms beyond the constants of the program (`evaluate`), of an assumption
   or a quantifier that is lifted from where the term may not evaluate it
   (`lift-assumptions`, `lift-quantifiers`). A step of a rule that the
   checker knows, and which doesn't hold, makes the certificate fail, and so
@@ -133,10 +132,12 @@ rule of `unrolling.RuleKernel` builds. Two things are left to the reader:
     given: the certificate states them, and nothing compares them with an
     input;
   - the names of the sources: the symbol of a lambda or of the instantiations
-    of a quantifier stands for the subterm that the section gives for it, as
-    the check of the sources trusts too (the checker checks that a name is
-    not a symbol of the original, and that a quantifier that the source
-    assumes is where it must hold);
+    of a quantifier stands for the subterm that the section gives for it, and
+    so does the symbol of the equality of a sort, applied to the operands of
+    an equality that the simplifiers keep, as the check of the sources trusts
+    too (the checker checks that a name is not a symbol of the original, that
+    the operands are those of the equality, and that a quantifier that the
+    source assumes is where it must hold);
   - the theory encoders (sets, bags, maps, propositions) that run before the
     simplifier, whose output is the original that the steps start from;
   - the rules themselves, which the Lean checker doesn't prove yet (it skips

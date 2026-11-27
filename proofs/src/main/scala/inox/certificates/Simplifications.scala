@@ -72,10 +72,12 @@ package certificates
   * certificate fail, and so does a step of `unrecorded`: what a simplifier did without naming it,
   * which is a simplifier to fix.
   *
-  * The source of an expression names subterms (the lambdas, and the instantiations of
-  * quantifiers): the steps end at the source where each name is its subterm. A name is a symbol
-  * that is neither of the original expression nor of the program. That it stands for its subterm
-  * is trusted, as it is by the check of the sources. The source also has `(assume q true)` for a
+  * The source of an expression names subterms (the lambdas, the instantiations of quantifiers,
+  * and the equalities of the sorts that have an equality function, which the simplifiers keep):
+  * the steps end at the source where each name is its subterm. A name is a symbol that is
+  * neither of the original expression nor of the program, which the name of an equality applies
+  * to its operands. That it stands for its subterm is trusted, as it is by the check of the
+  * sources. The source also has `(assume q true)` for a
   * quantifier `q` that must hold for the expression to, which the checker checks of where it is:
   * the expression then holds wherever the one with `q` does. */
 object Simplifications {
@@ -599,8 +601,9 @@ object Simplifications {
         val index = if (i.nonEmpty && i.forall(_.isDigit)) i.toIntOption.getOrElse(fail(s"$i is not the index of a template"))
           else fail(s"$i is not the index of a template")
         val source = expressions(index).getOrElse(fail(s"template $i has no expression to simplify into"))
-        // A name is a symbol that the solver made for a subterm (a lambda, or the instantiations
-        // of a quantifier, which the source may negate): it is not one of the original expression
+        // A name is a symbol that the solver made for a subterm (a lambda, the instantiations of a
+        // quantifier, which the source may negate, or the equality of a sort, which the source
+        // applies to the operands of the equality): it is not one of the original expression
         // nor of the program, so that replacing it only puts back what the source left out. That
         // the name stands for its subterm in the clauses is what the check of the sources trusts
         // too. The source also has `(assume q true)` for a quantifier `q` that must hold.
@@ -614,6 +617,10 @@ object Simplifications {
           case SList(List(n @ SList(List(Atom("not"), Atom(x))), t)) => symbol(x); n -> t
           case SList(List(n @ SList(List(Atom("assume"), q, Atom("true"))), t)) if q == t =>
             mustHold(source, n); n -> t
+          // the equality of a sort is an application of the symbol that the solver made for the
+          // equality of its type, to the operands as the source has them (see below)
+          case SList(List(n @ SList(List(SList(List(Atom("as"), Atom("@"), _)), Atom(x), _, _)), t @ SList(List(Atom("="), _, _)))) =>
+            symbol(x); n -> t
           case other => fail(s"$other is not a name")
         }.toMap
         if (pairs.size != names.size) fail(s"the simplification of the expression of template $i names two subterms the same")
@@ -621,6 +628,8 @@ object Simplifications {
           case SList(items) => SList(items.map(named))
           case a => a
         })
+        for (case (n @ SList(List(SList(_), _, a, b)), t @ SList(List(Atom("="), ta, tb))) <- pairs)
+          if (named(a) != ta || named(b) != tb) fail(s"$n is not the equality $t")
         replayed(s"the expression of template $i", o, named(source), steps, original)
       case other => fail(s"$other is not a simplification")
     }
