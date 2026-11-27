@@ -401,6 +401,12 @@ class SemanticsSuite extends AnyFunSuite {
       "run `sbt proofs/run` to regenerate it")
   }
 
+  test("The generated Lean semantics is up to date with proofs/semantics.md") {
+    val generated = Codegen.lean(Paths.get(Codegen.source))
+    assert(generated == Files.readString(Paths.get(Codegen.leanOutput)),
+      "run `sbt proofs/run` and commit the result")
+  }
+
   test("Integer division and remainders are euclidean, and stuck on zero") {
     given Symbols = NoSymbols
     val sp = program(Map())

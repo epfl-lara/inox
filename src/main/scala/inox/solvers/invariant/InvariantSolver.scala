@@ -682,7 +682,7 @@ abstract class AbstractInvariantSolver(override val program: Program,
     */
   private def makeHOFVariable(v: Variable): Expr = 
     require(v.tpe.isInstanceOf[FunctionType])
-    HOVarLookup.getOrElseUpdate(v, Variable.fresh("HOF", canonicalType(v.tpe)))
+    HOVarLookup.getOrElseUpdate(v, Variable.fresh("HOF", canonicalType(v.getType)))
 
   /**
     * Recall or register a lambda expression, clauses for its evaluation

@@ -72,7 +72,9 @@ trait TypeTemplates { self: Templates =>
   /** Generator for checks that must be proven rather than assumed, such as the membership of an
     * argument in the domain of a Pi type (@see [[Membership]]). */
   protected case object MembershipGenerator extends TypingGenerator(ContractUnrolling)
-  protected case class CaptureGenerator(container: Encoded, tpe: FunctionType)
+  /** The generator of the ordering of the values that the lambda `container` captures, which the
+    * sources name by `variable` (see [[CaptureTemplate]]). */
+  protected case class CaptureGenerator(container: Encoded, tpe: FunctionType, variable: Variable)
     extends TypingGenerator(CaptureUnrolling)
 
 
@@ -382,7 +384,8 @@ trait TypeTemplates { self: Templates =>
       val (p, tmplClauses) = mkTypeClauses(pathVar, tpe, v, substMap, inDomain, ground)(using generator)
       val (contents, _) = Template.contents(
         pathVar -> pathVarT, Seq(result -> resultT, v -> idT) ++ arguments,
-        tmplClauses + (pathVar -> Equals(result, p)))
+        tmplClauses + (pathVar -> Equals(result, p)),
+        source = Some((None, Equals(result, typingMarker(typingMode(generator, inDomain, ground), tpe, v)))))
 
       val res = new ConstraintTemplate(contents)
       typeCaches.constraints((tpe, generator, inDomain, ground)) = res
@@ -410,6 +413,18 @@ trait TypeTemplates { self: Templates =>
     }
   }
 
+  /** The function that orders the values of `tpe` that lambdas capture, its symbol, and its
+    * application to a value (see [[CaptureTemplate]]). */
+  private[unrolling] def orderFunction(tpe: FunctionType): (Variable, Encoded, Encoded => Encoded) = typeCaches.orders.getOrElse(tpe, {
+    val a = Variable.fresh("arg", tpe)
+    val o = Variable.fresh("order", FunctionType(Seq(tpe), IntegerType()), true)
+    val (aT, oT) = (encodeSymbol(a), encodeSymbol(o))
+    val encoded = mkEncoder(Map(a -> aT, o -> oT))(Application(o, Seq(a)))
+    val res = (o, oT, (na: Encoded) => mkSubstituter(Map(aT -> na))(encoded))
+    typeCaches.orders(tpe) = res
+    res
+  })
+
   /** Template generator for [[CaptureTemplate]] instances. */
   object CaptureTemplate {
 
@@ -422,15 +437,7 @@ trait TypeTemplates { self: Templates =>
       (nl: Encoded, nr: Encoded) => mkSubstituter(Map(lT -> nl, rT -> nr))(encoded)
     }
 
-    private def order(tpe: FunctionType): Encoded => Encoded = typeCaches.orders.getOrElse(tpe, {
-      val a = Variable.fresh("arg", tpe)
-      val o = Variable.fresh("order", FunctionType(Seq(tpe), IntegerType()), true)
-      val (aT, oT) = (encodeSymbol(a), encodeSymbol(o))
-      val encoded = mkEncoder(Map(a -> aT, o -> oT))(Application(o, Seq(a)))
-      val res = (na: Encoded) => mkSubstituter(Map(aT -> na))(encoded)
-      typeCaches.orders(tpe) = res
-      res
-    })
+    private def order(tpe: FunctionType): Encoded => Encoded = orderFunction(tpe)._3
 
     def apply(tpe: Type, containerType: FunctionType): CaptureTemplate = typeCaches.captures.getOrElse(tpe -> containerType, {
       val v = Variable.fresh("x", tpe.getType, true)
@@ -442,7 +449,7 @@ trait TypeTemplates { self: Templates =>
       val container = Variable.fresh("container", containerType, true)
       val containerT = encodeSymbol(container)
 
-      given CaptureGenerator = CaptureGenerator(containerT, containerType)
+      given generator: CaptureGenerator = CaptureGenerator(containerT, containerType, container)
       val (p, tmplClauses) = mkTypeClauses(pathVar, tpe, v, substMap)
       import tmplClauses.{condVars, exprVars, types}
       assert(tmplClauses.equalities.isEmpty && tmplClauses.lambdas.isEmpty && tmplClauses.quantifications.isEmpty,
@@ -464,14 +471,15 @@ trait TypeTemplates { self: Templates =>
         case _ => typeBlockers = typeBlockers `merge` (b -> tp)
       }
 
-      // the typings of functions are replaced by `funClauses`
+      // the typings of functions are replaced by `funClauses`, which are the assumptions of the
+      // source that the functions come before the container (see `storeType`)
+      val orders = if (!loggingRules) Map.empty else
+        (types.values.flatten.map(_.tpe) ++ Seq(containerType)).collect { case ft: FunctionType => orderFunction(ft) }.map(o => o._1 -> o._2).toMap
       val (contents, _) = Template.contents(
-        pathVar -> pathVarT, Seq(v -> idT), tmplClauses.copy(types = typeBlockers) + (pathVar -> p))
+        pathVar -> pathVarT, Seq(container -> containerT, v -> idT), tmplClauses.copy(types = typeBlockers) + (pathVar -> p),
+        substMap = orders, source = Some((None, typingSource(generator, tpe, v, false, false))))
 
-      val res = new CaptureTemplate(contents.copy(
-        arguments = (container -> containerT) +: contents.arguments,
-        clauses = contents.clauses ++ funClauses
-      ), functions)
+      val res = new CaptureTemplate(contents.copy(clauses = contents.clauses ++ funClauses), functions)
 
       typeCaches.captures(tpe -> containerType) = res
       res
@@ -511,7 +519,7 @@ trait TypeTemplates { self: Templates =>
     val constraints: MutableMap[(Type, TypingGenerator, Boolean, Boolean), ConstraintTemplate] = MutableMap.empty
     /** The template of each capture, and the order of the functions of each type (see [[CaptureTemplate]]). */
     val captures: MutableMap[(Type, FunctionType), CaptureTemplate] = MutableMap.empty
-    val orders: MutableMap[FunctionType, Encoded => Encoded] = MutableMap.empty
+    val orders: MutableMap[FunctionType, (Variable, Encoded, Encoded => Encoded)] = MutableMap.empty
     /** The flag `tp_is_empty` of each type parameter, and its encoding (see [[typesManager.storeTypeParameter]]). */
     val tpSyms: MutableMap[TypeParameter, Variable] = MutableMap.empty
     val tpSubst: MutableMap[Variable, Encoded] = MutableMap.empty

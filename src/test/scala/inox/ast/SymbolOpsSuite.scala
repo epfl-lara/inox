@@ -119,4 +119,56 @@ class SymbolOpsSuite extends AnyFunSuite with DatastructureUtils {
     assert(simplifyGround(e, reportErrors = true) == e)
     assert(simplifyGround(Plus(FunctionInvocation(fid, Seq(), Seq(IntegerLiteral(1))), x)) == Plus(IntegerLiteral(2), x))
   }
+
+  test("A quantifier isn't lifted out of the premise of an implication") {
+    val (vx, vy) = (ValDef.fresh("x", IntegerType()), ValDef.fresh("y", IntegerType()))
+    // `forall x. (forall y. y == x) ==> false` holds, and `forall x, y. y != x` doesn't
+    val premise = Forall(Seq(vy), Equals(vy.toVariable, vx.toVariable))
+    assert(simpForall(Seq(vx), Implies(premise, BooleanLiteral(false))) ==
+      Forall(Seq(vx), Not(premise)))
+    // a quantifier is lifted out of the conclusion
+    val conclusion = Forall(Seq(vy), GreaterThan(vy.toVariable, vx.toVariable))
+    simpForall(Seq(vx), Implies(b, conclusion)) match {
+      case Forall(params, Implies(`b`, _)) => assert(params.size == 2)
+      case other => fail(s"unexpected $other")
+    }
+  }
+
+  test("A quantifier over a type that may be empty isn't lifted out of a conjunction") {
+    val vx = ValDef.fresh("x", IntegerType())
+    val positive = GreaterThan(vx.toVariable, IntegerLiteral(0))
+    // when T is empty, `forall x. (forall z: T. false) && x > 0` doesn't hold, and `forall z: T. false` does
+    val vz = ValDef.fresh("z", TypeParameter.fresh("T"))
+    val empty = Forall(Seq(vz), BooleanLiteral(false))
+    assert(simpForall(Seq(vx), And(empty, positive)) == Forall(Seq(vx), And(empty, positive)))
+    // a quantifier over integers is lifted
+    val vy = ValDef.fresh("y", IntegerType())
+    simpForall(Seq(vx), And(Forall(Seq(vy), GreaterThan(vy.toVariable, vx.toVariable)), positive)) match {
+      case Forall(params, _: And) => assert(params.size == 2)
+      case other => fail(s"unexpected $other")
+    }
+  }
+
+  test("Assumptions are only lifted from where they are evaluated") {
+    import solvers.PurityOptions
+    val vx = ValDef.fresh("x", IntegerType())
+    val lambda = Lambda(Seq(vx), Assume(b, vx.toVariable))
+    // a lambda may not be applied
+    assert(liftAssumptions(lambda)(using PurityOptions.unchecked) == (Seq(), lambda))
+    assert(liftAssumptions(lambda)(using PurityOptions.assumeChecked) == (Seq(b), Lambda(Seq(vx), vx.toVariable)))
+    // nothing was checked of the body of a lambda whose parameter type may be empty
+    val vr = ValDef.fresh("r", RefinementType(vx, BooleanLiteral(false)))
+    val refined = Lambda(Seq(vr), Assume(b, vr.toVariable))
+    assert(liftAssumptions(refined)(using PurityOptions.assumeChecked) == (Seq(), refined))
+    // a quantifier evaluates its body, unless its type is empty
+    val positive = GreaterThan(vx.toVariable, IntegerLiteral(0))
+    assert(liftAssumptions(Forall(Seq(vx), Assume(b, positive)))(using PurityOptions.unchecked) == (Seq(b), Forall(Seq(vx), positive)))
+    val vz = ValDef.fresh("z", TypeParameter.fresh("T"))
+    val vacuous = Forall(Seq(vz), Assume(b, BooleanLiteral(true)))
+    assert(liftAssumptions(vacuous)(using PurityOptions.unchecked) == (Seq(), vacuous))
+    // a conditional evaluates the assumption of a branch when its condition holds
+    val c = Variable.fresh("c", BooleanType())
+    val (lifted, rest) = liftAssumptions(IfExpr(c, Assume(b, x), x))(using PurityOptions.unchecked)
+    assert(lifted == Seq(Implies(c, b)) && rest == IfExpr(c, x, x))
+  }
 }

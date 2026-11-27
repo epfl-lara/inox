@@ -19,6 +19,7 @@ class RuleCheckFailure(msg: String) extends Exception(msg)
   *    [[Rule.Instance]], these are the clauses that the generator gave for the template, once
   *    substituted, while the clauses of the items of the instantiation come from rules of their own.
   *    A template that is instantiated outside a rule fails the check right away;
+  *  - every template that is logged has a source (see [[Source]]);
   *  - each fresh symbol that a rule introduces, the literal of a [[Rule.Define]] or of a
   *    [[Rule.Hypothesis]], or the root blocker of a [[Rule.Root]], is introduced by one rule
   *    application only, as their arguments require;
@@ -112,7 +113,11 @@ trait RuleChecker { self: Templates =>
     if (tracking) instantiations match {
       case (rule, gen) :: _ =>
         gen ++= clauses
-        if (loggingRules && clauses.nonEmpty) logged(rule.productPrefix, rule.arguments, Some(contents -> subst), clauses)
+        if (loggingRules && clauses.nonEmpty) {
+          if (checkingRules && contents.source.isEmpty)
+            fail("A template has no source: " + clauses.map(asString).mkString(", "))
+          logged(rule.productPrefix, rule.arguments, Some(contents -> subst), clauses)
+        }
       case Nil =>
         if (checkingRules) fail("A template is instantiated outside of a rule: " + clauses.map(asString).mkString(", "))
     }

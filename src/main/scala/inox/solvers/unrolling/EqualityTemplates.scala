@@ -7,7 +7,7 @@ package unrolling
 import utils._
 
 import scala.collection.immutable.VectorMap
-import scala.collection.mutable.{Set => MutableSet, Map => MutableMap}
+import scala.collection.mutable.{Map => MutableMap}
 
 /** Incrementally unfolds equality relations between types for which the
   * SMT notion of equality is not relevant.
@@ -29,10 +29,8 @@ trait EqualityTemplates { self: Templates =>
     * The equality symbols are among them: the cached templates, of equalities and of functions,
     * mention the symbols of the types they compare, so a pop can't give a type a new one. */
   private object equalityCaches {
-    /** Whether the equality of each type is unrolled (see [[unrollEquality]]), and the sorts whose
-      * equality is being decided. */
+    /** Whether the equality of each type is unrolled (see [[unrollEquality]]). */
     val unroll: MutableMap[Type, Boolean] = MutableMap.empty
-    val checking: MutableSet[TypedADTSort] = MutableSet.empty
     /** The equality symbol of each type (see [[equalitySymbol]]). */
     val symbols: MutableMap[Type, (Variable, Encoded)] = MutableMap.empty
     /** The template of the equality of each type (see [[EqualityTemplate]]). */
@@ -41,28 +39,10 @@ trait EqualityTemplates { self: Templates =>
     val negations: MutableMap[Encoded, Encoded] = MutableMap.empty
   }
 
-  def unrollEquality(tpe: Type): Boolean = equalityCaches.unroll.getOrElse(tpe, {
-    val res = tpe match {
-      case adt: ADTType =>
-        val sort = adt.getSort
-        sort.hasEquality || (!equalityCaches.checking(sort) && {
-          equalityCaches.checking += sort
-          sort.constructors.exists(c => c.fields.exists(vd => unrollEquality(vd.getType)))
-        })
-
-      case BooleanType() | UnitType() | CharType() | IntegerType() |
-           RealType() | StringType() | (_: BVType) | (_: TypeParameter) => false
-
-      // Functions are compared through their identifiers, and the equality clauses between
-      // lambdas compare their closures with `registeredEquality` (see [[LambdaTemplates]]).
-      case (_: FunctionType) | (_: PiType) => false
-
-      case NAryType(tpes, _) => tpes.exists(unrollEquality)
-    }
-
-    equalityCaches.unroll(tpe) = res
-    res
-  })
+  /** Whether the equality of `tpe` is unrolled (see [[ast.TypeOps.unrollEquality]]). The equality
+    * clauses between lambdas compare their closures with `registeredEquality` (see [[LambdaTemplates]]). */
+  def unrollEquality(tpe: Type): Boolean =
+    equalityCaches.unroll.getOrElseUpdate(tpe, symbols.unrollEquality(tpe))
 
   private lazy val hasCustomEqualities: Boolean = sorts.values.exists(_.flags.exists {
     case HasADTEquality(_) => true
@@ -113,7 +93,7 @@ trait EqualityTemplates { self: Templates =>
       val pathVar = Variable.fresh("b", BooleanType(), true)
       val pathVarT = encodeSymbol(pathVar)
 
-      val tmplClauses = mkClauses0(pathVar, Equals(Application(f, args), tpe match {
+      val body: Expr = tpe match {
         case adt: ADTType =>
           val sort = adt.getSort
 
@@ -134,11 +114,14 @@ trait EqualityTemplates { self: Templates =>
           throw new Unsupported(s"Equality on ${tpe.asString} relies on a custom equality inside a set, bag or map")
 
         case _ => throw new InternalSolverError(s"Why does $tpe require equality unrolling!?")
-      }), (args zip argsT).toMap + (f -> fT) + (pathVar -> pathVarT))
+      }
+      val bindings = (args zip argsT).toMap + (f -> fT) + (pathVar -> pathVarT)
+      val tmplClauses = mkClauses0(pathVar, Equals(Application(f, args), body), bindings)
 
       val (contents, _) = Template.contents(
         pathVar -> pathVarT, args zip argsT, tmplClauses,
-        substMap = Map(f -> fT), optApp = Some(fT -> FunctionType(Seq(tpe, tpe), BooleanType()))
+        substMap = Map(f -> fT), optApp = Some(fT -> FunctionType(Seq(tpe, tpe), BooleanType())),
+        source = Some((Some(Application(f, args)), body))
       )
 
       val res = new EqualityTemplate(tpe, contents)
@@ -148,14 +131,18 @@ trait EqualityTemplates { self: Templates =>
   }
 
   def instantiateEquality(blocker: Encoded, equality: Equality): Clauses = {
-    val Equality(tpe, e1, e2) = equality
+    val Equality(tpe, e1, e2, defined) = equality
     val clauses = new scala.collection.mutable.ListBuffer[Encoded]
 
     def instantiated: Set[(Encoded, Encoded, Encoded)] = state.get.instantiated.getOrElse(tpe, Set.empty)
     def addInstantiated(is: (Encoded, Encoded, Encoded)*): Unit =
       state.update(s => s.copy(instantiated = s.instantiated.updated(tpe, s.instantiated.getOrElse(tpe, Set.empty) ++ is)))
 
-    if (!instantiated((blocker, e1, e2))) {
+    // An equality that holds under `blocker` has its rules, but it is only unfolded if it isn't
+    // `defined`: the same equality that must be unfolded doesn't stop there.
+    def unfolded: Boolean = defined || state.get.eqBlockers.contains(equality)
+
+    if (!instantiated((blocker, e1, e2)) || !unfolded) {
       val eqBlocker = state.get.eqBlockers.get(equality) match {
         case Some(eqBlocker) =>
           eqBlocker
@@ -164,7 +151,8 @@ trait EqualityTemplates { self: Templates =>
           val eqBlocker = encodeSymbol(Variable.fresh("q", BooleanType(), true))
           state.update(s => s.copy(eqBlockers = s.eqBlockers.updated(equality, eqBlocker)))
 
-          clauses ++= Rule.Unfold(EqualityTemplate(tpe), eqBlocker, Seq(Left(e1), Left(e2)), None).clauses
+          // an equality that its template defines only needs the rules of its symbol
+          if (!defined) clauses ++= Rule.Unfold(EqualityTemplate(tpe), eqBlocker, Seq(Left(e1), Left(e2)), None).clauses
 
           // the equalities instantiated so far that chain with this one
           for ((tb, te1, te2) <- instantiated; cond = mkAnd(eqBlocker, tb)) {
@@ -184,8 +172,8 @@ trait EqualityTemplates { self: Templates =>
 
           clauses ++= Rule.Reflexivity(tpe, e1, e2, None).clauses
 
-          // the equality can now hold of distinct terms, which the calls on them wait for
-          clauses ++= comparedClauses(Seq(e1, e2))
+          // the equality can now hold of distinct terms, which the congruences of calls wait for
+          constrainEquality(tpe)
           eqBlocker
       }
 

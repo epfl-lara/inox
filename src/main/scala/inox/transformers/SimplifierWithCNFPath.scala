@@ -96,6 +96,7 @@ trait SimplifierWithCNFPath extends SimplifierWithPC { self =>
       res
     })
 
+    // a simplification under these paths is not recorded
     private def simplify(e: Expr): Expr = self.simplify(e, this)._1
 
     private def simplifyClauses(e: Expr): Expr = andJoin(getClauses(e).toSeq.sortBy(_.hashCode))

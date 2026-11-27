@@ -25,7 +25,8 @@ import re
 import sys
 import zlib
 
-from test_timings import MAX_LISTED, MIN_FACTOR, MIN_SECONDS, factor, interval, seconds, show
+from test_timings import (MAJOR_FACTOR, MAJOR_NEW_SECONDS, MAJOR_SECONDS, MAX_LISTED, MIN_FACTOR,
+                          MIN_SECONDS, MIN_SECONDS_SINGLE, factor, interval, seconds, show)
 
 MARKER = "<!-- inox-coverage -->"
 MARKDOWN = ["stainless-skip", "coverage"]
@@ -76,11 +77,15 @@ def timings_table(sections, with_details=True):
     the jobs of a group (the word their labels start with, such as Inox) run
     the same tests on different runners, and noise rarely makes the same test
     slower, or faster, in two of them. A group with a single job needs enough
-    history for its tests' noise to be estimated well."""
+    history for its tests' noise to be estimated well. Major slowdowns are
+    too large for noise, and are shown first, in every job that has them."""
     parts = [sections[s] for s in TIMINGS if s in sections]
     if not parts:
         return ""
     jobs = [j for p in parts for j in p.get("jobs", [])]
+    if not jobs:
+        # No job has timings to compare yet: an empty table would only be a header.
+        return ""
     notes = []
     for p in parts:
         for n in p.get("notes", []):
@@ -102,32 +107,62 @@ def timings_table(sections, with_details=True):
             for t in j.get("tests", []):
                 seen.setdefault((t["key"], 1 if t["rel"] > 0 else -1), []).append((j, t))
         for (key, sign), occ in seen.items():
-            if len(gj) >= 2 and len(occ) >= 2 or len(gj) == 1 and gj[0].get("history", 0) >= MIN_HISTORY:
+            single = (len(gj) == 1 and gj[0].get("history", 0) >= MIN_HISTORY
+                      and abs(occ[0][1]["head"] - occ[0][1]["base"]) >= MIN_SECONDS_SINGLE)
+            if len(gj) >= 2 and len(occ) >= 2 or single:
                 listed[sign].append(occ)
             else:
                 unconfirmed += 1
+    def gained(t):
+        return t["head"] - t["base"]
+
     for sign in listed:
-        listed[sign].sort(key=lambda occ: -max(t["rel"] * sign for _, t in occ))
+        listed[sign].sort(key=lambda occ: -max(gained(t) * sign for _, t in occ))
+    # Major slowdowns, per test: [(job, test)].
+    major = {}
+    for j in jobs:
+        for t in j.get("major", []):
+            major.setdefault(t["key"], []).append((j, t))
+    major = sorted(major.values(), key=lambda occ: -max(t["head"] - (t["base"] or 0) for _, t in occ))
     counts = {}
     for sign in listed:
         for occ in listed[sign]:
             for j, _ in occ:
                 counts.setdefault(id(j), {1: 0, -1: 0})[sign] += 1
 
-    out = ["### Test durations", "", "| Job | Total time | Tests |", "|---|---:|---|"]
+    out = ["### Test durations", ""]
+    if major:
+        out += [f"**Much slower** (by {MAJOR_FACTOR:g}× and {MAJOR_SECONDS:g} s or more, "
+                f"or new and over {MAJOR_NEW_SECONDS:g} s):", ""]
+        for occ in major[:MAX_LISTED]:
+            j, t = max(occ, key=lambda jt: jt[1]["head"])
+            others = [short(o) for o, _ in occ if o is not j]
+            change = (f"{seconds(t['base'])} → {seconds(t['head'])}, {factor(t['rel'])}"
+                      if t.get("base") is not None else f"new, {seconds(t['head'])}")
+            out.append(f"- {show(t['key'])}: {change} on {short(j)}"
+                       + (f"; also on {', '.join(others)}" if others else ""))
+        if len(major) > MAX_LISTED:
+            out.append(f"- and {len(major) - MAX_LISTED} more")
+        out.append("")
+    out += ["| Job | Total time | Tests |", "|---|---:|---|"]
     for j in jobs:
         if not j.get("enough"):
             out.append(f"| {j['label']} | too few tests | |")
             continue
         if j.get("ci"):
             lo, hi = j["ci"]
-            total = f"{factor(j['total'])} ({interval(lo, hi)})"
+            # A total whose interval holds no change is the same as main's.
             if lo > 0 or hi < 0:
-                total = f"<b>{total}</b>"
+                what = "slower" if lo > 0 else "faster"
+                total = f"<b>{factor(j['total'])} {what}</b> ({interval(lo, hi)})"
+            else:
+                total = "within noise"
         else:
             total = "–"
         c = counts.get(id(j), {1: 0, -1: 0})
         tests = ", ".join(f"{c[sign]} {what}" for sign, what in ((1, "slower"), (-1, "faster")) if c[sign])
+        if j.get("major"):
+            tests = ", ".join(x for x in (f"<b>{len(j['major'])} much slower</b>", tests) if x)
         out.append(f"| {j['label']} | {total} | {tests or '–'} |")
     out.append("")
 
@@ -149,13 +184,17 @@ def timings_table(sections, with_details=True):
     explain = (f"Changes are relative to each job's median test, which absorbs the runners' speed. "
                f"A test is listed when its change is significant (Bonferroni) and at least "
                f"{MIN_FACTOR:g}× and {MIN_SECONDS:g} s in two jobs, or, for a single job, once "
-               f"{MIN_HISTORY} earlier builds of `main` give each test's own noise.")
+               f"{MIN_HISTORY} earlier builds of `main` give each test's own noise and the change "
+               f"is of {MIN_SECONDS_SINGLE:g} s or more.")
     if unconfirmed:
         explain += f" {unconfirmed} change{'s' if unconfirmed > 1 else ''} seen in a single job only {'were' if unconfirmed > 1 else 'was'} left out."
     if n and with_details:
         out += [f"<details><summary>Tests that changed ({n})</summary>", "", *lines, explain, "", "</details>", ""]
     elif n:
         out += [f"_{n} tests changed: too many to list here._", ""]
+    if any(j.get("ci") and j["ci"][0] <= 0 <= j["ci"][1] for j in jobs):
+        notes.insert(0, "Within noise: the total differs from `main`'s by no more than earlier "
+                        "builds of `main` differ from each other.")
     if any(j.get("enough") and not j.get("ci") for j in jobs):
         notes.insert(0, "A total is shown once 2 earlier builds of `main` give its interval.")
     if notes:

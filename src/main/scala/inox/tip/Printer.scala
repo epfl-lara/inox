@@ -11,7 +11,7 @@ import smtlib.extensions.tip.Terms.{Application => SMTApplication, Lambda => SMT
 import smtlib.extensions.tip.Commands._
 import smtlib.Interpreter
 
-import Terms.{Assume => SMTAssume}
+import Terms.{Assume => SMTAssume, Error => SMTError}
 import Commands._
 
 import java.io.Writer
@@ -268,6 +268,9 @@ class Printer private(override val program: InoxProgram,
     }
   }
 
+  /** The body that the definition of `fd` prints. */
+  protected def definitionBody(fd: FunDef): Expr = fd.fullBody
+
   override protected def declareFunction(tfd: TypedFunDef): SSymbol = {
     val fd = tfd.fd
 
@@ -280,7 +283,7 @@ class Printer private(override val program: InoxProgram,
         if (scc.size <= 1) {
           val sym = id2sym(fd.id)
           val (params, returnSort, bindings) = signature(fd)
-          val body = toSMT(fd.fullBody)(using bindings)
+          val body = toSMT(definitionBody(fd))(using bindings)
 
           val tps = fd.tparams.map(tpd => declareSort(tpd.tp).id.symbol)
 
@@ -307,7 +310,7 @@ class Printer private(override val program: InoxProgram,
               Left(FunDecPar(tps, sym, params, returnSort))
             }
 
-            (dec, toSMT(fd.fullBody)(using bindings))
+            (dec, toSMT(definitionBody(fd))(using bindings))
           }).unzip
 
           emit(if (decs.exists(_.isLeft)) {
@@ -359,6 +362,8 @@ class Printer private(override val program: InoxProgram,
     case Application(caller, args) => SMTApplication(toSMT(caller), args.map(toSMT))
 
     case Assume(pred, body) => SMTAssume(toSMT(pred), toSMT(body))
+
+    case Error(tpe, message) => SMTError(declareSort(tpe), message)
 
     case FiniteBag(elems, base) =>
       elems.foldLeft(Bags.EmptyBag(declareSort(base))) { case (b, (k, v)) =>

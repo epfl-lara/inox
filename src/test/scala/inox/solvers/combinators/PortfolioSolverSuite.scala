@@ -129,7 +129,14 @@ class PortfolioSolverSuite extends AnyFunSuite {
 
   test("Without proofs, the first unsat answer wins") {
     val (fast, ff) = scripted("fast", Unsat)
-    val (_, sf) = scripted("slow", { Thread.sleep(200); Unsat })
+    // The slow solver answers once the portfolio interrupts it, so after the fast one whenever the
+    // checks start: a sleep let it answer first when the fast check started late on a busy machine.
+    val released = new java.util.concurrent.CountDownLatch(1)
+    class Slow extends ScriptedSolver(program, ctx, "slow", { released.await(10, java.util.concurrent.TimeUnit.SECONDS); Unsat }) {
+      override def interrupt() = { super.interrupt(); released.countDown() }
+    }
+    val slow = new Slow with TimeoutSolver
+    val sf = SolverFactory.create[Slow & TimeoutSolver](program)("slow", () => slow)
     val s = PortfolioSolverFactory(program)(Seq(ff, sf)).getNewSolver()
     assert(s.check(Simple) == Unsat)
     assert(s.getResultSolver == Some(fast))

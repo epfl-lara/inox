@@ -33,7 +33,11 @@ comparison accounts for both:
   them bounds its noise from below, for tests that vary more than others.
   Tests are only listed when the change is significant after a Bonferroni
   correction for the number of tests compared, and changes the duration by
-  at least 50% and 1 s.
+  at least 50% and 1 s. The comment needs more for a job that no other job
+  confirms (see scripts/pr_comment.py).
+- A test that becomes slower by at least 5× and 30 s, or a new test of more
+  than 2 minutes, is a major slowdown: no runner noise accounts for it, so it
+  is reported on its own, ahead of the other changes, without the statistics.
 """
 
 import json
@@ -55,6 +59,15 @@ BUCKETS = [0.2, 1, 5, 30]
 # Listed tests change by at least this factor, and this many seconds.
 MIN_FACTOR = 1.5
 MIN_SECONDS = 1.0
+# A change that only one job sees needs this many seconds: tests of a few
+# seconds often move by that much between runners, in a single job.
+MIN_SECONDS_SINGLE = 5.0
+# Major slowdowns: tests that become slower by at least this factor and this
+# many seconds (relative to the build's overall speed), and new tests that
+# take at least this long.
+MAJOR_FACTOR = 5.0
+MAJOR_SECONDS = 30.0
+MAJOR_NEW_SECONDS = 120.0
 MAX_LISTED = 15
 # The changed tests of each job kept in the comment's data.
 MAX_STORED = 40
@@ -183,6 +196,7 @@ class Comparison:
         self.head, self.base = head, base
         common = sorted(head.keys() & base.keys())
         self.common = common
+        self.major = []
         self.enough = len(common) >= 10
         if not self.enough:
             return
@@ -243,8 +257,21 @@ class Comparison:
             return (r / s > z_crit and r > math.log(MIN_FACTOR)
                     and abs(head[k] - base[k]) >= MIN_SECONDS)
 
-        self.listed = {sign: sorted((k for k in measured if significant(k, sign)),
-                                    key=lambda k: -rel[k] * sign)
+        # The time a test gains or loses, at the head build's speed.
+        def gained(k):
+            return head[k] - base[k] * math.exp(speed)
+
+        def major(k):
+            return rel[k] > math.log(MAJOR_FACTOR) and gained(k) >= MAJOR_SECONDS
+
+        self.major = sorted((k for k in measured if major(k)), key=lambda k: -gained(k))
+        self.major += sorted((k for k in head.keys() - base.keys() if head[k] >= MAJOR_NEW_SECONDS),
+                             key=lambda k: -head[k])
+        # Major slowdowns are reported apart, and the others by the time they
+        # gain or lose: a test that is 3 minutes slower matters more than one
+        # that is 10 times slower by a few seconds.
+        self.listed = {sign: sorted((k for k in measured if significant(k, sign) and k not in self.major),
+                                    key=lambda k: -gained(k) * sign)
                        for sign in (1, -1)}
 
     def data(self):
@@ -257,6 +284,9 @@ class Comparison:
         if not self.per_test:
             return job
         job.update(history=self.history, speed=self.speed)
+        job["major"] = [{"key": k, "base": self.base.get(k), "head": self.head[k],
+                         "rel": round(self.rel[k], 4) if k in self.rel else None}
+                        for k in self.major[:MAX_STORED]]
         z95 = NORMAL.inv_cdf(0.975)
         for sign in (1, -1):
             for k in self.listed[sign][:MAX_STORED]:

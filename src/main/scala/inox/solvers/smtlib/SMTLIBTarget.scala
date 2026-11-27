@@ -124,7 +124,11 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
   protected val adtManager = new ADTManager
 
   // The symbols are numbered by the target rather than with the identifiers' global ids
-  private val symbolNames = new SymbolNames
+  private val ownSymbolNames = new SymbolNames
+
+  /** The names of the symbols of identifiers, which a target may share with another so that a
+    * name stands for the same identifier in both. */
+  protected def symbolNames: SymbolNames = ownSymbolNames
 
   /** The part of the symbols of `id` before their number */
   protected def symbolBase(id: Identifier): String =
@@ -194,8 +198,8 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
     case mt @ MapType(from, to) =>
       Sort(SMTIdentifier(SSymbol("Array")), Seq(declareSort(from), declareSort(to)))
 
-    case FunctionType(from, to) =>
-      Ints.IntSort()
+    case FunctionType(_, _) =>
+      declareSort(closureType)
 
     case tpe @ (_: ADTType | _: TupleType | _: TypeParameter | UnitType()) =>
       declareStructuralSort(tpe)
@@ -265,6 +269,17 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
         declareSort(tfd.getType)))
       s
     }
+  }
+
+  /** The type whose values stand for the values of functions. A function value is an opaque number,
+    * which the `dynLambda` of its type takes as first argument to dispatch on. */
+  protected def closureType: Type = IntegerType()
+
+  /** The number of a function value, given as a term of sort `closureType`: a value in a model, or
+    * a literal that the body of a `dynLambda` compares its first argument with. */
+  protected def closureNumber(t: Term): Option[BigInt] = t match {
+    case Num(n) => Some(n)
+    case _ => None
   }
 
   protected def declareLambda(tpe: FunctionType): SSymbol = {
@@ -708,6 +723,12 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
     }
   }
 
+  // The number of a literal that the body of a `dynLambda` compares its first argument with
+  private def dispatchedNumber(e: Expr): Option[BigInt] = e match {
+    case _: Literal[?] | UMinus(_: Literal[?]) => closureNumber(toSMT(e)(using Map()))
+    case _ => None
+  }
+
   private def fromModelFunction(s: SSymbol, args: Seq[Term], otpe: Option[Type])(using context: Context): Expr = {
     val tfd = functions.toA(s)
     val DefineFun(SMTFunDef(_, params, _, body)) = context.functions(s)
@@ -760,48 +781,49 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
           throw new Unsupported(s"Can't decode string \"$v\" with characters outside of the alphabet (see --strings-bmp)")
         StringLiteral(cps)
 
-      case (Num(n), Some(ft: FunctionType)) if context.seen(n -> ft) =>
+      case (t, Some(ft: FunctionType)) if closureNumber(t).exists(n => context.seen(n -> ft)) =>
+        val n = closureNumber(t).get
         context.interpretations.getOrElse(n -> ft, {
           val res = UninterpretedCall(FreshIdentifier("x", true), Seq.empty, Seq.empty, FunctionType(Seq.empty, ft))
           context.interpretations(n -> ft) = res
           res
         })
 
-      case (Num(n), Some(ft: FunctionType)) => context.lambdas.getOrElse(n -> ft, {
-        val lambda = (lambdas.getB(ft)
-          .flatMap { dynLambda =>
-            context.withSeen(n -> ft).getFunction(dynLambda, FunctionType(IntegerType() +: ft.from, ft.to))
-          }.map {
-            case Lambda(dispatcher +: args, body) =>
-              val dv = dispatcher.toVariable
+      case (t, Some(ft: FunctionType)) if closureNumber(t).isDefined =>
+        val n = closureNumber(t).get
+        context.lambdas.getOrElse(n -> ft, {
+          val lambda = (lambdas.getB(ft)
+            .flatMap { dynLambda =>
+              context.withSeen(n -> ft).getFunction(dynLambda, FunctionType(closureType +: ft.from, ft.to))
+            }.map {
+              case Lambda(dispatcher +: args, body) =>
+                val dv = dispatcher.toVariable
 
-              val dispatchedBody = exprOps.postMap {
-                case Equals(`dv`, IntegerLiteral(i)) => Some(BooleanLiteral(n == i))
-                case Equals(IntegerLiteral(i), `dv`) => Some(BooleanLiteral(n == i))
-                case Equals(`dv`, UMinus(IntegerLiteral(i))) => Some(BooleanLiteral(n == -i))
-                case Equals(UMinus(IntegerLiteral(i)), `dv`) => Some(BooleanLiteral(n == -i))
-                case _ => None
-              } (body)
+                val dispatchedBody = exprOps.postMap {
+                  case Equals(`dv`, e) if dispatchedNumber(e).isDefined => Some(BooleanLiteral(dispatchedNumber(e).contains(n)))
+                  case Equals(e, `dv`) if dispatchedNumber(e).isDefined => Some(BooleanLiteral(dispatchedNumber(e).contains(n)))
+                  case _ => None
+                } (body)
 
-              val simpBody = simplifyByConstructors(dispatchedBody)
-              assert(!(exprOps.variablesOf(simpBody) contains dispatcher.toVariable), "Dispatcher still in lambda body")
-              Lambda(args, simpBody)
-            case l@Lambda(_, _) =>
-              unsupported(l, "woot? lambda without dispatcher")
-          }.getOrElse(try {
-            simplestValue(ft, allowSolver = false).asInstanceOf[Lambda]
-          } catch {
-            case _: NoSimpleValue =>
-              val args = ft.from.map(tpe => ValDef.fresh("x", tpe, true))
-              Lambda(args, exprOps.freshUninterpretedCall("default", args, ft.to))
-          }))
+                val simpBody = simplifyByConstructors(dispatchedBody)
+                assert(!(exprOps.variablesOf(simpBody) contains dispatcher.toVariable), "Dispatcher still in lambda body")
+                Lambda(args, simpBody)
+              case l@Lambda(_, _) =>
+                unsupported(l, "woot? lambda without dispatcher")
+            }.getOrElse(try {
+              simplestValue(ft, allowSolver = false).asInstanceOf[Lambda]
+            } catch {
+              case _: NoSimpleValue =>
+                val args = ft.from.map(tpe => ValDef.fresh("x", tpe, true))
+                Lambda(args, exprOps.freshUninterpretedCall("default", args, ft.to))
+            }))
 
-        val id = closureIds.getOrElseUpdate(n -> ft, FreshIdentifier("f", true))
-        val res = uniquateClosure(id, lambda)
-        context.closures(id) = lambda
-        context.lambdas(n -> ft) = res
-        res
-      })
+          val id = closureIds.getOrElseUpdate(n -> ft, FreshIdentifier("f", true))
+          val res = uniquateClosure(id, lambda)
+          context.closures(id) = lambda
+          context.lambdas(n -> ft) = res
+          res
+        })
 
       case (SimpleSymbol(s), _) if constructors.containsB(s) =>
         constructors.toA(s) match {

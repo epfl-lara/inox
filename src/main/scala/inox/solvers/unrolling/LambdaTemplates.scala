@@ -67,16 +67,18 @@ trait LambdaTemplates { self: Templates =>
       val tpe = lambda.getType.asInstanceOf[FunctionType]
       val lid = Variable.fresh("lambda", tpe, true)
       val app = Application(lid, idArgs)
+      val body = application(realLambda, idArgs)
 
       val clauseSubst: Map[Variable, Encoded] = depSubst ++ (idArgs zip trArgs)
       val tmplClauses = {
-        val (p, cls) = mkExprClauses(pathVar._1, application(realLambda, idArgs), clauseSubst)
+        val (p, cls) = mkExprClauses(pathVar._1, body, clauseSubst)
         cls + (pathVar._1 -> Equals(app, p))
       }
 
       val lidT = encodeSymbol(lid)
       val (contents, str) = Template.contents(pathVar, idArgs zip trArgs, tmplClauses,
-        substMap = depSubst + (lid -> lidT), optApp = Some(lidT -> tpe), partial = true)
+        substMap = depSubst + (lid -> lidT), optApp = Some(lidT -> tpe), partial = true,
+        source = Some((Some(app), body)))
 
       val lambdaString : () => String = () => {
         "Template for lambda " + lid + ": " + lambda + " is :\n" + str()

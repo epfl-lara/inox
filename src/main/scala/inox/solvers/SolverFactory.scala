@@ -362,6 +362,7 @@ object SolverFactory {
           class Underlying(override val program: targetProgram.type)
             extends smtlib.SMTLIBSolver(program, ctx)
               with smtlib.CVC5Solver
+              with smtlib.CVC5Certificates
 
           protected val underlying = nonIncrementalWrap(ctx, nonIncremental)(targetProgram)(finalName, targetSemantics, () => new Underlying(targetProgram))
 

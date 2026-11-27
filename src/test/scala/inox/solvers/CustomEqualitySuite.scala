@@ -5,13 +5,15 @@ package solvers
 
 import Feature._
 
-/** Equalities on types whose encoding has a custom equality (`HasADTEquality`): bags on the
-  * solvers that use the `BagEncoder`, and reals and sets on Princess.
+/** Equalities on sorts with a custom equality (`HasADTEquality`): the sorts of a program, and
+  * those of the encodings of bags on the solvers that use the `BagEncoder`, and of reals and sets
+  * on Princess.
   *
-  * Structurally different encodings of the same value (e.g. `a ∪ b` and `b ∪ a`) must be equal
-  * wherever they appear: nested within tuples and ADTs, as arguments of functions, within
-  * closures, and so on. Models are checked by evaluation, so a spurious counterexample fails
-  * the test instead of returning `Unknown`.
+  * Structurally different values that the equality relates (e.g. the encodings of `a ∪ b` and
+  * `b ∪ a`) must be equal wherever they appear: nested within tuples and ADTs, including sorts that
+  * recurse through other sorts, as arguments of functions, within closures, and so on. Models are
+  * checked by evaluation, so a spurious counterexample fails the test instead of returning
+  * `Unknown`, and the evaluator must agree with the solvers.
   */
 class CustomEqualitySuite extends SolverTestSuite {
   import inox.trees.{given, _}
@@ -73,6 +75,44 @@ class CustomEqualitySuite extends SolverTestSuite {
     })
   }
 
+  /** The elements of `l`. */
+  val contentID = FreshIdentifier("content")
+  val contentFd = mkFunDef(contentID)() { _ => (
+    Seq("l" :: T(listID)(IntegerType())), BagType(IntegerType()), {
+      case Seq(l) =>
+        if_ (l `is` consID) {
+          BagAdd(E(contentID)(l.getField(tailID)), l.getField(headID))
+        } else_ {
+          FiniteBag(Seq(), IntegerType())
+        }
+    })
+  }
+
+  /** The two lists that `split` makes of `l`, which have the elements of `l` together. */
+  def halves(l: Expr): Expr = {
+    val LT = T(listID)(IntegerType())
+    val t = Variable.fresh("t", TupleType(Seq(LT, LT)))
+    if_ ((l `is` consID) && (l.getField(tailID) `is` consID)) {
+      Let(t.toVal, E(splitID)(l.getField(tailID).getField(tailID)), Tuple(Seq(
+        ADT(consID, Seq(IntegerType()), Seq(l.getField(headID), TupleSelect(t, 1))),
+        ADT(consID, Seq(IntegerType()), Seq(l.getField(tailID).getField(headID), TupleSelect(t, 2))))))
+    } else_ {
+      Tuple(Seq(l, ADT(nilID, Seq(IntegerType()), Seq())))
+    }
+  }
+  def sameContent(l: Expr, res: Expr): Expr =
+    Equals(E(contentID)(l), BagUnion(E(contentID)(TupleSelect(res, 1)), E(contentID)(TupleSelect(res, 2))))
+
+  /** `l` split into two lists, where its recursive calls are assumed to preserve the elements. */
+  lazy val splitID = FreshIdentifier("split")
+  lazy val splitFd = mkFunDef(splitID)() { _ => (
+    Seq("l" :: T(listID)(IntegerType())), TupleType(Seq(T(listID)(IntegerType()), T(listID)(IntegerType()))), {
+      case Seq(l) =>
+        val res = Variable.fresh("res", TupleType(Seq(T(listID)(IntegerType()), T(listID)(IntegerType()))))
+        Let(res.toVal, halves(l), Assume(sameContent(l, res), res))
+    })
+  }
+
   /** The multiplicity of 1 in `x`, behind `n` recursive calls. No number of unfoldings relates the
     * calls on two bags when `n` is free. */
   val deepID = FreshIdentifier("deep")
@@ -115,9 +155,105 @@ class CustomEqualitySuite extends SolverTestSuite {
     })
   }
 
+  // Key(n, tag): keys are equal when their `n` are, whatever their `tag`
+  val keyID = FreshIdentifier("Key")
+  val keyCons = FreshIdentifier("Key")
+  val keyNID = FreshIdentifier("n")
+  val keyTagID = FreshIdentifier("tag")
+  val keyEqID = FreshIdentifier("keyEq")
+  val keySort = mkSort(keyID, HasADTEquality(keyEqID))() { _ =>
+    Seq((keyCons, Seq(ValDef(keyNID, IntegerType()), ValDef(keyTagID, IntegerType()))))
+  }
+  val keyEqFd = mkFunDef(keyEqID)() { _ => (
+    Seq("x" :: T(keyID)(), "y" :: T(keyID)()), BooleanType(), {
+      case Seq(x, y) => Equals(x.getField(keyNID), y.getField(keyNID))
+    })
+  }
+
+  // Tagged(elems, tag): equal when they have the same elements, whatever their `tag`, which the
+  // equality function says with a quantifier
+  val taggedID = FreshIdentifier("Tagged")
+  val taggedCons = FreshIdentifier("Tagged")
+  val elemsID = FreshIdentifier("elems")
+  val tagID = FreshIdentifier("tag")
+  val taggedEqID = FreshIdentifier("taggedEq")
+  val taggedSort = mkSort(taggedID, HasADTEquality(taggedEqID))() { _ =>
+    Seq((taggedCons, Seq(ValDef(elemsID, SetType(IntegerType())), ValDef(tagID, IntegerType()))))
+  }
+  val taggedEqFd = mkFunDef(taggedEqID)() { _ => (
+    Seq("x" :: T(taggedID)(), "y" :: T(taggedID)()), BooleanType(), {
+      case Seq(x, y) => forall("k" :: IntegerType())(k =>
+        ElementOfSet(k, x.getField(elemsID)) === ElementOfSet(k, y.getField(elemsID)))
+    })
+  }
+
+  /** Whether 1 is an element of `x`, behind `n` recursive calls. */
+  val deepTaggedID = FreshIdentifier("deepTagged")
+  val deepTaggedFd = mkFunDef(deepTaggedID)() { _ => (
+    Seq("x" :: T(taggedID)(), "n" :: IntegerType()), BooleanType(), {
+      case Seq(x, n) =>
+        if_ (n <= E(BigInt(0))) { ElementOfSet(E(BigInt(1)), x.getField(elemsID)) } else_ { E(deepTaggedID)(x, n - E(BigInt(1))) }
+    })
+  }
+
+  /** Whether `x` and `y` are equal, where the equality is in the body of a function. */
+  val sameTaggedID = FreshIdentifier("sameTagged")
+  val sameTaggedFd = mkFunDef(sameTaggedID)() { _ => (
+    Seq("x" :: T(taggedID)(), "y" :: T(taggedID)()), BooleanType(), {
+      case Seq(x, y) => Equals(x, y)
+    })
+  }
+
+  val wrapID = FreshIdentifier("Wrap")
+  val wrapCons = FreshIdentifier("Wrap")
+  val wrapSort = mkSort(wrapID)() { _ => Seq((wrapCons, Seq(ValDef(FreshIdentifier("key"), T(keyID)())))) }
+
+  // Tree = Node(kids: List[Tree]) | Leaf(key: Key), which recurses through `List`
+  val treeID = FreshIdentifier("Tree")
+  val nodeID = FreshIdentifier("Node")
+  val leafID = FreshIdentifier("Leaf")
+  val treeSort = mkSort(treeID)() { _ => Seq(
+    (nodeID, Seq(ValDef(FreshIdentifier("kids"), T(listID)(T(treeID)())))),
+    (leafID, Seq(ValDef(FreshIdentifier("key"), T(keyID)()))))
+  }
+
+  // T1 = C1(T2) | D1(Key) and T2 = C2(T1) | D2: only T1 holds a key directly
+  val t1ID = FreshIdentifier("T1")
+  val c1ID = FreshIdentifier("C1")
+  val d1ID = FreshIdentifier("D1")
+  val t2ID = FreshIdentifier("T2")
+  val c2ID = FreshIdentifier("C2")
+  val d2ID = FreshIdentifier("D2")
+  val t1Sort = mkSort(t1ID)() { _ => Seq(
+    (c1ID, Seq(ValDef(FreshIdentifier("t2"), T(t2ID)()))),
+    (d1ID, Seq(ValDef(FreshIdentifier("key"), T(keyID)()))))
+  }
+  val t2Sort = mkSort(t2ID)() { _ => Seq(
+    (c2ID, Seq(ValDef(FreshIdentifier("t1"), T(t1ID)()))),
+    (d2ID, Seq()))
+  }
+
+  // Callback[X](f: X => Int): functions are compared through their identifiers, whatever they take
+  val callbackID = FreshIdentifier("Callback")
+  val callbackSort = mkSort(callbackID)("X") { case Seq(x) =>
+    Seq((FreshIdentifier("Callback"), Seq(ValDef(FreshIdentifier("f"), FunctionType(Seq(x), IntegerType())))))
+  }
+
+  // Dep(p: (k: Key, Int)) and Refined(k: { k: Key | true }): keys under the bound variables of dependent types
+  val depID = FreshIdentifier("Dep")
+  val depCons = FreshIdentifier("Dep")
+  val depSort = mkSort(depID)() { _ =>
+    Seq((depCons, Seq(ValDef(FreshIdentifier("p"), SigmaType(Seq(ValDef.fresh("k", T(keyID)())), IntegerType())))))
+  }
+  val refinedID = FreshIdentifier("Refined")
+  val refinedCons = FreshIdentifier("Refined")
+  val refinedSort = mkSort(refinedID)() { _ =>
+    Seq((refinedCons, Seq(ValDef(FreshIdentifier("k"), RefinementType(ValDef.fresh("k", T(keyID)()), BooleanLiteral(true))))))
+  }
+
   override protected def symbols: Symbols =
-    NoSymbols.withSorts(Seq(boxSort, listSort)).withFunctions(
-      Seq(countFd, pickFd, containsFd, totalFd, deepFd, keepFd, leftFd, rightFd, sameFd, laterFd))
+    NoSymbols.withSorts(Seq(boxSort, listSort, keySort, taggedSort, wrapSort, treeSort, t1Sort, t2Sort, callbackSort, depSort, refinedSort)).withFunctions(
+      Seq(countFd, pickFd, containsFd, totalFd, deepFd, keepFd, leftFd, rightFd, sameFd, laterFd, keyEqFd, taggedEqFd, deepTaggedFd, sameTaggedFd, contentFd, splitFd))
   given Symbols = symbols
 
   override protected def solverInfos = super.solverInfos.map { info =>
@@ -266,6 +402,16 @@ class CustomEqualitySuite extends SolverTestSuite {
     val m = Variable.fresh("m", IntegerType())
     def keep(x: Expr): Expr = FunctionInvocation(keepID, Seq(), Seq(x, m))
     valid(bounded(ctx), Implies(Equals(a, b), Equals(deep(keep(a)), deep(keep(b)))))
+  }
+
+  // The equality of the boxes compares their fields, which only the solver knows to be `a` and `b`.
+  test("Congruence of functions over bags within ADTs", Bags, ADTs) { ctx =>
+    valid(bounded(ctx), Implies(Equals(box(a), box(b)), Equals(deep(a), deep(b))))
+  }
+
+  // Without models, the proof checks get every congruence that waits for one.
+  test("Congruence of functions over bags without models", Bags) { ctx =>
+    valid(bounded(ctx).withOpts(optIgnoreModels(true)), Implies(Equals(a, b), Equals(deep(a), deep(b))))
   }
 
   test("Bag arguments of free functions", Bags, Functions) { ctx =>
@@ -505,5 +651,145 @@ class CustomEqualitySuite extends SolverTestSuite {
       }
       info(s"$decided of ${formulas.size} formulas decided by both solvers")
     }
+  }
+
+  val KT = T(keyID)()
+  def key(n: Int, tag: Int): Expr = ADT(keyCons, Seq(), Seq(E(BigInt(n)), E(BigInt(tag))))
+  def wrap(k: Expr): Expr = ADT(wrapCons, Seq(), Seq(k))
+  def leaf(k: Expr): Expr = ADT(leafID, Seq(), Seq(k))
+  def node(kids: Expr*): Expr = ADT(nodeID, Seq(), Seq(kids.foldRight(nil(T(treeID)()))(cons)))
+  def c1(e: Expr): Expr = ADT(c1ID, Seq(), Seq(e))
+  def d1(e: Expr): Expr = ADT(d1ID, Seq(), Seq(e))
+  def c2(e: Expr): Expr = ADT(c2ID, Seq(), Seq(e))
+
+  val k1 = Variable.fresh("k1", KT)
+  val k2 = Variable.fresh("k2", KT)
+  /** `k1` and `k2` are equal, but not structurally. */
+  val equalKeys = And(Equals(k1.getField(keyNID), k2.getField(keyNID)), Not(Equals(k1.getField(keyTagID), k2.getField(keyTagID))))
+  val distinctKeys = Not(Equals(k1.getField(keyNID), k2.getField(keyNID)))
+  val (key1, key1b, key2) = (key(1, 0), key(1, 5), key(2, 0))
+
+  /** The ways to hold a key in a value whose sort has no custom equality. */
+  val keyHolders: Seq[(String, Expr => Expr)] = Seq(
+    "a field" -> wrap,
+    "a tuple" -> tup,
+    "a list" -> (k => list(k)),
+    "a list of fields" -> (k => list(wrap(k))),
+    "a sort that recurses through a list" -> (k => node(leaf(k))),
+    "a list of such a sort" -> (k => list(node(leaf(k)))),
+    "mutually recursive sorts, from the one without a key" -> (k => c2(c1(c2(d1(k))))),
+    "mutually recursive sorts, from the one with a key" -> (k => c1(c2(d1(k)))),
+    "a dependent pair" -> (k => ADT(depCons, Seq(), Seq(Tuple(Seq(k, one))))),
+    "a refinement" -> (k => ADT(refinedCons, Seq(), Seq(k))),
+  )
+
+  def evaluatesTo(ctx: Context, e: Expr, expected: Boolean): Unit =
+    program.getEvaluator(ctx).eval(e).result match {
+      case Some(BooleanLiteral(`expected`)) => // OK
+      case res => fail(s"${e.asString} should evaluate to $expected, got $res")
+    }
+
+  for ((name, hold) <- keyHolders) {
+    test(s"Key equality within $name", ADTs, Integers) { ctx =>
+      valid(ctx, Implies(equalKeys, Equals(hold(k1), hold(k2))))
+      valid(ctx, Implies(distinctKeys, Not(Equals(hold(k1), hold(k2)))))
+    }
+
+    // Ground formulas are decided by evaluation
+    test(s"Ground key equality within $name") { ctx =>
+      valid(ctx, Equals(hold(key1), hold(key1b)))
+      valid(ctx, Not(Equals(hold(key1), hold(key2))))
+    }
+
+    test(s"Evaluation of key equality within $name") { ctx =>
+      evaluatesTo(ctx, Equals(hold(key1), hold(key1b)), true)
+      evaluatesTo(ctx, Equals(hold(key1), hold(key2)), false)
+    }
+  }
+
+  test("Key equality within sorts met in either order", ADTs, Integers) { ctx =>
+    // the sort that recurses through another one, and that other one, in the same query
+    valid(ctx, Implies(equalKeys, And(Equals(node(leaf(k1)), node(leaf(k2))), Equals(list(leaf(k1)), list(leaf(k2))))))
+    valid(ctx, Implies(equalKeys, And(Equals(c2(d1(k1)), c2(d1(k2))), Equals(c1(c2(d1(k1))), c1(c2(d1(k2)))))))
+  }
+
+  // The equality of the bags of the `BagEncoder` is quantified. Where it must not hold, the
+  // solver needs the element that tells the bags apart to unfold `content` on the right lists,
+  // and where it is assumed, of the recursive call, it needs the instances of the quantifier.
+  test("An inductive step over bag equalities, which are assumed and refuted", Bags, ADTs) { ctx =>
+    val l = Variable.fresh("l", T(listID)(IntegerType()))
+    val res = Variable.fresh("res", TupleType(Seq(T(listID)(IntegerType()), T(listID)(IntegerType()))))
+    valid(ctx, Let(res.toVal, halves(l), sameContent(l, res)))
+  }
+
+  // The equality function of `Tagged` quantifies. Its equalities are kept by the simplifier, and
+  // the quantifier is instantiated where an equality holds and gives an element that tells the
+  // sides apart where it doesn't, also when the equality has no polarity or is in a function.
+  val TT = T(taggedID)()
+  val s = Variable.fresh("s", TT)
+  val t = Variable.fresh("t", TT)
+  def member(k: Int, x: Expr): Expr = ElementOfSet(E(BigInt(k)), x.getField(elemsID))
+  def tagged(elems: Expr, tag: Int): Expr = ADT(taggedCons, Seq(), Seq(elems, E(BigInt(tag))))
+
+  test("A quantified equality that holds is instantiated", ADTs, Sets, Quantifiers) { ctx =>
+    valid(ctx, Implies(Equals(s, t), Equals(member(3, s), member(3, t))))
+    valid(ctx, Implies(And(Equals(s, t), member(3, s)), member(3, t)))
+    // through the rules of the equality symbol
+    val u = Variable.fresh("u", TT)
+    valid(ctx, Implies(And(Equals(s, t), Equals(t, u)), Equals(member(3, s), member(3, u))))
+  }
+
+  test("A quantified equality that doesn't hold has an element that tells its sides apart", ADTs, Sets, Quantifiers) { ctx =>
+    val es = Variable.fresh("es", SetType(IntegerType()))
+    valid(ctx, Equals(tagged(es, 1), tagged(es, 2)))
+    valid(ctx, Implies(Equals(s.getField(elemsID), t.getField(elemsID)), Equals(s, t)))
+    notRefuted(ctx, Not(Equals(s, t)))
+    notRefuted(ctx, And(Equals(s, t), Not(Equals(s.getField(tagID), t.getField(tagID)))))
+  }
+
+  test("A quantified equality without a polarity", ADTs, Sets, Quantifiers) { ctx =>
+    val p = Variable.fresh("p", BooleanType())
+    valid(ctx, Implies(And(Equals(p, Equals(s, t)), p), Equals(member(3, s), member(3, t))))
+    valid(ctx, Implies(And(Equals(p, Equals(s, t)), Equals(s.getField(elemsID), t.getField(elemsID))), p))
+  }
+
+  test("A quantified equality in the body of a function", ADTs, Sets, Quantifiers) { ctx =>
+    def same(x: Expr, y: Expr): Expr = FunctionInvocation(sameTaggedID, Seq(), Seq(x, y))
+    valid(ctx, Implies(same(s, t), Equals(member(3, s), member(3, t))))
+    valid(ctx, Implies(Equals(s.getField(elemsID), t.getField(elemsID)), same(s, t)))
+  }
+
+  test("A call of a quantified equality function", ADTs, Sets, Quantifiers) { ctx =>
+    def eq(x: Expr, y: Expr): Expr = FunctionInvocation(taggedEqID, Seq(), Seq(x, y))
+    valid(ctx, Implies(eq(s, t), Equals(member(3, s), member(3, t))))
+    valid(ctx, Implies(Equals(s.getField(elemsID), t.getField(elemsID)), eq(s, t)))
+    valid(ctx, Equals(eq(s, t), Equals(s, t)))
+  }
+
+  test("Congruence of functions over a quantified equality", ADTs, Sets, Quantifiers) { ctx =>
+    def deep(x: Expr): Expr = FunctionInvocation(deepTaggedID, Seq(), Seq(x, n))
+    valid(bounded(ctx), Implies(Equals(s, t), Equals(deep(s), deep(t))))
+    notRefuted(bounded(ctx), And(Not(Equals(s, t)), Not(Equals(deep(s), deep(t)))))
+  }
+
+  test("Types whose equality is unrolled") { ctx =>
+    for ((name, hold) <- keyHolders) assert(symbols.unrollEquality(hold(k1).getType), name)
+    assert(symbols.unrollEquality(T(listID)(T(listID)(KT))))
+    assert(!symbols.unrollEquality(T(listID)(IntegerType())))
+    assert(!symbols.unrollEquality(T(listID)(T(listID)(IntegerType()))))
+    // the type argument only appears in the parameter of a function
+    assert(!symbols.unrollEquality(T(callbackID)(KT)))
+    assert(!symbols.unrollEquality(T(listID)(T(callbackID)(KT))))
+  }
+
+  test("Evaluation of key equality within sets and maps") { ctx =>
+    val WT = T(wrapID)()
+    evaluatesTo(ctx, ElementOfSet(wrap(key1b), FiniteSet(Seq(wrap(key1)), WT)), true)
+    evaluatesTo(ctx, ElementOfSet(wrap(key2), FiniteSet(Seq(wrap(key1)), WT)), false)
+    evaluatesTo(ctx, Equals(FiniteSet(Seq(wrap(key1), wrap(key1b)), WT), FiniteSet(Seq(wrap(key1b)), WT)), true)
+    evaluatesTo(ctx, Equals(MapApply(FiniteMap(Seq(wrap(key1) -> one), two, WT, IntegerType()), wrap(key1b)), one), true)
+    val byValue = FiniteMap(Seq(one -> key1), key2, IntegerType(), KT)
+    evaluatesTo(ctx, Equals(byValue, FiniteMap(Seq(one -> key1b), key2, IntegerType(), KT)), true)
+    evaluatesTo(ctx, Equals(byValue, FiniteMap(Seq(), key2, IntegerType(), KT)), false)
   }
 }

@@ -1,0 +1,61 @@
+; A quantifier is instantiated for the values that the functions it calls are called, applied
+; and looked up on, and not only for those that the functions themselves are called on.
+(define-fun-rec depth ((x Int)) Int (ite (<= x 0) 0 (+ 1 (depth (- x 1)))))
+(define-fun viaCall ((x Int)) Int (depth x))
+(define-fun viaLookup ((s (Set Int)) (x Int)) Bool (member x s))
+(define-fun viaApplication ((g (-> Int Int)) (x Int)) Int (g x))
+(define-fun twice ((x Int)) Int (viaCall x))
+(define-fun-rec spin ((x Int) (y Int)) Int (ite (> x y) (spin y x) (depth x)))
+(declare-const c Int)
+(declare-const s (Set Int))
+(declare-const g (-> Int Int))
+
+; a call in the body of the function
+(push 1)
+(assert (forall ((a Int)) (< (viaCall a) 3)))
+(assert (not (< (depth c) 3)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; a call in the body of a function that the function calls
+(push 1)
+(assert (forall ((a Int)) (< (twice a) 3)))
+(assert (not (< (depth c) 3)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; a lookup in a set
+(push 1)
+(assert (forall ((a Int)) (=> (viaLookup s a) (> a 0))))
+(assert (member c s))
+(assert (not (> c 0)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; an application of a function
+(push 1)
+(assert (forall ((a Int)) (> (viaApplication g a) 0)))
+(assert (not (> (g c) 0)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; under a condition of the quantifier
+(push 1)
+(assert (forall ((a Int)) (=> (> a 0) (< (viaCall a) 3))))
+(assert (> c 0))
+(assert (not (< (depth c) 3)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; a function that calls itself on the same variables
+(push 1)
+(assert (forall ((a Int)) (< (spin a c) 3)))
+(assert (not (< (depth c) 3)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)

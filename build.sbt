@@ -23,7 +23,7 @@ ThisBuild / git.gitDescribedVersion := {
 
 organization := "ch.epfl.lara"
 
-val inoxScalaVersion = "3.10.1-RC1-bin-20260903-e1f9361-NIGHTLY"
+val inoxScalaVersion = "3.9.0"
 val laraOrganization = "ch.epfl.lara"
 
 scalaVersion := inoxScalaVersion
@@ -166,12 +166,6 @@ lazy val proofs = project
   .dependsOn(root % "compile->compile;test->test")
   .settings(
     scalaVersion := inoxScalaVersion,
-    scalaOrganization := laraOrganization,
-    excludeDependencies ++= Seq(
-      ExclusionRule("org.scala-lang", "scala-library"),
-      ExclusionRule("org.scala-lang", "scala3-library_3"),
-      ExclusionRule("org.scala-lang", "scala3-compiler_3"),
-    ),
     scalacOptions ++= Seq("-deprecation", "-unchecked", "-feature"),
     libraryDependencies += "org.scalatest" %% "scalatest" % "3.2.9" % "test",
     // Paths are relative to `proofs`. Both evaluators recurse deeply.
@@ -198,14 +192,6 @@ ItTest / testOptions := Seq(Tests.Argument("-oDF"))
 
 lazy val root = (project in file("."))
   .settings(
-    scalaOrganization := laraOrganization,
-    // The libraries of the lab's Scala compiler replace the standard ones, which ScalaZ3 and
-    // Scala-SMTLIB depend on.
-    excludeDependencies ++= Seq(
-      ExclusionRule("org.scala-lang", "scala-library"),
-      ExclusionRule("org.scala-lang", "scala3-library_3"),
-      ExclusionRule("org.scala-lang", "scala3-compiler_3"),
-    ),
     // The serialization macro only runs at compile time, so tests can never cover it.
     coverageExcludedFiles := ".*SerializationMacro.*",
   )

@@ -1,0 +1,18 @@
+name = "InoxCertificates"
+version = "0.1.0"
+defaultTargets = ["inox-check"]
+
+# Logos, the checker of cvc5's CPC proofs whose soundness is proved in Lean. Its package is
+# named after its main library.
+[[require]]
+name = "Cpc"
+git = "https://github.com/cvc5/logos"
+rev = "33c7e71cd19f7d462895cf5f6c67d4ffbe059351"
+
+[[lean_lib]]
+name = "Inox"
+moreLeanArgs = ["-DwarningAsError=true"]
+
+[[lean_exe]]
+name = "inox-check"
+root = "Main"

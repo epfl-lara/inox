@@ -16,7 +16,7 @@ class CheckerSuite extends AnyFunSuite {
   // A template with the parameters `s` and `p` and its own symbol `c`, instantiated once under
   // the root blocker, a definition, an implication between blockers and an assumption.
   val certificate: String =
-    """(inox-certificate 1
+    """(inox-certificate 4
       |(script
       |(declare-const start Bool)
       |(declare-const b Bool)
@@ -38,7 +38,7 @@ class CheckerSuite extends AnyFunSuite {
       |(assert (=> s (= c (> p 0))))
       |(assert (=> s c))
       |)
-      |(0 (params s p) 0 1)
+      |(0 (params s p) (expression (> p 0)) 0 1)
       |)
       |(rules
       |(Root (args (start start)) 0)
@@ -47,8 +47,13 @@ class CheckerSuite extends AnyFunSuite {
       |(Enables (args (blocker start) (target d)) 4)
       |)
       |(assumptions (query 5) (complete))
-      |(symbols
+      |(solver-symbols
       |(x variable "x$1" "BigInt")
+      |)
+      |(source-definitions
+      |)
+      |(source-symbols
+      |(p variable "p$2" "BigInt" Int)
       |)
       |(cpc
       |(assume @p1 start)
@@ -71,7 +76,18 @@ class CheckerSuite extends AnyFunSuite {
     assert(checked(certificate) == Checked(6, 4, 1, 1, certificates(certificate).head match {
       case SList(items) => items.last match { case SList(_ :: cpc) => cpc; case _ => Nil }
       case _ => Nil
-    }))
+    }, 1))
+  }
+
+  test("A template without a source, or whose clauses are not those of its source, is refused") {
+    assert(refused(changed(" (expression (> p 0))", "")).contains("template 0 has no source"))
+    val why = refused(changed("(expression (> p 0))", "(expression (> p 1))"))
+    assert(why.contains("template 0 is not that of its source") && why.contains("the clause c under s is not one of the source"), why)
+  }
+
+  test("A source that can't be lowered to the session is refused") {
+    val why = refused(changed("(expression (> p 0))", "(expression (> q 0))"))
+    assert(why.contains("the source of template 0 can't be lowered") && why.contains("q is no symbol of the sources"), why)
   }
 
   test("Certificates are found among the other lines that Inox prints") {
@@ -81,7 +97,7 @@ class CheckerSuite extends AnyFunSuite {
   }
 
   test("A certificate of another version is refused") {
-    assert(refused(changed("(inox-certificate 1", "(inox-certificate 2")).contains("version 2"))
+    assert(refused(changed("(inox-certificate 4", "(inox-certificate 2")).contains("version 2"))
   }
 
   test("An assert that no rule names is refused") {
@@ -158,6 +174,10 @@ class CheckerSuite extends AnyFunSuite {
   // the CPC proofs of the corpus are written there, for a CPC checker (see `check.sh`)
   val cpcDir: Option[java.nio.file.Path] = sys.env.get("INOX_CPC_DIR").map(Paths.get(_))
 
+  // what Inox prints for each file of the corpus is written there, for the Lean checker
+  // (see `proofs/lean`)
+  val answersDir: Option[java.nio.file.Path] = sys.env.get("INOX_ANSWERS_DIR").map(Paths.get(_))
+
   for (file <- corpus) test(s"The certificates of $file hold") {
     assume(solvers.SolverFactory.hasCVC5, "needs cvc5")
     val text = answers(file)
@@ -166,6 +186,10 @@ class CheckerSuite extends AnyFunSuite {
     val found = certificates(text)
     assert(found.nonEmpty, s"Inox printed no certificate:\n${text.take(2000)}")
     assert(found.size == text.linesIterator.count(_ == "unsat"), "an unsat answer has no certificate")
+    for (dir <- answersDir) {
+      Files.createDirectories(dir)
+      Files.writeString(dir.resolve(file.replace('/', '_') + ".txt"), text)
+    }
     for ((certificate, n) <- found.zipWithIndex) {
       val checked = check(certificate)
       for (dir <- cpcDir) {

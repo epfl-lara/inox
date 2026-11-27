@@ -20,7 +20,7 @@ class CVC5ProofSuite extends AnyFunSuite {
     val ctx = TestContext(Options(Seq(optProduceProofs(proofs))))
     val p: program.type = program
     class Underlying(override val program: p.type)
-      extends smtlib.SMTLIBSolver(program, ctx)(using program.getSemantics) with smtlib.CVC5Solver
+      extends smtlib.SMTLIBSolver(program, ctx)(using program.getSemantics) with smtlib.CVC5Solver with smtlib.CVC5Certificates
     val s = new Underlying(p)
     try {
       exprs.foreach(s.assertCnstr)
