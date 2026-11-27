@@ -55,6 +55,118 @@ trait WitnessTemplates { self: Templates =>
     if (onDemand) Seq.empty else Rule.Hypothesis(equality, cond, mkEquals(f1, f2)).clauses
   }
 
+  /** Registers the lambdas of `t1` and `t2`, which are both defined when `cond` holds, as only equal
+    * under extensional equality when they agree on every input (see [[lambdaDistinctions]]).
+    * `closuresEqual` is the equality of their closures when they have the same body, under which
+    * they are equal (see [[Rule.LambdaEquality]]). */
+  private[unrolling] def registerLambdaPair(cond: Encoded, t1: LambdaTemplate, t2: LambdaTemplate, closuresEqual: Option[Encoded]): Unit =
+    lambdaPairs += LambdaPair(cond, t1, t2, closuresEqual)
+
+  /** Whether the query has lambdas whose equality a model must not assume (see [[lambdaDistinctions]]). */
+  protected def hasLambdaPairs: Boolean = lambdaPairs.nonEmpty
+
+  /** The literals under which the model checks keep apart the lambdas that a model made equal.
+    *
+    * A pending distinguishing input lets the model checks assume that two functions are equal (see
+    * [[witnessEqualities]]). That is a valid model when one of them is free, which can be taken to
+    * be the other, but two lambdas of the program that differ in structure (or in closures) are
+    * only equal if they agree on every input, which neither the unfolding nor the distinguishing
+    * input establishes: the input only tells distinct functions apart. When a model makes such
+    * lambdas equal, the solver compares their bodies (see [[lambdaComparison]]). If they agree on
+    * every input, the models can keep them equal (see [[markEqualLambdas]]). Otherwise, they are
+    * applied to an input on which they differ, which refutes the model (see [[probeLambdas]]), or,
+    * once that was done in the current round of the unfolding, the model checks assume them
+    * distinct through these literals until the next round (see [[keepApart]] and [[nextRound]]).
+    * Like the equalities, they are only assumed by the model checks, so refutations are unchanged. */
+  protected def lambdaDistinctions: Set[Encoded] = apartLambdas.toSet.map(distinctLambdas(_))
+
+  /** The pairs of lambdas that the model, given by `holds`, makes equal although their equality
+    * doesn't follow from their structure, and that aren't known to be extensionally equal. */
+  protected def equatedLambdas(holds: Encoded => Boolean): Seq[LambdaPair] = {
+    // most lambdas aren't defined in a given model, so their pairs are left out first
+    val defined = scala.collection.mutable.Map.empty[LambdaTemplate, Boolean]
+    def isDefined(t: LambdaTemplate): Boolean = defined.getOrElseUpdate(t, holds(t.start))
+    lambdaPairs.toSeq.filter { p =>
+      !apartLambdas(p) && !equalLambdas(p) && isDefined(p.t1) && isDefined(p.t2) &&
+        holds(p.cond) && holds(mkEquals(p.f1, p.f2)) && !p.closuresEqual.exists(holds)
+    }
+  }
+
+  /** Starts a new round of the unfolding, in which the models may make the lambdas equal again that
+    * were kept apart, and returns these lambdas, whose comparison the unrolling may now decide. */
+  protected def nextRound(): Seq[LambdaPair] = {
+    val apart = apartLambdas.toSeq
+    for (p <- apart) apartLambdas -= p
+    for (p <- probedLambdas.toSeq) probedLambdas -= p
+    for (t <- comparedLambdas.toSeq) comparedLambdas -= t
+    apart
+  }
+
+  /** The comparison of the bodies of the lambdas of `p`, as the literal under which their bodies
+    * differ on the returned arguments, with the clauses that instantiate it the first time (see
+    * [[Templates.instantiateComparison]]). A check under the literal that is unsatisfiable shows
+    * that they agree on every input, and a model of it gives an input on which they differ. */
+  protected def lambdaComparison(p: LambdaPair): (Encoded, Seq[Encoded], Clauses) =
+    lambdaComparisons.get(p) match {
+      case Some((literal, ws)) => (literal, ws, Seq.empty)
+      case None =>
+        val (literal, ws, clauses) = newLambdas(instantiateComparison(p.cond, p.t1, p.t2))
+        lambdaComparisons += p -> (literal, ws)
+        (literal, ws, clauses)
+    }
+
+  /** Runs `instantiation`, and records the lambdas that it creates, which aren't probed in the
+    * current round (see [[canProbe]]). */
+  private def newLambdas[A](instantiation: => A): A = {
+    val before = getLambdaTemplates.toSet
+    val res = instantiation
+    for (t <- getLambdaTemplates if !before(t)) comparedLambdas += t
+    res
+  }
+
+  /** The values that the lambdas of `p` capture, with their types, which a comparison can fix to
+    * those of a model (see [[fixCaptures]]). */
+  protected def lambdaCaptures(p: LambdaPair): Seq[(Encoded, Type)] =
+    (p.t1.closures ++ p.t2.closures).map((v, e) => e -> v.getType).distinct
+
+  /** A fresh literal under which the captured values have the given `values`, which only the
+    * comparisons of lambdas in a model assume. */
+  protected def fixCaptures(values: Seq[(Encoded, Expr)]): (Encoded, Clauses) = {
+    val literal = encodeSymbol(Variable.fresh("b_fix", BooleanType(), true))
+    val fixed = mkAnd(values.map((c, v) => mkEquals(c, mkEncoder(Map.empty)(v)))*)
+    (literal, Rule.Hypothesis(literal, trueT, fixed).clauses)
+  }
+
+  /** Records that the lambdas of `p` agree on every input wherever both are defined, so that the
+    * models can make them equal. */
+  protected def markEqualLambdas(p: LambdaPair): Unit = equalLambdas += p
+
+  /** Keeps the lambdas of `p` apart in the model checks of the current round (see [[lambdaDistinctions]]). */
+  protected def keepApart(p: LambdaPair): Clauses = {
+    apartLambdas += p
+    if (distinctLambdas.contains(p)) Seq.empty else {
+      val literal = encodeSymbol(Variable.fresh("b_neq", BooleanType(), true))
+      distinctLambdas += p -> literal
+      val distinct = mkNot(mkEquals(p.f1, p.f2))
+      Rule.Hypothesis(literal, p.cond, p.closuresEqual.fold(distinct)(mkOr(distinct, _))).clauses
+    }
+  }
+
+  /** Whether the lambdas of `p` may be applied to an input on which they differ (see [[probeLambdas]]):
+    * once per round of the unfolding, and only when neither was created by the comparisons and probes
+    * of the round. Probes can create lambdas (their inputs, and the lambdas in the bodies that they
+    * apply), whose comparisons and probes can create more, so each round stays finite this way. */
+  protected def canProbe(p: LambdaPair): Boolean =
+    !probedLambdas(p) && !comparedLambdas(p.t1) && !comparedLambdas(p.t2)
+
+  /** Applies the lambdas of `p` to `args`, on which their bodies differ, so that equal lambdas must
+    * agree on them (see [[Templates.instantiateProbe]]). The free variables of `args` stand for the
+    * given `terms`. */
+  protected def probeLambdas(p: LambdaPair, args: Seq[Expr], terms: Map[Variable, Encoded]): Clauses = {
+    probedLambdas += p
+    newLambdas(instantiateProbe(p.cond, p.t1.tpe, p.f1, p.f2, args, terms))
+  }
+
   /** The equality literals of the pending distinguishing inputs, along with their depth.
     *
     * Distinguishing inputs are unfolded progressively, much like function calls: once it has found
@@ -136,6 +248,11 @@ trait WitnessTemplates { self: Templates =>
     witnessInputs += (f1 -> f2) -> (tpe, ws)
   }
 
+  protected case class LambdaPair(cond: Encoded, t1: LambdaTemplate, t2: LambdaTemplate, closuresEqual: Option[Encoded]) {
+    def f1: Encoded = t1.ids._2
+    def f2: Encoded = t2.ids._2
+  }
+
   protected case class PendingWitness(
     cond: Encoded, tpe: FunctionType, f1: Encoded, f2: Encoded, depth: Int, equality: Encoded, onDemand: Boolean)
 
@@ -161,7 +278,29 @@ trait WitnessTemplates { self: Templates =>
     /** The distinguishing inputs that haven't been instantiated yet. */
     private[WitnessTemplates] val pendingWitnesses = new IncrementalSet[PendingWitness]
 
+    /** The pairs of lambdas whose equality a model must not assume (see [[registerLambdaPair]]). */
+    private[WitnessTemplates] val lambdaPairs = new IncrementalSet[LambdaPair]
+
+    /** The literal under which the model checks keep apart the lambdas of each pair (see [[keepApart]]). */
+    private[WitnessTemplates] val distinctLambdas = new IncrementalMap[LambdaPair, Encoded]
+
+    /** The pairs of lambdas that the model checks keep apart in the current round. */
+    private[WitnessTemplates] val apartLambdas = new IncrementalSet[LambdaPair]
+
+    /** The comparisons of the bodies of pairs of lambdas, as their literal and arguments (see [[lambdaComparison]]). */
+    private[WitnessTemplates] val lambdaComparisons = new IncrementalMap[LambdaPair, (Encoded, Seq[Encoded])]
+
+    /** The pairs of lambdas that agree on every input. */
+    private[WitnessTemplates] val equalLambdas = new IncrementalSet[LambdaPair]
+
+    /** The pairs of lambdas that were applied to an input on which they differ in the current round. */
+    private[WitnessTemplates] val probedLambdas = new IncrementalSet[LambdaPair]
+
+    /** The lambdas that the comparisons and probes of the current round created (see [[canProbe]]). */
+    private[WitnessTemplates] val comparedLambdas = new IncrementalSet[LambdaTemplate]
+
     val incrementals: Seq[IncrementalState] =
-      Seq(witnessFunctions, witnessDepths, appDepths, witnessArguments, witnessInputs, pendingWitnesses)
+      Seq(witnessFunctions, witnessDepths, appDepths, witnessArguments, witnessInputs, pendingWitnesses,
+        lambdaPairs, distinctLambdas, apartLambdas, lambdaComparisons, equalLambdas, probedLambdas, comparedLambdas)
   }
 }

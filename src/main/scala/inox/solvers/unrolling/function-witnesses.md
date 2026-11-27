@@ -233,7 +233,11 @@ models of `Φi`. ∎
 **Theorem B (models stay sound).** A model returned with SAT gives a counterexample, exactly as in
 thesis Theorem 1.
 
-*Proof sketch.* The returned `M` satisfies `Φi ∪ Bi`, and Theorem 1 applies. The applications that
+*Proof sketch.* The returned `M` satisfies `Φi ∪ Bi`, and Theorem 1 applies. Under `extensional`, `M`
+also satisfies the `eq_p` of the pending pairs, which make functions equal. That is sound for a pair
+with a free function, which extraction takes to be the other one, and validation only accepts the models
+that make two lambdas equal otherwise than by their structure and closures once their bodies are
+shown to agree on every input (§9). The applications that
 witnesses introduce, like `f(w̄)`, are embedded applications like any other. Their blockers are in
 `Bi`, and extraction treats them as additional points of the `if`-chain. Each point agrees with the
 dispatch interpretation in `M`, by congruence of the encoded application. So (A3) still holds.
@@ -451,6 +455,56 @@ unconditionally, so `f ≄ h ⇒ f(w̄) ≄ h(w̄)` is an extensionality axiom. 
 closures get the same lazy witnesses as free functions (§2): the lambdas are assumed equal when
 looking for a model, and the witness is instantiated once that equality is in an unsat core, up to
 the depth that the unrolling has reached. `id ≠ alsoId` is UNSAT this way.
+
+Assuming that two lambdas are equal doesn't give a model, though. A free function can be taken to be
+any other function, but two lambdas that differ in structure or in closures are only equal if they
+agree on every input, which neither the unfolding nor the witness establishes: the witness only
+tells distinct functions apart. Without the model check, `(λz. z = 0) ∈ {λz. z = 1, λz. z > 0}` was
+SAT this way. So when a model makes such lambdas equal (and the structural rule doesn't), validation
+compares their bodies (`Templates.instantiateComparison`). It instantiates the bodies on fresh
+arguments `w̄`, as the bodies of fresh functions rather than of the lambdas themselves, since the
+query may make the lambdas equal and their applications on `w̄` would then be equal too. Under a
+fresh literal `k_p`, `c_p` holds, `w̄` lies in the parameter types, and the bodies differ on `w̄`
+(exactly one fails, or neither does and their results differ). Then:
+
+- If the check under the refutation assumptions and `k_p` is UNSAT, no solution has the bodies differ
+  on any input where `c_p` holds, by Theorem A. The lambdas are extensionally equal, and the models
+  may keep them equal.
+- Otherwise, if the check also assumes a literal `x_M` under which the captured values have their
+  values in `M` (those without functions, whose encodings in `M` aren't values) and is UNSAT, the
+  bodies agree on every input with these captures, and `M` may keep the lambdas equal. As `M`
+  satisfies the unfolding, so does `x_M` unless the encoding of a value of `M` differs from it, and
+  the check would then be UNSAT whatever the bodies: so the check without `k_p` must be SAT.
+- Otherwise, the check under the satisfaction assumptions, `k_p` and `x_M` gives an input `ā` on
+  which the bodies differ with the captures of `M`, and the lambdas are applied to it under `c_p`
+  (`Templates.instantiateProbe`): equal functions have the same applications, which the bodies
+  define, so the next models can't keep them equal with the same captures, and refutations can use
+  that they differ on `ā`. This refutes `(λz. z = 0) = (λz. z = 1)`, and finds `c = 1` in
+  `(λz. z + c = 1) ∈ {λz. z = 0}`.
+  `ā` is built from `M'` (the model of the comparison) along its type. A function, wherever it
+  occurs (in a field, in the results of another function, ...), is given by a fresh lambda that
+  captures nothing, with the values (or failures) that `M'` gives it on the inputs that the
+  unfolding applies it to: the bodies only observe it through these applications, so it tells them
+  apart as well, while `M'`'s own extraction may call fresh functions. Functions nested in the
+  results of others are built up to a fixed depth, past which they are the simplest value of their
+  type (as in streams of functions). The inputs of these applications that aren't values (functions, again) are given by
+  the applied terms themselves, which the fresh lambda then compares extensionally. A value of an
+  abstract type (type parameter, uninterpreted sort) has no encoding as a value, so it is given by
+  a capture of the lambdas that has it in `M'`. This refutes `(λf. f(0)) = (λf. f(1))`,
+  `(λg. g(λx. x)) = (λg. g(λx. 0))` and `(λz. z = s) = (λz. z = t)` with `s ≠ t`. The probe only
+  instantiates definitions, so it is sound whatever `ā` is: `ā` only matters for refuting `M`.
+- A pair is only applied to one such input per unrolling, and not at all when one of its lambdas
+  was created by the comparisons and probes of the unrolling (which create lambdas, whose
+  comparisons and probes create more), so that each model search terminates. When
+  a later model of the same search makes it equal again (or no such input is found), the
+  model checks assume a literal `n_p` with `n_p ∧ c_p ⇒ λ1 ≄ λ2` (or the closures are equal) until
+  the next unrolling, which keeps them apart (`WitnessTemplates.lambdaDistinctions`). The unrolling
+  then tries the first check again, and the models may make them equal again.
+
+The `k_p`, `x_M` and `n_p` only occur in antecedents and are never assumed by refutations of the
+query, so they are inert there as the `e_p` are (Lemma W1). The `n_p` are handled like `Ei`: R1 and
+R2 apply to the checks under them. A query that is only satisfiable with lambdas equal whose
+comparison stays undecided isn't answered.
 
 Instantiating lambda witnesses eagerly, with each new lambda, doesn't terminate. A witness can
 create lambdas on the spot (eg. in the typing constraints of application results, as in Stainless's

@@ -1418,6 +1418,12 @@ abstract class AbstractUnrollingSolver private
     private def witnessEqualities: Map[Encoded, Int] =
       if (witnessLevel > 0) templates.witnesses.equalities else Map.empty
 
+    /** The literals that keep apart the lambdas that earlier models made equal, which the model
+      * checks assume along with the equalities (see [[WitnessTemplates.lambdaDistinctions]]). An
+      * unsatisfiable check under them is handled as one under the equalities: the decisions are
+      * made on a check without either. */
+    private def lambdaDistinctions: Set[Encoded] = templates.witnesses.distinctions
+
     /* The equalities between functions without distinguishing inputs that appear in the unsat core
      * of `res`, or all of them if the solver gave no core. Cores aren't necessarily reported as
      * literals, so they are compared modulo negation. */
@@ -1481,6 +1487,7 @@ abstract class AbstractUnrollingSolver private
       reporter.debug(" - Running search...")
 
       val equalities = witnessEqualities
+      val distinctions = lambdaDistinctions
       val getModel = !templates.quantifiers.requiresFiniteRangeCheck || checkModels || templates.quantifiers.hasAxioms || config.withModel
       val getAssumptions = (unrollAssumptions && templates.unfolding.canUnroll) || config.withUnsatAssumptions
 
@@ -1488,7 +1495,9 @@ abstract class AbstractUnrollingSolver private
       // ask for a proof
       def check(equalities: Iterable[Encoded]): Response =
         context.timers.solvers.unrolling.check.run {
-          val checkConfig = Configuration(model = getModel && !ignoreModels, unsatAssumptions = getAssumptions || equalities.nonEmpty)
+          // the lambdas that a model makes equal are checked even when models are ignored
+          val model = (getModel && !ignoreModels) || templates.witnesses.hasLambdaPairs
+          val checkConfig = Configuration(model = model, unsatAssumptions = getAssumptions || equalities.nonEmpty)
           // its unsat answer is that of the solver once nothing is left to unroll or to assume
           val refutes = !templates.unfolding.canUnroll && templates.unfolding.satisfactionAssumptions.isEmpty
           checkUnderlying(checkConfig, refutes)(
@@ -1496,7 +1505,7 @@ abstract class AbstractUnrollingSolver private
           )
         }
 
-      val resWithEqualities = check(equalities.keys)
+      val resWithEqualities = check(equalities.keys ++ distinctions)
 
       reporter.debug(" - Finished search with blocked literals")
 
@@ -1504,7 +1513,7 @@ abstract class AbstractUnrollingSolver private
       // comes from a check without them
       val next: Either[CheckState, Response] = resWithEqualities match {
         case Abort() => Right(resWithEqualities)
-        case _: Unsatisfiable if equalities.nonEmpty =>
+        case _: Unsatisfiable if equalities.nonEmpty || distinctions.nonEmpty =>
           blamedEqualities(coreEqualities(resWithEqualities, equalities), equalities, check(Seq.empty))
         case _ => Right(resWithEqualities)
       }
@@ -1523,6 +1532,12 @@ abstract class AbstractUnrollingSolver private
 
           case _: Satisfiable if templates.quantifiers.requiresFiniteRangeCheck =>
             FiniteRangeCheck
+
+          // the model was only requested to check the lambdas that it makes equal (see [[validate]])
+          case SatWithModel(model) if !getModel || ignoreModels =>
+            if (decideEquatedLambdas(model)) ModelCheck
+            else if (config.withModel) CheckResult(config.cast(SatWithModel(emptyModel)))
+            else CheckResult.cast(Sat)
 
           case Sat =>
             if (config.withModel && ignoreModels) then
@@ -1560,6 +1575,7 @@ abstract class AbstractUnrollingSolver private
 
       // the model must have distinguishing inputs as well (see [[modelCheck]])
       val equalities = witnessEqualities
+      val distinctions = lambdaDistinctions
 
       val next: Either[CheckState, Response] =
         context.timers.solvers.unrolling.check.run {
@@ -1573,9 +1589,9 @@ abstract class AbstractUnrollingSolver private
               equalities.toSet
             )
           }
-          val res = check(equalities.keys)
+          val res = check(equalities.keys ++ distinctions)
           val next = res match {
-            case _: Unsatisfiable if equalities.nonEmpty && !abort =>
+            case _: Unsatisfiable if (equalities.nonEmpty || distinctions.nonEmpty) && !abort =>
               val inCore = coreEqualities(res, equalities).filter(_._2 <= witnessLevel)
               if (inCore.nonEmpty) Left(inCore)
               else check(Seq.empty) match {
@@ -1607,12 +1623,237 @@ abstract class AbstractUnrollingSolver private
       }
     }
 
+    /** Decides the equality of the lambdas that `umodel` makes equal although their equality doesn't
+      * follow from their structure, by comparing their bodies (see [[WitnessTemplates.lambdaComparison]]):
+      *  - if no solution makes the bodies differ on some input, the lambdas are extensionally equal,
+      *    and the models may keep them equal;
+      *  - if no solution with the values that `umodel` gives their captures does, this model may
+      *    keep them equal;
+      *  - otherwise, they are applied to an input on which their bodies differ with these captures,
+      *    so that the model can't keep them equal. Once per round of the unfolding, after which the
+      *    model checks keep them apart until the next round, so that each round stays finite (see
+      *    [[unroll]]).
+      * Returns whether `umodel` is discarded, which is when it can't keep some of them equal. */
+    private def decideEquatedLambdas(umodel: underlying.Model): Boolean = {
+      val wrapped = wrapModel(umodel)
+      val pairs = templates.witnesses.equatedLambdas(
+        e => wrapped.modelEval(e, t.BooleanType()) == Some(t.BooleanLiteral(true)))
+      var discarded = false
+      for (p <- pairs if !abort) {
+        reporter.debug(" - Comparing the bodies of lambdas that the model makes equal")
+        // the captures that may contain functions are left out: their encodings in a model aren't values
+        lazy val fixed = fixedCaptures(templates.witnesses.captures(p).collect {
+          case (c, tpe) if !FunctionEquality.containsFunctions(programEncoder.targetProgram)(tpe) => c -> tpe
+        }.flatMap((c, tpe) => wrapped.modelEval(c, tpe).map(c -> _)))
+        if (!agreeEverywhere(p) && (fixed.isEmpty || !agreeWith(p, fixed))) {
+          discarded = true
+          if (!templates.witnesses.canProbe(p) || !probe(p, fixed)) {
+            for (cl <- templates.witnesses.keepApart(p)) assertClause(cl)
+          }
+        }
+      }
+      discarded || abort
+    }
+
+    /** Checks under the comparison of the bodies of the lambdas of `p` (see [[Templates.instantiateComparison]])
+      * and under `extra`, with the given unfolding assumptions. */
+    private def checkComparison(p: templates.witnesses.LambdaPair, extra: Set[Encoded], refuting: Boolean): Response = {
+      val (literal, _, clauses) = templates.witnesses.comparison(p)
+      for (cl <- clauses) assertClause(cl)
+      val unfolding = if (refuting) templates.unfolding.refutationAssumptions else templates.unfolding.satisfactionAssumptions
+      context.timers.solvers.unrolling.check.run {
+        checkUnderlying(Configuration(model = !refuting, unsatAssumptions = false))(
+          ListSet.from(encodedAssumptions) ++ unfolding ++ extra + literal)
+      }
+    }
+
+    /** Whether the bodies of the lambdas of `p` agree on every input in every solution: the check
+      * under their comparison is a refutation, as in the proof check. If so, the models may keep
+      * them equal. */
+    private def agreeEverywhere(p: templates.witnesses.LambdaPair): Boolean =
+      checkComparison(p, Set.empty, refuting = true) match {
+        case _: Unsatisfiable =>
+          reporter.debug(" - The lambdas agree on every input")
+          templates.witnesses.markEqual(p)
+          true
+        case _ => false
+      }
+
+    /** The literal under which the captures of a pair of lambdas have the given values, if any. */
+    private def fixedCaptures(captures: Seq[(Encoded, t.Expr)]): Set[Encoded] =
+      if (captures.isEmpty) Set.empty else {
+        val (fixed, clauses) = templates.witnesses.fixCaptures(captures)
+        for (cl <- clauses) assertClause(cl)
+        Set(fixed)
+      }
+
+    /** Whether the bodies of the lambdas of `p` agree on every input when their captures have the
+      * values of a model, under `fixed` (see [[fixedCaptures]]): if so, the model may keep them equal. */
+    private def agreeWith(p: templates.witnesses.LambdaPair, fixed: Set[Encoded]): Boolean =
+      !abort && (checkComparison(p, fixed, refuting = true) match {
+        // the values of the model must be consistent with the unfolding when they are fixed: as the
+        // model satisfies it, they are unless their encoding differs from the model's own values,
+        // and the check would then hold whatever the bodies
+        case _: Unsatisfiable if !abort && !checkUnderlying(Configuration(model = false, unsatAssumptions = false))(
+            ListSet.from(encodedAssumptions) ++ templates.unfolding.refutationAssumptions ++ fixed).isInstanceOf[Unsatisfiable] =>
+          reporter.debug(" - The lambdas agree on every input with the captures of the model")
+          true
+        case _ => false
+      })
+
+    /** Applies the lambdas of `p` to an input on which their bodies differ when their captures have the
+      * values of a model, under `fixed`, if a model of their comparison gives one (see
+      * [[WitnessTemplates.probeLambdas]]). Returns whether it did. */
+    private def probe(p: templates.witnesses.LambdaPair, fixed: Set[Encoded]): Boolean =
+      !abort && (checkComparison(p, fixed, refuting = false) match {
+        case SatWithModel(model) =>
+          val (_, args, _) = templates.witnesses.comparison(p)
+          val input = new ProbeInput(wrapModel(model), templates.witnesses.captures(p))
+          val values = (args zip p.t1.tpe.from).map(input.value(_, _))
+          if (!values.forall(_.isDefined)) reporter.debug(" - The model gives no input that can be probed")
+          values.forall(_.isDefined) && {
+            reporter.debug(" - The lambdas differ on " + values.flatten.mkString(", "))
+            for (cl <- templates.witnesses.probe(p, values.flatten, input.terms)) assertClause(cl)
+            true
+          }
+        case _ => false
+      })
+
+    /** The inputs of a comparison in its model `wrapped`, as expressions that the unfolding can apply
+      * the compared lambdas to (see [[probe]]):
+      *  - a function, wherever it occurs in an input (in the fields of a value, in the results of
+      *    another function, ...), is given by a fresh lambda that captures nothing, with the values
+      *    that the model gives it on the inputs that the unfolding applies it to.
+      *    That is enough to tell the bodies apart, which can only observe it through these
+      *    applications, and the model's own function (from its extraction) may call fresh functions;
+      *  - the values of abstract types (type parameters, uninterpreted sorts) can't be encoded as
+      *    values, so they are given by the captures of the lambdas that have them in the model, which
+      *    the bodies compare them to (see [[terms]]).
+      * Applications to functions are given the applied terms, which the fresh lambda compares
+      * extensionally to its arguments. None for an input that contains functions elsewhere (in sets,
+      * maps, ...), or nested more than `maxDepth` times in the results of other functions, as with
+      * the functions in a stream. */
+    private class ProbeInput(wrapped: ModelWrapper, captures: Seq[(Encoded, t.Type)]) {
+      import programEncoder.targetProgram.symbols.{given, _}
+
+      private val maxDepth = 8
+      private val abstractTerms = scala.collection.mutable.Map.empty[t.GenericValue, Option[t.Variable]]
+      private var bound = Map.empty[t.Variable, Encoded]
+
+      /** The encoded terms that the free variables of the inputs stand for. */
+      def terms: Map[t.Variable, Encoded] = bound
+
+      private def abstractTerm(gv: t.GenericValue): Option[t.Variable] = abstractTerms.getOrElseUpdate(gv,
+        captures.collectFirst { case (e, tpe) if tpe == gv.tp && wrapped.modelEval(e, tpe) == Some(gv) => termOf(e, tpe) })
+
+      /** A variable that stands for the encoded term `e` of type `tpe`. */
+      private def termOf(e: Encoded, tpe: t.Type): t.Variable = {
+        val v = t.Variable.fresh("v", tpe, true)
+        bound += v -> e
+        v
+      }
+
+      /** `value`, a value of the model without functions, with its abstract values replaced by the
+        * terms that have them. */
+      private def ground(value: t.Expr): Option[t.Expr] = {
+        var ok = true
+        val res = t.exprOps.postMap {
+          case gv: t.GenericValue =>
+            val v = abstractTerm(gv)
+            if (v.isEmpty) ok = false
+            v
+          case _ => None
+        }(value)
+        Option.when(ok && closed(res) && !t.exprOps.exists { case _: t.Lambda | _: t.Error => true; case _ => false }(res))(res)
+      }
+
+      /** Whether `e` is a closed expression over the program and the terms. */
+      private def closed(e: t.Expr): Boolean =
+        (t.exprOps.variablesOf(e) -- bound.keySet).isEmpty && !t.exprOps.exists {
+          case _: t.GenericValue => true
+          case fi: t.FunctionInvocation => lookupFunction(fi.id).isEmpty
+          case _ => false
+        }(e)
+
+      private def holds(e: Encoded): Boolean = wrapped.modelEval(e, t.BooleanType()) == Some(t.BooleanLiteral(true))
+
+      /** The value of the comparison argument `a` of type `tpe`. */
+      def value(a: Encoded, tpe: t.Type): Option[t.Expr] = {
+        val v = t.Variable.fresh("w", tpe, true)
+        // the values may refer to the terms of abstract values
+        build(v, tpe, e => templates.mkEncoder(bound + (v -> a))(e), maxDepth)
+      }
+
+      /** The value of `term` of type `tpe`, given the encoding of the terms over the argument. */
+      private def build(term: t.Expr, tpe: t.Type, encode: t.Expr => Encoded, depth: Int): Option[t.Expr] = {
+        def hasFunctions(tpe: t.Type) = FunctionEquality.containsFunctions(programEncoder.targetProgram)(tpe)
+        def eval(term: t.Expr, tpe: t.Type) = wrapped.modelEval(encode(term), tpe)
+        tpe.getType match {
+          case tpe if !hasFunctions(tpe) => eval(term, tpe).flatMap(ground)
+
+          case ft @ t.FunctionType(from, to) if depth > 0 =>
+            val c = encode(term)
+            def same(x: Encoded, y: Encoded) = holds(templates.mkEquals(x, y))
+            // the applications of the function in the model
+            val applied = templates.model.applications(ft).collect { case (b, caller, as) if holds(b) && same(caller, c) => as }
+            // the applications of the argument that fail in the model, which the lambda then fails on
+            def fails(as: Seq[Encoded]) = templates.model.appFailureLiterals(ft).exists { case ((caller, cas), literal) =>
+              same(caller, c) && cas.size == as.size && (cas zip as).forall(same) && holds(literal)
+            }
+            // the arguments are values where they can be, and the applied terms otherwise (functions,
+            // which the lambda then compares extensionally)
+            val points = applied.map { as =>
+              (as zip from).map((e, tpe) => wrapped.modelEval(e, tpe).flatMap(ground).orElse(Some(termOf(e, tpe)))) -> fails(as)
+            }.distinctBy(_._1)
+            Option.when(points.forall(_._1.forall(_.isDefined))) {
+              val results = points.map { (as, failing) =>
+                if (failing) Some(t.Error(to, "Application of a partial function"))
+                else build(t.Application(term, as.map(_.get)), to, encode, depth - 1)
+              }
+              // the value outside of the points must lie in `to`, as do the results
+              val default = (points zip results).collectFirst { case ((_, false), Some(r)) => r }
+                .orElse(Option.when(to == to.getType)(simplestValue(to)).filter(closed))
+              Option.when(default.isDefined && results.forall(_.isDefined)) {
+                val params = from.map(tpe => t.ValDef.fresh("x", tpe, true))
+                (points zip results).foldRight(default.get) { case (((as, _), r), elze) =>
+                  t.IfExpr(t.andJoin((params zip as).map((vd, v) => t.Equals(vd.toVariable, v.get))), r.get, elze)
+                } match { case body => t.Lambda(params, body) }
+              }
+            }.flatten
+
+          // past the depth, the function is only known to lie in its type
+          case ft: t.FunctionType if ft == ft.getType =>
+            Some(simplestValue(ft)).filter(closed)
+
+          case t.TupleType(tps) =>
+            val elems = tps.indices.map(i => build(t.TupleSelect(term, i + 1), tps(i), encode, depth))
+            Option.when(elems.forall(_.isDefined))(t.Tuple(elems.map(_.get)))
+
+          case adt: t.ADTType => eval(term, adt) match {
+            case Some(t.ADT(id, tps, _)) =>
+              val cons = getConstructor(id, tps)
+              // the fields of the constructor that the model gives the value
+              val inCons = t.IsConstructor(term, id)
+              val fields = cons.fields.map(vd => build(t.ADTSelector(term, vd.id), vd.getType, encode, depth))
+              Option.when(holds(encode(inCons)) && fields.forall(_.isDefined))(t.ADT(id, tps, fields.map(_.get)))
+            case _ => None
+          }
+
+          case _ => None
+        }
+      }
+    }
+
     /** Extracts a model from `umodel` and validates it, once the unfolding has related the lambdas
       * of `umodel` to the functions they capture. */
     private def validate(umodel: underlying.Model): CheckState = {
       if (abort) {
         // Extracting and validating a large model takes time: skip them once interrupted
         CheckResult.cast(Unknown)
+      } else if (templates.witnesses.hasLambdaPairs && decideEquatedLambdas(umodel)) {
+        // under extensional equality, the model made lambdas equal whose bodies we had to compare
+        // (see [[WitnessTemplates.lambdaDistinctions]]), so we look for a model again
+        ModelCheck
       } else if (equalCaptures(umodel).nonEmpty) {
         // the unrolling left out the clauses that relate these lambdas to the functions they capture
         // (see [[LambdaTemplates.equalCaptures]]), so the model needs them before it can be trusted
@@ -1849,6 +2090,9 @@ abstract class AbstractUnrollingSolver private
 
         unrollCount += 1
         if (witnessLevel > 0) witnessLevel += 1
+
+        // the lambdas that were kept apart may be equal again, and their comparison may now decide
+        for (p <- templates.witnesses.nextRound() if !abort) agreeEverywhere(p)
 
         reporter.debug(" - Finished unrolling")
         ModelCheck

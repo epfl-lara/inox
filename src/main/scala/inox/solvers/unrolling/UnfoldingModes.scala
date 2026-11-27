@@ -38,11 +38,13 @@ class UnfoldingModes(options: Options) {
 
   /** Without function equality, the equality of two lambdas can't be observed, and their distinguishing
     * input is only needed when model extraction must tell them apart (see
-    * [[WitnessTemplates.onDemandWitnesses]]). Under extensional equality, lambdas that differ
-    * structurally are only equal when they agree on their distinguishing input, and nothing else can
-    * refute their equality. Their distinguishing input is then unfolded like those of free functions
-    * (see [[WitnessTemplates.witnessEqualities]]): the lambdas are assumed equal when looking for a
-    * model, and the input is instantiated when that equality is part of an unsat core.
+    * [[WitnessTemplates.onDemandWitnesses]]). Under extensional equality, the distinguishing input
+    * of lambdas that differ structurally is what refutes their being distinct when they agree on
+    * every input. It is then unfolded like those of free functions (see
+    * [[WitnessTemplates.witnessEqualities]]): the lambdas are assumed equal when looking for a model,
+    * and the input is instantiated when that equality is part of an unsat core. A model that keeps
+    * them equal is only accepted once their bodies are shown to agree on every input (see
+    * [[WitnessTemplates.lambdaDistinctions]]).
     *
     * Instantiating them with each new lambda instead doesn't terminate: distinguishing inputs can
     * create lambdas on the spot (eg. in the typing constraints of applications), and each new lambda

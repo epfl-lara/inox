@@ -347,6 +347,10 @@ trait LambdaTemplates { self: Templates =>
   }
 
   def registerLambda(pointer: Encoded, target: Encoded): Boolean = byID.get(target) match {
+    // a lambda that is equal to another keeps its own body: its applications are dispatched to
+    // both, which then agree on them (under extensional equality, lambdas with different bodies
+    // can be equal, and their bodies are then what refutes their equality)
+    case Some(_) if byID.contains(pointer) => false
     case Some(template) =>
       state.update(s => s.copy(
         byID = s.byID.updated(pointer, template),
@@ -564,6 +568,9 @@ trait LambdaTemplates { self: Templates =>
         clauses ++= Rule.LambdaEquality(blocker, template.ids._2, that.ids._2, closuresEqual, intensional).clauses
         if (!intensional) {
           clauses ++= registerWitness(blocker, template.tpe, template.ids._2, that.ids._2, onDemand = modes.onDemandLambdaWitnesses)
+        }
+        if (modes.functionEquality == FunctionEquality.Extensional) {
+          registerLambdaPair(blocker, template, that, closuresEqual)
         }
       }
     }

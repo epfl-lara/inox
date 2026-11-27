@@ -59,6 +59,42 @@ trait SolverFacades { self: Templates =>
     /** @see [[WitnessTemplates.promoteWitnesses]] */
     def promote(equalities: Set[Encoded]): Clauses = self.promoteWitnesses(equalities)
 
+    /** @see [[WitnessTemplates.hasLambdaPairs]] */
+    def hasLambdaPairs: Boolean = self.hasLambdaPairs
+
+    /** @see [[WitnessTemplates.lambdaDistinctions]] */
+    def distinctions: Set[Encoded] = self.lambdaDistinctions
+
+    /** A pair of lambdas whose equality a model must justify (see [[WitnessTemplates.lambdaDistinctions]]). */
+    type LambdaPair = self.LambdaPair
+
+    /** @see [[WitnessTemplates.equatedLambdas]] */
+    def equatedLambdas(holds: Encoded => Boolean): Seq[LambdaPair] = self.equatedLambdas(holds)
+
+    /** @see [[WitnessTemplates.nextRound]] */
+    def nextRound(): Seq[LambdaPair] = self.nextRound()
+
+    /** @see [[WitnessTemplates.lambdaComparison]] */
+    def comparison(p: LambdaPair): (Encoded, Seq[Encoded], Clauses) = self.lambdaComparison(p)
+
+    /** @see [[WitnessTemplates.lambdaCaptures]] */
+    def captures(p: LambdaPair): Seq[(Encoded, Type)] = self.lambdaCaptures(p)
+
+    /** @see [[WitnessTemplates.fixCaptures]] */
+    def fixCaptures(values: Seq[(Encoded, Expr)]): (Encoded, Clauses) = self.fixCaptures(values)
+
+    /** @see [[WitnessTemplates.markEqualLambdas]] */
+    def markEqual(p: LambdaPair): Unit = self.markEqualLambdas(p)
+
+    /** @see [[WitnessTemplates.keepApart]] */
+    def keepApart(p: LambdaPair): Clauses = self.keepApart(p)
+
+    /** @see [[WitnessTemplates.canProbe]] */
+    def canProbe(p: LambdaPair): Boolean = self.canProbe(p)
+
+    /** @see [[WitnessTemplates.probeLambdas]] */
+    def probe(p: LambdaPair, args: Seq[Expr], terms: Map[Variable, Encoded]): Clauses = self.probeLambdas(p, args, terms)
+
     /** @see [[WitnessTemplates.instantiateWitnesses]] */
     def instantiate(equalities: Set[Encoded]): Clauses = self.instantiateWitnesses(equalities)
 
@@ -103,6 +139,9 @@ trait SolverFacades { self: Templates =>
       * [[QuantificationTemplates.getGroundInstantiations]]). */
     def groundInstantiations(e: Encoded, tpe: Type): Seq[(Encoded, Seq[Encoded])] =
       self.getGroundInstantiations(e, tpe)
+
+    /** @see [[QuantificationTemplates.getApplications]] */
+    def applications(tpe: FunctionType): Seq[(Encoded, Encoded, Seq[Encoded])] = self.getApplications(tpe)
 
     /** @see [[PartialFunctions.appFailureLiterals]] */
     def appFailureLiterals(tpe: FunctionType): Seq[((Encoded, Seq[Encoded]), Encoded)] =
