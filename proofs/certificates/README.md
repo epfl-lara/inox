@@ -189,9 +189,11 @@ rule of `unrolling.RuleKernel` builds. Two things are left to the reader:
   has, nor that the datatype and the functions that the source definitions
   give for an encoder are those of the encoder.
 
-  Nothing yet relates the encoded constraints to the originals that the
-  `simplifications` section starts from, nor the functions of the input to
-  the source definitions.
+  Each constraint also comes with the steps of the solver's simplification of
+  its encoded term, which lead to the source of its template. They are those
+  that the `simplifications` section gives for that source, which the checker
+  replays there; here it only reads them. Nothing relates the functions of the
+  input to the source definitions.
 - **The side conditions of the rules.** The checker checks the shape of each
   rule, and that the symbols that `Define`, `Hypothesis` and `Root` introduce
   are introduced once. It doesn't check what a rule states about the program,

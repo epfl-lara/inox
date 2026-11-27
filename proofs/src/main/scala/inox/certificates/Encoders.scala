@@ -35,7 +35,11 @@ import Lowering.{Entry, entry}
   * input prints as the union of its singletons, is only accepted when it is encoded as that
   * union is. With `map-merge`, `(map.merge mask m1 m2)` is the call of the encoder's `mapMerge`.
   * The symbols of an encoder are those of the sources that stand for an identifier of its name
-  * that the input doesn't have. */
+  * that the input doesn't have.
+  *
+  * Each constraint also gives the steps of the solver's simplification of the encoded term, the
+  * rule of each and the term after it, which lead to the source of the template of the
+  * constraint. The check reads them, and doesn't check them yet. */
 object Encoders {
   private val known = Set("propositions", "bags", "map-merge")
 
@@ -56,7 +60,13 @@ object Encoders {
       for (n <- encoders if !known(n)) fail(s"the checker doesn't check the encoder $n")
       val relation = new Relation(encoders.toSet, symbols, sourceSymbols.map(entry))
       for (c <- constraints) c match {
-        case SList(List(Atom("constraint"), in, SList(List(Atom("encoded"), out)))) => relation.relate(in, out, Map.empty)
+        case SList(List(Atom("constraint"), in, SList(List(Atom("encoded"), out)), SList(Atom("simplified") :: steps))) =>
+          relation.relate(in, out, Map.empty)
+          // the steps of the simplification are recorded, and not yet checked
+          for (step <- steps) step match {
+            case SList(List(Atom(_), _)) =>
+            case other => fail(s"$other is not a step of a simplification")
+          }
         case other => fail(s"$other is not a constraint of the input")
       }
       constraints.size

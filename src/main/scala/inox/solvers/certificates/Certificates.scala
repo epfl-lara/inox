@@ -22,8 +22,10 @@ object Certificates {
 
   /** What relates the sources of a refutation to the input of the solver: the constraints that
     * were asserted, as terms of the program before the encoders `encoders`, which `printer`
-    * prints, each with the term that the encoders make of it. */
-  final case class Encoding[E](encoders: Seq[String], printer: Printer[E], constraints: Seq[(E, E)])
+    * prints, each with the term that the encoders make of it and the steps of the solver's
+    * simplification of that term, the rule of each and the term after it, which lead to the
+    * source of the template of the constraint. */
+  final case class Encoding[E](encoders: Seq[String], printer: Printer[E], constraints: Seq[(E, E, Seq[(String, E)])])
 
   /** An assumption of the check, and whether it states that an open conjunction or disjunction
     * is complete, which refutations may assume (see [[unrolling.OpenJunctions]]), or is one of
@@ -231,8 +233,15 @@ object Certificates {
       }
       val (complete, query) = (clauses.size until asserts).partition(i => assumptions(i - clauses.size).complete)
       val simplifications = simplified(sourceSeq, printer, functionEquality)
+      // what the encoders make of the constraints of the input, and the steps of its
+      // simplification, are sources
+      val encoded = encoding.map { case Encoding(encoders, _, constraints) =>
+        val after = printer.printSources(constraints.map(_._2)).terms
+        val steps = constraints.map(c => c._3.map(_._1) zip printer.printSources(c._3.map(_._2)).terms)
+        Input(encoders, Seq(), (after zip steps).map { case (a, s) => Constraint(a, a, s) })
+      }
       val certificate = Certificate(proof, declarations ++ sessionDeclarations ++ templateAsserts, templateSeq, ruleSeq,
-        Assumptions(query, complete), simplifications = simplifications)
+        Assumptions(query, complete), simplifications = simplifications, input = encoded)
       // the sorts of the symbols, which may declare more datatypes in the printer, whose
       // declarations are then those of the sources: of the symbols of the session that depend on a
       // type, and of the variables and uninterpreted functions of the sources and definitions
@@ -240,12 +249,10 @@ object Certificates {
       def ofSources(ref: Ref) = ref.isInstanceOf[Ref.Variable] || ref.isInstanceOf[Ref.Uninterpreted]
       val solverSorts = sorts(certificate.solverSymbols.map(_._2).filterNot(_.isInstanceOf[Ref.Variable]))
       val sourceSorts = sorts(certificate.copy(sourceDefinitions = printer.declarations).sourceSymbols.map(_._2).filter(ofSources))
-      // the input: its constraints are printed by its printer, whose declarations they make, and
-      // what the encoders make of them are sources
+      // the input: its constraints are printed by its printer, whose declarations they make
       val input = encoding.map { case Encoding(encoders, inputPrinter, constraints) =>
         val before = inputPrinter.printSources(constraints.map(_._1)).terms
-        val after = printer.printSources(constraints.map(_._2)).terms
-        val in = Input(encoders, inputPrinter.declarations, (before zip after).map { case (b, a) => Constraint(b, a) })
+        val in = Input(encoders, inputPrinter.declarations, (before zip encoded.get.constraints).map { case (b, c) => c.copy(input = b) })
         val inputSorts = in.symbols.map(_._2).filter(ofSources).distinct.flatMap(ref => inputPrinter.sort(ref).map(ref -> _)).toMap
         // the sorts may declare more datatypes
         in.copy(definitions = inputPrinter.declarations, sorts = inputSorts)

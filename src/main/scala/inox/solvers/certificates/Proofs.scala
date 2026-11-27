@@ -245,8 +245,10 @@ final case class Value[T](symbol: T, value: T)
   * or disjunction is `complete` (see [[unrolling.OpenJunctions]]). */
 final case class Assumptions(query: Seq[Int], complete: Seq[Int])
 
-/** A constraint of the input of a solver, and what the encoders make of it, as sources. */
-final case class Constraint(input: SExpr, encoded: SExpr)
+/** A constraint of the input of a solver, what the encoders make of it, as a source, and the
+  * steps of the solver's simplification of that term: the rule of each (see
+  * [[transformers.TransformationRecorder]]) and the term after it, as a source. */
+final case class Constraint(input: SExpr, encoded: SExpr, steps: Seq[(String, SExpr)] = Seq())
 
 /** The input of the solver of a [[Certificate]]: the names of the encoders that give the program
   * of the session from the program of the input, in their order (see
@@ -276,7 +278,7 @@ final case class Certificate(proof: ScriptProof, templateScript: Seq[SExpr], tem
   /** What the symbols of the sources of the templates stand for, by their text and in its order:
     * those of the printer that printed them, and the variables of the session. */
   def sourceSymbols: Seq[(String, Ref)] =
-    (templates.flatMap(_.source.terms) ++
+    (templates.flatMap(_.source.terms) ++ input.toSeq.flatMap(_.constraints).flatMap(c => c.encoded +: c.steps.map(_._2)) ++
       sourceDefinitions ++ sourceSorts.values ++ simplifications).flatMap(_.symbols).map(s => s.text -> s.ref).distinct.sortBy(_._1)
 
   override def toString: String = {
@@ -306,7 +308,9 @@ final case class Certificate(proof: ScriptProof, templateScript: Seq[SExpr], tem
       Proof.block("simplifications", simplifications) + "\n" +
       input.map { in =>
         "(input\n(encoders" + in.encoders.map(" " + string(_)).mkString + ")\n" + Proof.block("definitions", in.definitions) + "\n" +
-          in.constraints.map(c => s"(constraint ${c.input} (encoded ${c.encoded}))\n").mkString +
+          in.constraints.map { c =>
+            s"(constraint ${c.input} (encoded ${c.encoded}) (simplified${c.steps.map((rule, e) => s" ($rule $e)").mkString}))\n"
+          }.mkString +
           "(symbols\n" + symbolLines(in.symbols, in.sorts).map(_ + "\n").mkString + "))\n"
       }.getOrElse("(input)\n") +
       Proof.block("cpc", proof.cpc) + ")"

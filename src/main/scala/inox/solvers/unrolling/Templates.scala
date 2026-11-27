@@ -1288,6 +1288,8 @@ trait Templates
       val (instExpr, steps) = timers.solvers.simplify.run {
         if (loggingRules) simplifyFormulaRecorded(expr) else (simplifyFormula(expr), Seq())
       }
+      // the steps are also those of the encoded constraint in the input of the certificate
+      if (loggingRules) simplifications(expr) = steps
 
       val tmplClauses = mkClauses0(start, instExpr, bindings + (start -> encodedStart), polarity = Some(true))
       val typed = bindings.filterNot(declared `contains` _).toSeq
@@ -1303,4 +1305,9 @@ trait Templates
         Some(typedExpr(expr) -> steps.map((rule, term) => rule -> typedExpr(term))))
     })
   }
+
+  /** The steps of the simplification of each expression that [[instantiateExpr]] instantiated,
+    * when the rules are logged: the rule of each step and the expression after it (see
+    * [[ast.SymbolOps.simplifyFormulaRecorded]]). */
+  private[unrolling] val simplifications = scala.collection.mutable.Map[Expr, Seq[(String, Expr)]]()
 }

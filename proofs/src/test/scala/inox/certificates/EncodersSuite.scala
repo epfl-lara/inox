@@ -24,7 +24,7 @@ class EncodersSuite extends AnyFunSuite {
   def input(constraint: String, encoded: String, encoders: String = "\"propositions\" \"bags\" \"map-merge\""): List[SExpr] = parse(s"""
     (encoders $encoders)
     (definitions)
-    (constraint $constraint (encoded $encoded))
+    (constraint $constraint (encoded $encoded) (simplified))
     (symbols
     (size!1 function "size$$4")
     (List!1 sort "List$$1[A$$0]")

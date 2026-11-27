@@ -2137,7 +2137,10 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
     if ((program.trees: AnyRef) ne t) None
     else printer.input(program, (e: t.Expr) => encode(e.asInstanceOf[Expr])).map { input =>
       certificates.Certificates.Encoding(programEncoder.encoders, input,
-        assertedConstraints.map(c => c.asInstanceOf[t.Expr] -> encode(c)))
+        assertedConstraints.map { c =>
+          val encoded = encode(c)
+          (c.asInstanceOf[t.Expr], encoded, templates.simplifications.getOrElse(encoded, Seq()))
+        })
     }
 
   override val templates = new TemplatesImpl(targetProgram, context)

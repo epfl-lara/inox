@@ -32,7 +32,7 @@ certificate of that query on standard output:
     (definitions
     <the SMT-LIB 3 declarations of the datatypes and definitions of the functions of the input>
     )
-    (constraint <a constraint of the input> (encoded <what the encoders make of it>))
+    (constraint <a constraint of the input> (encoded <what the encoders make of it>) (simplified (<rule> <term>) ...))
     ...
     (symbols
     (<symbol of the input> <kind> "<identifier, type or index>" ... [<sort>])
@@ -138,9 +138,13 @@ what those of the input stand for, as the source symbols do: a symbol of the
 input and one of the sources that stand for the same identifier are the
 function, the sort or the variable before and after the encoders. The input is
 `(input)` when the solver's program is not one that the session's printer
-prints. The certificate doesn't yet relate the encoded constraints to the
-sources of the templates, which are what the solver's simplifications make of
-them, nor the definitions of the input to the source definitions.
+prints. The steps of `simplified` are those of the solver's simplification
+of the encoded constraint (`ast.SymbolOps.simplifyFormulaRecorded`), each the
+rule that names it (see `transformers.TransformationRecorder`) and the term
+after it, a source: the last term is the formula of the template of the
+constraint, whose source assumes the typing of its variables. The checkers
+don't yet check the steps, nor relate the definitions of the input to the
+source definitions.
 
 A source names what its body doesn't have with markers (`unrolling.TemplateGenerator.markers`), whose
 meanings a `(where (<marker> <meaning>) ...)` after the body gives. A marker

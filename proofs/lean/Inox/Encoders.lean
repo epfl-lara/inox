@@ -29,6 +29,10 @@ where `<elem>` is `(Elem k v)` when `v` is a positive literal, `Leaf` when it is
 and `(ite (> v 0) (Elem k v) Leaf)` otherwise. With `map-merge`, `(map.merge mask m1 m2)` is the
 call of the encoder's `mapMerge`. The symbols of an encoder are those of the sources that stand
 for an identifier of its name that the input doesn't have.
+
+Each constraint also gives the steps of the solver's simplification of the encoded term, the rule
+of each and the term after it, which lead to the source of the template of the constraint. The
+check reads them, and doesn't check them yet.
 -/
 
 namespace Inox.Encoders
@@ -221,7 +225,14 @@ def check (input sourceSymbols : List Sexp) : Lower Nat :=
     let r : Relation := ⟨encoders, ← symbols.mapM entry, ← sourceSymbols.mapM entry⟩
     for c in constraints do
       match c with
-      | .expr [.atom "constraint", i, .expr [.atom "encoded", o]] => r.relate i o []
+      | .expr [.atom "constraint", i, .expr [.atom "encoded", o],
+          .expr (.atom "simplified" :: steps)] =>
+        r.relate i o []
+        -- the steps of the simplification are recorded, and not yet checked
+        for step in steps do
+          match step with
+          | .expr [.atom _, _] => pure ()
+          | other => refuse s!"{text other} is not a step of a simplification"
       | other => refuse s!"{text other} is not a constraint of the input"
     pure constraints.length
   | _ => refuse "the input of the certificate is not one"
