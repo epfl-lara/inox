@@ -1194,8 +1194,11 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   bag operations above, multiplicities, tuples, the constructors, selectors and
   testers of the sorts of the program, calls of its functions, whose bodies in
   the encoded program are what the encoder makes of their bodies in the input
-  (`Funs`), lambdas and applications, quantifiers over integers, booleans and
-  elements, errors, and calls of uninterpreted functions without type
+  (`Funs`), lambdas and applications, quantifiers over integers, booleans,
+  elements and sorts whose fields are of these or refinements of these by
+  predicates on integers, which both programs define as the input does
+  ([`Typing.lean`](Inox/Typing.lean) proves that their values are typed alike
+  in both), errors, and calls of uninterpreted functions without type
   arguments, whose interpretations in the encoded program are what the encoder
   makes of their interpretations in the input. An equality is covered where its
   operands have no functions in them. A quantifier holds when all of its
@@ -1218,13 +1221,14 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   after the encoders and defines the encoder's datatype as the encoder does, on
   values of the free variables that relate. `inox-solution --input` says how
   many constraints of each certificate that covers, and what the first of the
-  others has that isn't read. On the corpus it covers 16 of the 36 constraints,
+  others has that isn't read. On the corpus it covers 21 of the 36 constraints,
   among which that of `bags/split-preserves-content`, with its two recursive
-  functions, five with quantifiers, and five with uninterpreted functions or
-  errors: the others have quantifiers over datatypes or functions, sets, maps,
-  bitvectors, reals, or sorts whose type arguments are not the elements. Nor is
-  this theorem joined to `no_solution_of_reached` yet, whose program has
-  neither sorts with type parameters nor sorts with an equality.
+  functions, ten with quantifiers, and five with uninterpreted functions or
+  errors: the others have quantifiers over functions, encoders that rewrite
+  terms, sets, maps, bitvectors, reals, or sorts whose type arguments are not
+  the elements. Nor is this theorem joined to `no_solution_of_reached` yet,
+  whose program has neither sorts with type parameters nor sorts with an
+  equality.
 - **The link between the proof and the script.** The checker checks that each
   assumption of the proof is the text of an assert of the script, up to how
   cvc5 prints testers (`(is C e)` for `((_ is C) e)`), once the terms that the

@@ -22,7 +22,7 @@ of the others has that isn't read.
 
 namespace Inox.Input
 
-open Inox.Semantics Inox.Bags Inox.Encoded Logos
+open Inox.Semantics Inox.Bags Inox.Encoded Inox.Typing Logos
 
 /-- The types of elements that are read: `Int` and type parameters. -/
 def sameTy : Ty → Ty → Bool
@@ -61,12 +61,266 @@ structure CSig where
   funs : List (Id × List Id × Ty × List Kind × Kind)
   unint : List (Id × List Kind × Kind)
   flat : List Id
+  sorts : List (Id × List Id × List (Id × List Param))
+  elemKind : Kind
 
 def CSig.sig (S : CSig) : Sig where
   ctors c := S.ctors.lookup c
   funs f := S.funs.lookup f
   unint f := S.unint.lookup f
   flat f := S.flat.contains f
+  sorts s := S.sorts.lookup s
+  elemKind := S.elemKind
+
+mutual
+/-- The equality of types of `PureTy`. -/
+def tyEq : Ty → Ty → Bool
+  | .IntegerType, .IntegerType => true
+  | .BooleanType, .BooleanType => true
+  | .TypeParameter a, .TypeParameter b => a == b
+  | .ADTType s as, .ADTType s' bs => s == s' && tysEq as bs
+  | .RefinementType x t p, .RefinementType x' t' p' => x == x' && tyEq t t' && exprEq p p'
+  | _, _ => false
+def tysEq : List Ty → List Ty → Bool
+  | [], [] => true
+  | t :: ts, t' :: ts' => tyEq t t' && tysEq ts ts'
+  | _, _ => false
+/-- The equality of the predicates of `PureExpr`. -/
+def exprEq : Expr → Expr → Bool
+  | .Variable x, .Variable y => x == y
+  | .IntegerLiteral n, .IntegerLiteral m => n == m
+  | .BooleanLiteral a, .BooleanLiteral b => a == b
+  | .Plus a b, .Plus a' b' => exprEq a a' && exprEq b b'
+  | .Minus a b, .Minus a' b' => exprEq a a' && exprEq b b'
+  | .LessThan a b, .LessThan a' b' => exprEq a a' && exprEq b b'
+  | .GreaterThan a b, .GreaterThan a' b' => exprEq a a' && exprEq b b'
+  | .LessEquals a b, .LessEquals a' b' => exprEq a a' && exprEq b b'
+  | .GreaterEquals a b, .GreaterEquals a' b' => exprEq a a' && exprEq b b'
+  | .Not a, .Not a' => exprEq a a'
+  | _, _ => false
+end
+
+mutual
+theorem tyEq_eq : ∀ {a b : Ty}, tyEq a b = true → a = b
+  | .IntegerType, .IntegerType, _ => rfl
+  | .BooleanType, .BooleanType, _ => rfl
+  | .TypeParameter a, .TypeParameter b, h => by
+    simp only [tyEq, beq_iff_eq] at h
+    rw [h]
+  | .ADTType s as, .ADTType s' bs, h => by
+    simp only [tyEq, Bool.and_eq_true, beq_iff_eq] at h
+    rw [h.1, tysEq_eq h.2]
+  | .RefinementType x t p, .RefinementType x' t' p', h => by
+    simp only [tyEq, Bool.and_eq_true, beq_iff_eq] at h
+    rw [h.1.1, tyEq_eq h.1.2, exprEq_eq h.2]
+theorem tysEq_eq : ∀ {a b : List Ty}, tysEq a b = true → a = b
+  | [], [], _ => rfl
+  | t :: ts, t' :: ts', h => by
+    simp only [tysEq, Bool.and_eq_true] at h
+    rw [tyEq_eq h.1, tysEq_eq h.2]
+theorem exprEq_eq : ∀ {a b : Expr}, exprEq a b = true → a = b
+  | .Variable x, .Variable y, h => by simp only [exprEq, beq_iff_eq] at h; rw [h]
+  | .IntegerLiteral n, .IntegerLiteral m, h => by simp only [exprEq, beq_iff_eq] at h; rw [h]
+  | .BooleanLiteral a, .BooleanLiteral b, h => by simp only [exprEq, beq_iff_eq] at h; rw [h]
+  | .Plus a b, .Plus a' b', h => by
+    simp only [exprEq, Bool.and_eq_true] at h; rw [exprEq_eq h.1, exprEq_eq h.2]
+  | .Minus a b, .Minus a' b', h => by
+    simp only [exprEq, Bool.and_eq_true] at h; rw [exprEq_eq h.1, exprEq_eq h.2]
+  | .LessThan a b, .LessThan a' b', h => by
+    simp only [exprEq, Bool.and_eq_true] at h; rw [exprEq_eq h.1, exprEq_eq h.2]
+  | .GreaterThan a b, .GreaterThan a' b', h => by
+    simp only [exprEq, Bool.and_eq_true] at h; rw [exprEq_eq h.1, exprEq_eq h.2]
+  | .LessEquals a b, .LessEquals a' b', h => by
+    simp only [exprEq, Bool.and_eq_true] at h; rw [exprEq_eq h.1, exprEq_eq h.2]
+  | .GreaterEquals a b, .GreaterEquals a' b', h => by
+    simp only [exprEq, Bool.and_eq_true] at h; rw [exprEq_eq h.1, exprEq_eq h.2]
+  | .Not a, .Not a', h => by simp only [exprEq] at h; rw [exprEq_eq h]
+end
+
+/-- Whether an expression is a predicate on `x` of `PureExpr`. -/
+def pureExprCheck (x : Id) : Expr → Bool
+  | .Variable y => y == x
+  | .IntegerLiteral _ | .BooleanLiteral _ => true
+  | .Plus a b | .Minus a b | .LessThan a b | .GreaterThan a b | .LessEquals a b
+  | .GreaterEquals a b => pureExprCheck x a && pureExprCheck x b
+  | .Not a => pureExprCheck x a
+  | _ => false
+
+theorem pureExprCheck_sound {x : Id} : ∀ {e : Expr}, pureExprCheck x e = true → PureExpr x e
+  | .Variable y, h => by simp only [pureExprCheck, beq_iff_eq] at h; subst h; exact .var
+  | .IntegerLiteral _, _ => .int _
+  | .BooleanLiteral _, _ => .bool _
+  | .Plus a b, h => by
+    simp only [pureExprCheck, Bool.and_eq_true] at h
+    exact .plus (pureExprCheck_sound h.1) (pureExprCheck_sound h.2)
+  | .Minus a b, h => by
+    simp only [pureExprCheck, Bool.and_eq_true] at h
+    exact .minus (pureExprCheck_sound h.1) (pureExprCheck_sound h.2)
+  | .LessThan a b, h => by
+    simp only [pureExprCheck, Bool.and_eq_true] at h
+    exact .lt (pureExprCheck_sound h.1) (pureExprCheck_sound h.2)
+  | .GreaterThan a b, h => by
+    simp only [pureExprCheck, Bool.and_eq_true] at h
+    exact .gt (pureExprCheck_sound h.1) (pureExprCheck_sound h.2)
+  | .LessEquals a b, h => by
+    simp only [pureExprCheck, Bool.and_eq_true] at h
+    exact .le (pureExprCheck_sound h.1) (pureExprCheck_sound h.2)
+  | .GreaterEquals a b, h => by
+    simp only [pureExprCheck, Bool.and_eq_true] at h
+    exact .ge (pureExprCheck_sound h.1) (pureExprCheck_sound h.2)
+  | .Not a, h => by
+    simp only [pureExprCheck] at h
+    exact .not (pureExprCheck_sound h)
+
+mutual
+/-- Whether a type is of `PureTy`, with the type parameters `B`. -/
+def pureCheck (S : CSig) (B : List Id) : Ty → Bool
+  | .IntegerType | .BooleanType => true
+  | .TypeParameter a => B.contains a
+  | .ADTType s args =>
+    (match S.sorts.lookup s with
+      | some (tps, _) => args.length == tps.length
+      | none => false) && pureChecks S B args
+  | .RefinementType x t p => pureCheck S B t && pureExprCheck x p
+  | _ => false
+def pureChecks (S : CSig) (B : List Id) : List Ty → Bool
+  | [] => true
+  | t :: ts => pureCheck S B t && kindEq (pureKind S.elemKind t) S.elemKind && pureChecks S B ts
+end
+
+mutual
+theorem pureCheck_sound {S : CSig} {B : List Id} :
+    ∀ {t : Ty}, pureCheck S B t = true → PureTy S.sig.sorts S.sig.ok B t
+  | .IntegerType, _ => .int B
+  | .BooleanType, _ => .bool B
+  | .TypeParameter a, h => .tparam (by simpa [pureCheck] using h)
+  | .ADTType s args, h => by
+    simp only [pureCheck, Bool.and_eq_true] at h
+    obtain ⟨h1, h2⟩ := h
+    split at h1
+    · next tps ctors hl =>
+      obtain ⟨ha, hok⟩ := pureChecks_sound h2
+      exact .adt (by simpa [CSig.sig] using hl) (by simpa using h1) ha hok
+    · cases h1
+  | .RefinementType x t p, h => by
+    simp only [pureCheck, Bool.and_eq_true] at h
+    exact .refine (pureCheck_sound h.1) (pureExprCheck_sound h.2)
+termination_by t _ => sizeOf t
+decreasing_by all_goals simp_wf; all_goals omega
+theorem pureChecks_sound {S : CSig} {B : List Id} :
+    ∀ {ts : List Ty}, pureChecks S B ts = true →
+      (∀ t ∈ ts, PureTy S.sig.sorts S.sig.ok B t) ∧ (∀ t ∈ ts, S.sig.ok t)
+  | [], _ => ⟨by simp, by simp⟩
+  | t :: ts, h => by
+    simp only [pureChecks, Bool.and_eq_true] at h
+    obtain ⟨⟨h1, h2⟩, h3⟩ := h
+    obtain ⟨g1, g2⟩ := pureChecks_sound h3
+    have p1 := pureCheck_sound h1
+    refine ⟨fun t' ht' => ?_, fun t' ht' => ?_⟩
+    · rcases List.mem_cons.1 ht' with rfl | ht'
+      · exact p1
+      · exact g1 t' ht'
+    · rcases List.mem_cons.1 ht' with rfl | ht'
+      · exact kindEq_eq h2
+      · exact g2 t' ht'
+termination_by ts _ => sizeOf ts
+decreasing_by all_goals simp_wf; all_goals omega
+end
+
+/-- The equality of lists of fields. -/
+def fieldsEq : List (Id × Kind) → List (Id × Kind) → Bool
+  | [], [] => true
+  | (f, k) :: r, (f', k') :: r' => f == f' && kindEq k k' && fieldsEq r r'
+  | _, _ => false
+
+theorem fieldsEq_eq : ∀ {a b : List (Id × Kind)}, fieldsEq a b = true → a = b
+  | [], [], _ => rfl
+  | (f, k) :: r, (f', k') :: r', h => by
+    simp only [fieldsEq, Bool.and_eq_true, beq_iff_eq] at h
+    rw [h.1.1, kindEq_eq h.1.2, fieldsEq_eq h.2]
+
+/-- Whether the sorts of the signature are well formed and their constructors have the kinds of
+their fields. -/
+def sortOk (S : CSig) : Id × List Id × List (Id × List Param) → Bool
+  | (s, tps, ctors) => ctors.all fun (c, ps) =>
+    ps.all (fun p => pureCheck S tps (paramTy p)) &&
+      match S.ctors.lookup c with
+      | some (s', fs) => s' == s &&
+          fieldsEq fs (ps.map fun p => (paramId p, pureKind S.elemKind (paramTy p)))
+      | none => false
+
+def sigOk (S : CSig) : Bool := S.sorts.all (sortOk S)
+
+theorem sigOk_sound {S : CSig} (h : sigOk S = true) : S.sig.Ok := by
+  have get : ∀ s tps ctors, S.sig.sorts s = some (tps, ctors) → ∀ c ps, (c, ps) ∈ ctors →
+      (ps.all (fun p => pureCheck S tps (paramTy p)) &&
+        match S.ctors.lookup c with
+        | some (s', fs) => s' == s &&
+            fieldsEq fs (ps.map fun p => (paramId p, pureKind S.elemKind (paramTy p)))
+        | none => false) = true := by
+    intro s tps ctors hs c ps hc
+    have h1 := List.all_eq_true.1 h _ (mem_of_lookup (by simpa [CSig.sig] using hs))
+    exact List.all_eq_true.1 h1 _ hc
+  refine ⟨fun s tps ctors hs c ps hc p hp => ?_, fun s tps ctors hs c ps hc => ?_⟩
+  · have h2 := get s tps ctors hs c ps hc
+    simp only [Bool.and_eq_true, List.all_eq_true] at h2
+    exact pureCheck_sound (h2.1 p hp)
+  · have h2 := get s tps ctors hs c ps hc
+    simp only [Bool.and_eq_true] at h2
+    obtain ⟨_, h2⟩ := h2
+    split at h2
+    · next s' fs hl =>
+      simp only [Bool.and_eq_true, beq_iff_eq] at h2
+      obtain ⟨rfl, h3⟩ := h2
+      simp only [CSig.sig, hl, fieldsEq_eq h3]
+    · cases h2
+
+/-- The kinds of the parameters of a quantifier, the same on both sides, of the type of
+elements `Te` or of `PureTy`. -/
+def paramsCheck (S : CSig) (Te : Ty) : List Param → List Param → Option (List Kind)
+  | [], [] => some []
+  | .Param x t :: ps, .Param x' t' :: ps' =>
+    if x == x' && tyEq t t' then
+      let k : Option Kind := match t, Te with
+        | .TypeParameter a, .TypeParameter b => if a == b then some .elem else none
+        | _, _ => if pureCheck S [] t then some (pureKind S.elemKind t) else none
+      k.bind fun k => (paramsCheck S Te ps ps').map (k :: ·)
+    else none
+  | _, _ => none
+
+theorem paramsCheck_sound {S : CSig} {Te : Ty} : ∀ {ps ps' : List Param} {ks : List Kind},
+    paramsCheck S Te ps ps' = some ks → ps' = ps ∧ ParamsOk S.sig Te ps ks
+  | [], [], ks, h => by
+    simp only [paramsCheck, Option.some.injEq] at h
+    subst h
+    exact ⟨rfl, .nil⟩
+  | .Param x t :: ps, .Param x' t' :: ps', ks, h => by
+    simp only [paramsCheck] at h
+    split at h
+    · next hc =>
+      simp only [Bool.and_eq_true, beq_iff_eq] at hc
+      obtain ⟨rfl, ht⟩ := hc
+      cases tyEq_eq ht
+      obtain ⟨k, hk, h⟩ := Option.bind_eq_some_iff.1 h
+      obtain ⟨ks', h', rfl⟩ := Option.map_eq_some_iff.1 h
+      obtain ⟨rfl, hr⟩ := paramsCheck_sound h'
+      refine ⟨rfl, .cons ?_ hr⟩
+      split at hk
+      · next a b =>
+        split at hk
+        · next hab =>
+          simp only [beq_iff_eq] at hab
+          subst hab
+          cases hk
+          exact .elem rfl
+        · cases hk
+      · split at hk
+        · next hp =>
+          cases hk
+          exact .pure (pureCheck_sound hp)
+        · cases hk
+    · cases h
+  | [], _ :: _, _, h | _ :: _, [], _, h => by simp [paramsCheck] at h
 
 /-- Every constructor of the sort `s` that has the field `sel` has it of the kind `k`. -/
 def selOk (S : CSig) (s sel : Id) (k : Kind) : Bool :=
@@ -229,10 +483,9 @@ def encodesCheck (N : Names) (S : CSig) (Te : Ty) (g : List (Id × Kind) → Exp
       | none => false)
   | _, .Error, .Error, _, _ => true
   | Γ, .Forall ps body, .Forall ps' body', .bool, _ =>
-    (match paramKinds Te ps, paramKinds Te ps' with
-      | some ks, some ks' => kindsEq ks ks' && decide (param_ids ps = param_ids ps') &&
-          encodesCheck N S Te g ((param_ids ps).zip ks ++ Γ) body body' .bool true
-      | _, _ => false)
+    (match paramsCheck S Te ps ps' with
+      | some ks => encodesCheck N S Te g ((param_ids ps).zip ks ++ Γ) body body' .bool true
+      | none => false)
   | _, _, _, _, _ => false
 termination_by _ e => sizeOf e
 decreasing_by
@@ -408,12 +661,10 @@ theorem encodesCheck_sound {N : Names} {S : CSig} {Te : Ty}
     · cases h
   · exact .error _
   · next ih =>
-    simp only [Bool.and_eq_true, decide_eq_true_eq] at h
-    obtain ⟨⟨hks, hp⟩, hb⟩ := h
-    cases kindsEq_eq hks
-    have hb := ih hb
+    obtain ⟨rfl, hok⟩ := paramsCheck_sound ‹paramsCheck S Te _ _ = some _›
+    have hb := ih h
     simp only [List.lookup_append] at hb
-    exact .forall_ (by assumption) (by assumption) hp hb
+    exact .forall_ hok hb
   · cases h
   · cases h
 
@@ -514,6 +765,47 @@ partial def tyKind : Ty → Kind
   | .FunctionType ts t => .fn (ts.map tyKind) (tyKind t)
   | _ => .elem
 
+/-- The predicate of a refinement, of `PureExpr`. -/
+def readPure : Nat → Sexp → Option Expr
+  | 0, _ => none
+  | n + 1, s =>
+    match s with
+    | .atom a =>
+      if !a.isEmpty && a.all Char.isDigit then some (.IntegerLiteral a.toNat!)
+      else if a == "true" then some (.BooleanLiteral true)
+      else if a == "false" then some (.BooleanLiteral false)
+      else if a.contains '!' then some (.Variable a)
+      else none
+    | .expr [.atom "not", a] => do pure (.Not (← readPure n a))
+    | .expr [.atom "+", a, b] => do pure (.Plus (← readPure n a) (← readPure n b))
+    | .expr [.atom "-", a, b] => do pure (.Minus (← readPure n a) (← readPure n b))
+    | .expr [.atom "<", a, b] => do pure (.LessThan (← readPure n a) (← readPure n b))
+    | .expr [.atom ">", a, b] => do pure (.GreaterThan (← readPure n a) (← readPure n b))
+    | .expr [.atom "<=", a, b] => do pure (.LessEquals (← readPure n a) (← readPure n b))
+    | .expr [.atom ">=", a, b] => do pure (.GreaterEquals (← readPure n a) (← readPure n b))
+    | _ => none
+
+/-- The type that a sort reads as, of integers, booleans, the type parameters `B`, the elements,
+sorts and refinements, where it is one of these. -/
+def readSortTy (c : Ctx) (B : List String) : Nat → Sexp → Option Ty
+  | 0, _ => none
+  | n + 1, s =>
+    match s with
+    | .atom "Int" => some .IntegerType
+    | .atom "Bool" => some .BooleanType
+    | .atom a =>
+      if B.contains a then some (.TypeParameter a)
+      else if a == c.elem then some (if c.ints then .IntegerType else .TypeParameter a)
+      else if c.table.kind a == "sort" then some (.ADTType (c.table.id a) [])
+      else none
+    | .expr [.atom "!", base, .atom ":var", .atom y, .atom ":restrict", p] => do
+      pure (.RefinementType y (← readSortTy c B n base) (← readPure 100 p))
+    | .expr (.atom a :: args) =>
+      if c.table.kind a == "sort" then do
+        pure (.ADTType (c.table.id a) (← args.mapM (readSortTy c B n)))
+      else none
+    | _ => none
+
 /-- The expression that `s` reads as, or what it has that isn't read. -/
 def readExpr (c : Ctx) : Nat → Sexp → Except String Expr
   | 0, _ => .error "a term too deep"
@@ -572,8 +864,11 @@ def readExpr (c : Ctx) : Nat → Sexp → Except String Expr
       pure (.Lambda ps (← readExpr c n b))
     | .expr [.atom "forall", .expr ps, b] => do
       let ps ← ps.mapM fun
-        | .expr [.atom x, .expr (.atom "!" :: _)] => .error s!"the refined parameter {x}"
-        | .expr [.atom x, sort] => do pure (Param.Param x (kindTy c.elem (← kindOfSort c n sort)))
+        | .expr [.atom x, sort] =>
+          match readSortTy c [] 100 sort, sort with
+          | some t, _ => pure (Param.Param x t)
+          | none, .expr (.atom "!" :: _) => .error s!"the refined parameter {x}"
+          | none, _ => do pure (Param.Param x (kindTy c.elem (← kindOfSort c n sort)))
         | _ => .error "a parameter"
       pure (.Forall ps (← readExpr c n b))
     | .expr (.expr [.atom "as", .atom "@", _] :: f :: args) => do
@@ -672,6 +967,28 @@ def ctorsOf (t : Table) (ints : Bool) (definitions : List Sexp) :
           fs.map fun fs => (t.id k, t.id sort, fs)
         | _ => none
     | _ => []
+
+/-- The sorts of the input whose fields are read as types, with their type parameters and
+their constructors. -/
+def sortsOf (t : Table) (ints : Bool) (top : String) (definitions : List Sexp) :
+    List (Id × List Id × List (Id × List Param)) :=
+  definitions.filterMap fun
+    | .expr [.atom "declare-datatypes", .expr [.expr [.atom sort, _]], .expr [decl]] =>
+      let (tps, ctors) : List String × List Sexp := match decl with
+        | .expr [.atom "par", .expr tps, .expr ctors] =>
+          (tps.filterMap fun | .atom a => some a | _ => none, ctors)
+        | .expr ctors => ([], ctors)
+        | _ => ([], [])
+      let ctors := ctors.mapM fun (ctor : Sexp) => match ctor with
+        | .expr (.atom k :: fields) => do
+          let ps ← fields.mapM fun (field : Sexp) => match field with
+            | .expr [.atom f, s] =>
+              (readSortTy ⟨t, top, ints⟩ tps 100 s).map (Param.Param (t.field f))
+            | _ => none
+          pure (t.id k, ps)
+        | _ => none
+      ctors.map fun ctors => (t.id sort, tps, ctors)
+    | _ => none
 
 /-- A function of the input as it is read: its name, its type parameters, the type of the
 elements in its body, the kinds of its parameters and of its result, its parameters and its
@@ -777,13 +1094,13 @@ def defsCheck (N : Names) (S : CSig) (defs : List (Id × List Id × Expr × Expr
     | none => false
 
 def Coverage.none (n : Nat) (why : String) : Coverage :=
-  { names := namesOf ⟨[]⟩, sig := ⟨[], [], [], []⟩, defs := [], elem := .UnitType,
+  { names := namesOf ⟨[]⟩, sig := ⟨[], [], [], [], [], .int⟩, defs := [], elem := .UnitType,
     vars := [],
     covered := [], constraints := n, first := some why }
 
 /-- What the checks give of a coverage. -/
 def Coverage.Ok (C : Coverage) : Prop :=
-  defsCheck C.names C.sig C.defs = true ∧
+  sigOk C.sig = true ∧ defsCheck C.names C.sig C.defs = true ∧
     ∀ p ∈ C.covered,
       encodesCheck C.names C.sig C.elem (kindOf C.sig) C.vars p.1 p.2 .bool false = true
 
@@ -792,7 +1109,7 @@ are checked. -/
 def gate (N : Names) (S : CSig) (defs : List (Id × List Id × Expr × Expr)) (Te : Ty)
     (Γ : List (Id × Kind)) (pairs : List (Expr × Expr)) (n : Nat) (first : Option String) :
     Coverage :=
-  if defsCheck N S defs then
+  if sigOk S && defsCheck N S defs then
     { names := N, sig := S, defs := defs, elem := Te, vars := Γ,
       covered := pairs.filter fun p => encodesCheck N S Te (kindOf S) Γ p.1 p.2 .bool false,
       constraints := n, first := first }
@@ -803,8 +1120,11 @@ theorem gate_ok (N : Names) (S : CSig) (defs : List (Id × List Id × Expr × Ex
     (gate N S defs Te Γ pairs n first).Ok := by
   unfold gate
   split
-  · next h => exact ⟨h, fun p hp => (List.mem_filter.1 hp).2⟩
-  · exact ⟨by simp [Coverage.none, defsCheck], fun p hp => by simp [Coverage.none] at hp⟩
+  · next h =>
+    simp only [Bool.and_eq_true] at h
+    exact ⟨h.1, h.2, fun p hp => (List.mem_filter.1 hp).2⟩
+  · exact ⟨by simp [Coverage.none, sigOk], by simp [Coverage.none, defsCheck],
+      fun p hp => by simp [Coverage.none] at hp⟩
 
 def covers (certificate : Sexp) : Coverage :=
   let input := sectionOf certificate "input"
@@ -820,6 +1140,15 @@ def covers (certificate : Sexp) : Coverage :=
   let N := namesOf tout
   let ints := top == "Int"
   let ctors := ctorsOf tin ints definitions
+  let κ : Kind := if ints then .int else .elem
+  -- the sorts that are checked, removing the others until none is removed
+  let rec okSorts : Nat → List (Id × List Id × List (Id × List Param)) →
+      List (Id × List Id × List (Id × List Param))
+    | 0, ss => ss
+    | n + 1, ss =>
+      let kept := ss.filter (sortOk ⟨ctors, [], [], [], ss, κ⟩)
+      if kept.length == ss.length then ss else okSorts n kept
+  let sorts := okSorts (definitions.length + 1) (sortsOf tin ints top definitions)
   let bodies := encodedBodies input
   -- the uninterpreted functions without type parameters
   let unints := definitions.filterMap fun
@@ -847,7 +1176,7 @@ def covers (certificate : Sexp) : Coverage :=
       List (Fun × Expr × Expr) × List Id
     | 0, fs, flat => (fs, flat)
     | n + 1, fs, flat =>
-      let S : CSig := ⟨ctors, fs.map (fun (f, _, _) => f.entry), unints, flat⟩
+      let S : CSig := ⟨ctors, fs.map (fun (f, _, _) => f.entry), unints, flat, sorts, κ⟩
       let check (u : Bool) : Fun × Expr × Expr → Bool := fun (f, body, body') =>
         encodesCheck N S f.elem (kindOf S) (f.params.zip f.kinds) body body' f.kind u
       let flat' := unints.map (·.1) ++ (fs.filter (check true)).map (·.1.name)
@@ -856,7 +1185,7 @@ def covers (certificate : Sexp) : Coverage :=
       else keep n kept flat'
   let (funs, flat) := keep (2 * read.length + 2) read
     (unints.map (·.1) ++ read.map fun (f, _, _) => f.name)
-  let S : CSig := ⟨ctors, funs.map (fun (f, _, _) => f.entry), unints, flat⟩
+  let S : CSig := ⟨ctors, funs.map (fun (f, _, _) => f.entry), unints, flat, sorts, κ⟩
   let defs := funs.map fun (f, body, body') => (f.name, f.params, body, body')
   let cin : Ctx := ⟨tin, top, ints⟩
   let Γ := symbols.filterMap fun
@@ -904,7 +1233,7 @@ theorem Coverage.encoded {C : Coverage} (hC : C.Ok) {O : Oracle} {Ps P : Program
     ∀ p ∈ C.covered, ∃ n, eval O P n env' p.2 = .Ok (.BoolV true) := by
   have hF : Funs O Ps P C.names T0 C.sig.sig := by
     refine ⟨fun f tparams Tf ks k hf => ?_, hints⟩
-    have hall := List.all_eq_true.1 hC.1 _ (mem_of_lookup hf)
+    have hall := List.all_eq_true.1 hC.2.1 _ (mem_of_lookup hf)
     simp only [] at hall
     split at hall
     · next params body body' hd =>
@@ -913,7 +1242,8 @@ theorem Coverage.encoded {C : Coverage} (hC : C.Ok) {O : Oracle} {Ps P : Program
     · cases hall
   intro p hp
   obtain ⟨n, hn⟩ := hsol p hp
-  obtain ⟨v', m, _, hR, hm⟩ := encodes_eval hB hF n.toNat (encodesCheck_sound (hC.2 p hp))
+  obtain ⟨v', m, _, hR, hm⟩ := encodes_eval hB (sigOk_sound hC.1) hF n.toNat
+    (encodesCheck_sound (hC.2.2 p hp))
     env env' hT hΓ n (Int.self_le_toNat n) _ hn
   cases hR
   exact ⟨m, hm m (Int.le_refl m)⟩
