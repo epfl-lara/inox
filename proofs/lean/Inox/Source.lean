@@ -806,11 +806,11 @@ theorem infer_sound (hD : DataOk D) (S : List Sig) (Γ : List (Id × Ty)) :
   | .FPLessEquals _ _, k, h | .FPGreaterEquals _ _, k, h | .FPIsZero _, k, h
   | .FPIsInfinite _, k, h | .FPIsNaN _, k, h | .FPIsNegative _, k, h | .FPIsPositive _, k, h
   | .FPIsNormal _, k, h | .FPIsSubnormal _, k, h | .Tuple _, k, h | .TupleSelect _ _, k, h
-  | .FiniteSet _, k, h | .SetAdd _ _, k, h | .ElementOfSet _ _, k, h | .SubsetOf _ _, k, h
+  | .FiniteSet _ _, k, h | .SetAdd _ _, k, h | .ElementOfSet _ _, k, h | .SubsetOf _ _, k, h
   | .SetIntersection _ _, k, h | .SetUnion _ _, k, h | .SetDifference _ _, k, h
-  | .FiniteBag _, k, h | .BagAdd _ _, k, h | .MultiplicityInBag _ _, k, h
+  | .FiniteBag _ _, k, h | .BagAdd _ _, k, h | .MultiplicityInBag _ _, k, h
   | .BagIntersection _ _, k, h | .BagUnion _ _, k, h | .BagDifference _ _, k, h
-  | .FiniteMap _ _, k, h | .MapApply _ _, k, h | .MapUpdated _ _ _, k, h
+  | .FiniteMap _ _ _ _, k, h | .MapApply _ _, k, h | .MapUpdated _ _ _, k, h
   | .MapMerge _ _ _, k, h => by
     simp [infer] at h
 

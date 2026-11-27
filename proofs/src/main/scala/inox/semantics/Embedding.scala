@@ -131,20 +131,21 @@ object Embedding {
       case BVSignedToUnsigned(a) => expr(a).map(S.BVSignedToUnsigned(_))
       case BVToInt(a) => expr(a).map(S.BVToInt(_))
       case IntToBV(size, signed, a) => expr(a).map(S.IntToBV(BigInt(size), signed, _))
-      case FiniteSet(es, _) => all(es).map(S.FiniteSet(_))
+      case FiniteSet(es, b) => for (xs <- all(es); t <- tpe(b)) yield S.FiniteSet(xs, t)
       case SetAdd(a, b) => two(a, b)(S.SetAdd(_, _))
       case ElementOfSet(a, b) => two(a, b)(S.ElementOfSet(_, _))
       case SubsetOf(a, b) => two(a, b)(S.SubsetOf(_, _))
       case SetIntersection(a, b) => two(a, b)(S.SetIntersection(_, _))
       case SetUnion(a, b) => two(a, b)(S.SetUnion(_, _))
       case SetDifference(a, b) => two(a, b)(S.SetDifference(_, _))
-      case FiniteBag(ps, _) => pairs(ps).map(S.FiniteBag(_))
+      case FiniteBag(ps, b) => for (xs <- pairs(ps); t <- tpe(b)) yield S.FiniteBag(xs, t)
       case BagAdd(a, b) => two(a, b)(S.BagAdd(_, _))
       case MultiplicityInBag(a, b) => two(a, b)(S.MultiplicityInBag(_, _))
       case BagIntersection(a, b) => two(a, b)(S.BagIntersection(_, _))
       case BagUnion(a, b) => two(a, b)(S.BagUnion(_, _))
       case BagDifference(a, b) => two(a, b)(S.BagDifference(_, _))
-      case FiniteMap(ps, d, _, _) => for (xs <- pairs(ps); y <- expr(d)) yield S.FiniteMap(xs, y)
+      case FiniteMap(ps, d, f, t) =>
+        for (xs <- pairs(ps); y <- expr(d); k <- tpe(f); v <- tpe(t)) yield S.FiniteMap(xs, y, k, v)
       case MapApply(a, b) => two(a, b)(S.MapApply(_, _))
       case MapUpdated(a, b, c) => for (x <- expr(a); y <- expr(b); z <- expr(c)) yield S.MapUpdated(x, y, z)
       case MapMerge(a, b, c) => for (x <- expr(a); y <- expr(b); z <- expr(c)) yield S.MapMerge(x, y, z)
@@ -292,13 +293,14 @@ object Embedding {
       case GenericValue(_, id) => scala.Some(S.IntV(BigInt(id)))
       case Tuple(es) => all(es).map(S.TupleV(_))
       case ADT(id, _, args) => all(args).map(S.ADTV(id, _))
-      case FiniteSet(es, _) => all(es).map(S.SetV(_))
-      case FiniteBag(ps, _) =>
+      case FiniteSet(es, b) => for (xs <- all(es); t <- tpe(b)) yield S.SetV(t, xs)
+      case FiniteBag(ps, b) =>
         val es = ps.map { case (k, IntegerLiteral(n)) => value(k).map(S.BagEntry(_, n)); case _ => scala.None }
-        if (es.forall(_.isDefined)) scala.Some(S.BagV(list(es.flatten))) else scala.None
-      case FiniteMap(ps, d, _, _) =>
+        if (es.forall(_.isDefined)) tpe(b).map(S.BagV(_, list(es.flatten))) else scala.None
+      case FiniteMap(ps, d, f, t) =>
         val es = ps.map { case (k, v) => for (a <- value(k); b <- value(v)) yield S.MapEntry(a, b) }
-        if (es.forall(_.isDefined)) value(d).map(S.MapV(list(es.flatten), _)) else scala.None
+        if (es.forall(_.isDefined)) for (x <- value(d); k <- tpe(f); v <- tpe(t)) yield S.MapV(k, v, list(es.flatten), x)
+        else scala.None
       case _: Lambda => scala.None
       case _ => throw new IllegalArgumentException(s"not a value of the semantics: $e")
     }

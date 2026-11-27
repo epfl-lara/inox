@@ -40,9 +40,9 @@ object Semantics {
   final case class RoundingModeV(mode: RoundingMode) extends Value
   final case class TupleV(elems: List[Value]) extends Value
   final case class ClosureV(params: List[Param], body: Expr, env: Env) extends Value
-  final case class SetV(elems: List[Value]) extends Value
-  final case class BagV(entries: List[BagEntry]) extends Value
-  final case class MapV(entries: List[MapEntry], default: Value) extends Value
+  final case class SetV(base: Type, elems: List[Value]) extends Value
+  final case class BagV(base: Type, entries: List[BagEntry]) extends Value
+  final case class MapV(keys: Type, values: Type, entries: List[MapEntry], default: Value) extends Value
   final case class ADTV(ctor: Id, args: List[Value]) extends Value
 
   final case class BagEntry(elem: Value, count: BigInt)
@@ -161,20 +161,20 @@ object Semantics {
   final case class FPIsSubnormal(expr: Expr) extends Expr
   final case class Tuple(exprs: List[Expr]) extends Expr
   final case class TupleSelect(tuple: Expr, index: BigInt) extends Expr
-  final case class FiniteSet(elems: List[Expr]) extends Expr
+  final case class FiniteSet(elems: List[Expr], base: Type) extends Expr
   final case class SetAdd(set: Expr, elem: Expr) extends Expr
   final case class ElementOfSet(elem: Expr, set: Expr) extends Expr
   final case class SubsetOf(lhs: Expr, rhs: Expr) extends Expr
   final case class SetIntersection(lhs: Expr, rhs: Expr) extends Expr
   final case class SetUnion(lhs: Expr, rhs: Expr) extends Expr
   final case class SetDifference(lhs: Expr, rhs: Expr) extends Expr
-  final case class FiniteBag(elems: List[ExprPair]) extends Expr
+  final case class FiniteBag(elems: List[ExprPair], base: Type) extends Expr
   final case class BagAdd(bag: Expr, elem: Expr) extends Expr
   final case class MultiplicityInBag(elem: Expr, bag: Expr) extends Expr
   final case class BagIntersection(lhs: Expr, rhs: Expr) extends Expr
   final case class BagUnion(lhs: Expr, rhs: Expr) extends Expr
   final case class BagDifference(lhs: Expr, rhs: Expr) extends Expr
-  final case class FiniteMap(pairs: List[ExprPair], default: Expr) extends Expr
+  final case class FiniteMap(pairs: List[ExprPair], default: Expr, keys: Type, values: Type) extends Expr
   final case class MapApply(map: Expr, key: Expr) extends Expr
   final case class MapUpdated(map: Expr, key: Expr, value: Expr) extends Expr
   final case class MapMerge(mask: Expr, map1: Expr, map2: Expr) extends Expr
@@ -1148,10 +1148,10 @@ object Semantics {
           case Stuck() => Stuck()
           case OutOfFuel() => OutOfFuel()
         }
-      case FiniteSet(es) =>
+      case FiniteSet(es, base) =>
         eval_list(v_P, fuel, env, es) match {
           case Ok(vs) => set_insert_all(v_P, Nil(), vs) match {
-            case Ok(xs) => Ok(SetV(xs))
+            case Ok(xs) => Ok(SetV(resolve(env_types(env), base), xs))
             case Stuck() => Stuck()
             case OutOfFuel() => OutOfFuel()
           }
@@ -1160,9 +1160,9 @@ object Semantics {
         }
       case SetAdd(set, elem) =>
         eval_set(v_P, fuel, env, set) match {
-          case Ok(xs) => eval(v_P, fuel, env, elem) match {
-            case Ok(v) => set_insert(v_P, xs, v) match {
-              case Ok(ys) => Ok(SetV(ys))
+          case Ok(s) => eval(v_P, fuel, env, elem) match {
+            case Ok(v) => set_insert(v_P, set_elems(s), v) match {
+              case Ok(ys) => Ok(set_with(s, ys))
               case Stuck() => Stuck()
               case OutOfFuel() => OutOfFuel()
             }
@@ -1175,7 +1175,7 @@ object Semantics {
       case ElementOfSet(elem, set) =>
         eval(v_P, fuel, env, elem) match {
           case Ok(v) => eval_set(v_P, fuel, env, set) match {
-            case Ok(xs) => set_contains(v_P, xs, v) match {
+            case Ok(s) => set_contains(v_P, set_elems(s), v) match {
               case Ok(in) => Ok(BoolV(in))
               case Stuck() => Stuck()
               case OutOfFuel() => OutOfFuel()
@@ -1188,8 +1188,8 @@ object Semantics {
         }
       case SubsetOf(lhs, rhs) =>
         eval_set(v_P, fuel, env, lhs) match {
-          case Ok(xs) => eval_set(v_P, fuel, env, rhs) match {
-            case Ok(ys) => subset(v_P, xs, ys) match {
+          case Ok(s) => eval_set(v_P, fuel, env, rhs) match {
+            case Ok(u) => subset(v_P, set_elems(s), set_elems(u)) match {
               case Ok(sub) => Ok(BoolV(sub))
               case Stuck() => Stuck()
               case OutOfFuel() => OutOfFuel()
@@ -1202,9 +1202,9 @@ object Semantics {
         }
       case SetIntersection(lhs, rhs) =>
         eval_set(v_P, fuel, env, lhs) match {
-          case Ok(xs) => eval_set(v_P, fuel, env, rhs) match {
-            case Ok(ys) => set_filter(v_P, xs, ys, true) match {
-              case Ok(zs) => Ok(SetV(zs))
+          case Ok(s) => eval_set(v_P, fuel, env, rhs) match {
+            case Ok(u) => set_filter(v_P, set_elems(s), set_elems(u), true) match {
+              case Ok(zs) => Ok(set_with(s, zs))
               case Stuck() => Stuck()
               case OutOfFuel() => OutOfFuel()
             }
@@ -1216,9 +1216,9 @@ object Semantics {
         }
       case SetUnion(lhs, rhs) =>
         eval_set(v_P, fuel, env, lhs) match {
-          case Ok(xs) => eval_set(v_P, fuel, env, rhs) match {
-            case Ok(ys) => set_insert_all(v_P, xs, ys) match {
-              case Ok(zs) => Ok(SetV(zs))
+          case Ok(s) => eval_set(v_P, fuel, env, rhs) match {
+            case Ok(u) => set_insert_all(v_P, set_elems(s), set_elems(u)) match {
+              case Ok(zs) => Ok(set_with(s, zs))
               case Stuck() => Stuck()
               case OutOfFuel() => OutOfFuel()
             }
@@ -1230,9 +1230,9 @@ object Semantics {
         }
       case SetDifference(lhs, rhs) =>
         eval_set(v_P, fuel, env, lhs) match {
-          case Ok(xs) => eval_set(v_P, fuel, env, rhs) match {
-            case Ok(ys) => set_filter(v_P, xs, ys, false) match {
-              case Ok(zs) => Ok(SetV(zs))
+          case Ok(s) => eval_set(v_P, fuel, env, rhs) match {
+            case Ok(u) => set_filter(v_P, set_elems(s), set_elems(u), false) match {
+              case Ok(zs) => Ok(set_with(s, zs))
               case Stuck() => Stuck()
               case OutOfFuel() => OutOfFuel()
             }
@@ -1242,18 +1242,18 @@ object Semantics {
           case Stuck() => Stuck()
           case OutOfFuel() => OutOfFuel()
         }
-      case FiniteBag(es) =>
+      case FiniteBag(es, base) =>
         eval_bag_entries(v_P, fuel, env, Nil(), es) match {
-          case Ok(xs) => Ok(BagV(xs))
+          case Ok(xs) => Ok(BagV(resolve(env_types(env), base), xs))
           case Stuck() => Stuck()
           case OutOfFuel() => OutOfFuel()
         }
       case BagAdd(bag, elem) =>
         eval_bag(v_P, fuel, env, bag) match {
-          case Ok(xs) => eval(v_P, fuel, env, elem) match {
-            case Ok(v) => bag_get(v_P, xs, v) match {
-              case Ok(n) => bag_set(v_P, xs, v, (n + BigInt(1))) match {
-                case Ok(ys) => Ok(BagV(ys))
+          case Ok(b) => eval(v_P, fuel, env, elem) match {
+            case Ok(v) => bag_get(v_P, bag_entries(b), v) match {
+              case Ok(n) => bag_set(v_P, bag_entries(b), v, (n + BigInt(1))) match {
+                case Ok(ys) => Ok(bag_with(b, ys))
                 case Stuck() => Stuck()
                 case OutOfFuel() => OutOfFuel()
               }
@@ -1269,7 +1269,7 @@ object Semantics {
       case MultiplicityInBag(elem, bag) =>
         eval(v_P, fuel, env, elem) match {
           case Ok(v) => eval_bag(v_P, fuel, env, bag) match {
-            case Ok(xs) => bag_get(v_P, xs, v) match {
+            case Ok(b) => bag_get(v_P, bag_entries(b), v) match {
               case Ok(n) => Ok(IntV(n))
               case Stuck() => Stuck()
               case OutOfFuel() => OutOfFuel()
@@ -1282,9 +1282,9 @@ object Semantics {
         }
       case BagIntersection(lhs, rhs) =>
         eval_bag(v_P, fuel, env, lhs) match {
-          case Ok(xs) => eval_bag(v_P, fuel, env, rhs) match {
-            case Ok(ys) => bag_merge(v_P, IntersectionOp(), Nil(), xs, ys) match {
-              case Ok(zs) => Ok(BagV(zs))
+          case Ok(b) => eval_bag(v_P, fuel, env, rhs) match {
+            case Ok(c) => bag_merge(v_P, IntersectionOp(), Nil(), bag_entries(b), bag_entries(c)) match {
+              case Ok(zs) => Ok(bag_with(b, zs))
               case Stuck() => Stuck()
               case OutOfFuel() => OutOfFuel()
             }
@@ -1296,9 +1296,9 @@ object Semantics {
         }
       case BagUnion(lhs, rhs) =>
         eval_bag(v_P, fuel, env, lhs) match {
-          case Ok(xs) => eval_bag(v_P, fuel, env, rhs) match {
-            case Ok(ys) => bag_add_all(v_P, xs, ys) match {
-              case Ok(zs) => Ok(BagV(zs))
+          case Ok(b) => eval_bag(v_P, fuel, env, rhs) match {
+            case Ok(c) => bag_add_all(v_P, bag_entries(b), bag_entries(c)) match {
+              case Ok(zs) => Ok(bag_with(b, zs))
               case Stuck() => Stuck()
               case OutOfFuel() => OutOfFuel()
             }
@@ -1310,9 +1310,9 @@ object Semantics {
         }
       case BagDifference(lhs, rhs) =>
         eval_bag(v_P, fuel, env, lhs) match {
-          case Ok(xs) => eval_bag(v_P, fuel, env, rhs) match {
-            case Ok(ys) => bag_merge(v_P, DifferenceOp(), Nil(), xs, ys) match {
-              case Ok(zs) => Ok(BagV(zs))
+          case Ok(b) => eval_bag(v_P, fuel, env, rhs) match {
+            case Ok(c) => bag_merge(v_P, DifferenceOp(), Nil(), bag_entries(b), bag_entries(c)) match {
+              case Ok(zs) => Ok(bag_with(b, zs))
               case Stuck() => Stuck()
               case OutOfFuel() => OutOfFuel()
             }
@@ -1322,10 +1322,10 @@ object Semantics {
           case Stuck() => Stuck()
           case OutOfFuel() => OutOfFuel()
         }
-      case FiniteMap(pairs, default) =>
+      case FiniteMap(pairs, default, kt, vt) =>
         eval_map_entries(v_P, fuel, env, Nil(), pairs) match {
           case Ok(xs) => eval(v_P, fuel, env, default) match {
-            case Ok(d) => Ok(MapV(xs, d))
+            case Ok(d) => Ok(MapV(resolve(env_types(env), kt), resolve(env_types(env), vt), xs, d))
             case Stuck() => Stuck()
             case OutOfFuel() => OutOfFuel()
           }
@@ -1336,7 +1336,7 @@ object Semantics {
         eval(v_P, fuel, env, map) match {
           case Ok(m) => eval(v_P, fuel, env, key) match {
             case Ok(k) => ((m) match {
-              case MapV(xs, d) => map_get(v_P, xs, k, d)
+              case MapV(_, _, xs, d) => map_get(v_P, xs, k, d)
               case _ => Stuck()
             })
             case Stuck() => Stuck()
@@ -1350,8 +1350,8 @@ object Semantics {
           case Ok(m) => eval(v_P, fuel, env, key) match {
             case Ok(k) => eval(v_P, fuel, env, value) match {
               case Ok(v) => ((m) match {
-                case MapV(xs, d) => map_put(v_P, xs, k, v) match {
-                    case Ok(ys) => Ok(MapV(ys, d))
+                case MapV(kt, vt, xs, d) => map_put(v_P, xs, k, v) match {
+                    case Ok(ys) => Ok(MapV(kt, vt, ys, d))
                     case Stuck() => Stuck()
                     case OutOfFuel() => OutOfFuel()
                   }
@@ -1371,10 +1371,10 @@ object Semantics {
           case Ok(ks) => eval(v_P, fuel, env, map1) match {
             case Ok(m1) => eval(v_P, fuel, env, map2) match {
               case Ok(m2) => ((m1) match {
-                case MapV(xs, d1) => ((m2) match {
-                    case MapV(ys, d2) => map_without(v_P, ys, ks) match {
-                        case Ok(rest) => map_take(v_P, rest, ks, xs, d1) match {
-                          case Ok(zs) => Ok(MapV(zs, d2))
+                case MapV(_, _, xs, d1) => ((m2) match {
+                    case MapV(kt, vt, ys, d2) => map_without(v_P, ys, set_elems(ks)) match {
+                        case Ok(rest) => map_take(v_P, rest, set_elems(ks), xs, d1) match {
+                          case Ok(zs) => Ok(MapV(kt, vt, zs, d2))
                           case Stuck() => Stuck()
                           case OutOfFuel() => OutOfFuel()
                         }
@@ -1486,9 +1486,9 @@ object Semantics {
               case ExtensionalEquality() => Ok(closures_equal(v_P, a, b))
             })
         })
-      case SetV(xs) =>
+      case SetV(_, xs) =>
         ((b) match {
-          case SetV(ys) => subset(v_P, xs, ys) match {
+          case SetV(_, ys) => subset(v_P, xs, ys) match {
               case Ok(sub) => (if (sub) {
                 subset(v_P, ys, xs)
               } else {
@@ -1499,9 +1499,9 @@ object Semantics {
             }
           case _ => Ok(false)
         })
-      case BagV(xs) =>
+      case BagV(_, xs) =>
         ((b) match {
-          case BagV(ys) => sub_bag(v_P, xs, ys) match {
+          case BagV(_, ys) => sub_bag(v_P, xs, ys) match {
               case Ok(sub) => (if (sub) {
                 sub_bag(v_P, ys, xs)
               } else {
@@ -1512,9 +1512,9 @@ object Semantics {
             }
           case _ => Ok(false)
         })
-      case MapV(xs, d) =>
+      case MapV(_, _, xs, d) =>
         ((b) match {
-          case MapV(ys, e) => value_eq(v_P, d, e) match {
+          case MapV(_, _, ys, e) => value_eq(v_P, d, e) match {
               case Ok(same) => (if (same) {
                 same_entries(v_P, xs, xs, d, ys, e) match {
                   case Ok(l) => (if (l) {
@@ -2761,15 +2761,27 @@ object Semantics {
           }
       })
 
-    def eval_set(v_P: Program, fuel: BigInt, env: Env, e: Expr): Result[List[Value]] =
+    def eval_set(v_P: Program, fuel: BigInt, env: Env, e: Expr): Result[Value] =
       eval(v_P, fuel, env, e) match {
         case Ok(v) => ((v) match {
-          case SetV(xs) => Ok(xs)
+          case SetV(_, _) => Ok(v)
           case _ => Stuck()
         })
         case Stuck() => Stuck()
         case OutOfFuel() => OutOfFuel()
       }
+
+    def set_elems(v: Value): List[Value] =
+      ((v) match {
+        case SetV(_, xs) => xs
+        case _ => Nil()
+      })
+
+    def set_with(v: Value, xs: List[Value]): Value =
+      ((v) match {
+        case SetV(base, _) => SetV(base, xs)
+        case _ => v
+      })
 
     def bag_get(v_P: Program, xs: List[BagEntry], v: Value): Result[BigInt] =
       ((xs) match {
@@ -2870,15 +2882,27 @@ object Semantics {
           }
       })
 
-    def eval_bag(v_P: Program, fuel: BigInt, env: Env, e: Expr): Result[List[BagEntry]] =
+    def eval_bag(v_P: Program, fuel: BigInt, env: Env, e: Expr): Result[Value] =
       eval(v_P, fuel, env, e) match {
         case Ok(v) => ((v) match {
-          case BagV(xs) => Ok(xs)
+          case BagV(_, _) => Ok(v)
           case _ => Stuck()
         })
         case Stuck() => Stuck()
         case OutOfFuel() => OutOfFuel()
       }
+
+    def bag_entries(v: Value): List[BagEntry] =
+      ((v) match {
+        case BagV(_, xs) => xs
+        case _ => Nil()
+      })
+
+    def bag_with(v: Value, xs: List[BagEntry]): Value =
+      ((v) match {
+        case BagV(base, _) => BagV(base, xs)
+        case _ => v
+      })
 
     def eval_bag_entries(v_P: Program, fuel: BigInt, env: Env, acc: List[BagEntry], es: List[ExprPair]): Result[List[BagEntry]] =
       ((es) match {
@@ -3112,17 +3136,17 @@ object Semantics {
         })
       case SetType(u) =>
         ((v) match {
-          case SetV(xs) => (all_have_type(v_P, env, xs, u) && distinct_values(v_P, xs))
+          case SetV(_, xs) => (all_have_type(v_P, env, xs, u) && distinct_values(v_P, xs))
           case _ => false
         })
       case BagType(u) =>
         ((v) match {
-          case BagV(xs) => (bag_has_type(v_P, env, xs, u) && distinct_values(v_P, bag_elems(xs)))
+          case BagV(_, xs) => (bag_has_type(v_P, env, xs, u) && distinct_values(v_P, bag_elems(xs)))
           case _ => false
         })
       case MapType(u, w) =>
         ((v) match {
-          case MapV(xs, d) => (has_type(v_P, env, d, w) && (map_has_type(v_P, env, xs, u, w) && distinct_values(v_P, map_keys(xs))))
+          case MapV(_, _, xs, d) => (has_type(v_P, env, d, w) && (map_has_type(v_P, env, xs, u, w) && distinct_values(v_P, map_keys(xs))))
           case _ => false
         })
       case FunctionType(from, to) =>

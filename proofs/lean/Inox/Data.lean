@@ -673,7 +673,7 @@ theorem agrees_trV {D : List Data} (hD : DataOk D) (uc : SmtUSortDom) :
     rfl
   | .UnitV, T, h | .CharV _, T, h | .StringV _, T, h
   | .FPV _ _ _, T, h | .RoundingModeV _, T, h | .TupleV _, T, h | .ClosureV _ _ _, T, h
-  | .SetV _, T, h | .BagV _, T, h | .MapV _ _, T, h => by simp [HasV] at h
+  | .SetV _ _, T, h | .BagV _ _, T, h | .MapV _ _ _ _, T, h => by simp [HasV] at h
 
 theorem agrees_trVs {D : List Data} (hD : DataOk D) (uc : SmtUSortDom) :
     ∀ (vs : List Value) (Ts : List Ty), HasVs D vs Ts → List.Forall₂ (ValueOk D uc) vs Ts
@@ -918,8 +918,8 @@ theorem value_eq_hasV {D : List Data} (hO : O.Sound) (P : Program) :
   | .RealV _ _, _, b, _, _ => by rw [hO.value_eq]
   | .UnitV, T, _, h, _ | .CharV _, T, _, h, _ | .StringV _, T, _, h, _
   | .FPV _ _ _, T, _, h, _ | .RoundingModeV _, T, _, h, _
-  | .TupleV _, T, _, h, _ | .ClosureV _ _ _, T, _, h, _ | .SetV _, T, _, h, _
-  | .BagV _, T, _, h, _ | .MapV _ _, T, _, h, _ => by simp [HasV] at h
+  | .TupleV _, T, _, h, _ | .ClosureV _ _ _, T, _, h, _ | .SetV _ _, T, _, h, _
+  | .BagV _ _, T, _, h, _ | .MapV _ _ _ _, T, _, h, _ => by simp [HasV] at h
 
 theorem values_eq_hasV {D : List Data} (hO : O.Sound) (P : Program) :
     ∀ (xs : List Value) (Ts : List Ty) (ys : List Value), HasVs D xs Ts → HasVs D ys Ts →
