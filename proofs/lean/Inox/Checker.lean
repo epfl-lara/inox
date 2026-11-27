@@ -424,8 +424,10 @@ def check (certificate : Sexp) : Check Checked := do
       if !named[i]! then fail s!"assert {i}, {text clauses[i]!}, is the clause of no rule and no assumption"
 
     -- the proof refutes the script, where its definitions name terms: each of its assumptions is
-    -- an assert of the script as it is, up to how cvc5 prints testers
-    let asserted : Std.HashSet String := Std.HashSet.ofList (clauses.toList.map fun clause => text (testers clause))
+    -- an assert of the script as it is, up to how cvc5 prints testers, and where the solver may
+    -- have inlined the bindings of both
+    let asserted : Std.HashSet String := Std.HashSet.ofList (clauses.toList.flatMap fun clause =>
+      [text (testers clause), text (testers (inlined clause))])
     let mut definitions : Std.HashMap String Sexp := {}
     for step in cpc do
       match step with
@@ -433,7 +435,7 @@ def check (certificate : Sexp) : Check Checked := do
         definitions := definitions.insert name (substitute definitions [] term)
       | .expr [.atom "assume", _, formula] =>
         let assumed := substitute definitions [] formula
-        if !asserted.contains (text (testers assumed)) then
+        if !asserted.contains (text (testers assumed)) && !asserted.contains (text (testers (inlined assumed))) then
           fail s!"the proof assumes {text assumed}, which the script doesn't assert"
       | _ => pure ()
 
