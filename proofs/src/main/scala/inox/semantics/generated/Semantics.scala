@@ -43,7 +43,7 @@ object Semantics {
   final case class SetV(base: Type, elems: List[Value]) extends Value
   final case class BagV(base: Type, entries: List[BagEntry]) extends Value
   final case class MapV(keys: Type, values: Type, entries: List[MapEntry], default: Value) extends Value
-  final case class ADTV(ctor: Id, args: List[Value]) extends Value
+  final case class ADTV(ctor: Id, tps: List[Type], args: List[Value]) extends Value
 
   final case class BagEntry(elem: Value, count: BigInt)
 
@@ -185,7 +185,7 @@ object Semantics {
 
   final case class Constructor(id: Id, sort: Id, fields: List[Param])
 
-  final case class Sort(id: Id, tparams: List[Id], invariant: Option[Id])
+  final case class Sort(id: Id, tparams: List[Id], invariant: Option[Id], equality: Option[Id])
 
   final case class Interpretation(id: Id, tps: List[Type], params: List[Id], body: Expr)
 
@@ -344,7 +344,7 @@ object Semantics {
       ((ss) match {
         case Nil() => Stuck()
         case Cons(srt, rest) => ((srt) match {
-            case Sort(t, _, _) => (if ((s == t)) {
+            case Sort(t, _, _, _) => (if ((s == t)) {
                 Ok(srt)
               } else {
                 lookup_sort(rest, s)
@@ -492,7 +492,7 @@ object Semantics {
       case IsConstructor(adt, c) =>
         eval(v_P, fuel, env, adt) match {
           case Ok(v) => ((v) match {
-            case ADTV(d, _) => Ok(BoolV((c == d)))
+            case ADTV(d, _, _) => Ok(BoolV((c == d)))
             case _ => Stuck()
           })
           case Stuck() => Stuck()
@@ -501,7 +501,7 @@ object Semantics {
       case ADTSelector(adt, sel) =>
         eval(v_P, fuel, env, adt) match {
           case Ok(v) => ((v) match {
-            case ADTV(c, vs) => ((v_P) match {
+            case ADTV(c, _, vs) => ((v_P) match {
                 case Program(_, cs, _, _, _) => lookup_ctor(cs, c) match {
                     case Ok(k) => ((k) match {
                       case Constructor(_, _, fields) => select_field(fields, vs, sel)
@@ -1436,10 +1436,10 @@ object Semantics {
             case Ok(k) => ((k) match {
               case Constructor(_, s, _) => lookup_sort(ss, s) match {
                   case Ok(srt) => ((srt) match {
-                    case Sort(_, _, None()) => Ok(ADTV(c, vs))
-                    case Sort(_, _, Some(inv)) => call(v_P, fuel, inv, tps, env_types(env), Cons(ADTV(c, vs), Nil())) match {
+                    case Sort(_, _, None(), _) => Ok(ADTV(c, resolve_all(env_types(env), tps), vs))
+                    case Sort(_, _, Some(inv), _) => call(v_P, fuel, inv, tps, env_types(env), Cons(ADTV(c, resolve_all(env_types(env), tps), vs), Nil())) match {
                         case Ok(holds) => ((holds) match {
-                          case BoolV(true) => Ok(ADTV(c, vs))
+                          case BoolV(true) => Ok(ADTV(c, resolve_all(env_types(env), tps), vs))
                           case _ => Stuck()
                         })
                         case Stuck() => Stuck()
@@ -1533,16 +1533,33 @@ object Semantics {
             }
           case _ => Ok(false)
         })
-      case ADTV(c, xs) =>
+      case ADTV(c, tps, xs) =>
         ((b) match {
-          case ADTV(d, ys) => (if ((c == d)) {
-              values_eq(v_P, xs, ys)
-            } else {
-              Ok(false)
+          case ADTV(d, _, ys) => ((sort_equality(v_P, c)) match {
+              case Some(f) => adt_equal(v_P, f, tps, a, b)
+              case None() => (if ((c == d)) {
+                  values_eq(v_P, xs, ys)
+                } else {
+                  Ok(false)
+                })
             })
           case _ => Ok(false)
         })
     }
+
+    def sort_equality(v_P: Program, c: Id): Option[Id] =
+      ((v_P) match {
+        case Program(_, cs, ss, _, _) => ((lookup_ctor(cs, c)) match {
+            case Ok(Constructor(_, s, _)) => ((lookup_sort(ss, s)) match {
+                case Ok(Sort(_, _, _, eq)) => eq
+                case _ => None()
+              })
+            case _ => None()
+          })
+      })
+
+    /** `adt-equal` in the semantics, which quantifies over values: an oracle gives it. */
+    def adt_equal(v_P: Program, f: Id, tps: List[Type], a: Value, b: Value): Result[Boolean]
 
     def values_eq(v_P: Program, xs: List[Value], ys: List[Value]): Result[Boolean] =
       ((xs) match {
@@ -3156,10 +3173,10 @@ object Semantics {
         })
       case ADTType(s, args) =>
         ((v) match {
-          case ADTV(c, vs) => ((v_P) match {
+          case ADTV(c, tps, vs) => ((v_P) match {
               case Program(_, cs, ss, _, _) => ((lookup_ctor(cs, c)) match {
                   case Ok(Constructor(_, s2, fields)) => ((lookup_sort(ss, s)) match {
-                      case Ok(Sort(_, tparams, inv)) => ((s == s2) && (params_have_types(v_P, Env(bind_types(tparams, args, env_types(env)), Nil()), vs, fields) && ((inv) match {
+                      case Ok(Sort(_, tparams, inv, _)) => (((s == s2) && (tps == resolve_all(env_types(env), args))) && (params_have_types(v_P, Env(bind_types(tparams, args, env_types(env)), Nil()), vs, fields) && ((inv) match {
                           case None() => true
                           case Some(f) => invariant_holds(v_P, f, args, env_types(env), v)
                         })))

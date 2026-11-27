@@ -1095,11 +1095,12 @@ theorem resolve_fragTy {D : List Data} (hO : O.Sound) (tenv : List TypeBinding) 
 
 open Classical in
 theorem set_insert_hasV {D : List Data} (hD : DataOk D) (hO : O.Sound) (P : Program)
+    (hPD : ProgData D P)
     {xs ys : List Value} {v : Value} {A : Ty} (hxs : ∀ x ∈ xs, HasV D x A) (hv : HasV D v A)
     (h : set_insert O P xs v = .Ok ys) :
     (∀ y ∈ ys, HasV D y A) ∧
       ∀ w, w ∈ ys.map (trV D) ↔ w = trV D v ∨ w ∈ xs.map (trV D) := by
-  rw [set_insert, set_contains_hasV hD hO P hxs hv] at h
+  rw [set_insert, set_contains_hasV hD hO P hPD hxs hv] at h
   dsimp only at h
   by_cases hin : trV D v ∈ xs.map (trV D)
   · rw [dite_eq_left_of_eq_true (by simp only [decide_eq_true hin])] at h
@@ -1113,6 +1114,7 @@ theorem set_insert_hasV {D : List Data} (hD : DataOk D) (hO : O.Sound) (P : Prog
     · exact hxs y hy'
 
 theorem set_insert_all_hasV {D : List Data} (hD : DataOk D) (hO : O.Sound) (P : Program)
+    (hPD : ProgData D P)
     {A : Ty} : ∀ (vs xs zs : List Value), (∀ x ∈ xs, HasV D x A) →
       (∀ v ∈ vs, HasV D v A) → set_insert_all O P xs vs = .Ok zs →
       (∀ z ∈ zs, HasV D z A) ∧
@@ -1125,8 +1127,8 @@ theorem set_insert_all_hasV {D : List Data} (hD : DataOk D) (hO : O.Sound) (P : 
     rw [set_insert_all] at h
     ok_split h
     rename_i ys hys
-    obtain ⟨hy, hym⟩ := set_insert_hasV hD hO P hxs (hvs v (.head _)) hys
-    obtain ⟨hz, hzm⟩ := set_insert_all_hasV hD hO P vs ys zs hy
+    obtain ⟨hy, hym⟩ := set_insert_hasV hD hO P hPD hxs (hvs v (.head _)) hys
+    obtain ⟨hz, hzm⟩ := set_insert_all_hasV hD hO P hPD vs ys zs hy
       (fun a ha => hvs a (.tail _ ha)) h
     refine ⟨hz, fun w => ?_⟩
     rw [hzm, hym]
@@ -1134,7 +1136,8 @@ theorem set_insert_all_hasV {D : List Data} (hD : DataOk D) (hO : O.Sound) (P : 
     tauto
 
 open Classical in
-theorem set_filter_hasV {D : List Data} (hD : DataOk D) (hO : O.Sound) (P : Program) {A : Ty}
+theorem set_filter_hasV {D : List Data} (hD : DataOk D) (hO : O.Sound) (P : Program)
+    (hPD : ProgData D P) {A : Ty}
     (ys : List Value) (keep : Bool) (hys : ∀ y ∈ ys, HasV D y A) :
     ∀ xs zs : List Value, (∀ x ∈ xs, HasV D x A) → set_filter O P xs ys keep = .Ok zs →
       zs = xs.filter fun x => decide (trV D x ∈ ys.map (trV D)) == keep
@@ -1143,11 +1146,11 @@ theorem set_filter_hasV {D : List Data} (hD : DataOk D) (hO : O.Sound) (P : Prog
     cases h
     rfl
   | x :: xs, zs, hxs, h => by
-    rw [set_filter, set_contains_hasV hD hO P hys (hxs x (.head _))] at h
+    rw [set_filter, set_contains_hasV hD hO P hPD hys (hxs x (.head _))] at h
     dsimp only at h
     ok_split h
     rename_i ws hws
-    have ih := set_filter_hasV hD hO P ys keep hys xs ws (fun a ha => hxs a (.tail _ ha)) hws
+    have ih := set_filter_hasV hD hO P hPD ys keep hys xs ws (fun a ha => hxs a (.tail _ ha)) hws
     subst ih
     by_cases hk : decide (trV D x ∈ ys.map (trV D)) = keep
     · rw [dite_eq_left_of_eq_true (eq_true hk)] at h
@@ -1350,7 +1353,7 @@ theorem ev (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hPD : ProgData D
     obtain ⟨hyT, hbM⟩ := ihb env _ hE hy
     refine ⟨trivial, fun M hw hc hV => ?_⟩
     simp only [tr, __smtx_model_eval, haM M hw hc hV, hbM M hw hc hV]
-    rw [value_eq_hasV hS.data hO P hxT hyT] at hsame
+    rw [value_eq_hasV hS.data hO P hPD hxT hyT] at hsame
     cases hsame
     exact eval_eq_trV hS.data hxT
   | plus ha _ iha ihb | minus ha _ iha ihb | times ha _ iha ihb =>
@@ -1839,12 +1842,12 @@ theorem ev (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hPD : ProgData D
     ok_split he
     rename_i vs hvs
     obtain ⟨hvsT, hvsM⟩ := ev_list hE args (fs.map Prod.snd) vs (by simpa using hl) ih hvs
-    have hv : v = .ADTV c vs := by
+    have hv : v = .ADTV c [] vs := by
       cases P with
       | Program fns cs ss is eq =>
       obtain ⟨hlc, hls⟩ := hPD c d i fs hc
       rw [construct] at he
-      simp only [hlc, hls] at he
+      simp only [hlc, hls, hO.resolve_all] at he
       cases he; rfl
     subst hv
     refine ⟨hasV_adt hc hvsT, fun M hw hcl hV => ?_⟩
@@ -1948,7 +1951,8 @@ theorem ev (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hPD : ProgData D
     have hA := hasV_fragTy hxT
     have hx1 : ∀ y ∈ [x], HasV D y A := fun y hy => by
       rw [List.mem_singleton.mp hy]; exact hxT
-    obtain ⟨hzT, hzm⟩ := set_insert_all_hasV hS.data hO P [x] [] zs (fun _ h => nomatch h) hx1
+    obtain ⟨hzT, hzm⟩ :=
+      set_insert_all_hasV hS.data hO P hPD [x] [] zs (fun _ h => nomatch h) hx1
       hzs
     rw [resolve_fragTy hO _ A hA]
     refine ⟨hasV_set_of hA hzT, fun M hw hc hV => ?_⟩
@@ -1971,7 +1975,7 @@ theorem ev (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hPD : ProgData D
     obtain ⟨hxT, hxM⟩ := iha env _ hE hx
     obtain ⟨xs, rfl, hA, hxs⟩ := hasV_set hsT
     simp only [set_elems] at hzs
-    obtain ⟨hzT, hzm⟩ := set_insert_hasV hS.data hO P hxs hxT hzs
+    obtain ⟨hzT, hzm⟩ := set_insert_hasV hS.data hO P hPD hxs hxT hzs
     have hx1 : ∀ y ∈ [x], HasV D y A := fun y hy => by
       rw [List.mem_singleton.mp hy]; exact hxT
     refine ⟨hasV_set_of hA hzT, fun M hw hc hV => ?_⟩
@@ -1992,7 +1996,7 @@ theorem ev (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hPD : ProgData D
     obtain ⟨hsT, hsM⟩ := ihs env _ hE (eval_set_ok hs')
     obtain ⟨xs, rfl, hA, hxs⟩ := hasV_set hsT
     simp only [set_elems] at hb
-    rw [set_contains_hasV hS.data hO P hxs hxT] at hb
+    rw [set_contains_hasV hS.data hO P hPD hxs hxT] at hb
     cases hb
     refine ⟨trivial, fun M hw hc hV => ?_⟩
     simp only [tr, __smtx_model_eval, hsM M hw hc hV, hxM M hw hc hV]
@@ -2013,7 +2017,7 @@ theorem ev (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hPD : ProgData D
     obtain ⟨xs, rfl, hA, hxs⟩ := hasV_set hsT
     obtain ⟨ys, rfl, _, hys⟩ := hasV_set huT
     simp only [set_elems] at hb
-    rw [subset_hasV hS.data hO P hxs hys] at hb
+    rw [subset_hasV hS.data hO P hPD hxs hys] at hb
     cases hb
     refine ⟨trivial, fun M hw hc hV => ?_⟩
     simp only [tr, __smtx_model_eval, hsM M hw hc hV, huM M hw hc hV]
@@ -2034,7 +2038,7 @@ theorem ev (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hPD : ProgData D
     obtain ⟨xs, rfl, hA, hxs⟩ := hasV_set hsT
     obtain ⟨ys, rfl, _, hys⟩ := hasV_set huT
     simp only [set_elems] at hzs
-    obtain ⟨hzT, hzm⟩ := set_insert_all_hasV hS.data hO P ys xs zs hxs hys hzs
+    obtain ⟨hzT, hzm⟩ := set_insert_all_hasV hS.data hO P hPD ys xs zs hxs hys hzs
     refine ⟨hasV_set_of hA hzT, fun M hw hc hV => ?_⟩
     simp only [tr, __smtx_model_eval, hsM M hw hc hV, huM M hw hc hV, set_with]
     exact trV_union hS.data hxs hys hzT hzm
@@ -2053,7 +2057,7 @@ theorem ev (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hPD : ProgData D
     obtain ⟨xs, rfl, hA, hxs⟩ := hasV_set hsT
     obtain ⟨ys, rfl, _, hys⟩ := hasV_set huT
     simp only [set_elems] at hzs
-    have hz := set_filter_hasV hS.data hO P ys true hys xs zs hxs hzs
+    have hz := set_filter_hasV hS.data hO P hPD ys true hys xs zs hxs hzs
     subst hz
     refine ⟨hasV_set_of hA fun z hz => hxs z (List.mem_filter.mp hz).1, fun M hw hc hV => ?_⟩
     simp only [tr, __smtx_model_eval, hsM M hw hc hV, huM M hw hc hV, set_with]
@@ -2073,7 +2077,7 @@ theorem ev (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (hPD : ProgData D
     obtain ⟨xs, rfl, hA, hxs⟩ := hasV_set hsT
     obtain ⟨ys, rfl, _, hys⟩ := hasV_set huT
     simp only [set_elems] at hzs
-    have hz := set_filter_hasV hS.data hO P ys false hys xs zs hxs hzs
+    have hz := set_filter_hasV hS.data hO P hPD ys false hys xs zs hxs hzs
     subst hz
     refine ⟨hasV_set_of hA fun z hz => hxs z (List.mem_filter.mp hz).1, fun M hw hc hV => ?_⟩
     simp only [tr, __smtx_model_eval, hsM M hw hc hV, huM M hw hc hV, set_with]

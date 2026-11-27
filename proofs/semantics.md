@@ -104,7 +104,7 @@ Equality below).
   (SetV (base Type) (elems (List Value)))
   (BagV (base Type) (entries (List BagEntry)))
   (MapV (keys Type) (values Type) (entries (List MapEntry)) (default Value))
-  (ADTV (ctor Id) (args (List Value))))
+  (ADTV (ctor Id) (tps (List Type)) (args (List Value))))
 
 (datatype BagEntry
   (BagEntry (elem Value) (count Int)))
@@ -260,9 +260,10 @@ refinement type `{x: base | prop}` holds the values of `base` for which
 
 A program gives each function its type parameters, parameters and body, each
 constructor its sort and fields, and each sort its type parameters and its
-invariant, a function of one argument, if it has one. It also gives the
-uninterpreted functions of a model, one function of the arguments for each
-instantiation, and how functions are compared: under `NoFunctionEquality`
+invariant, a function of one argument, if it has one, and its equality, a
+function of two arguments, if it has one (Inox's `HasADTEquality`). It also
+gives the uninterpreted functions of a model, one function of the arguments for
+each instantiation, and how functions are compared: under `NoFunctionEquality`
 (Inox's default) comparing two functions gets stuck, and under
 `ExtensionalEquality` they are equal when they agree on every input.
 
@@ -274,7 +275,7 @@ instantiation, and how functions are compared: under `NoFunctionEquality`
   (Constructor (id Id) (sort Id) (fields (List Param))))
 
 (datatype Sort
-  (Sort (id Id) (tparams (List Id)) (invariant (Option Id))))
+  (Sort (id Id) (tparams (List Id)) (invariant (Option Id)) (equality (Option Id))))
 
 (datatype Interpretation
   (Interpretation (id Id) (tps (List Type)) (params (List Id)) (body Expr)))
@@ -383,7 +384,7 @@ program never does.
     ((Nil) (Stuck))
     ((Cons srt rest)
       (match srt
-        ((Sort t _ _) (if (= s t) (Ok srt) (lookup-sort rest s)))))))
+        ((Sort t _ _ _) (if (= s t) (Ok srt) (lookup-sort rest s)))))))
 
 (define (select-field (fields (List Param)) (args (List Value)) (sel Id)) (Result Value)
   (match fields
@@ -502,23 +503,24 @@ does.
           ((Constructor _ s _)
             (let! ((srt (lookup-sort ss s)))
               (match srt
-                ((Sort _ _ (None)) (Ok (ADTV c vs)))
-                ((Sort _ _ (Some inv))
-                  (let! ((holds (call P fuel inv tps (env-types env) (Cons (ADTV c vs) (Nil)))))
+                ((Sort _ _ (None) _) (Ok (ADTV c (resolve-all (env-types env) tps) vs)))
+                ((Sort _ _ (Some inv) _)
+                  (let! ((holds (call P fuel inv tps (env-types env)
+                                  (Cons (ADTV c (resolve-all (env-types env) tps) vs) (Nil)))))
                     (match holds
-                      ((BoolV true) (Ok (ADTV c vs)))
+                      ((BoolV true) (Ok (ADTV c (resolve-all (env-types env) tps) vs)))
                       (_ (Stuck)))))))))))))
 
 (case eval (IsConstructor adt c)
   (let! ((v (eval P fuel env adt)))
     (match v
-      ((ADTV d _) (Ok (BoolV (= c d))))
+      ((ADTV d _ _) (Ok (BoolV (= c d))))
       (_ (Stuck)))))
 
 (case eval (ADTSelector adt sel)
   (let! ((v (eval P fuel env adt)))
     (match v
-      ((ADTV c vs)
+      ((ADTV c _ vs)
         (match P
           ((Program _ cs _ _ _)
             (let! ((k (lookup-ctor cs c)))
@@ -529,8 +531,13 @@ does.
 
 Equality compares values structurally, from left to right, and stops at the
 first difference, except for sets, bags and maps, which are equal when they
-have the same contents, and functions, which are compared as the program says
-(see Quantifiers below).
+have the same contents, functions, which are compared as the program says
+(see Quantifiers below), and the values of a sort that has an equality, which
+are equal when its equality evaluates to `true` on them for some fuel, at the
+type arguments of the first one, and differ when it evaluates to `false`.
+Comparing them gets stuck when it evaluates to neither. A value of a sort
+holds the type arguments that it was built with, as Inox's values do, in the
+environment of type parameters where it was built.
 
 ```inox-sem
 (define (value-eq (P Program) (a Value) (b Value)) (Result Bool)
@@ -553,9 +560,12 @@ have the same contents, and functions, which are compared as the program says
         ((NoFunctionEquality) (Stuck))
         ((ExtensionalEquality) (Ok (closures-equal P a b)))))))
 
-(case value-eq (ADTV c xs)
+(case value-eq (ADTV c tps xs)
   (match b
-    ((ADTV d ys) (if (= c d) (values-eq P xs ys) (Ok false)))
+    ((ADTV d _ ys)
+      (match (sort-equality P c)
+        ((Some f) (adt-equal P f tps a b))
+        ((None) (if (= c d) (values-eq P xs ys) (Ok false)))))
     (_ (Ok false))))
 
 (case value-eq (TupleV xs)
@@ -586,6 +596,25 @@ have the same contents, and functions, which are compared as the program says
             (if l (same-entries P ys xs d ys e) (Ok false)))
           (Ok false))))
     (_ (Ok false))))
+
+(define (sort-equality (P Program) (c Id)) (Option Id)
+  (match P
+    ((Program _ cs ss _ _)
+      (match (lookup-ctor cs c)
+        ((Ok (Constructor _ s _))
+          (match (lookup-sort ss s)
+            ((Ok (Sort _ _ _ eq)) eq)
+            (_ (None))))
+        (_ (None))))))
+
+(define (adt-equal (P Program) (f Id) (tps (List Type)) (a Value) (b Value)) (Result Bool)
+  (if (exists ((fuel Int))
+        (= (call P fuel f tps (Nil) (Cons a (Cons b (Nil)))) (Ok (BoolV true))))
+    (Ok true)
+    (if (exists ((fuel Int))
+          (= (call P fuel f tps (Nil) (Cons a (Cons b (Nil)))) (Ok (BoolV false))))
+      (Ok false)
+      (Stuck))))
 
 (define (values-eq (P Program) (xs (List Value)) (ys (List Value))) (Result Bool)
   (match xs
@@ -2068,10 +2097,11 @@ A value has a type when it has the type's shape, and is in the canonical form
 that the operations above build: a real in lowest terms, a set, a bag or a map
 without repeated elements or keys, a bag with positive multiplicities, a
 character code below 2^16, and string characters at most `0x2FFFF`, as in
-SMT-LIB. A value of an ADT type also satisfies its sort's invariant, and a
-value of a refinement type its predicate, for some fuel. A type parameter
-stands for the type it is bound to, and for the integers if it isn't bound.
-`PropType`, the type of propositions, has the Booleans as values.
+SMT-LIB. A value of an ADT type holds the type arguments of the type, also
+satisfies its sort's invariant, and a value of a refinement type its predicate,
+for some fuel. A type parameter stands for the type it is bound to, and for the
+integers if it isn't bound. `PropType`, the type of propositions, has the
+Booleans as values.
 
 A value of a function type is a closure that, on every input of its parameter
 types, evaluates to a value of its result type, for some fuel. Function values
@@ -2172,14 +2202,14 @@ The quantifiers over values and fuel are in their own functions, so that
 
 (case has-type (ADTType s args)
   (match v
-    ((ADTV c vs)
+    ((ADTV c tps vs)
       (match P
         ((Program _ cs ss _ _)
           (match (lookup-ctor cs c)
             ((Ok (Constructor _ s2 fields))
               (match (lookup-sort ss s)
-                ((Ok (Sort _ tparams inv))
-                  (and (= s s2)
+                ((Ok (Sort _ tparams inv _))
+                  (and (and (= s s2) (= tps (resolve-all (env-types env) args)))
                     (and (params-have-types P (Env (bind-types tparams args (env-types env)) (Nil)) vs fields)
                       (match inv
                         ((None) true)
