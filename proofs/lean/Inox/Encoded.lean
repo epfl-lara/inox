@@ -84,7 +84,7 @@ both programs, and the kind of the type parameters of sorts. -/
 structure Sig where
   ctors : Id → Option (Id × List (Id × Kind))
   funs : Id → Option (List Id × Ty × List Kind × Kind)
-  unint : Id → Option (List Kind × Kind)
+  unint : Id → Option (Bool × List Kind × Kind)
   flat : Id → Bool
   sorts : Sorts
   elemKind : Kind
@@ -292,10 +292,12 @@ inductive Encodes (N : Names) (S : Sig) (Te : Ty) :
       (hb : Encodes N S Te (fun x => if x ∈ param_ids ps then none else Γ x) body body'
         .bool true) :
       Encodes N S Te Γ (.Forall ps body) (.Forall ps body') .bool u
-  | uninterp {Γ : Id → Option Kind} {u : Bool} {f : Id} {ks : List Kind} {k : Kind}
-      {es es' : List Expr} (hf : S.unint f = some (ks, k)) (hu : u = true → S.flat f = true)
+  | uninterp {Γ : Id → Option Kind} {u p : Bool} {f : Id} {ks : List Kind} {k : Kind}
+      {es es' : List Expr} (hf : S.unint f = some (p, ks, k))
+      (hu : u = true → S.flat f = true)
       (ha : Encodes N S Te Γ (.Tuple es) (.Tuple es') (.tuple ks) u) :
-      Encodes N S Te Γ (.UninterpretedCall f [] es) (.UninterpretedCall f [] es') k u
+      Encodes N S Te Γ (.UninterpretedCall f (if p then [Te] else []) es)
+        (.UninterpretedCall f (if p then [Te] else []) es') k u
   | error {Γ : Id → Option Kind} {u : Bool} (k : Kind) : Encodes N S Te Γ .Error .Error k u
 
 /-- The value `v` of the input and the value `v'` of the encoded program are of the kind `k`
@@ -623,9 +625,10 @@ theorem rel_capture {vars vars' : List Binding} : ∀ (Γ0 : List (Id × Kind)),
 
 end Values
 
-/-- The program interprets the uninterpreted function `f`, without type arguments. -/
-def InterpIn (f : Id) (params : List Id) (body : Expr) : Program → Prop
-  | .Program _ _ _ is _ => lookup_interpretation is f [] = .Ok (.Interpretation f [] params body)
+/-- The program interprets the uninterpreted function `f` at the type arguments `tps`. -/
+def InterpIn (f : Id) (tps : List Ty) (params : List Id) (body : Expr) : Program → Prop
+  | .Program _ _ _ is _ =>
+    lookup_interpretation is f tps = .Ok (.Interpretation f tps params body)
 
 /-- The functions of the encoded program are what the encoder makes of those of the input, and
 so are the interpretations of its uninterpreted functions. -/
@@ -634,8 +637,9 @@ def Funs (O : Oracle) (Ps P : Program) (N : Names) (T0 : Ty) (S : Sig) : Prop :=
     ∃ params body body', FunIn f tparams params body Ps ∧ FunIn f tparams params body' P ∧
       Encodes N S Tf (fun x => (params.zip ks).lookup x) body body' k (S.flat f) ∧
       (tparams = [] → O.resolve_all [] [Tf] = [T0])) ∧
-  (∀ f ks k, S.unint f = some (ks, k) →
-    ∃ params body body' Tu, InterpIn f params body Ps ∧ InterpIn f params body' P ∧
+  (∀ f p ks k, S.unint f = some (p, ks, k) →
+    ∃ params body body' Tu, InterpIn f (if p then [T0] else []) params body Ps ∧
+      InterpIn f (if p then [T0] else []) params body' P ∧
       Encodes N S Tu (fun x => (params.zip ks).lookup x) body body' k (S.flat f) ∧
       O.resolve_all [] [Tu] = [T0])
 
@@ -719,15 +723,16 @@ theorem call_fun {Q : Program} {f : Id} {tparams params : List Id} {body : Expr}
   rw [call, dite_eq_right_of_eq_false (eq_false (by omega))]
   simp only [h, hbs]
 
-theorem uninterp_inv (hO : O.Sound) {Q : Program} {f : Id} {params : List Id} {body : Expr}
-    (h : InterpIn f params body Q) {fuel : Int} {env : Env} {es : List Expr} {v : Value}
-    (hc : eval O Q fuel env (.UninterpretedCall f [] es) = .Ok v) :
+theorem uninterp_inv {Q : Program} {f : Id} {tps tps0 : List Ty} {params : List Id}
+    {body : Expr} (h : InterpIn f tps0 params body Q) {fuel : Int} {env : Env}
+    (hr : O.resolve_all (env_types env) tps = tps0) {es : List Expr} {v : Value}
+    (hc : eval O Q fuel env (.UninterpretedCall f tps es) = .Ok v) :
     ∃ vs, eval_list O Q fuel env es = .Ok vs ∧ 0 < fuel ∧
       ∃ bs, bind_all params vs = .Ok bs ∧
         eval O Q (fuel - 1) (Env.Env [] bs) body = .Ok v := by
   cases Q with
   | Program fns cs ss is eqs =>
-  have h : lookup_interpretation is f [] = .Ok (.Interpretation f [] params body) := h
+  have h : lookup_interpretation is f tps0 = .Ok (.Interpretation f tps0 params body) := h
   rw [eval] at hc
   split at hc
   · next vs hvs =>
@@ -735,7 +740,7 @@ theorem uninterp_inv (hO : O.Sound) {Q : Program} {f : Id} {params : List Id} {b
     · rw [dite_eq_left_of_eq_true (eq_true hf)] at hc
       cases hc
     · rw [dite_eq_right_of_eq_false (eq_false hf)] at hc
-      simp only [hO.resolve_all, h] at hc
+      simp only [hr, h] at hc
       split at hc
       · next bs hbs => exact ⟨vs, hvs, by omega, bs, hbs, hc⟩
       · cases hc
@@ -743,19 +748,20 @@ theorem uninterp_inv (hO : O.Sound) {Q : Program} {f : Id} {params : List Id} {b
   · cases hc
   · cases hc
 
-theorem uninterp_fun (hO : O.Sound) {Q : Program} {f : Id} {params : List Id} {body : Expr}
-    (h : InterpIn f params body Q) {fuel : Int} {env : Env} {es : List Expr} {vs : List Value}
+theorem uninterp_fun {Q : Program} {f : Id} {tps tps0 : List Ty} {params : List Id}
+    {body : Expr} (h : InterpIn f tps0 params body Q) {fuel : Int} {env : Env}
+    (hr : O.resolve_all (env_types env) tps = tps0) {es : List Expr} {vs : List Value}
     (hvs : eval_list O Q fuel env es = .Ok vs) (hf : 0 < fuel) {bs : List Binding}
     (hbs : bind_all params vs = .Ok bs) :
-    eval O Q fuel env (.UninterpretedCall f [] es) =
+    eval O Q fuel env (.UninterpretedCall f tps es) =
       eval O Q (fuel - 1) (Env.Env [] bs) body := by
   cases Q with
   | Program fns cs ss is eqs =>
-  have h : lookup_interpretation is f [] = .Ok (.Interpretation f [] params body) := h
+  have h : lookup_interpretation is f tps0 = .Ok (.Interpretation f tps0 params body) := h
   rw [eval, hvs]
   simp only []
   rw [dite_eq_right_of_eq_false (eq_false (by omega))]
-  simp only [hO.resolve_all, h, hbs]
+  simp only [hr, h, hbs]
 
 theorem resolve_bind (hO : O.Sound) (A : Id) (Te : Ty) (tenv : List TypeBinding) :
     O.resolve_all (bind_types [A] [Te] tenv) [.TypeParameter A] = O.resolve_all tenv [Te] := by
@@ -1949,10 +1955,16 @@ theorem encodes_eval (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) (hSo : S.Ok)
             · simp [hP vs h f hf])))]
         · cases hv
 
-  | @uninterp Γ u f ks k es es' hf hu0 _ iha =>
+  | @uninterp Γ u p f ks k es es' hf hu0 _ iha =>
     intro env env' hT hΓ fuel hfn v hv
-    obtain ⟨params, body, body', Tu, hIS, hIP, hEnc, hTu⟩ := hF.2 _ _ _ hf
-    obtain ⟨vs, hvs, hpos, bs, hbs, hbody⟩ := uninterp_inv hO hIS hv
+    obtain ⟨params, body, body', Tu, hIS, hIP, hEnc, hTu⟩ := hF.2 _ _ _ _ hf
+    have hr : ∀ tys, O.resolve_all tys [Te] = [T0] →
+        O.resolve_all tys (if p then [Te] else []) = if p then [T0] else [] := by
+      intro tys h
+      cases p
+      · simp [hO.resolve_all]
+      · exact h
+    obtain ⟨vs, hvs, hpos, bs, hbs, hbody⟩ := uninterp_inv hIS (hr _ hT.1) hv
     obtain ⟨t', n1, bd1, hR, e1⟩ :=
       iha env env' hT hΓ fuel hfn (.TupleV vs) (by simp only [eval, hvs])
     obtain ⟨_, vs', h1, rfl⟩ := rel_tuple_inv hR rfl
@@ -1966,7 +1978,7 @@ theorem encodes_eval (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) (hSo : S.Ok)
       (fun x k hx => hl x k hx) (fuel - 1) (by omega) v hbody
     refine ⟨v', max (max n1 (m2 + 1)) 1,
       fun hu => by have := bd1 hu; have := bdm (hu0 hu); omega, hRv, fun f' hf' => ?_⟩
-    rw [uninterp_fun hO hIP (eval_tuple_inv (e1 f' (by omega))) (by omega) hbs']
+    rw [uninterp_fun hIP (hr _ hT.2) (eval_tuple_inv (e1 f' (by omega))) (by omega) hbs']
     exact e2 (f' - 1) (by omega)
   | error k =>
     intro env env' hT hΓ fuel hfn v hv

@@ -36,6 +36,19 @@ theorem sameTy_eq : ∀ {a b : Ty}, sameTy a b = true → a = b
     simp only [sameTy, beq_iff_eq] at h
     rw [h]
 
+/-- The type arguments `tps` are those of a call of an uninterpreted function with a type
+parameter at the elements `Te` (`p`), or none (otherwise). -/
+def tpsCheck (Te : Ty) : Bool → List Ty → Bool
+  | true, [t] => sameTy t Te
+  | false, [] => true
+  | _, _ => false
+
+theorem tpsCheck_eq {Te : Ty} {p : Bool} {tps : List Ty} (h : tpsCheck Te p tps = true) :
+    tps = if p then [Te] else [] := by
+  match p, tps, h with
+  | true, [t], h => simp [sameTy_eq (show sameTy t Te = true from h)]
+  | false, [], _ => rfl
+
 theorem lookup_cons (x y : Id) (kx : Kind) (Γ : List (Id × Kind)) :
     ((x, kx) :: Γ).lookup y = if y = x then some kx else Γ.lookup y := by
   by_cases h : y = x
@@ -59,7 +72,7 @@ theorem mem_of_lookup {β : Type} : ∀ {l : List (Id × β)} {c : Id} {v : β},
 structure CSig where
   ctors : List (Id × Id × List (Id × Kind))
   funs : List (Id × List Id × Ty × List Kind × Kind)
-  unint : List (Id × List Kind × Kind)
+  unint : List (Id × Bool × List Kind × Kind)
   flat : List Id
   sorts : List (Id × List Id × List (Id × List Param))
   elemKind : Kind
@@ -547,10 +560,11 @@ def encodesCheck (N : Names) (S : CSig) (Te : Ty) (g : List (Id × Kind) → Exp
         kindEq k2 k && encodesCheck N S Te g Γ callee callee' (.fn ks k2) u &&
           encodesCheck N S Te g Γ (.Tuple es) (.Tuple es') (.tuple ks) u
       | _ => false)
-  | Γ, .UninterpretedCall f [] es, .UninterpretedCall f' [] es', k, u =>
+  | Γ, .UninterpretedCall f tps es, .UninterpretedCall f' tps' es', k, u =>
     (!u || S.flat.contains f) && f == f' && (match S.unint.lookup f with
-      | some (ks, k2) =>
-        kindEq k2 k && encodesCheck N S Te g Γ (.Tuple es) (.Tuple es') (.tuple ks) u
+      | some (p, ks, k2) =>
+        tpsCheck Te p tps && tpsCheck Te p tps' && kindEq k2 k &&
+          encodesCheck N S Te g Γ (.Tuple es) (.Tuple es') (.tuple ks) u
       | none => false)
   | _, .Error, .Error, _, _ => true
   | Γ, .Forall ps body, .Forall ps' body', .bool, _ =>
@@ -726,10 +740,13 @@ theorem encodesCheck_sound {N : Names} {S : CSig} {Te : Ty}
     simp only [Bool.and_eq_true, beq_iff_eq] at h
     obtain ⟨⟨hu, rfl⟩, h⟩ := h
     split at h
-    · next ks k2 hl =>
+    · next p ks k2 hl =>
       simp only [Bool.and_eq_true] at h
-      cases kindEq_eq h.1
-      exact .uninterp hl (fun h1 => by subst h1; simpa [CSig.sig] using hu) (ih ks h.2)
+      obtain ⟨⟨⟨h1, h2⟩, h3⟩, h4⟩ := h
+      cases tpsCheck_eq h1
+      cases tpsCheck_eq h2
+      cases kindEq_eq h3
+      exact .uninterp hl (fun h1 => by subst h1; simpa [CSig.sig] using hu) (ih ks h4)
     · cases h
   · exact .error _
   · next ih =>
@@ -955,6 +972,8 @@ def readExpr (c : Ctx) : Nat → Sexp → Except String Expr
       if c.table.kind k == "constructor" then pure (.ADT (c.table.id k) (ts.map readTy) [])
       else if c.table.kind k == "function" then
         pure (.FunctionInvocation (c.table.id k) ((Sexp.atom t :: ts).map readTy) [])
+      else if c.table.kind k == "uninterpreted" then
+        pure (.UninterpretedCall (c.table.id k) ((Sexp.atom t :: ts).map readTy) [])
       else .error (c.table.kind k ++ " " ++ k)
     | .expr (.expr [.atom "as", .atom k, .expr ts] :: args) => do
       let args ← args.mapM (readExpr c n)
@@ -962,6 +981,7 @@ def readExpr (c : Ctx) : Nat → Sexp → Except String Expr
       | "constructor", _ => pure (.ADT (c.table.id k) ((ts.drop 1).map readTy) args)
       | "selector", [e] => pure (.ADTSelector e (c.table.field k))
       | "function", _ => pure (.FunctionInvocation (c.table.id k) (ts.map readTy) args)
+      | "uninterpreted", _ => pure (.UninterpretedCall (c.table.id k) (ts.map readTy) args)
       | kind, _ => .error (kind ++ " " ++ k)
     | .expr [.atom "error", _, _] => pure .Error
     | .expr (.atom k :: args) =>
@@ -1006,7 +1026,7 @@ partial def kindOf (S : CSig) (Γ : List (Id × Kind)) : Expr → Kind
     | .adt s => (fieldOf S s sel).getD .int
     | _ => .int
   | .FunctionInvocation f _ _ => ((S.funs.lookup f).map (·.2.2.2)).getD .int
-  | .UninterpretedCall f _ _ => ((S.unint.lookup f).map (·.2)).getD .int
+  | .UninterpretedCall f _ _ => ((S.unint.lookup f).map (·.2.2)).getD .int
   | .Lambda ps b =>
     let ks := ps.map fun | .Param _ t => tyKind t
     .fn ks (kindOf S ((param_ids ps).zip ks ++ Γ) b)
@@ -1204,7 +1224,8 @@ theorem gate_ok (N : Names) (S : CSig) (defs : List (Id × List Id × Expr × Ex
   · exact ⟨by simp [Coverage.none, sigOk], by simp [Coverage.none, defsCheck],
       fun p hp => by simp [Coverage.none] at hp⟩
 
-def covers (certificate : Sexp) : Coverage :=
+/-- `covers` where the elements are of the sort `top`. -/
+def coversAt (certificate : Sexp) (top : String) : Coverage :=
   let input := sectionOf certificate "input"
   let symbols := input.flatMap fun | .expr (.atom "symbols" :: rows) => rows | _ => []
   let definitions := input.flatMap fun | .expr (.atom "definitions" :: ds) => ds | _ => []
@@ -1213,8 +1234,6 @@ def covers (certificate : Sexp) : Coverage :=
     | _ => none
   let tin := Table.of symbols
   let tout := Table.of (sectionOf certificate "source-symbols")
-  -- the elements are integers where no sort of the variables is a type parameter
-  let top := match elemOf symbols with | "" => "Int" | a => a
   let N := namesOf tout
   let ints := top == "Int"
   let ctors := ctorsOf tin ints definitions
@@ -1228,16 +1247,19 @@ def covers (certificate : Sexp) : Coverage :=
       if kept.length == ss.length then ss else okSorts n kept
   let sorts := okSorts (definitions.length + 1) (sortsOf tin ints top definitions)
   let bodies := encodedBodies input
-  -- the uninterpreted functions without type parameters
+  -- the uninterpreted functions, and whether they have a type parameter
+  let unint (poly : Bool) (elem f : String) (params : List Sexp) (ret : Sexp) :=
+    let c : Ctx := ⟨tin, elem, ints⟩
+    let sortOf : Sexp → Sexp := fun | .expr [.atom _, sort] => sort | sort => sort
+    match params.mapM (fun p => (kindOfSort c 100 (sortOf p)).toOption),
+      (kindOfSort c 100 ret).toOption
+    with
+    | some ks, some k => some (tin.id f, poly, ks, k)
+    | _, _ => none
   let unints := definitions.filterMap fun
-    | .expr [.atom "declare-fun", .atom f, .expr params, ret] =>
-      let c : Ctx := ⟨tin, top, ints⟩
-      let sortOf : Sexp → Sexp := fun | .expr [.atom _, sort] => sort | sort => sort
-      match params.mapM (fun p => (kindOfSort c 100 (sortOf p)).toOption),
-        (kindOfSort c 100 ret).toOption
-      with
-      | some ks, some k => some (tin.id f, ks, k)
-      | _, _ => none
+    | .expr [.atom "declare-fun", .atom f, .expr params, ret] => unint false top f params ret
+    | .expr [.atom "declare-fun", .expr [.atom "par", .expr [.atom a],
+        .expr [.atom f, .expr params, ret]]] => unint true a f params ret
     | _ => none
   -- the functions whose bodies are read on both sides
   let read := (funsOf tin ints top definitions).filterMap fun f =>
@@ -1281,9 +1303,40 @@ def covers (certificate : Sexp) : Coverage :=
   gate N S defs Te Γ (checked.filterMap fun r => r.toOption) constraints.length
     (checked.findSome? fun | .error why => some why | .ok _ => none)
 
+theorem coversAt_ok (certificate : Sexp) (top : String) : (coversAt certificate top).Ok := by
+  unfold coversAt
+  exact gate_ok _ _ _ _ _ _ _ _
+
+/-- The elements are of the first sort of the variables that is a type parameter, or else
+integers. Where no variable has one, they may be of the type parameter of an uninterpreted
+function instead, if more constraints are covered so. -/
+def covers (certificate : Sexp) : Coverage :=
+  let symbols := (sectionOf certificate "input").flatMap fun
+    | .expr (.atom "symbols" :: rows) => rows
+    | _ => []
+  match elemOf symbols with
+  | "" =>
+    let C := coversAt certificate "Int"
+    let tparams := symbols.filterMap fun
+      | .expr [.atom _, .atom "uninterpreted", _, .expr [.atom a]] => some a
+      | _ => none
+    match tparams with
+    | a :: _ =>
+      let C' := coversAt certificate a
+      if C.covered.length < C'.covered.length then C' else C
+    | [] => C
+  | a => coversAt certificate a
+
 theorem covers_ok (certificate : Sexp) : (covers certificate).Ok := by
   unfold covers
-  exact gate_ok _ _ _ _ _ _ _ _
+  dsimp only
+  split
+  · split
+    · split
+      · exact coversAt_ok _ _
+      · exact coversAt_ok _ _
+    · exact coversAt_ok _ _
+  · exact coversAt_ok _ _
 
 /-- Where the constraints of the input that are covered all evaluate to `true` in the program
 `Ps` of the input, so do their encoded terms in the encoded program `P`: `P` defines the
@@ -1298,8 +1351,9 @@ theorem Coverage.encoded {C : Coverage} (hC : C.Ok) {O : Oracle} {Ps P : Program
       C.defs.lookup f = some (params, body, body') →
         FunIn f tparams params body Ps ∧ FunIn f tparams params body' P ∧
           (tparams = [] → O.resolve_all [] [Tf] = [T0]))
-    (hints : ∀ f ks k, C.sig.unint.lookup f = some (ks, k) →
-      ∃ params body body' Tu, InterpIn f params body Ps ∧ InterpIn f params body' P ∧
+    (hints : ∀ f p ks k, C.sig.unint.lookup f = some (p, ks, k) →
+      ∃ params body body' Tu, InterpIn f (if p then [T0] else []) params body Ps ∧
+        InterpIn f (if p then [T0] else []) params body' P ∧
         Encodes C.names C.sig.sig Tu (fun x => (params.zip ks).lookup x) body body' k
           (C.sig.flat.contains f) ∧ O.resolve_all [] [Tu] = [T0])
     {env env' : Env}
@@ -1336,8 +1390,9 @@ theorem covers_encoded (certificate : Sexp) {O : Oracle} {Ps P : Program}
       (covers certificate).defs.lookup f = some (params, body, body') →
         FunIn f tparams params body Ps ∧ FunIn f tparams params body' P ∧
           (tparams = [] → O.resolve_all [] [Tf] = [T0]))
-    (hints : ∀ f ks k, (covers certificate).sig.unint.lookup f = some (ks, k) →
-      ∃ params body body' Tu, InterpIn f params body Ps ∧ InterpIn f params body' P ∧
+    (hints : ∀ f p ks k, (covers certificate).sig.unint.lookup f = some (p, ks, k) →
+      ∃ params body body' Tu, InterpIn f (if p then [T0] else []) params body Ps ∧
+        InterpIn f (if p then [T0] else []) params body' P ∧
         Encodes (covers certificate).names (covers certificate).sig.sig Tu
           (fun x => (params.zip ks).lookup x) body body' k
           ((covers certificate).sig.flat.contains f) ∧ O.resolve_all [] [Tu] = [T0])
