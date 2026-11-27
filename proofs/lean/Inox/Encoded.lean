@@ -112,12 +112,20 @@ def fieldKind : List (Id × Kind) → Id → Option Kind
   | [], _ => none
   | (f, k) :: fs, sel => if f = sel then some k else fieldKind fs sel
 
-/-- The kinds of parameters of the types of integers and booleans. -/
-def paramKinds : List Param → Option (List Kind)
+/-- The kinds of parameters of the types of integers, booleans and elements, of type `Te`. -/
+def paramKinds (Te : Ty) : List Param → Option (List Kind)
   | [] => some []
-  | .Param _ .IntegerType :: ps => (paramKinds ps).map (.int :: ·)
-  | .Param _ .BooleanType :: ps => (paramKinds ps).map (.bool :: ·)
+  | .Param _ .IntegerType :: ps => (paramKinds Te ps).map (.int :: ·)
+  | .Param _ .BooleanType :: ps => (paramKinds Te ps).map (.bool :: ·)
+  | .Param _ (.TypeParameter a) :: ps => match Te with
+    | .TypeParameter b => if a = b then (paramKinds Te ps).map (.elem :: ·) else none
+    | _ => none
   | _ => none
+
+/-- The types whose values do not depend on the program nor on the environment. -/
+def SimpleTy : Ty → Prop
+  | .IntegerType | .BooleanType | .TypeParameter _ => True
+  | _ => False
 
 /-- `e'` is what the encoder makes of `e`, an expression of the kind `k`, with `Te` the type
 of the elements and `Γ` the kinds of the variables. A function keeps the kinds `Γ0` of the
@@ -220,10 +228,10 @@ inductive Encodes (N : Names) (S : Sig) (Te : Ty) :
       (he : Encodes N S Te Γ e e' (.adt s) u) :
       Encodes N S Te Γ (.IsConstructor e c) (.IsConstructor e' c) .bool u
   | callPoly {Γ : Id → Option Kind} {u : Bool} {f A : Id} {ks : List Kind} {k : Kind}
-      (tps : List Ty) {es es' : List Expr} (hf : S.funs f = some ([A], .TypeParameter A, ks, k))
+      {es es' : List Expr} (hf : S.funs f = some ([A], .TypeParameter A, ks, k))
       (hu : u = true → S.flat f = true)
       (ha : Encodes N S Te Γ (.Tuple es) (.Tuple es') (.tuple ks) u) :
-      Encodes N S Te Γ (.FunctionInvocation f tps es) (.FunctionInvocation f [Te] es') k u
+      Encodes N S Te Γ (.FunctionInvocation f [Te] es) (.FunctionInvocation f [Te] es') k u
   | callMono {Γ : Id → Option Kind} {u : Bool} {f : Id} {Tf : Ty} {ks : List Kind} {k : Kind}
       (tps : List Ty) {es es' : List Expr} (hf : S.funs f = some ([], Tf, ks, k))
       (hu : u = true → S.flat f = true)
@@ -239,7 +247,8 @@ inductive Encodes (N : Names) (S : Sig) (Te : Ty) :
       (ha : Encodes N S Te Γ (.Tuple es) (.Tuple es') (.tuple ks) u) :
       Encodes N S Te Γ (.Application f es) (.Application f' es') k u
   | forall_ {Γ : Id → Option Kind} {u : Bool} {ps ps' : List Param} {body body' : Expr}
-      {ks : List Kind} (hk : paramKinds ps = some ks) (hk' : paramKinds ps' = some ks)
+      {ks : List Kind} (hk : paramKinds Te ps = some ks)
+      (hk' : paramKinds Te ps' = some ks)
       (hp : param_ids ps = param_ids ps')
       (hb : Encodes N S Te (fun x => (((param_ids ps).zip ks).lookup x).or (Γ x)) body body'
         .bool true) :
@@ -275,7 +284,7 @@ inductive Rel (O : Oracle) (P : Program) (N : Names) (K : Value → Prop)
   | closure {Te : Ty} (Γ0 : List (Id × Kind)) {ps ps' : List Param} {body body' : Expr}
       {ks : List Kind} {k : Kind} {tys tys' : List TypeBinding} {vars vars' : List Binding}
       {vs vs' : List Value} (hp : param_ids ps = param_ids ps')
-      (hT : O.resolve_all tys' [Te] = [T0])
+      (hT : O.resolve_all tys [Te] = [T0] ∧ O.resolve_all tys' [Te] = [T0])
       (hb : Encodes N S Te (fun x => ((param_ids ps).zip ks ++ Γ0).lookup x) body body' k true)
       (hr : Rel O P N K E T0 S (.tuple (Γ0.map Prod.snd)) (.TupleV vs) (.TupleV vs'))
       (hv : (Γ0.map Prod.fst).map (lookup_var vars) = vs.map Result.Ok)
@@ -317,6 +326,8 @@ structure Base (O : Oracle) (Ps P : Program) (N : Names) (K : Value → Prop)
     [.Param N.x (.TypeParameter N.T)] = true ↔ ∃ v, vs = [v] ∧ K v
   ctorS : ∀ c s fs, S.ctors c = some (s, fs) → CtorIn c s fs Ps
   ctor : ∀ c s fs, S.ctors c = some (s, fs) → CtorIn c s fs P
+  simple : SimpleTy T0
+  elemsS : ∀ v, O.has_type Ps (.Env [] []) v T0 = true ↔ K v
 
 section Values
 variable {O : Oracle} {Ps P : Program} {N : Names} {K : Value → Prop}
@@ -711,33 +722,106 @@ theorem resolve_bind (hO : O.Sound) (A : Id) (Te : Ty) (tenv : List TypeBinding)
   rw [hO.resolve (bind_types [A] [Te] tenv) (.TypeParameter A)]
   simp [bind_types, lookup_type]
 
-/-- Values of the kinds of integers and booleans. -/
-def goodVals : List Kind → List Value → Bool
-  | [], [] => true
-  | .int :: ks, .IntV _ :: vs => goodVals ks vs
-  | .bool :: ks, .BoolV _ :: vs => goodVals ks vs
-  | _, _ => false
+theorem lookup_type_size : ∀ {tenv : List TypeBinding} {x y : Id} {u : Ty}
+    {uenv : List TypeBinding}, lookup_type tenv x = some (.TypeBinding y u uenv) →
+      sizeOf uenv < sizeOf tenv
+  | [], _, _, _, _, h => by simp [lookup_type] at h
+  | .TypeBinding z w wenv :: rest, x, y, u, uenv, h => by
+    simp only [lookup_type] at h
+    split at h
+    · cases h
+      simp +arith
+    · have := lookup_type_size h
+      simp +arith only [List.cons.sizeOf_spec] at *
+      omega
 
-theorem params_good (hO : O.Sound) : ∀ {ps : List Param} {ks : List Kind},
-    paramKinds ps = some ks → ∀ (Q : Program) (env : Env) (vs : List Value),
-      O.params_have_types Q env vs ps = goodVals ks vs
-  | [], ks, h, Q, env, vs => by
+/-- Values of a simple type have it in an environment whatever the environment, when the type
+resolves to it there. -/
+theorem has_type_simple (hO : O.Sound) (Q : Program) {T0 : Ty} (hs : SimpleTy T0) (v : Value) :
+    ∀ (tenv : List TypeBinding) (vars : List Binding) (T : Ty), O.resolve tenv T = T0 →
+      O.has_type Q (.Env tenv vars) v T = O.has_type Q (.Env [] []) v T0
+  | tenv, vars, T, h => by
+    rw [hO.resolve] at h
+    cases T <;> simp only [] at h
+    case TypeParameter x =>
+      cases hl : lookup_type tenv x with
+      | none =>
+        rw [hl] at h
+        subst h
+        rw [hO.has_type, hO.has_type]
+        simp [env_types, hl, lookup_type]
+      | some b =>
+        cases b with
+        | TypeBinding y u uenv =>
+        rw [hl] at h
+        have := lookup_type_size hl
+        rw [hO.has_type]
+        simp only [env_types, hl]
+        exact has_type_simple hO Q hs v uenv [] u h
+    all_goals first
+      | (subst h; simp [SimpleTy] at hs; done)
+      | (subst h; rw [hO.has_type, hO.has_type])
+termination_by tenv => sizeOf tenv
+
+/-- The values of the type of elements in the encoded program are the elements. -/
+theorem elems_typed (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) (v : Value) :
+    O.has_type P (.Env [] []) v T0 = true ↔ K v := by
+  have h := hB.elems [] [v]
+  rw [hB.sound.params_have_types] at h
+  simp only [Bool.and_eq_true] at h
+  rw [hB.sound.params_have_types, hB.sound.has_type] at h
+  simpa [env_types, bind_types, lookup_type, env_bind] using h
+
+/-- Values of the kinds of integers, booleans and elements. -/
+def goodVals (K : Value → Prop) : List Kind → List Value → Prop
+  | [], [] => True
+  | .int :: ks, v :: vs => (∃ n, v = .IntV n) ∧ goodVals K ks vs
+  | .bool :: ks, v :: vs => (∃ b, v = .BoolV b) ∧ goodVals K ks vs
+  | .elem :: ks, v :: vs => K v ∧ goodVals K ks vs
+  | _, _ => False
+
+theorem params_good (hO : O.Sound) {Q : Program} {Te T0 : Ty} (hs : SimpleTy T0)
+    (hK : ∀ v, O.has_type Q (.Env [] []) v T0 = true ↔ K v) :
+    ∀ {ps : List Param} {ks : List Kind}, paramKinds Te ps = some ks →
+      ∀ (env : Env), O.resolve_all (env_types env) [Te] = [T0] → ∀ (vs : List Value),
+        O.params_have_types Q env vs ps = true ↔ goodVals K ks vs
+  | [], ks, h, env, _, vs => by
     simp only [paramKinds, Option.some.injEq] at h
     subst h
     rw [hO.params_have_types]
     cases vs <;> simp [goodVals]
-  | .Param x t :: ps, ks, h, Q, env, vs => by
+  | .Param x t :: ps, ks, h, .Env tys vars, hT, vs => by
+    have hT1 : O.resolve tys Te = T0 := by
+      simp only [hO.resolve_all, env_types, List.cons.injEq] at hT
+      exact hT.1
     cases t <;> simp only [paramKinds, reduceCtorEq] at h
+    case TypeParameter a =>
+      split at h
+      · next b _ =>
+        split at h
+        · next hab =>
+          subst hab
+          obtain ⟨ks', h', rfl⟩ := Option.map_eq_some_iff.1 h
+          rw [hO.params_have_types]
+          cases vs with
+          | nil => simp [goodVals]
+          | cons v rest =>
+            simp only [env_bind, Bool.and_eq_true, goodVals]
+            rw [params_good hO hs hK h' (.Env tys (.Binding x v :: vars)) hT rest,
+              has_type_simple hO Q hs v tys vars _ hT1, hK]
+        · cases h
+      · cases h
     all_goals
       obtain ⟨ks', h', rfl⟩ := Option.map_eq_some_iff.1 h
       rw [hO.params_have_types]
       cases vs with
       | nil => simp [goodVals]
       | cons v rest =>
-        simp only [params_good hO h' Q _ rest]
-        cases v <;> simp [hO.has_type, goodVals]
+        simp only [env_bind, Bool.and_eq_true, goodVals]
+        rw [params_good hO hs hK h' (.Env tys (.Binding x v :: vars)) hT rest]
+        cases v <;> simp [hO.has_type]
 
-theorem rel_good : ∀ (ks : List Kind) (vs : List Value), goodVals ks vs = true →
+theorem rel_good : ∀ (ks : List Kind) (vs : List Value), goodVals K ks vs →
     Rel O P N K E T0 S (.tuple ks) (.TupleV vs) (.TupleV vs) := by
   intro ks
   induction ks with
@@ -751,10 +835,12 @@ theorem rel_good : ∀ (ks : List Kind) (vs : List Value), goodVals ks vs = true
     cases vs with
     | nil => cases k <;> simp [goodVals] at h
     | cons v vs =>
-      cases k <;> cases v <;> simp [goodVals] at h
-      all_goals first
-        | exact .tupleCons (.int _) (ih _ h)
-        | exact .tupleCons (.bool _) (ih _ h)
+      cases k <;> simp only [goodVals] at h
+      · exact .tupleCons (.elem _ h.1) (ih _ h.2)
+      · obtain ⟨⟨n, rfl⟩, h⟩ := h
+        exact .tupleCons (.int _) (ih _ h)
+      · obtain ⟨⟨b, rfl⟩, h⟩ := h
+        exact .tupleCons (.bool _) (ih _ h)
 
 /-- The bound on the fuel of an encoding without operations of bags, from those of its parts. -/
 local macro "bnd" hu:ident : tactic => `(tactic| first
@@ -768,7 +854,8 @@ theorem encodes_eval (hB : Base O Ps P N K E T0 S inv bi eq b1 b2)
     (hF : Funs O Ps P N T0 S) :
     ∀ (n : Nat) {Te : Ty} {Γ : Id → Option Kind} {e e' : Expr} {k : Kind} {u : Bool},
       Encodes N S Te Γ e e' k u →
-      ∀ (env env' : Env), O.resolve_all (env_types env') [Te] = [T0] →
+      ∀ (env env' : Env), O.resolve_all (env_types env) [Te] = [T0] ∧
+        O.resolve_all (env_types env') [Te] = [T0] →
         (∀ x k, Γ x = some k → ∃ v v', lookup_var (env_vars env) x = .Ok v ∧
           lookup_var (env_vars env') x = .Ok v' ∧ Rel O P N K E T0 S k v v') →
         ∀ (fuel : Int), fuel ≤ n → ∀ (v : Value), eval O Ps fuel env e = .Ok v →
@@ -1075,7 +1162,7 @@ theorem encodes_eval (hB : Base O Ps P N K E T0 S inv bi eq b1 b2)
     · next w hw =>
       obtain ⟨w', n1, bd1, hR, e1⟩ := iha env env' hT hΓ fuel hfn w hw
       obtain ⟨v', n2, bd2, hR2, e2⟩ := ihb (env_bind env x w) (env_bind env' x w')
-        (by cases env'; exact hT)
+        (by cases env; cases env'; exact hT)
         (fun y k hy => by
           by_cases hyx : y = x
           · subst hyx
@@ -1343,7 +1430,7 @@ theorem encodes_eval (hB : Base O Ps P N K E T0 S inv bi eq b1 b2)
       exact ⟨_, n1, fun hu => by bnd hu, .bool _, fun f hf => by simp only [eval, e1 f hf]⟩
     · cases hv
     · cases hv
-  | @callPoly Γ u f A ks k tps es es' hf hu0 _ iha =>
+  | @callPoly Γ u f A ks k es es' hf hu0 _ iha =>
     intro env env' hT hΓ fuel hfn v hv
     obtain ⟨params, body, body', hFS, hFP, hEnc, _⟩ := hF.1 _ _ _ _ _ hf
     simp only [eval] at hv
@@ -1359,7 +1446,7 @@ theorem encodes_eval (hB : Base O Ps P N K E T0 S inv bi eq b1 b2)
       | zero => omega
       | succ m =>
       obtain ⟨v', m2, bdm, hRv, e2⟩ := ihn m (Nat.lt_succ_self m) hEnc
-        (Env.Env (bind_types [A] tps (env_types env)) bs)
+        (Env.Env (bind_types [A] [Te] (env_types env)) bs)
         (Env.Env (bind_types [A] [Te] (env_types env')) bs')
         (by simpa [env_types, resolve_bind hO] using hT)
         (fun x k hx => hl x k hx) (fuel - 1) (by omega) v hbody
@@ -1388,7 +1475,7 @@ theorem encodes_eval (hB : Base O Ps P N K E T0 S inv bi eq b1 b2)
       obtain ⟨v', m2, bdm, hRv, e2⟩ := ihn m (Nat.lt_succ_self m) hEnc
         (Env.Env (bind_types [] tps (env_types env)) bs)
         (Env.Env (bind_types [] [] (env_types env')) bs')
-        (by simpa [env_types, bind_types] using hTf rfl)
+        (by simpa [env_types, bind_types] using And.intro (hTf rfl) (hTf rfl))
         (fun x k hx => hl x k hx) (fuel - 1) (by omega) v hbody
       refine ⟨v', max (max n1 (m2 + 1)) 1,
         fun hu => by have := bd1 hu; have := bdm (hu0 hu); omega, hRv, fun f' hf' => ?_⟩
@@ -1469,7 +1556,9 @@ theorem encodes_eval (hB : Base O Ps P N K E T0 S inv bi eq b1 b2)
     | Env tys vars =>
     cases env' with
     | Env tys' vars' =>
-    have inst : ∀ vs, goodVals ks vs = true → ∀ w,
+    have gS := params_good hO hB.simple hB.elemsS hk (.Env tys vars) hT.1
+    have gP := params_good hO hB.simple (elems_typed hB) hk' (.Env tys' vars') hT.2
+    have inst : ∀ vs, goodVals K ks vs → ∀ w,
         instance_ O Ps fuel (.Env tys vars) ps vs body = .Ok w →
         ∃ w' m, m ≤ max fuel 0 ∧ Rel O P N K E T0 S .bool w w' ∧
           ∀ fuel', m ≤ fuel' →
@@ -1500,25 +1589,25 @@ theorem encodes_eval (hB : Base O Ps P N K E T0 S inv bi eq b1 b2)
     · next hex =>
       cases hv
       obtain ⟨vs, hvs⟩ := of_decide_eq_true hex
-      simp only [Bool.and_eq_true, decide_eq_true_eq, params_good hO hk] at hvs
-      obtain ⟨w', m, bd, hR, e⟩ := inst vs hvs.1 _ hvs.2
+      simp only [Bool.and_eq_true, decide_eq_true_eq] at hvs
+      have hg := (gS vs).1 hvs.1
+      obtain ⟨w', m, bd, hR, e⟩ := inst vs hg _ hvs.2
       cases hR
       refine ⟨_, m, fun _ => bd, .bool false, fun f hf => ?_⟩
       simp only [eval]
       rw [hO.forall_result, dite_eq_left_of_eq_true (eq_true (decide_eq_true
-        ⟨vs, by simp [params_good hO hk', hvs.1, e f hf]⟩))]
+        ⟨vs, by simp [(gP vs).2 hg, e f hf]⟩))]
     · split at hv
       · cases hv
       · split at hv
         · next hall =>
           cases hv
           have hall := of_decide_eq_true hall
-          have hP : ∀ vs, goodVals ks vs = true → ∀ f, max fuel 0 ≤ f →
+          have hP : ∀ vs, goodVals K ks vs → ∀ f, max fuel 0 ≤ f →
               instance_ O P f (.Env tys' vars') ps' vs body' = .Ok (.BoolV true) := by
             intro vs hg f hf
             have h1 := hall vs
-            simp only [params_good hO hk, hg, Bool.not_true, Bool.false_or,
-              decide_eq_true_eq] at h1
+            simp only [(gS vs).2 hg, Bool.not_true, Bool.false_or, decide_eq_true_eq] at h1
             obtain ⟨w', m, bd, hR, e⟩ := inst vs hg _ h1
             cases hR
             exact e f (by omega)
@@ -1527,18 +1616,18 @@ theorem encodes_eval (hB : Base O Ps P N K E T0 S inv bi eq b1 b2)
           rw [hO.forall_result]
           rw [dite_eq_right_of_eq_false (eq_false (fun h => by
             obtain ⟨vs, hvs⟩ := of_decide_eq_true h
-            simp only [Bool.and_eq_true, decide_eq_true_eq, params_good hO hk'] at hvs
-            rw [hP vs hvs.1 f hf] at hvs
+            simp only [Bool.and_eq_true, decide_eq_true_eq] at hvs
+            rw [hP vs ((gP vs).1 hvs.1) f hf] at hvs
             cases hvs.2))]
           rw [dite_eq_right_of_eq_false (eq_false (fun h => by
             obtain ⟨vs, hvs⟩ := of_decide_eq_true h
-            simp only [Bool.and_eq_true, decide_eq_true_eq, params_good hO hk'] at hvs
-            rw [hP vs hvs.1 f hf] at hvs
+            simp only [Bool.and_eq_true, decide_eq_true_eq] at hvs
+            rw [hP vs ((gP vs).1 hvs.1) f hf] at hvs
             cases hvs.2))]
           rw [dite_eq_left_of_eq_true (eq_true (decide_eq_true (fun vs => by
-            cases hg : goodVals ks vs
-            · simp [params_good hO hk', hg]
-            · simp [params_good hO hk', hg, hP vs hg f hf])))]
+            cases h : O.params_have_types P (.Env tys' vars') vs ps'
+            · simp
+            · simp [hP vs ((gP vs).1 h) f hf])))]
         · cases hv
 
   | @uninterp Γ u f ks k es es' hf hu0 _ iha =>
@@ -1554,7 +1643,7 @@ theorem encodes_eval (hB : Base O Ps P N K E T0 S inv bi eq b1 b2)
     | zero => omega
     | succ m =>
     obtain ⟨v', m2, bdm, hRv, e2⟩ := ihn m (Nat.lt_succ_self m) hEnc
-      (Env.Env [] bs) (Env.Env [] bs') (by simpa [env_types] using hTu)
+      (Env.Env [] bs) (Env.Env [] bs') (by simpa [env_types] using And.intro hTu hTu)
       (fun x k hx => hl x k hx) (fuel - 1) (by omega) v hbody
     refine ⟨v', max (max n1 (m2 + 1)) 1,
       fun hu => by have := bd1 hu; have := bdm (hu0 hu); omega, hRv, fun f' hf' => ?_⟩

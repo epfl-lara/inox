@@ -205,14 +205,14 @@ def encodesCheck (N : Names) (S : CSig) (Te : Ty) (g : List (Id × Kind) → Exp
     c == c' && (match g Γ e with
       | .adt s => encodesCheck N S Te g Γ e e' (.adt s) u
       | _ => false)
-  | Γ, .FunctionInvocation f _ es, .FunctionInvocation f' tps' es', k, u =>
-    (!u || S.flat.contains f) && f == f' && (match S.funs.lookup f, tps' with
-      | some ([A], .TypeParameter B, ks, k2), [t] =>
-        A == B && sameTy t Te && kindEq k2 k &&
+  | Γ, .FunctionInvocation f tps es, .FunctionInvocation f' tps' es', k, u =>
+    (!u || S.flat.contains f) && f == f' && (match S.funs.lookup f, tps, tps' with
+      | some ([A], .TypeParameter B, ks, k2), [t0], [t] =>
+        A == B && sameTy t0 Te && sameTy t Te && kindEq k2 k &&
           encodesCheck N S Te g Γ (.Tuple es) (.Tuple es') (.tuple ks) u
-      | some ([], _, ks, k2), [] =>
+      | some ([], _, ks, k2), _, [] =>
         kindEq k2 k && encodesCheck N S Te g Γ (.Tuple es) (.Tuple es') (.tuple ks) u
-      | _, _ => false)
+      | _, _, _ => false)
   | Γ, .Lambda ps body, .Lambda ps' body', .fn ks k, u =>
     decide (param_ids ps = param_ids ps') &&
       encodesCheck N S Te g ((param_ids ps).zip ks ++ keep Γ) body body' k true
@@ -229,7 +229,7 @@ def encodesCheck (N : Names) (S : CSig) (Te : Ty) (g : List (Id × Kind) → Exp
       | none => false)
   | _, .Error, .Error, _, _ => true
   | Γ, .Forall ps body, .Forall ps' body', .bool, _ =>
-    (match paramKinds ps, paramKinds ps' with
+    (match paramKinds Te ps, paramKinds Te ps' with
       | some ks, some ks' => kindsEq ks ks' && decide (param_ids ps = param_ids ps') &&
           encodesCheck N S Te g ((param_ids ps).zip ks ++ Γ) body body' .bool true
       | _, _ => false)
@@ -375,16 +375,19 @@ theorem encodesCheck_sound {N : Names} {S : CSig} {Te : Ty}
     simp only [Bool.and_eq_true, beq_iff_eq] at h
     obtain ⟨⟨hu, rfl⟩, h⟩ := h
     split at h
-    · next A B ks k2 t hl =>
+    · next A B ks k2 t0 t hl =>
       simp only [Bool.and_eq_true, beq_iff_eq] at h
-      obtain ⟨⟨⟨rfl, ht⟩, hk⟩, ha⟩ := h
+      obtain ⟨⟨⟨⟨rfl, ht0⟩, ht⟩, hk⟩, ha⟩ := h
+      cases sameTy_eq ht0
       cases sameTy_eq ht
       cases kindEq_eq hk
-      exact .callPoly _ hl (fun h1 => by subst h1; simpa [CSig.sig] using hu) (ih ks ha)
-    · next Tf ks k2 hl =>
+      exact .callPoly hl (fun h1 => by subst h1; simpa [CSig.sig] using hu) 
+        (by simp only [hl] at ih; exact ih ha)
+    · next Tf ks k2 _ hl =>
       simp only [Bool.and_eq_true] at h
       cases kindEq_eq h.1
-      exact .callMono _ hl (fun h1 => by subst h1; simpa [CSig.sig] using hu) (ih ks h.2)
+      exact .callMono _ hl (fun h1 => by subst h1; simpa [CSig.sig] using hu) 
+        (by simp only [hl] at ih; exact ih h.2)
     · cases h
   · next ih =>
     simp only [Bool.and_eq_true, decide_eq_true_eq] at h
@@ -892,7 +895,9 @@ theorem Coverage.encoded {C : Coverage} (hC : C.Ok) {O : Oracle} {Ps P : Program
       ∃ params body body' Tu, InterpIn f params body Ps ∧ InterpIn f params body' P ∧
         Encodes C.names C.sig.sig Tu (fun x => (params.zip ks).lookup x) body body' k
           (C.sig.flat.contains f) ∧ O.resolve_all [] [Tu] = [T0])
-    {env env' : Env} (hT : O.resolve_all (env_types env') [C.elem] = [T0])
+    {env env' : Env}
+    (hT : O.resolve_all (env_types env) [C.elem] = [T0] ∧
+      O.resolve_all (env_types env') [C.elem] = [T0])
     (hΓ : ∀ x k, C.vars.lookup x = some k → ∃ v v', lookup_var (env_vars env) x = .Ok v ∧
       lookup_var (env_vars env') x = .Ok v' ∧ Rel O P C.names K E T0 C.sig.sig k v v')
     (hsol : ∀ p ∈ C.covered, ∃ n, eval O Ps n env p.1 = .Ok (.BoolV true)) :
@@ -928,7 +933,9 @@ theorem covers_encoded (certificate : Sexp) {O : Oracle} {Ps P : Program}
         Encodes (covers certificate).names (covers certificate).sig.sig Tu
           (fun x => (params.zip ks).lookup x) body body' k
           ((covers certificate).sig.flat.contains f) ∧ O.resolve_all [] [Tu] = [T0])
-    {env env' : Env} (hT : O.resolve_all (env_types env') [(covers certificate).elem] = [T0])
+    {env env' : Env}
+    (hT : O.resolve_all (env_types env) [(covers certificate).elem] = [T0] ∧
+      O.resolve_all (env_types env') [(covers certificate).elem] = [T0])
     (hΓ : ∀ x k, (covers certificate).vars.lookup x = some k → ∃ v v',
       lookup_var (env_vars env) x = .Ok v ∧ lookup_var (env_vars env') x = .Ok v' ∧
         Rel O P (covers certificate).names K E T0 (covers certificate).sig.sig k v v')
