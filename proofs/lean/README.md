@@ -1278,7 +1278,7 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   inlines or drops, where each step of a constraint is of these rules: on the
   corpus, the 3 certificates of `error-is-infeasible`, the 1st, 2nd, 3rd and
   5th of `lets-and-assumptions-around-partial-terms`, the 1st and 5th of
-  `ground-terms-that-evaluate`, the 1st and 3rd of
+  `ground-terms-that-evaluate`, the first 3 of
   `arithmetic-over-partial-operands`, and the first of
   `real-division-by-zero-is-infeasible` and
   `selections-of-constructions-with-partial-fields`, as `inox-solution --input`

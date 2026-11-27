@@ -1157,7 +1157,9 @@ partial def callsIn (t : Table) : Sexp → List (String × Sexp)
   | .expr xs => xs.flatMap (callsIn t)
   | _ => []
 
-/-- The expression that `s` reads as, or what it has that isn't read. -/
+/-- The expression that `s` reads as, or what it has that isn't read. A sum or a product of more
+than two operands, which the printer and the lowering make of nested ones, is read nested to the
+right, which is the same where they are integers. -/
 def readExpr (c : Ctx) : Nat → Sexp → Except String Expr
   | 0, _ => .error "a term too deep"
   | n + 1, s =>
@@ -1180,6 +1182,10 @@ def readExpr (c : Ctx) : Nat → Sexp → Except String Expr
     | .expr [.atom "-", a, b] => do pure (.Minus (← readExpr c n a) (← readExpr c n b))
     | .expr [.atom "-", a] => do pure (.UMinus (← readExpr c n a))
     | .expr [.atom "*", a, b] => do pure (.Times (← readExpr c n a) (← readExpr c n b))
+    | .expr (.atom "+" :: a :: b :: d :: es) => do
+      pure (.Plus (← readExpr c n a) (← readExpr c n (.expr (.atom "+" :: b :: d :: es))))
+    | .expr (.atom "*" :: a :: b :: d :: es) => do
+      pure (.Times (← readExpr c n a) (← readExpr c n (.expr (.atom "*" :: b :: d :: es))))
     | .expr [.atom "div", a, b] => do pure (.Division (← readExpr c n a) (← readExpr c n b))
     | .expr [.atom "mod", a, b] => do pure (.Modulo (← readExpr c n a) (← readExpr c n b))
     | .expr [.atom "<", a, b] => do pure (.LessThan (← readExpr c n a) (← readExpr c n b))
