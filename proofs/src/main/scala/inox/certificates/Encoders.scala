@@ -35,7 +35,8 @@ import Lowering.{Entry, entry}
   * input prints as the union of its singletons, is only accepted when it is encoded as that
   * union is. With `map-merge`, `(map.merge mask m1 m2)` is the call of the encoder's `mapMerge`.
   * The symbols of an encoder are those of the sources that stand for an identifier of its name
-  * that the input doesn't have.
+  * that the input doesn't have, and the source definitions of the datatype `Bag` and of its
+  * functions `get` and `inv` must be those of the encoder.
   *
   * Each constraint also gives the steps of the solver's simplification of the encoded term, the
   * rule of each and the term after it, which lead to the source of the template of the
@@ -115,9 +116,46 @@ object Encoders {
           relation.relate(cs, cs2, bind(ps, ps2, Map.empty, decl, outData(d2)))
         case (decl, decl2) => relation.relate(decl, decl2, Map.empty)
       }
+      // the datatype and the functions of the encoder of bags are those of the encoder
+      if (encoders.contains("bags")) {
+        for ((d, decl) <- outData if relation.theory(d, "sort", "Bag")) relation.theoryDefinition(BagDatatype, decl)
+        for ((f, (ps, xs, range, body)) <- outFuns; (name, pattern) <- List("get" -> BagGet, "inv" -> BagInvariant)
+             if relation.theory(f, "function", name))
+          relation.theoryDefinition(pattern, SList(List(SList(ps), SList(xs), range, body)))
+      }
       lines.size
     case _ => fail("the input of the certificate is not one")
   }
+
+  // The definitions of the encoder of bags (see `solvers.theories.BagEncoder`), as the sources
+  // print them: each `?x` stands for a symbol, the same wherever it occurs. Those of a name of the
+  // encoder (`?Bag`, `?Node`, `?op` ..) are its symbols, and the others are bound variables.
+  private val BagDatatype = Checker.parse(
+    "(par (?T) ((?Node (?op Int) (?left (?Bag ?T)) (?right (?Bag ?T))) (?Elem (?key ?T) (?value Int)) (?Leaf)))").head
+  // the sort parameters, the parameters, the sort and the body of `get`
+  private val BagGet = Checker.parse("""((?T) ((?b (?Bag ?T)) (?x ?T)) Int
+    (ite ((as (_ is ?Node) (?Bag ?T)) ?b)
+      (let ((?v1 ((as ?get (?T)) ((as ?left (?Bag ?T)) ?b) ?x)))
+      (let ((?v2 ((as ?get (?T)) ((as ?right (?Bag ?T)) ?b) ?x)))
+      (ite (= ((as ?op (?Bag ?T)) ?b) 0) (+ ?v1 ?v2)
+      (ite (= ((as ?op (?Bag ?T)) ?b) 1) (ite (<= ?v1 ?v2) 0 (- ?v1 ?v2))
+      (ite (<= ?v1 ?v2) ?v1 ?v2)))))
+      (ite (and ((as (_ is ?Elem) (?Bag ?T)) ?b) (= ((as ?key (?Bag ?T)) ?b) ?x)) ((as ?value (?Bag ?T)) ?b) 0)))""").head
+  // the invariant of the datatype: multiplicities are not negative
+  private val BagInvariant = Checker.parse("""((?T) ((?b (?Bag ?T))) Bool
+    (or (not ((as (_ is ?Elem) (?Bag ?T)) ?b)) (>= ((as ?value (?Bag ?T)) ?b) 0)))""").head
+  // the kind of each symbol of the encoder that its definitions name
+  private val BagSymbols: Map[String, Relation => Atom => Boolean] = Map(
+    "Bag" -> (r => r.theory(_, "sort", "Bag")),
+    "Node" -> (r => r.theory(_, "constructor", "Node")),
+    "Elem" -> (r => r.theory(_, "constructor", "Elem")),
+    "Leaf" -> (r => r.theory(_, "constructor", "Leaf")),
+    "op" -> (r => r.selector(_, "Node", 0)),
+    "left" -> (r => r.selector(_, "Node", 1)),
+    "right" -> (r => r.selector(_, "Node", 2)),
+    "key" -> (r => r.selector(_, "Elem", 0)),
+    "value" -> (r => r.selector(_, "Elem", 1)),
+    "get" -> (r => r.theory(_, "function", "get")))
 
   /** The functions that `commands`, declarations and definitions of SMT-LIB 3, define: each
     * defined symbol with its sort parameters, its parameters, its sort and its body. */
@@ -173,7 +211,7 @@ object Encoders {
 
     /** `a` is the symbol of an encoder: one of the sources of kind `kind` that stands for an
       * identifier of name `name` that the input doesn't have. */
-    private def theory(a: SExpr, kind: String, name: String): Boolean = a match {
+    def theory(a: SExpr, kind: String, name: String): Boolean = a match {
       case a: Atom => outputs.get(a).exists(e => e.kind == kind && id(e).exists { d =>
         nameOf(d) == name && !inputIds(kind -> d)
       })
@@ -189,6 +227,28 @@ object Encoders {
       * of the input, stands for. */
     def sourceOf(a: Atom, outs: Iterable[Atom]): Option[Atom] =
       inputs.get(a).flatMap(x => outs.find(b => outputs.get(b).exists(y => identifier(x) == identifier(y))))
+
+    /** `a` is the selector of index `index` of the constructor `name` of an encoder: a selector
+      * of the sources, described by a constructor of that name that the input doesn't have. */
+    def selector(a: Atom, name: String, index: Int): Boolean = outputs.get(a).exists { e =>
+      e.kind == "selector" && e.descriptions.lastOption.contains("\"" + index + "\"") && id(e).exists { d =>
+        nameOf(d) == name && !inputIds("constructor" -> d)
+      }
+    }
+
+    /** Checks that `definition`, of the sources, is `pattern`, a definition of an encoder. */
+    def theoryDefinition(pattern: SExpr, definition: SExpr): Unit = {
+      val binding = scala.collection.mutable.Map[String, Atom]()
+      def matches(p: SExpr, t: SExpr): Boolean = (p, t) match {
+        case (Atom(x), a: Atom) if x.startsWith("?") => binding.getOrElseUpdate(x, a) == a
+        case (SList(ps), SList(ts)) => ps.size == ts.size && (ps zip ts).forall(matches(_, _))
+        case _ => p == t
+      }
+      if (!matches(pattern, definition) ||
+          binding.exists { (x, a) => Encoders.BagSymbols.get(x.drop(1)).exists(is => !is(this)(a)) } ||
+          binding.values.toSeq.distinct.size != binding.size)
+        fail(s"$definition is not the definition of the encoder")
+    }
 
     def no(in: SExpr, out: SExpr): Nothing = fail(s"$out is not what the encoders make of $in")
 

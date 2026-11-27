@@ -28,7 +28,8 @@ The check knows the encoders `propositions`, which changes no term, `bags` and `
 where `<elem>` is `(Elem k v)` when `v` is a positive literal, `Leaf` when it is another literal,
 and `(ite (> v 0) (Elem k v) Leaf)` otherwise. With `map-merge`, `(map.merge mask m1 m2)` is the
 call of the encoder's `mapMerge`. The symbols of an encoder are those of the sources that stand
-for an identifier of its name that the input doesn't have.
+for an identifier of its name that the input doesn't have, and the source definitions of the
+datatype `Bag` and of its functions `get` and `inv` must be those of the encoder.
 
 Each constraint also gives the steps of the solver's simplification of the encoded term, the rule
 of each and the term after it, which lead to the source of the template of the constraint. The
@@ -206,6 +207,33 @@ partial def relate (r : Relation) (i o : Sexp) (bound : List (String × String))
 
 end Relation
 
+def pattern (text : String) : Sexp :=
+  match Sexp.Parser.sexp.run text with
+  | .ok s => s
+  | .error _ => .atom "?"
+
+/-! The definitions of the encoder of bags (see `solvers.theories.BagEncoder`), as the sources
+print them: each `?x` stands for a symbol, the same wherever it occurs. Those of a name of the
+encoder (`?Bag`, `?Node`, `?op` ..) are its symbols, and the others are bound variables. -/
+
+def bagDatatype : Sexp := pattern ("(par (?T) ((?Node (?op Int) (?left (?Bag ?T)) " ++
+  "(?right (?Bag ?T))) (?Elem (?key ?T) (?value Int)) (?Leaf)))")
+
+/-- The sort parameters, the parameters, the sort and the body of `get`. -/
+def bagGet : Sexp := pattern ("((?T) ((?b (?Bag ?T)) (?x ?T)) Int " ++
+  "(ite ((as (_ is ?Node) (?Bag ?T)) ?b) " ++
+  "(let ((?v1 ((as ?get (?T)) ((as ?left (?Bag ?T)) ?b) ?x))) " ++
+  "(let ((?v2 ((as ?get (?T)) ((as ?right (?Bag ?T)) ?b) ?x))) " ++
+  "(ite (= ((as ?op (?Bag ?T)) ?b) 0) (+ ?v1 ?v2) " ++
+  "(ite (= ((as ?op (?Bag ?T)) ?b) 1) (ite (<= ?v1 ?v2) 0 (- ?v1 ?v2)) " ++
+  "(ite (<= ?v1 ?v2) ?v1 ?v2))))) " ++
+  "(ite (and ((as (_ is ?Elem) (?Bag ?T)) ?b) (= ((as ?key (?Bag ?T)) ?b) ?x)) " ++
+  "((as ?value (?Bag ?T)) ?b) 0)))")
+
+/-- The invariant of the datatype: multiplicities are not negative. -/
+def bagInvariant : Sexp := pattern ("((?T) ((?b (?Bag ?T))) Bool " ++
+  "(or (not ((as (_ is ?Elem) (?Bag ?T)) ?b)) (>= ((as ?value (?Bag ?T)) ?b) 0)))")
+
 /-- A function that commands of SMT-LIB 3 define: its sort parameters, its parameters, its sort
 and its body. -/
 structure Function where
@@ -260,6 +288,51 @@ the input, stands for. -/
 def sourceOf (r : Relation) (a : String) (outs : List String) : Option String :=
   (r.input a).bind fun x => outs.find? fun b =>
     (r.output b).any fun y => Entry.identifier x == Entry.identifier y
+
+/-- `a` is the selector of index `index` of the constructor `name` of an encoder: a selector of
+the sources, described by a constructor of that name that the input doesn't have. -/
+def selector (r : Relation) (a : String) (name : String) (index : Nat) : Bool :=
+  (r.output a).any fun e =>
+    e.kind == "selector" && e.descriptions.getLast? == some s!"\"{index}\"" &&
+      (Entry.id e).any fun d =>
+        nameOf d == name && !r.inputs.any fun i => i.kind == "constructor" && Entry.id i == some d
+
+/-- The symbol of the encoder of bags that `x`, a name of its definitions, stands for. -/
+def bagSymbol (r : Relation) (x a : String) : Option Bool :=
+  match x with
+  | "Bag" => some (r.theory (.atom a) "sort" "Bag")
+  | "Node" | "Elem" | "Leaf" => some (r.theory (.atom a) "constructor" x)
+  | "op" => some (r.selector a "Node" 0)
+  | "left" => some (r.selector a "Node" 1)
+  | "right" => some (r.selector a "Node" 2)
+  | "key" => some (r.selector a "Elem" 0)
+  | "value" => some (r.selector a "Elem" 1)
+  | "get" => some (r.theory (.atom a) "function" "get")
+  | _ => none
+
+/-- `t` is `p` where each `?x` of `p` is the atom that `binding` gives it, extended. -/
+partial def matchPattern (p t : Sexp) (binding : List (String × String)) :
+    Option (List (String × String)) :=
+  match p, t with
+  | .atom x, .atom a =>
+    if x.startsWith "?" then
+      match binding.lookup x with
+      | some b => if a == b then some binding else none
+      | none => some ((x, a) :: binding)
+    else if x == a then some binding else none
+  | .expr ps, .expr ts =>
+    if ps.length != ts.length then none
+    else (ps.zip ts).foldlM (init := binding) fun b (p, t) => matchPattern p t b
+  | _, _ => none
+
+/-- Checks that `definition`, of the sources, is `pattern`, a definition of an encoder. -/
+def theoryDefinition (r : Relation) (pattern definition : Sexp) : Lower Unit :=
+  match matchPattern pattern definition [] with
+  | some binding =>
+    if binding.all (fun (x, a) => (r.bagSymbol (x.drop 1).toString a).getD true) &&
+        (binding.map (·.2)).eraseDups.length == binding.length then pure ()
+    else refuse s!"{text definition} is not the definition of the encoder"
+  | none => refuse s!"{text definition} is not the definition of the encoder"
 
 /-- The variables that `xs` bind face those that `ys` bind, the sorts of parameters under
 `bound`. -/
@@ -351,6 +424,14 @@ def check (input sourceDefinitions sourceSymbols : List Sexp) : Lower Nat :=
           r.relate cs cs2 (← r.bind ps ps2 [] decl decl2)
         | _, _ => r.relate decl decl2 []
       | none => pure ()
+    -- the datatype and the functions of the encoder of bags are those of the encoder
+    if encoders.contains "bags" then
+      for (d, decl) in outData do
+        if r.theory (.atom d) "sort" "Bag" then r.theoryDefinition bagDatatype decl
+      for (f, fn) in outFuns do
+        for (name, pattern) in [("get", bagGet), ("inv", bagInvariant)] do
+          if r.theory (.atom f) "function" name then
+            r.theoryDefinition pattern (.expr [.expr fn.params, .expr fn.args, fn.range, fn.body])
     pure lines.length
   | _ => refuse "the input of the certificate is not one"
 

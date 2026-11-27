@@ -98,6 +98,22 @@ class EncodersSuite extends AnyFunSuite {
     assert(refused(input("true", "true"), counts).contains("the input doesn't say what count!1 is the simplification of"))
   }
 
+  test("the datatype of bags is the encoder's") {
+    def symbols = sourceSymbols ++ sexprs("""
+      (op!1 selector "Node$0" "Bag$7[T$3]" "0")
+      (left!1 selector "Node$0" "Bag$7[T$3]" "1")
+      (right!1 selector "Node$0" "Bag$7[T$3]" "2")
+      (key!1 selector "Elem$0" "Bag$7[T$3]" "0")
+      (value!1 selector "Elem$0" "Bag$7[T$3]" "1")
+    """)
+    def bags(value: String) = sexprs(s"""(declare-datatypes ((Bag!1 1)) ((par (T!0) ((Node!1 (op!1 Int)
+      (left!1 (Bag!1 T!0)) (right!1 (Bag!1 T!0))) (Elem!1 (key!1 T!0) ($value Int)) (Leaf!1)))))""")
+    assert(Encoders.check(input("true", "true"), bags("value!1"), symbols) == 1)
+    // the multiplicity of an element is its key
+    assert(intercept[Failure](Encoders.check(input("true", "true"), bags("key!1"), symbols)).getMessage
+      .contains("is not the definition of the encoder"))
+  }
+
   test("bound variables face each other, and an unknown encoder is refused") {
     assert(Encoders.check(input(
       "(forall ((x!1 (Bag Int))) (= (bag.multiplicity k!0 x!1) 0))",

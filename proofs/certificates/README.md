@@ -185,9 +185,10 @@ rule of `unrolling.RuleKernel` builds. Two things are left to the reader:
   encoder's theory, which faces what the encoder makes of it, such as
   `(bag.union a b)` and `(Node 0 a b)`. It knows the encoders that cvc5 runs
   with (`propositions`, `bags` and `map-merge`), and refuses a certificate
-  that names another. It doesn't check the sorts that only the encoded term
-  has, nor that the datatype and the functions that the source definitions
-  give for an encoder are those of the encoder.
+  that names another. It checks that the datatype of bags and its functions
+  `get` and `inv` in the source definitions are those of the encoder of
+  bags. It doesn't check the sorts that only the encoded term has, nor the
+  encoder's equality of bags and its `mapMerge`.
 
   The same goes for the functions: the input gives, for each function of the
   source definitions, its body after the encoders, which the checker checks
