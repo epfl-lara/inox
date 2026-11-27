@@ -453,30 +453,6 @@ theorem sizeOf_string_pos (c : String) : 0 < sizeOf c := by
 theorem sizeOf_expr_pos (e : Expr) : 0 < sizeOf e := by
   cases e <;> simp +arith
 
-/-- Whether no constructor of the sorts `A` has a function in its fields. -/
-def foSig (S : CSig) (A : List Id) : Bool :=
-  S.ctors.all fun (_, s, fs) => !A.contains s || foKinds A.contains (fs.map Prod.snd)
-
-theorem foSig_sound {S : CSig} {A : List Id} (h : foSig S A = true) :
-    S.sig.fo A.contains := by
-  intro c s fs hc hs
-  have hmem : (c, s, fs) ∈ S.ctors := mem_of_lookup hc
-  have h := List.all_eq_true.1 h _ hmem
-  simp only [Bool.or_eq_true, Bool.not_eq_true'] at h
-  rw [hs] at h
-  simpa using h
-
-/-- The sorts that have no functions in them, removing those that do until none is left. -/
-def foSorts (S : CSig) : List Id :=
-  go (S.ctors.length + 1) (S.ctors.map (·.2.1))
-where
-  go : Nat → List Id → List Id
-    | 0, A => A
-    | n + 1, A =>
-      let A' := A.filter fun s =>
-        S.ctors.all fun (_, s', fs) => s' != s || foKinds A.contains (fs.map Prod.snd)
-      if A'.length == A.length then A else go n A'
-
 /-- The variables that a function keeps: those that have the kind that they are listed with. -/
 def keep (Γ : List (Id × Kind)) : List (Id × Kind) :=
   Γ.filter fun p => match Γ.lookup p.1 with | some k => kindEq k p.2 | none => false
@@ -510,8 +486,7 @@ def encodesCheck (N : Names) (S : CSig) (Te : Ty) (g : List (Id × Kind) → Exp
   | Γ, .GreaterEquals a b, .GreaterEquals a' b', .bool, u =>
     encodesCheck N S Te g Γ a a' .int u && encodesCheck N S Te g Γ b b' .int u
   | Γ, .Equals a b, .Equals a' b', .bool, u =>
-    foKind (foSorts S).contains (g Γ a) && foSig S (foSorts S) &&
-      encodesCheck N S Te g Γ a a' (g Γ a) u && encodesCheck N S Te g Γ b b' (g Γ a) u
+    encodesCheck N S Te g Γ a a' (g Γ a) u && encodesCheck N S Te g Γ b b' (g Γ a) u
   | Γ, .Not a, .Not a', .bool, u => encodesCheck N S Te g Γ a a' .bool u
   | _, .And [], .And [], .bool, _ => true
   | Γ, .And (a :: as), .And (a' :: as'), .bool, u =>
@@ -672,7 +647,7 @@ theorem encodesCheck_sound {N : Names} {S : CSig} {Te : Ty}
     exact .ge (iha h.1) (ihb h.2)
   · next iha ihb =>
     simp only [Bool.and_eq_true] at h
-    exact .eq h.1.1.1 (foSig_sound h.1.1.2) (iha h.1.2) (ihb h.2)
+    exact .eq (iha h.1) (ihb h.2)
   · next iha => exact .not (iha h)
   · exact .andNil
   · next iha ihb =>
