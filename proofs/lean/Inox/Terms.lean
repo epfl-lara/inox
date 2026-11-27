@@ -1283,12 +1283,18 @@ def termStepsOf (checked : Checked) (terms : List Term) : Except String TermStep
     let base := terms.take nq ++ exprs ++ completeBase.map (·.1)
     let axioms := reflexivities terms fresh (withKinds counts ruleTerms)
     let eqs := equations checked ++ axioms
+    -- the definitions of the symbols that are true, such as the typing of a set, which the
+    -- clauses of another instance than theirs may mention
+    let trues := defs.filter fun d => match d with
+      | .Apply (.Apply (.UOp .eq) _) (.Boolean true) => true
+      | _ => false
     -- the definitions and the clauses of each instance
     let instances := (counts.zip ndefs).foldl
       (fun (acc : List (List Term × List Term) × List Term × List Term) ((k, n), nd) =>
         let (out, cs, ds) := acc
         let out :=
-          if k == "Unfold" || k == "Instance" then out ++ [(ds.take nd, cs.take n)] else out
+          if k == "Unfold" || k == "Instance" then out ++ [(ds.take nd ++ trues, cs.take n)]
+          else out
         (out, cs.drop n, ds.drop nd)) ([], ruleTerms, defs)
     let facts := facts ++ completeFacts.map (·.1)
     let fresh := unconstrained eqs base fresh defs facts ++ fresh
@@ -1531,14 +1537,24 @@ def verifyUnder (k : List (SmtTerm × Bool) → Bool) (K : List (SmtTerm × Bool
   | .or p1 p2 => verifyUnder k K p1 && verifyUnder k K p2
   | p => red K p = .Boolean false || k (withUnits (lits (red K p) true ++ lits p true ++ K))
 
+/-- `φ` states that the set `s`, which `K` makes known not to be empty, is the element that Logos
+chooses of it (`set.choose`) with the others: what the typing of a set states of it, with that
+element and those others for the element and the rest that it names. -/
+def setSplit (K : List (SmtTerm × Bool)) : SmtTerm → Bool
+  | .eq s (.set_union (.set_union (.set_singleton c) (.set_empty T))
+      (.set_minus s' (.set_singleton c'))) =>
+    decide (s' = s) && decide (c' = c) && decide (c = .map_diff s (.set_empty T)) &&
+      decide (__smtx_typeof s = .Set T) && known K (.eq s (.set_empty T)) == some false
+  | _ => false
+
 /-- `φ` holds in the models of the defining equations `eqs` where the literals `K` have their
 values: an implication whose premise makes its conclusion hold, or a term that reduces to true, or
 an instance of a defining equation, or the conclusion of one whose premise holds, or an equality
-by congruence. -/
+by congruence, or the split of a set that is not empty. -/
 def verify (eqs : List Equation) (K : List (SmtTerm × Bool)) : SmtTerm → Bool
   | .imp p q => decide (__smtx_typeof p = .Bool) && decide (__smtx_typeof q = .Bool) &&
       verifyUnder (fun K' => verify eqs K' q) K p
-  | φ => red K φ = .Boolean true || eqInst eqs φ || mpInst eqs K φ || congEq K φ
+  | φ => red K φ = .Boolean true || eqInst eqs φ || mpInst eqs K φ || congEq K φ || setSplit K φ
 
 /-- The binding of the constant that a definition `(= v D)` defines to `D`, if `v` is a constant
 whose name Logos doesn't reserve, of a sort that has values and is not that of regular languages,
@@ -1635,7 +1651,7 @@ def TermSteps.coverage (r : TermSteps) (checked : Checked) : String := Id.run do
   let fmt (m : Std.HashMap String Nat) :=
     ", ".intercalate ((m.toList.mergeSort (fun a b => a.1 ≤ b.1)).map fun (k, n) => s!"{k} {n}")
   let ctx := Std.HashSet.ofList (extend r.base r.fresh)
-  let ndefs := ((r.instances.flatMap (·.1)).filter ctx.contains).length
+  let ndefs := ((r.instances.flatMap (·.1)).eraseDups.filter ctx.contains).length
   let nprop := (checked.defined.map List.length).sum
   let left := r.facts.length - unf - byInst - direct
   let query := r.base.length - r.expressions - r.completeBase

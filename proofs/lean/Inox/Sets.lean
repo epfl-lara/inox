@@ -3,6 +3,8 @@ import Cpc.Proofs.TypePreservation.Helpers
 import Cpc.Proofs.Canonical.Maps
 import Cpc.Proofs.Canonical.Ops
 import Cpc.Proofs.RuleSupport.SetsEvalOpSupport
+import Cpc.Proofs.RuleSupport.SetsMemberSupport
+import Cpc.Proofs.RuleSupport.ArraySupport
 
 /-!
 # The sets of Logos, from lists
@@ -304,5 +306,68 @@ theorem set_inv (uc : SmtUSortDom) {A : SmtType} {m : SmtMap}
   apply map_ext_of_lookup_eq hc.1 (setOf_canonical uc A _ hkc)
   · rw [hl, setOf_leaf]
   · intro x; rw [hlook x, setOf_lookup uc A _ x hkc]
+
+/-! A set that is not empty is an element of it with the rest. -/
+
+/-- The element that Logos chooses of a set that is not empty is one of its members. -/
+theorem choose_mem {M : SmtModel} (huc : usort_dom_wf M.usortDom) {A : SmtType} {m : SmtMap}
+    (ht : __smtx_typeof_value (.Set m) = .Set A)
+    (hc : __smtx_value_canonical M.usortDom (.Set m) = true)
+    (hne : m ≠ .default A (.Boolean false)) :
+    __smtx_map_lookup m (native_eval_map_diff M m (.default A (.Boolean false))) =
+      .Boolean true := by
+  have htm : __smtx_typeof_map_value m = .Map A .Bool := set_map_value_typed ht
+  simp only [__smtx_value_canonical, native_and, Bool.and_eq_true, native_veq,
+    decide_eq_true_eq] at hc
+  have hDiff := RuleProofs.map_diff_selects_model_eval_eq_false_of_default_eq huc
+    m (SmtMap.default A (SmtValue.Boolean false)) A SmtType.Bool
+    htm (by simp [__smtx_typeof_map_value, __smtx_typeof_value])
+    hc.1 (set_empty_map_canonical A) hc.2 (by decide)
+    (by simp [__smtx_model_eval_eq, native_veq, hne])
+  rcases bool_value_canonical
+    (SetsMemberSupport.set_map_lookup_bool (i := native_eval_map_diff M m
+      (SmtMap.default A (SmtValue.Boolean false))) htm) with ⟨b, hb⟩
+  rw [hb]
+  rw [__smtx_map_lookup] at hDiff
+  erw [hb] at hDiff
+  cases b <;> simp_all [__smtx_model_eval_eq, native_veq]
+
+/-- A set is a member of it with the others. -/
+theorem split_eq (uc : SmtUSortDom) {A : SmtType} {m : SmtMap}
+    (ht : __smtx_typeof_value (.Set m) = .Set A)
+    (hc : __smtx_value_canonical uc (.Set m) = true) {c : SmtValue}
+    (hmem : __smtx_map_lookup m c = .Boolean true) :
+    __smtx_model_eval_set_union
+      (__smtx_model_eval_set_union (__smtx_model_eval_set_singleton c)
+        (.Set (.default A (.Boolean false))))
+      (__smtx_model_eval_set_minus (.Set m) (__smtx_model_eval_set_singleton c)) = .Set m := by
+  obtain ⟨hm, hks⟩ := set_inv uc ht hc
+  have hk : ∀ w ∈ keys m, __smtx_value_canonical uc w = true ∧ __smtx_typeof_value w = A :=
+    fun w hw => ⟨(hks w hw).2.1, (hks w hw).1⟩
+  have hck : c ∈ keys m := by
+    rw [hm, setOf_lookup uc A _ c fun w hw => (hk w hw).1] at hmem
+    simpa using hmem
+  have h1 : ∀ w ∈ [c], __smtx_value_canonical uc w = true ∧ __smtx_typeof_value w = A := by
+    intro w hw; rw [List.mem_singleton.mp hw]; exact hk c hck
+  have h0 : ∀ w ∈ ([] : List SmtValue),
+      __smtx_value_canonical uc w = true ∧ __smtx_typeof_value w = A := fun _ h => nomatch h
+  have hf : ∀ w ∈ (keys m).filter (fun w => !decide (w ∈ [c])),
+      __smtx_value_canonical uc w = true ∧ __smtx_typeof_value w = A :=
+    fun w hw => hk w (List.mem_filter.mp hw).1
+  have h10 : ∀ w ∈ [c] ++ [], __smtx_value_canonical uc w = true ∧ __smtx_typeof_value w = A := by
+    simpa using h1
+  have he : (SmtMap.default A (.Boolean false)) = setOf A [] := rfl
+  rw [singleton_eq, (hk c hck).2, he, union_eq uc A h1 h0]
+  conv => lhs; arg 2; rw [hm]
+  rw [minus_eq uc A hk h1, union_eq uc A h10 hf]
+  conv => rhs; rw [hm]
+  congr 1
+  apply setOf_ext uc A (fun w hw => ?_) (fun w hw => (hk w hw).1) fun x => ?_
+  · rcases List.mem_append.mp hw with hw | hw
+    · exact (h10 w hw).1
+    · exact (hf w hw).1
+  · by_cases hx : x = c
+    · subst hx; simp [hck]
+    · simp [hx]
 
 end Inox.Bridge

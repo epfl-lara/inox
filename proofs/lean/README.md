@@ -356,6 +356,23 @@ accepts:
   which the theorems about the semantics take as a hypothesis (`Total`) or do
   without, for the calls that evaluation goes through
   (`no_solution_of_reached`).
+- **The typing of a set**: a variable or a parameter of a type of sets has
+  clauses for the typing of its elements,
+  `(=> nonEmpty (= s (set.union (set.insert e empty) rest)))` with the typing
+  of `rest` in turn, where `e` and `rest` are symbols of the template that
+  nothing else constrains: any element of a set that is not empty and the
+  others. The source gives the typing as
+  `(ite (= s empty) true (assume (= s (union {e} rest)) typing(rest)))`, which
+  `Meanings.setTyping` recognises: it reads `e` as `(set.choose s)`, the
+  element that Logos chooses of `s`, `rest` as
+  `(set.minus s (set.singleton e))`, and the typing as `true`. These are
+  definitions of fresh symbols like the others, and the clause is then the
+  split of a set that its guard makes known not to be empty, which `verify`
+  accepts (`setSplit`, `setSplit_sound`, by `choose_mem` and `split_eq` of
+  [`Inox/Sets.lean`](Inox/Sets.lean)). The typing of the rest is a parameter of
+  the instance that unfolds it, so the definitions of the symbols that are
+  `true` are in place in the clauses of every instance. This is for the sets
+  whose elements have no typing of their own.
 
 `inox-check --terms` prints, for each certificate, how many facts are
 unfoldings, how many are clauses of instances that the check accepts, how many
@@ -1053,13 +1070,9 @@ body with many nested assumptions is read slowly.
   asks that every fact be covered.
 
 The translation stops at integers, Booleans, reals, bit-vectors, datatypes
-without type parameters and sets. A certificate with a variable or a parameter
-of a type of sets has clauses for the typing of its elements, which take an
-element and the rest of a set that is not empty; these are facts that
-`reachedCheck` doesn't cover yet, so `no_solution_of_reached` applies to the
-certificates with sets only where these clauses hold as they are. Not
-translated: unit, `Let`, `Error`, `Division`, `Remainder`, `Modulo`, type
-arguments, closures, `Forall` and `UninterpretedCall`.
+without type parameters and sets. Not translated: unit, `Let`, `Error`,
+`Division`, `Remainder`, `Modulo`, type arguments, closures, `Forall` and
+`UninterpretedCall`.
 
 **What would make the generated Lean easier to prove things about.** The
 generated `match`es on `Result` (one auxiliary matcher per site) defeat generic

@@ -1,5 +1,6 @@
 /- Copyright 2009-2026 EPFL, Lausanne -/
 import Inox.Unfold
+import Inox.Sets
 
 /-!
 # The clauses of the instances of templates
@@ -440,13 +441,50 @@ theorem eqInst_sound (hty : LogosTyping) {eqs : List Equation} {M : SmtModel} (h
     exact hM e he _ htyped
   · simp at h
 
+/-- The split of a set that the literals `K` make known not to be empty holds where they have
+their values. -/
+theorem setSplit_sound (hty : LogosTyping) {M : SmtModel} (hwf : model_wf M)
+    {K : List (SmtTerm × Bool)} (hK : KSound M K) {φ : SmtTerm} (hv : setSplit K φ = true) :
+    __smtx_model_eval M φ = SmtValue.Boolean true := by
+  unfold setSplit at hv
+  split at hv
+  · next _ s c T s' c' =>
+    simp only [Bool.and_eq_true, decide_eq_true_eq, beq_iff_eq] at hv
+    obtain ⟨⟨⟨⟨hs', hc'⟩, hc⟩, hs⟩, hk⟩ := hv
+    subst s' c'
+    have hne := hK _ (known_mem hk)
+    obtain ⟨hvt, hvc⟩ := hty.1 M s hwf (by rw [hs]; simp)
+    rw [hs] at hvt
+    obtain ⟨m, hm⟩ := set_value_canonical hvt
+    rw [hm] at hvt hvc
+    have hE : __smtx_model_eval M (SmtTerm.set_empty T) =
+        SmtValue.Set (SmtMap.default T (SmtValue.Boolean false)) := by
+      rw [__smtx_model_eval.eq_def]
+    have hne' : m ≠ SmtMap.default T (SmtValue.Boolean false) := by
+      intro h
+      simp [__smtx_model_eval, hm, hE, h, __smtx_model_eval_eq, native_veq] at hne
+    have hmem := Bridge.choose_mem hwf.2.2.2 hvt hvc hne'
+    have hcv : __smtx_model_eval M c =
+        native_eval_map_diff M m (SmtMap.default T (SmtValue.Boolean false)) := by
+      rw [hc, __smtx_model_eval.eq_def]
+      simp only [hm, hE, __smtx_map_diff]
+      rfl
+    obtain ⟨d, hd, hmem⟩ : ∃ d, __smtx_model_eval M c = d ∧
+        __smtx_map_lookup m d = SmtValue.Boolean true := ⟨_, hcv, hmem⟩
+    simp only [__smtx_model_eval, hm, hE, hd]
+    rw [Bridge.split_eq M.usortDom hvt hvc hmem]
+    exact eval_eq_self _
+  · simp at hv
+
 theorem verify_base (hty : LogosTyping) {eqs : List Equation} {M : SmtModel} (hM : Good eqs M)
     (hwf : model_wf M) {K : List (SmtTerm × Bool)} (hK : KSound M K) (φ : SmtTerm)
     (hv : (decide (red K φ = SmtTerm.Boolean true) || eqInst eqs φ || mpInst eqs K φ ||
-      congEq K φ) = true) :
+      congEq K φ || setSplit K φ) = true) :
     __smtx_model_eval M φ = SmtValue.Boolean true := by
   simp only [Bool.or_eq_true, decide_eq_true_eq] at hv
-  rcases hv with ((hv | hv) | hv) | hv
+  rcases hv with (((hv | hv) | hv) | hv) | hv
+  rotate_right
+  · exact setSplit_sound hty hwf hK hv
   · rw [← eval_red hty hwf hK, hv]; rfl
   · exact eqInst_sound hty hM hwf hv
   · exact mpInst_sound hty hM hwf hK hv
