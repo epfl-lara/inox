@@ -315,12 +315,11 @@ object SolverFactory {
 
       case "smt-cvc4" => create(p)(finalName, {
         val ev = sem.getEvaluator(using ctx)
-        class SMTCVC4Impl(override val program: p.type)
-                         (override val enc: transformers.ProgramTransformer {
-                           val sourceProgram: program.type
-                           val targetProgram: Program { val trees: inox.trees.type }
-                         })
-          extends AbstractUnrollingSolver(program, ctx, enc)(fullEncoder => theories.CVC(fullEncoder)(ev))
+        // The theory encoder, and so the encoded symbols and their caches, are shared by the solvers
+        val factoryEnc = enc
+        val cvcTheories = theories.CVC(enc)(ev)
+        class SMTCVC4Impl(override val program: p.type)(override val enc: factoryEnc.type)
+          extends AbstractUnrollingSolver(program, ctx, enc)(_ => cvcTheories)
             with UnrollingSolver
             with TimeoutSolver
             with tip.TipDebugger {
@@ -344,17 +343,16 @@ object SolverFactory {
           override protected def partialModel = solverModel
         }
 
-        () => new SMTCVC4Impl(p)(enc)
+        () => new SMTCVC4Impl(p)(factoryEnc)
       })
 
       case "smt-cvc5" => create(p)(finalName, {
         val ev = sem.getEvaluator(using ctx)
-        class SMTCVC5Impl(override val program: p.type)
-                         (override val enc: transformers.ProgramTransformer {
-                           val sourceProgram: program.type
-                           val targetProgram: Program { val trees: inox.trees.type }
-                         })
-          extends AbstractUnrollingSolver(program, ctx, enc)(fullEncoder => theories.CVC(fullEncoder)(ev))
+        // The theory encoder, and so the encoded symbols and their caches, are shared by the solvers
+        val factoryEnc = enc
+        val cvcTheories = theories.CVC(enc)(ev)
+        class SMTCVC5Impl(override val program: p.type)(override val enc: factoryEnc.type)
+          extends AbstractUnrollingSolver(program, ctx, enc)(_ => cvcTheories)
             with UnrollingSolver
             with TimeoutSolver
             with tip.TipDebugger {
@@ -379,17 +377,16 @@ object SolverFactory {
           override protected def partialModel = solverModel
         }
 
-        () => new SMTCVC5Impl(p)(enc)
+        () => new SMTCVC5Impl(p)(factoryEnc)
       })
 
       case "smt-bitwuzla" => create(p)(finalName, {
         val ev = sem.getEvaluator(using ctx)
-        class SMTBitwuzlaImpl(override val program: p.type)
-                         (override val enc: transformers.ProgramTransformer {
-                           val sourceProgram: program.type
-                           val targetProgram: Program { val trees: inox.trees.type }
-                         })
-          extends AbstractUnrollingSolver(program, ctx, enc)(fullEncoder => theories.CVC(fullEncoder)(ev))
+        // The theory encoder, and so the encoded symbols and their caches, are shared by the solvers
+        val factoryEnc = enc
+        val cvcTheories = theories.CVC(enc)(ev)
+        class SMTBitwuzlaImpl(override val program: p.type)(override val enc: factoryEnc.type)
+          extends AbstractUnrollingSolver(program, ctx, enc)(_ => cvcTheories)
             with UnrollingSolver
             with TimeoutSolver
             with tip.TipDebugger {
@@ -413,7 +410,7 @@ object SolverFactory {
           override protected def partialModel = solverModel
         }
 
-        () => new SMTBitwuzlaImpl(p)(enc)
+        () => new SMTBitwuzlaImpl(p)(factoryEnc)
       })
 
       case "eval" => create(p)(finalName, {
