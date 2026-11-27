@@ -17,13 +17,15 @@ variables of the input make all its constraints evaluate to `true` in its progra
 (`no_input_solution`).
 
 The input is read where it is first-order, with datatypes without type parameters nor
-invariants, and its variables are integers, booleans or reals.
+invariants, and its variables are integers, booleans, reals or values of datatypes, of their
+types (`InputSolution`). The variables that the query of Logos has are of primitive types: one of
+a datatype is only in constraints whose simplifications remove it.
 -/
 
 namespace Inox.Joined
 
 open Inox.Semantics Inox.Bridge Inox.Lowered Logos
-open Inox.Simplified (Fact Step stepsApply stepsApply_refines Refines primValue)
+open Inox.Simplified (Fact Step stepsApply stepsApply_refines Refines primValue OfTy)
 open Inox.Input (sectionOf Table Ctx funsOf readExpr)
 open Inox.Encoded (FunIn IsPrim)
 
@@ -48,6 +50,14 @@ def primEq : Ty → Ty → Bool
 
 theorem primEq_eq {a b : Ty} (h : primEq a b = true) : a = b := by
   cases a <;> cases b <;> simp [primEq] at h <;> rfl
+
+theorem primEq_prim {a b : Ty} (h : primEq a b = true) : isPrimTy a = true := by
+  cases a <;> cases b <;> simp [primEq] at h <;> rfl
+
+/-- The type of a datatype without type arguments. -/
+def isDataTy : Ty → Bool
+  | .ADTType _ [] => true
+  | _ => false
 
 /-- The kind of the values of a type. -/
 def kindOfTy : Ty → LK
@@ -115,13 +125,24 @@ def InputRead.program (R : InputRead) : Program :=
   .Program R.funs R.ctors R.sorts []
     (if R.extEq then .ExtensionalEquality else .NoFunctionEquality)
 
-/-- The facts that hold of the variables of the input: they have values of primitive types. -/
-def InputRead.facts (R : InputRead) : List Fact := R.vars.map fun p => .prim p.1
+/-- The facts that hold of the variables of the input: they have values of their types, and
+those of primitive types have primitive values. -/
+def InputRead.facts (R : InputRead) : List Fact :=
+  R.vars.filterMap (fun p => (R.vars.lookup p.1).map (.typed p.1 ·)) ++
+    R.vars.filterMap fun p => (R.vars.lookup p.1).bind fun T =>
+      if isPrimTy T then some (.prim p.1) else none
+
+/-- Values of the variables of the input, of their types, that make all its constraints evaluate
+to `true` in its program. -/
+def InputSolution (O : Oracle) (R : InputRead) (vs : List Value) : Prop :=
+  List.Forall₂ (fun v T => OfTy R.ctors T v) vs (R.vars.map Prod.snd) ∧
+    ∃ bs, bind_all (R.vars.map Prod.fst) vs = .Ok bs ∧
+      ∀ q ∈ R.query, ∃ n, eval O R.program n (Env.Env [] bs) q = .Ok (.BoolV true)
 
 /-- What the constraint `q` is after the steps of its simplification, if they hold. -/
 def InputRead.finalOf (R : InputRead) (q : Expr) : Expr :=
   match R.simps.find? (fun p => exprEq 1000 p.1 q) with
-  | some (_, ss) => (stepsApply R.ctors R.facts ss q).getD q
+  | some (_, ss) => (stepsApply R.ctors R.sorts R.facts ss q).getD q
   | none => q
 
 /-- The constraints after their simplifications. -/
@@ -132,11 +153,11 @@ theorem finalOf_refines {O : Oracle} (hO : O.Sound) (R : InputRead) (q : Expr) :
   unfold InputRead.finalOf
   split
   · next ss _ =>
-    cases h : stepsApply R.ctors R.facts ss q with
+    cases h : stepsApply R.ctors R.sorts R.facts ss q with
     | none => exact Inox.Simplified.refines_refl
     | some e =>
       simp only [Option.getD_some]
-      exact stepsApply_refines (P := R.program) hO ⟨_, _, _, _, rfl⟩ R.facts ss q e h
+      exact stepsApply_refines (P := R.program) hO ⟨_, _, _, rfl⟩ R.facts ss q e h
   · exact Inox.Simplified.refines_refl
 
 /-- The expression that a source expression of the simplifications assumes the typing of its
@@ -216,7 +237,12 @@ def readInput (certificate : Sexp) : Except String InputRead := do
   let vars ← (symbols.filterMap fun
     | .expr [.atom x, .atom "variable", _, _, sort] => some (x, sort)
     | _ => none).mapM fun (x, s) =>
-      orThrow ((primTy s).map (x, ·)) s!"the variable {x} is of a sort that isn't read"
+      match primTy s, s with
+      | some T, _ => pure (x, T)
+      | none, .atom a =>
+        if t.kind a == "sort" then pure (x, .ADTType (t.id a) [])
+        else throw s!"the variable {x} is of a sort that isn't read"
+      | none, _ => throw s!"the variable {x} is of a sort that isn't read"
   pure
     { funs := read.map (·.1), sigs := read.map (·.2), query, vars
       ctors := sorts.flatMap fun (s, _, cs) => cs.map fun (c, ps) => .Constructor c s ps
@@ -399,7 +425,7 @@ def linkCheck (R : InputRead) (r : TermSteps) : Bool :=
   let Γ := L.ctx R
   let Γt := varsOf (sigsOf r.equations) r.query
   let Qt := queryOf r.query
-  R.vars.all (fun p => isPrimTy p.2) &&
+  R.vars.all (fun p => isPrimTy p.2 || isDataTy p.2) &&
     Qt.length == R.final.length &&
     (R.final.zip Qt).all (fun (q, q') => lowersCheck S 1000 Γ q q' .any) &&
     L.φ.all (fun (f, _) => match S.funs f with
@@ -432,6 +458,41 @@ def linkCheck (R : InputRead) (r : TermSteps) : Bool :=
 theorem hasV_prim {D : List Data} {T : Ty} (hT : isPrimTy T = true) {v : Value}
     (h : HasV [] v T) : HasV D v T := by
   cases T <;> simp [isPrimTy] at hT <;> cases v <;> exact h
+
+theorem hasV_of_typed {cs : List Constructor} {T : Ty} (hT : isPrimTy T = true) {v : Value}
+    (h : OfTy cs T v) : HasV [] v T := by
+  cases h <;> simp [isPrimTy] at hT <;> simp only [HasV]
+  next h => exact h
+
+theorem primValue_of_typed {cs : List Constructor} {T : Ty} (hT : isPrimTy T = true)
+    {v : Value} (h : OfTy cs T v) : primValue v = true := by
+  cases h <;> simp [isPrimTy] at hT <;> rfl
+
+/-- The values of the variables, of their types, by their names. -/
+theorem bind_lookup_typed {cs : List Constructor} : ∀ (ps : List (Id × Ty)) (vs : List Value)
+    (bs : List Binding), bind_all (ps.map Prod.fst) vs = .Ok bs →
+    List.Forall₂ (fun v T => OfTy cs T v) vs (ps.map Prod.snd) →
+    ∀ x T, ps.lookup x = some T → ∃ v, lookup_var bs x = .Ok v ∧ OfTy cs T v
+  | [], _, _, _, _, x, T, hx => by simp at hx
+  | (y, U) :: ps, v :: vs, bs, h, .cons hv hvs, x, T, hx => by
+    simp only [List.map_cons] at h
+    rw [bind_all] at h
+    split at h
+    · next bs' hbs' =>
+      cases h
+      by_cases hxy : x = y
+      · subst hxy
+        simp only [List.lookup_cons_self, Option.some.injEq] at hx
+        subst hx
+        exact ⟨v, by rw [lookup_var, dite_eq_left_of_eq_true (eq_true rfl)], hv⟩
+      · have hx' : ps.lookup x = some T := by
+          have hb : (x == y) = false := beq_false_of_ne hxy
+          simp only [List.lookup, hb] at hx
+          exact hx
+        obtain ⟨w, hw, hwT⟩ := bind_lookup_typed ps vs bs' hbs' hvs x T hx'
+        exact ⟨w, by rw [lookup_var, dite_eq_right_of_eq_false (eq_false hxy)]; exact hw, hwT⟩
+    · cases h
+    · cases h
 
 theorem primValue_of_hasV {T : Ty} (hT : isPrimTy T = true) {v : Value} (h : HasV [] v T) :
     primValue v = true := by
@@ -498,15 +559,15 @@ theorem mem_zip_right {α β : Type} {b : β} : ∀ {l : List α} {l' : List β}
 
 /-- The input has no solution: where the theorem of `no_solution_of_reached` holds of a
 certificate and its input is lowered to the program and the query that Logos reads from it
-(`linkCheck`), no values of the variables of the input make all its constraints evaluate to
-`true` in its program. -/
+(`linkCheck`), no values of the variables of the input, of their types, make all its
+constraints evaluate to `true` in its program. -/
 theorem no_input_solution {O : Oracle} (sound : LogosSound) (hO : O.Sound)
     (hty : Inox.Extend.LogosTyping) {certificate : Logos.Sexp} {checked : Checked} {r : TermSteps}
     (hAccept : accept certificate = .ok checked) (hr : termSteps checked = .ok r)
     (hcheck : r.check = true) (hsrc : sourceCheck r = true)
     (hreached : reachedCheck r = true) {R : InputRead} (_hR : readInput certificate = .ok R)
     (hlink : linkCheck R r = true) :
-    ∀ vs, ¬ Solution O R.program [] R.vars R.query vs := by
+    ∀ vs, ¬ InputSolution O R vs := by
   intro vs ⟨hvs, bs, hbs, hsol⟩
   unfold linkCheck at hlink
   simp only [Bool.and_eq_true, List.all_eq_true, beq_iff_eq] at hlink
@@ -577,9 +638,9 @@ theorem no_input_solution {O : Oracle} (sound : LogosSound) (hO : O.Sound)
       | _ => .UnitV
     | none => .UnitV
   have hg : ∀ x T y, R.vars.lookup x = some T → L.pre y = some x →
-      ∃ v, lookup_var bs x = .Ok v ∧ HasV [] v T ∧ g y = v := by
+      ∃ v, lookup_var bs x = .Ok v ∧ OfTy R.ctors T v ∧ g y = v := by
     intro x T y hx hy
-    obtain ⟨v, hv1, hv2⟩ := bind_lookup R.vars vs bs hbs hvs x T hx
+    obtain ⟨v, hv1, hv2⟩ := bind_lookup_typed R.vars vs bs hbs hvs x T hx
     exact ⟨v, hv1, hv2, by simp only [g, hy, hv1]⟩
   obtain ⟨bs', hbs', hl'⟩ := bind_map g ((varsOf (sigsOf r.equations) r.query).map Prod.fst)
   have hEnv : EnvOk O (programOf (dataOf r) r.equations) (L.sig R).ctors (L.sig R).kinds
@@ -594,8 +655,12 @@ theorem no_input_solution {O : Oracle} (sound : LogosSound) (hO : O.Sound)
       simp only [hx, Bool.and_eq_true, beq_iff_eq, List.any_eq_true] at hc
       obtain ⟨hpre, y1, hy1, hy⟩ := hc
       obtain ⟨v, hv1, hv2, hgv⟩ := hg x T y0 h2 hpre
-      have hk := has_of_hasV (K := (L.sig R).kinds)
-        (hprim (x, T) (Inox.Lowered.mem_of_lookup h2)) hv2
+      have hTp : isPrimTy T = true := by
+        have hc := hvars y1 hy1
+        rw [hy, hpre] at hc
+        simp only [h2, Bool.and_eq_true] at hc
+        exact primEq_prim hc.1
+      have hk := has_of_hasV (K := (L.sig R).kinds) hTp (hasV_of_typed hTp hv2)
       refine ⟨v, hv1, hk, v, 0, .prim (prim_of_kind hk), fun _ _ => ?_⟩
       rw [eval, show lookup_var (env_vars (Env.Env [] bs')) y0 = lookup_var bs' y0 from rfl,
         hl' y0 (List.mem_map.mpr ⟨y1, hy1, hy⟩), hgv]
@@ -614,7 +679,7 @@ theorem no_input_solution {O : Oracle} (sound : LogosSound) (hO : O.Sound)
         have hTT := primEq_eq hT
         obtain ⟨v, _, hv, hgv⟩ := hg x T' p.1 hx hpre
         rw [hgv, ← hTT]
-        exact hasV_prim (hprim (x, T') (Inox.Lowered.mem_of_lookup hx)) hv
+        exact hasV_prim (primEq_prim hT) (hasV_of_typed (primEq_prim hT) hv)
       · cases hT
     · cases hc
   refine no_solution_of_reached sound hO hty hAccept hr hcheck hsrc hreached _
@@ -624,10 +689,19 @@ theorem no_input_solution {O : Oracle} (sound : LogosSound) (hO : O.Sound)
   obtain ⟨n, hn0⟩ := hsol q0 hq0
   have hfacts : ∀ f ∈ R.facts, f.Holds O R.program n (Env.Env [] bs) := by
     intro f hf
-    obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hf
-    obtain ⟨T, hT, hTm⟩ := lookup_of_mem hp
-    obtain ⟨v, hv1, hv2⟩ := bind_lookup R.vars vs bs hbs hvs p.1 T hT
-    exact ⟨v, hv1, primValue_of_hasV (hprim (p.1, T) hTm) hv2⟩
+    rcases List.mem_append.mp hf with hf | hf
+    · obtain ⟨p, _, hpf⟩ := List.mem_filterMap.mp hf
+      obtain ⟨T, hT, rfl⟩ := Option.map_eq_some_iff.mp hpf
+      obtain ⟨v, hv1, hv2⟩ := bind_lookup_typed R.vars vs bs hbs hvs p.1 T hT
+      exact ⟨v, hv1, hv2⟩
+    · obtain ⟨p, _, hpf⟩ := List.mem_filterMap.mp hf
+      obtain ⟨T, hT, hpf⟩ := Option.bind_eq_some_iff.mp hpf
+      split at hpf
+      · next hpT =>
+        cases hpf
+        obtain ⟨v, hv1, hv2⟩ := bind_lookup_typed R.vars vs bs hbs hvs p.1 T hT
+        exact ⟨v, hv1, primValue_of_typed hpT hv2⟩
+      · cases hpf
   have hn := finalOf_refines hO R q0 n _ _ hfacts hn0
   rw [hfq] at hn
   have hl := (lowers_sound _ 1000).1 _ _ _ _ (hq (q, q') hqq)

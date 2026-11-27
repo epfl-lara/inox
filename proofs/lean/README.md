@@ -1260,8 +1260,10 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   the term always evaluates, to a variable that it doesn't mention), `expand`
   (a variable is the value of its let), `arith` (a product with a factor `0` is
   `0`, a sum with an operand `0` is the other, and an equality of an expression
-  of a primitive type with itself is `true`) and `evaluate` (a ground term of
-  literals, arithmetic and concatenations of strings is its value), and proves
+  of a primitive type, or a variable of a datatype, with itself is `true`),
+  `evaluate` (a ground term of literals, arithmetic and concatenations of
+  strings is its value) and `eta` (the construction of the fields of a variable
+  of a datatype is the variable), and proves
   that what the steps rewrite a constraint into refines it: wherever the
   constraint has a value, what it becomes has the same (`stepsApply_refines`).
   [`Lowered.lean`](Inox/Lowered.lean) relates an expression of the input to
@@ -1272,19 +1274,20 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   says that where `no_solution_of_reached` holds and the constraints after
   their steps and the functions of the input are lowered to the query and the
   program that Logos reads (`linkCheck`), no values of the variables of the
-  input make all its constraints evaluate to `true` in its program. It covers
-  first-order inputs without type parameters, over integers, booleans, reals
-  and datatypes without invariants, whose constructors, testers and selectors
-  have other names in the reading of Logos, and whose fields of integers are
-  known to be integers, with lets, which the lowering inlines or drops, where
-  each step of a constraint is of these rules: on the corpus, the 3
-  certificates of `error-is-infeasible`, the 1st, 2nd, 3rd and 5th of
-  `lets-and-assumptions-around-partial-terms`, the first 5 of
+  input, of their types, make all its constraints evaluate to `true` in its
+  program. It covers first-order inputs without type parameters, over
+  integers, booleans, reals and datatypes without invariants, whose
+  constructors, testers and selectors have other names in the reading of
+  Logos, and whose fields of integers are known to be integers, with lets,
+  which the lowering inlines or drops, where each step of a constraint is of
+  these rules, and variables of datatypes where the steps remove them: on the
+  corpus, the 3 certificates of `error-is-infeasible`, the 1st, 2nd, 3rd and
+  5th of `lets-and-assumptions-around-partial-terms`, the first 5 of
   `ground-terms-that-evaluate`, the first 3 of
-  `arithmetic-over-partial-operands`, and the first of
-  `real-division-by-zero-is-infeasible` and
-  `selections-of-constructions-with-partial-fields`, as `inox-solution --input`
-  says. The encoders aren't in this theorem yet.
+  `arithmetic-over-partial-operands`, the 1st, 3rd and 4th of
+  `selections-of-constructions-with-partial-fields`, and the first of
+  `real-division-by-zero-is-infeasible`, as `inox-solution --input` says. The
+  encoders aren't in this theorem yet.
 - **The link between the proof and the script.** The checker checks that each
   assumption of the proof is the text of an assert of the script, up to how
   cvc5 prints testers (`(is C e)` for `((_ is C) e)`), once the terms that the

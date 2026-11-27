@@ -20,7 +20,8 @@ The rules that are checked here:
   connectives themselves, `(< a b)` is the negation of `(>= a b)` and `(<= a b)` that of
   `(> a b)`, and every value of the atoms (`true`, `false` or no value) where the facts hold,
   and where the subterm has a value, gives what it becomes the same value. The variables of the
-  lets around the subterm are first their values (`unlet`, by `subst_eval`).
+  lets around the subterm are first their values (`unlet`, by `subst_eval`). A conditional
+  whose branches are the same is its branch.
 - `select`, the selection of a field of a construction is the argument of the field.
 - `bind`, a let of a subterm that the term always evaluates, to a variable that it doesn't
   mention.
@@ -29,8 +30,12 @@ The rules that are checked here:
   right operand `0` and a product with a factor `1` are the other operand, and an equality of an
   expression with itself is `true` where its value is of a primitive type, which the equality of
   the semantics compares by identity (`value_eq_refl`): a literal, an arithmetic operation, an
-  equality, or a free variable of the input (a fact `prim`).
+  equality, or a free variable of the input (a fact `prim`), and an equality of a variable of
+  a datatype without an equality of its own with itself is `true` (`typed_refl`).
 - `evaluate`, a ground term of literals, arithmetic and concatenations of strings is its value.
+- `eta`, the construction of the fields of a variable of a datatype, in their order, is the
+  variable, where its first field is of no other constructor: a free variable of the input has a
+  value of its type (a fact `typed`), and the selections of its fields are its fields.
 -/
 
 namespace Inox.Simplified
@@ -38,13 +43,36 @@ namespace Inox.Simplified
 open Inox.Semantics
 open Inox.Lowered (exprEq exprEq_eq)
 
+mutual
+/-- `v` is a value of the type `T` for the constructors `cs`: an integer, a boolean, a real, or
+a construction without type arguments of a datatype, whose fields are of their types. -/
+inductive OfTy (cs : List Constructor) : Ty → Value → Prop where
+  | int (i : Int) : OfTy cs .IntegerType (.IntV i)
+  | bool (b : Bool) : OfTy cs .BooleanType (.BoolV b)
+  | real {n d : Int} (h : ∃ q : _root_.Rat, n = q.num ∧ d = q.den) : OfTy cs .RealType (.RealV n d)
+  | adt {c s : Id} {fs : List Param} {vs : List Value}
+      (hc : lookup_ctor cs c = .Ok (.Constructor c s fs)) (hvs : OfTys cs fs vs) :
+      OfTy cs (.ADTType s []) (.ADTV c [] vs)
+/-- The values `vs` are of the types of the fields `fs`, position by position. -/
+inductive OfTys (cs : List Constructor) : List Param → List Value → Prop where
+  | nil : OfTys cs [] []
+  | cons {f : Id} {T : Ty} {fs : List Param} {v : Value} {vs : List Value} (h : OfTy cs T v)
+      (hr : OfTys cs fs vs) : OfTys cs (.Param f T :: fs) (v :: vs)
+end
+
+/-- The constructors of a program. -/
+def ctorsOf : Program → List Constructor
+  | .Program _ cs _ _ _ => cs
+
 /-- A fact that holds where evaluation reaches a position: an expression is `true`, the
-variable `x` has the value of the expression `v`, that of its let, or the variable `x` has a
-value of a primitive type, as a free variable of the input does. -/
+variable `x` has the value of the expression `v`, that of its let, the variable `x` has a
+value of a primitive type, or the variable `x` has a value of the type `T`, as a free variable
+of the input does. -/
 inductive Fact where
   | holds (e : Expr)
   | binds (x : Id) (v : Expr)
   | prim (x : Id)
+  | typed (x : Id) (T : Ty)
 
 /-- The expression of a fact that an expression is `true`. -/
 def Fact.expr? : Fact → Option Expr
@@ -64,6 +92,7 @@ def Fact.Holds (fuel : Int) (env : Env) : Fact → Prop
   | .holds e => eval O P fuel env e = .Ok (.BoolV true)
   | .binds x v => ∃ w, lookup_var (env_vars env) x = .Ok w ∧ eval O P fuel env v = .Ok w
   | .prim x => ∃ w, lookup_var (env_vars env) x = .Ok w ∧ primValue w = true
+  | .typed x T => ∃ w, lookup_var (env_vars env) x = .Ok w ∧ OfTy (ctorsOf P) T w
 
 /-- `t'` refines `t` under the facts `Fs`: in every environment where the facts hold, wherever
 `t` has a value, `t'` has the same value with the same fuel. -/
@@ -479,6 +508,7 @@ theorem logicCheck_refines {Gs : List Fact} {t t' : Expr}
     | holds e => cases he; exact hGs _ hg
     | binds _ _ => cases he
     | prim _ => cases he
+    | typed _ _ => cases he
   unfold logicCheck at h
   simp only [Bool.and_eq_true, List.all_eq_true] at h
   obtain ⟨⟨hshape, hall⟩, hvals⟩ := h
@@ -1895,6 +1925,7 @@ theorem expandCheck_refines {Fs : List Fact} {t t' : Expr} (h : expandCheck Fs t
     cases f with
     | holds _ => simp at hm
     | prim _ => simp at hm
+    | typed _ _ => simp at hm
     | binds y w =>
       simp only [Bool.and_eq_true, beq_iff_eq] at hm
       obtain ⟨rfl, he⟩ := hm
@@ -2213,6 +2244,325 @@ theorem evaluateCheck_refines {Fs : List Fact} {t t' : Expr} (h : evaluateCheck 
 
 end
 
+/-! ## Values of datatypes -/
+
+/-- The variable `x` has a value of a type, under the facts `Fs`. -/
+def typedVar (Fs : List Fact) (x : Id) : Bool :=
+  Fs.any fun
+    | .typed y _ => y == x
+    | _ => false
+
+/-- No datatype of `ss` has an equality of its own. -/
+def noEq (ss : List ADTSort) : Bool :=
+  ss.all fun | .Sort _ _ _ eq => eq.isNone
+
+/-- The datatype `s` of `ss` has no invariant. -/
+def noInvOf (ss : List ADTSort) (s : Id) : Bool :=
+  match lookup_sort ss s with
+  | .Ok (.Sort _ _ none _) => true
+  | _ => false
+
+/-- The name of a field. -/
+def fieldName : Param → Id
+  | .Param f _ => f
+
+/-- `e` selects the field `p` of the variable `x`. -/
+def isSel (x : Id) (p : Param) (e : Expr) : Bool :=
+  match e with
+  | .ADTSelector (.Variable y) f => y == x && f == fieldName p
+  | _ => false
+
+/-- `eta`: the construction of the fields of a variable of a datatype, in their order, is the
+variable, where the first field is of no other constructor. -/
+def etaCheck (cs : List Constructor) (ss : List ADTSort) (Fs : List Fact) (t t' : Expr) :
+    Bool :=
+  match t, t' with
+  | .ADT c [] es, .Variable x =>
+    typedVar Fs x &&
+    match lookup_ctor cs c with
+    | .Ok (.Constructor _ s fs) =>
+      noInvOf ss s && decide (fs.map fieldName).Nodup && es.length == fs.length &&
+        (es.zip fs).all (fun (e, p) => isSel x p e) &&
+        match fs with
+        | [] => false
+        | p :: _ => cs.all fun
+          | .Constructor d _ gs => d == c || !((gs.map fieldName).contains (fieldName p))
+    | _ => false
+  | _, _ => false
+
+theorem lookup_sort_mem : ∀ {ss : List ADTSort} {s : Id} {srt : ADTSort},
+    lookup_sort ss s = .Ok srt → srt ∈ ss
+  | [], _, _, h => by simp [lookup_sort] at h
+  | .Sort t a b c :: ss, s, srt, h => by
+    rw [lookup_sort] at h
+    split at h
+    · cases h; exact List.mem_cons_self
+    · exact List.mem_cons_of_mem _ (lookup_sort_mem h)
+
+theorem lookup_ctor_mem : ∀ {cs : List Constructor} {c : Id} {k : Constructor},
+    lookup_ctor cs c = .Ok k → k ∈ cs ∧ ∃ s fs, k = .Constructor c s fs
+  | [], _, _, h => by simp [lookup_ctor] at h
+  | .Constructor d a b :: cs, c, k, h => by
+    rw [lookup_ctor] at h
+    split at h
+    · next hc => cases h; subst hc; exact ⟨List.mem_cons_self, a, b, rfl⟩
+    · obtain ⟨hm, hk⟩ := lookup_ctor_mem h
+      exact ⟨List.mem_cons_of_mem _ hm, hk⟩
+
+theorem sort_equality_none {fs : List FunDef} {cs : List Constructor} {ss : List ADTSort}
+    {is : List Interpretation} {eqm : FunctionEquality} (h : noEq ss = true) (c : Id) :
+    sort_equality (.Program fs cs ss is eqm) c = none := by
+  simp only [sort_equality]
+  repeat' split
+  all_goals first
+    | rfl
+    | (rename_i hs
+       have := List.all_eq_true.mp h _ (lookup_sort_mem hs)
+       simpa using this)
+
+section
+variable {O : Oracle} {P : Program}
+
+mutual
+theorem typed_refl (hO : O.Sound) (hEq : ∀ c, sort_equality P c = none)
+    {cs : List Constructor} : ∀ {T : Ty} {v : Value}, OfTy cs T v → O.value_eq P v v = .Ok true
+  | _, _, .int _ => by rw [hO.value_eq]; simp
+  | _, _, .bool _ => by rw [hO.value_eq]; simp
+  | _, _, .real _ => by rw [hO.value_eq]; simp
+  | _, _, .adt _ hvs => by
+    rw [hO.value_eq]
+    simp only [hEq, dite_true]
+    exact fields_refl hO hEq hvs
+theorem fields_refl (hO : O.Sound) (hEq : ∀ c, sort_equality P c = none)
+    {cs : List Constructor} : ∀ {fs : List Param} {vs : List Value}, OfTys cs fs vs →
+      O.values_eq P vs vs = .Ok true
+  | _, _, .nil => by rw [hO.values_eq]
+  | _, _, .cons h hr => by
+    rw [hO.values_eq]
+    simp only [typed_refl hO hEq h, dite_true]
+    exact fields_refl hO hEq hr
+end
+
+theorem fields_length {cs : List Constructor} : ∀ {fs : List Param} {vs : List Value},
+    OfTys cs fs vs → vs.length = fs.length
+  | _, _, .nil => rfl
+  | _, _, .cons _ hr => by simp [fields_length hr]
+
+theorem select_mem : ∀ {fs : List Param} {vs : List Value} {f : Id} {v : Value},
+    select_field fs vs f = .Ok v → f ∈ fs.map fieldName
+  | [], _, _, _, h => by simp [select_field] at h
+  | .Param g _ :: fs, [], f, v, h => by simp [select_field] at h
+  | .Param g _ :: fs, w :: vs, f, v, h => by
+    simp only [select_field] at h
+    split at h
+    · next he => subst he; simp [fieldName]
+    · exact List.mem_cons_of_mem _ (select_mem h)
+
+theorem select_app : ∀ {pre : List Param} {vpre : List Value} {f : Id} {T : Ty}
+    {suf : List Param} {v : Value} {vsuf : List Value}, pre.length = vpre.length →
+    f ∉ pre.map fieldName →
+      select_field (pre ++ .Param f T :: suf) (vpre ++ v :: vsuf) f = .Ok v
+  | [], [], _, _, _, _, _, _, _ => by simp [select_field]
+  | .Param g _ :: pre, w :: vpre, f, T, suf, v, vsuf, hl, hf => by
+    simp only [List.map_cons, List.mem_cons, not_or, fieldName] at hf
+    simp only [List.cons_append, select_field, Ne.symm hf.1, dite_false]
+    exact select_app (by simpa using hl) hf.2
+  | [], _ :: _, _, _, _, _, _, hl, _ => by simp at hl
+  | _ :: _, [], _, _, _, _, _, hl, _ => by simp at hl
+
+theorem eval_sels {fuel : Int} {env : Env} {x c s : Id} {fs : List Param} {w : List Value}
+    (hx : lookup_var (env_vars env) x = .Ok (.ADTV c [] w))
+    (hcs : lookup_ctor (ctorsOf P) c = .Ok (.Constructor c s fs))
+    (hnd : (fs.map fieldName).Nodup) (hlen : w.length = fs.length) :
+    ∀ (pre suf : List Param) (vpre vsuf : List Value) (es : List Expr), fs = pre ++ suf →
+      w = vpre ++ vsuf → pre.length = vpre.length → es.length = suf.length →
+      (es.zip suf).all (fun (e, p) => isSel x p e) = true →
+        eval_list O P fuel env es = .Ok vsuf
+  | _, [], _, [], [], _, _, _, _, _ => by rw [eval_list]
+  | pre, .Param f T :: suf, vpre, v :: vsuf, e :: es, hfs, hw, hl, hle, hall => by
+    simp only [List.zip_cons_cons, List.all_cons, Bool.and_eq_true] at hall
+    obtain ⟨he, hall⟩ := hall
+    unfold isSel at he
+    split at he
+    · next y g =>
+      simp only [Bool.and_eq_true, beq_iff_eq, fieldName] at he
+      obtain ⟨rfl, rfl⟩ := he
+      have hnd' : g ∉ pre.map fieldName := by
+        rw [hfs] at hnd
+        simp only [List.map_append, List.map_cons, fieldName] at hnd
+        exact fun hm => (List.nodup_append.mp hnd).2.2 _ hm _ List.mem_cons_self rfl
+      have hsel : eval O P fuel env (.ADTSelector (.Variable y) g) = .Ok v := by
+        cases P with
+        | Program fns cs ss is eqm =>
+        simp only [ctorsOf] at hcs
+        rw [eval]
+        simp only [eval, hx, hcs]
+        rw [hfs, hw]
+        exact select_app hl hnd'
+      rw [eval_list, hsel]
+      simp only
+      rw [eval_sels hx hcs hnd hlen (pre ++ [.Param g T]) suf (vpre ++ [v]) vsuf es (by simp [hfs])
+        (by simp [hw]) (by simp [hl]) (by simpa using hle) hall]
+    · cases he
+  | _, [], _, _ :: _, _, hfs, hw, hl, _, _ => by
+    subst hfs hw; simp at hlen; omega
+  | _, _ :: _, _, [], _, hfs, hw, hl, _, _ => by
+    subst hfs hw; simp at hlen; omega
+  | _, [], _, [], _ :: _, _, _, _, hle, _ => by simp at hle
+  | _, _ :: _, _, _ :: _, [], _, _, _, hle, _ => by simp at hle
+
+theorem typedVar_holds {Fs : List Fact} {x : Id} {fuel : Int} {env : Env}
+    (h : typedVar Fs x = true) (hF : ∀ f ∈ Fs, f.Holds O P fuel env) :
+    ∃ T w, lookup_var (env_vars env) x = .Ok w ∧ OfTy (ctorsOf P) T w := by
+  obtain ⟨f, hf, hm⟩ := List.any_eq_true.mp h
+  cases f with
+  | typed y T =>
+    simp only [beq_iff_eq] at hm
+    subst hm
+    obtain ⟨w, hw, ht⟩ := hF _ hf
+    exact ⟨T, w, hw, ht⟩
+  | _ => simp at hm
+
+theorem noInvOf_eq {ss : List ADTSort} {s : Id} (h : noInvOf ss s = true) :
+    ∃ t tps eq, lookup_sort ss s = .Ok (.Sort t tps none eq) := by
+  unfold noInvOf at h
+  split at h
+  · next t tps eq hs => exact ⟨t, tps, eq, hs⟩
+  · cases h
+
+/-- `arith` on the equality of a variable of a datatype without an equality of its own with
+itself, which is `true`. -/
+def reflCheck (ss : List ADTSort) (Fs : List Fact) (t t' : Expr) : Bool :=
+  match t with
+  | .Equals a b =>
+    isTrue t' && exprEq 1000 a b && noEq ss &&
+      match a with
+      | .Variable x => typedVar Fs x
+      | _ => false
+  | _ => false
+
+theorem reflCheck_refines (hO : O.Sound) {fns : List FunDef} {cs : List Constructor}
+    {ss : List ADTSort} {is : List Interpretation} {eqm : FunctionEquality}
+    (hP : P = .Program fns cs ss is eqm) {Fs : List Fact} {t t' : Expr}
+    (h : reflCheck ss Fs t t' = true) : Refines O P Fs t t' := by
+  intro fuel env v hF hv
+  unfold reflCheck at h
+  split at h
+  · next a b =>
+    simp only [Bool.and_eq_true] at h
+    obtain ⟨⟨⟨ht, he⟩, hq⟩, hx⟩ := h
+    split at hx
+    · next x =>
+      obtain ⟨T, w, hw, hty⟩ := typedVar_holds hx hF
+      obtain ⟨x1, y1, s1, hx1, hy1, hs1, rfl⟩ := eval_equals_ok hv
+      rw [← exprEq_eq _ _ _ he, hx1] at hy1
+      cases hy1
+      rw [eval] at hx1
+      rw [hw] at hx1
+      cases hx1
+      have hEq : ∀ c, sort_equality P c = none := by
+        subst hP; exact sort_equality_none hq
+      rw [typed_refl hO hEq hty] at hs1
+      cases hs1
+      rw [isTrue_eq ht]; simp [eval]
+    · cases hx
+  · cases h
+
+theorem etaCheck_refines (hO : O.Sound) {fns : List FunDef} {cs : List Constructor}
+    {ss : List ADTSort} {is : List Interpretation} {eqm : FunctionEquality}
+    (hP : P = .Program fns cs ss is eqm) {Fs : List Fact} {t t' : Expr}
+    (h : etaCheck cs ss Fs t t' = true) : Refines O P Fs t t' := by
+  subst hP
+  intro fuel env v hF hv
+  unfold etaCheck at h
+  split at h
+  · next c es x =>
+    simp only [Bool.and_eq_true] at h
+    obtain ⟨htv, h⟩ := h
+    obtain ⟨T, w, hx, ht⟩ := typedVar_holds htv hF
+    split at h
+    · next c1 s fs hc =>
+      simp only [Bool.and_eq_true, decide_eq_true_eq, beq_iff_eq] at h
+      obtain ⟨⟨⟨⟨hinv, hnd⟩, hle⟩, hall⟩, hu⟩ := h
+      cases fs with
+      | nil => simp at hu
+      | cons p fs' =>
+      cases es with
+      | nil => simp at hle
+      | cons e0 es' =>
+      have hall' := hall
+      simp only [List.zip_cons_cons, List.all_cons, Bool.and_eq_true] at hall'
+      have hsel0 := hall'.1
+      rw [eval] at hv
+      split at hv
+      · next ws hws =>
+        obtain ⟨w0, hw0⟩ := eval_list_ok _ hws e0 List.mem_cons_self
+        unfold isSel at hsel0
+        split at hsel0
+        · next y g =>
+          simp only [Bool.and_eq_true, beq_iff_eq] at hsel0
+          obtain ⟨rfl, rfl⟩ := hsel0
+          rw [eval] at hw0
+          simp only [eval, hx] at hw0
+          cases ht with
+          | int _ => simp at hw0
+          | bool _ => simp at hw0
+          | real _ => simp at hw0
+          | @adt c0 s0 fs0 vs0 hc0 hvs0 =>
+            simp only [ctorsOf] at hc0
+            simp only [hc0] at hw0
+            have hm := select_mem hw0
+            have hcc : c0 = c := by
+              have := List.all_eq_true.mp hu _ (lookup_ctor_mem hc0).1
+              simp only [Bool.or_eq_true, beq_iff_eq, Bool.not_eq_true'] at this
+              rcases this with h1 | h1
+              · exact h1
+              · exact absurd hm (by simpa using h1)
+            subst hcc
+            rw [hc0] at hc
+            cases hc
+            have hl := eval_sels (O := O) (P := .Program fns cs ss is eqm) (fuel := fuel) hx hc0
+              hnd (fields_length hvs0) [] (p :: fs') [] vs0 _ rfl rfl rfl hle hall
+            rw [hl] at hws
+            cases hws
+            obtain ⟨t0, tps0, eq0, hs0⟩ := noInvOf_eq hinv
+            simp only [construct, hc0, hs0, hO.resolve_all] at hv
+            cases hv
+            rw [eval]
+            exact hx
+        · simp at hsel0
+      · cases hv
+      · cases hv
+    · cases h
+  · cases h
+
+end
+
+
+
+/-- `logic` on a conditional whose branches are the same, which is its branch. -/
+def iteCheck (t t' : Expr) : Bool :=
+  match t with
+  | .IfExpr _ a b => exprEq 1000 a b && exprEq 1000 a t'
+  | _ => false
+
+theorem iteCheck_refines {O : Oracle} {P : Program} {Fs : List Fact} {t t' : Expr}
+    (h : iteCheck t t' = true) : Refines O P Fs t t' := by
+  intro fuel env v _ hv
+  unfold iteCheck at h
+  split at h
+  · next c a b =>
+    simp only [Bool.and_eq_true] at h
+    obtain ⟨hab, ha⟩ := h
+    rw [← exprEq_eq _ _ _ ha]
+    rw [← exprEq_eq _ _ _ hab] at hv
+    rw [eval] at hv
+    split at hv
+    · split at hv <;> exact hv
+    · cases hv
+    · cases hv
+  · cases h
+
 
 /-! ## The steps -/
 
@@ -2226,51 +2576,63 @@ structure Step where
 /-- Whether the step of the rule `rule` that rewrites `t` into `t'` under the facts `Fs` holds,
 for the rules that are checked, in a program whose constructors are `cs`. A step of `logic`
 first binds the variables of the lets around its subterm to their values. -/
-def ruleCheck (cs : List Constructor) : String → List Fact → Expr → Expr → Bool
+def ruleCheck (cs : List Constructor) (ss : List ADTSort) :
+    String → List Fact → Expr → Expr → Bool
   | "logic", Fs, t, t' =>
-    exprEq 1000 (unlet 100 t) t' || logicCheck (Fs.filterMap Fact.expr?) (unlet 100 t) t'
+    exprEq 1000 (unlet 100 t) t' || logicCheck (Fs.filterMap Fact.expr?) (unlet 100 t) t' ||
+      iteCheck t t'
   | "select", _, t, t' => selectCheck cs t t'
   | "bind", _, t, t' => bindCheck t t'
   | "expand", Fs, t, t' => expandCheck Fs t t'
-  | "arith", Fs, t, t' => arithCheck Fs t t'
+  | "arith", Fs, t, t' => arithCheck Fs t t' || reflCheck ss Fs t t'
+  | "eta", Fs, t, t' => etaCheck cs ss Fs t t'
   | "evaluate", _, t, t' => evaluateCheck t t'
   | _, _, _, _ => false
 
-theorem ruleCheck_refines {O : Oracle} {P : Program} {cs : List Constructor} (hO : O.Sound)
-    (hP : ∃ fs ss is eqm, P = .Program fs cs ss is eqm) {rule : String} {Fs : List Fact}
-    {t t' : Expr} (h : ruleCheck cs rule Fs t t' = true) : Refines O P Fs t t' := by
+theorem ruleCheck_refines {O : Oracle} {P : Program} {cs : List Constructor}
+    {ss : List ADTSort} (hO : O.Sound) (hP : ∃ fs is eqm, P = .Program fs cs ss is eqm)
+    {rule : String} {Fs : List Fact} {t t' : Expr} (h : ruleCheck cs ss rule Fs t t' = true) :
+    Refines O P Fs t t' := by
+  obtain ⟨fns, is, eqm, hP'⟩ := hP
   unfold ruleCheck at h
   split at h
-  · refine refines_trans (unlet_refines 100 t) ?_
-    simp only [Bool.or_eq_true] at h
-    rcases h with h | h
-    · rw [exprEq_eq _ _ _ h]; exact refines_refl
-    · exact logicCheck_refines h
-  · exact selectCheck_refines hP h
+  · simp only [Bool.or_eq_true] at h
+    rcases h with (h | h) | h
+    · exact refines_trans (unlet_refines 100 t) (by rw [exprEq_eq _ _ _ h]; exact refines_refl)
+    · exact refines_trans (unlet_refines 100 t) (logicCheck_refines h)
+    · exact iteCheck_refines h
+  · exact selectCheck_refines ⟨fns, ss, is, eqm, hP'⟩ h
   · exact bindCheck_refines h
   · exact expandCheck_refines h
-  · exact arithCheck_refines hO h
+  · simp only [Bool.or_eq_true] at h
+    rcases h with h | h
+    · exact arithCheck_refines hO h
+    · exact reflCheck_refines hO hP' h
+  · exact etaCheck_refines hO hP' h
   · exact evaluateCheck_refines h
   · cases h
 
 /-- `e` after the steps `ss`, if each of them holds, in a program whose constructors are
 `cs`, where the facts `Fs` hold. -/
-def stepsApply (cs : List Constructor) (Fs : List Fact) : List Step → Expr → Option Expr
+def stepsApply (cs : List Constructor) (ss : List ADTSort) (Fs : List Fact) :
+    List Step → Expr → Option Expr
   | [], e => some e
-  | s :: ss, e =>
-    (rewriteAt (fun Fs t => if ruleCheck cs s.rule Fs t s.result then some s.result else none) Fs
-      s.pos e).bind (stepsApply cs Fs ss)
+  | s :: steps, e =>
+    (rewriteAt (fun Fs t => if ruleCheck cs ss s.rule Fs t s.result then some s.result else none)
+      Fs s.pos e).bind (stepsApply cs ss Fs steps)
 
 /-- The steps that hold refine the expression that they start from. -/
-theorem stepsApply_refines {O : Oracle} {P : Program} {cs : List Constructor} (hO : O.Sound)
-    (hP : ∃ fs ss is eqm, P = .Program fs cs ss is eqm) (Fs : List Fact) :
-    ∀ (ss : List Step) (e e' : Expr), stepsApply cs Fs ss e = some e' → Refines O P Fs e e'
+theorem stepsApply_refines {O : Oracle} {P : Program} {cs : List Constructor}
+    {ss : List ADTSort} (hO : O.Sound) (hP : ∃ fs is eqm, P = .Program fs cs ss is eqm)
+    (Fs : List Fact) :
+    ∀ (steps : List Step) (e e' : Expr), stepsApply cs ss Fs steps e = some e' →
+      Refines O P Fs e e'
   | [], e, e', h => by simp [stepsApply] at h; subst h; exact refines_refl
-  | s :: ss, e, e', h => by
+  | s :: steps, e, e', h => by
     simp only [stepsApply, Option.bind_eq_some_iff] at h
     obtain ⟨e1, h1, h2⟩ := h
     refine refines_trans (rewriteAt_refines ?_ Fs s.pos e e1 h1)
-      (stepsApply_refines hO hP Fs ss e1 e' h2)
+      (stepsApply_refines hO hP Fs steps e1 e' h2)
     intro Fs t t' ht
     split at ht
     · next hc => cases ht; exact ruleCheck_refines hO hP hc
