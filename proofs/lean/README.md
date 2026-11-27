@@ -1183,21 +1183,25 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   [`Encoded.lean`](Inox/Encoded.lean) puts them together for programs. The
   values of the input relate to those of the encoded program by their kinds
   (`Rel`): elements, integers and booleans are the same, a bag relates to its
-  encoding, and values of the sorts of the program and tuples relate field by
-  field. `encodes_eval` proves, by induction on the fuel, that when an
+  encoding, values of the sorts of the program and tuples relate field by
+  field, and two functions relate when the body of one is what the encoder
+  makes of the body of the other and the variables that they keep have
+  values that relate. `encodes_eval` proves, by induction on the fuel, that when an
   expression evaluates to a value in the program of the input, what the
   encoder makes of it evaluates, with enough fuel, to a value that relates to
   it in the encoded program. It covers variables, literals, sums,
   differences, comparisons, equalities, connectives, conditionals, lets,
   assumptions, the bag operations above, multiplicities, tuples, the
-  constructors, selectors and testers of the sorts of the program, and calls
-  of its functions, whose bodies in the encoded program are what the encoder
-  makes of their bodies in the input (`Funs`). It assumes the invariant of
+  constructors, selectors and testers of the sorts of the program, calls of
+  its functions, whose bodies in the encoded program are what the encoder
+  makes of their bodies in the input (`Funs`), lambdas and applications. An
+  equality is covered where its operands have no functions in them. It
+  assumes the invariant of
   the datatype as the encoder defines it, sorts of the program without
   invariants nor equalities, one type of elements, which the type parameters
   of functions and sorts are instantiated with, and doesn't cover bag
-  literals with elements, bags of bags, lambdas, quantifiers nor the other
-  theories yet. [`Input.lean`](Inox/Input.lean) reads the definitions and
+  literals with elements, bags of bags, quantifiers nor the other theories
+  yet. [`Input.lean`](Inox/Input.lean) reads the definitions and
   the constraints of a certificate's input and what the encoders make of
   them as expressions of the semantics, decides whether each encoded
   expression is what the encoder makes of its expression (`encodesCheck`,
@@ -1208,10 +1212,10 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   datatype as the encoder does, on values of the free variables that relate.
   `inox-solution --input` says how many constraints of each certificate that
   covers, and what the first of the others has that isn't read. On the
-  corpus it covers 1 of the 36 constraints, that of
+  corpus it covers 2 of the 36 constraints, among which that of
   `bags/split-preserves-content`, with its two recursive functions: 17 of
-  the others have quantifiers, 5 have lambdas, and the rest have sets, maps,
-  bitvectors, reals or sorts whose type arguments are not the elements. Nor
+  the others have quantifiers, and the rest have sets, maps, bitvectors,
+  reals or sorts whose type arguments are not the elements. Nor
   is this theorem joined to `no_solution_of_reached` yet, whose program has
   neither sorts with type parameters nor sorts with an equality.
 - **The link between the proof and the script.** The checker checks that each

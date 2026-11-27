@@ -17,7 +17,8 @@ namespace Inox.Encoded
 open Inox.Semantics Inox.Bags
 
 /-- The kinds of values: elements of bags, which are the same in both programs, integers,
-booleans, bags of elements, values of a sort of the program and tuples. -/
+booleans, bags of elements, values of a sort of the program, tuples and functions, from the
+kinds of their arguments to the kind of their result. -/
 inductive Kind where
   | elem
   | int
@@ -25,6 +26,7 @@ inductive Kind where
   | bag
   | adt (s : Id)
   | tuple (ks : List Kind)
+  | fn (ks : List Kind) (k : Kind)
 
 mutual
 /-- Whether two kinds are the same. -/
@@ -35,6 +37,7 @@ def kindEq : Kind → Kind → Bool
   | .bag, .bag => true
   | .adt s, .adt t => s == t
   | .tuple ks, .tuple ls => kindsEq ks ls
+  | .fn ks k, .fn ls l => kindsEq ks ls && kindEq k l
   | _, _ => false
 def kindsEq : List Kind → List Kind → Bool
   | [], [] => true
@@ -50,6 +53,13 @@ theorem kindEq_eq : ∀ {a b : Kind}, kindEq a b = true → a = b
   | .bag, .bag, _ => rfl
   | .adt s, .adt t, h => by simp only [kindEq, beq_iff_eq] at h; rw [h]
   | .tuple ks, .tuple ls, h => by simp only [kindEq] at h; rw [kindsEq_eq h]
+  | .fn ks k, .fn ls l, h => by
+    simp only [kindEq, Bool.and_eq_true] at h
+    rw [kindsEq_eq h.1, kindEq_eq h.2]
+  | .elem, .fn _ _, h | .int, .fn _ _, h | .bool, .fn _ _, h | .bag, .fn _ _, h
+  | .adt _, .fn _ _, h | .tuple _, .fn _ _, h
+  | .fn _ _, .elem, h | .fn _ _, .int, h | .fn _ _, .bool, h | .fn _ _, .bag, h
+  | .fn _ _, .adt _, h | .fn _ _, .tuple _, h
   | .elem, .int, h | .elem, .bool, h | .elem, .bag, h | .elem, .adt _, h | .elem, .tuple _, h
   | .int, .elem, h | .int, .bool, h | .int, .bag, h | .int, .adt _, h | .int, .tuple _, h
   | .bool, .elem, h | .bool, .int, h | .bool, .bag, h | .bool, .adt _, h | .bool, .tuple _, h
@@ -73,237 +83,34 @@ structure Sig where
   ctors : Id → Option (Id × List (Id × Kind))
   funs : Id → Option (List Id × Ty × List Kind × Kind)
 
-/-- The value `v` of the input and the value `v'` of the encoded program are of the kind `k`
-and the same, up to the bags in them, which `v'` has the encodings of. -/
-inductive Rel (O : Oracle) (P : Program) (N : Names) (K : Value → Prop)
-    (E : Value → Value → Bool) (T0 : Ty) (S : Sig) : Kind → Value → Value → Prop where
-  | elem (v : Value) (h : K v) : Rel O P N K E T0 S .elem v v
-  | int (n : Int) : Rel O P N K E T0 S .int (.IntV n) (.IntV n)
-  | bool (b : Bool) : Rel O P N K E T0 S .bool (.BoolV b) (.BoolV b)
-  | bag (t : Ty) (xs : List BagEntry) (c : Id) (args : List Value) (hxs : Canon E K xs)
-      (henc : Enc O P N K E xs (.ADTV c [T0] args))
-      (hc : c = N.node ∨ c = N.elem ∨ c = N.leaf) :
-      Rel O P N K E T0 S .bag (.BagV t xs) (.ADTV c [T0] args)
-  | tupleNil : Rel O P N K E T0 S (.tuple []) (.TupleV []) (.TupleV [])
-  | tupleCons {k : Kind} {ks : List Kind} {v v' : Value} {vs vs' : List Value}
-      (h : Rel O P N K E T0 S k v v')
-      (hr : Rel O P N K E T0 S (.tuple ks) (.TupleV vs) (.TupleV vs')) :
-      Rel O P N K E T0 S (.tuple (k :: ks)) (.TupleV (v :: vs)) (.TupleV (v' :: vs'))
-  | adt {c s : Id} {fs : List (Id × Kind)} {tps tps' : List Ty} {vs vs' : List Value}
-      (h : S.ctors c = some (s, fs))
-      (hr : Rel O P N K E T0 S (.tuple (fs.map Prod.snd)) (.TupleV vs) (.TupleV vs')) :
-      Rel O P N K E T0 S (.adt s) (.ADTV c tps vs) (.ADTV c tps' vs')
+mutual
+/-- Whether a kind has no functions in it. -/
+def foKind : Kind → Bool
+  | .fn _ _ => false
+  | .tuple ks => foKinds ks
+  | _ => true
+def foKinds : List Kind → Bool
+  | [] => true
+  | k :: ks => foKind k && foKinds ks
+end
 
-/-- The names of parameters. -/
-def paramNames : List Param → List Id
-  | [] => []
-  | .Param x _ :: rest => x :: paramNames rest
-
-/-- The program has the constructor `c` of the sort `s`, a sort without an invariant nor an
-equality, with the fields `fs`. -/
-def CtorIn (c s : Id) (fs : List (Id × Kind)) : Program → Prop
-  | .Program _ cs ss _ _ => ∃ params tps, lookup_ctor cs c = .Ok (.Constructor c s params) ∧
-      paramNames params = fs.map Prod.fst ∧ lookup_sort ss s = .Ok (.Sort s tps none none)
-
-/-- The program has the function `f`. -/
-def FunIn (f : Id) (tparams params : List Id) (body : Expr) : Program → Prop
-  | .Program fs _ _ _ _ => lookup_fun fs f = .Ok (.FunDef f tparams params body)
-
-/-- What the theorems assume of the program `Ps` of the input and of the encoded program `P`,
-other than of their functions: `P` defines the datatype of the encoder as the encoder does,
-both have the same equality on the elements and the constructors of the signature. -/
-structure Base (O : Oracle) (Ps P : Program) (N : Names) (K : Value → Prop)
-    (E : Value → Value → Bool) (T0 : Ty) (S : Sig) (inv bi eq b1 b2 : Id) : Prop where
-  sound : O.Sound
-  names : N.Distinct
-  bags : HasBags N P
-  sort : HasSort N inv bi eq P
-  equals : HasEquals N eq b1 b2 P
-  h1x : b1 ≠ N.x
-  h2x : b2 ≠ N.x
-  h12 : b1 ≠ b2
-  keyS : KeyEq O Ps K E
-  key : KeyEq O P K E
-  elems : ∀ bs vs, O.params_have_types P (Env.Env (bind_types [N.T] [T0] []) bs) vs
-    [.Param N.x (.TypeParameter N.T)] = true ↔ ∃ v, vs = [v] ∧ K v
-  ctorS : ∀ c s fs, S.ctors c = some (s, fs) → CtorIn c s fs Ps
-  ctor : ∀ c s fs, S.ctors c = some (s, fs) → CtorIn c s fs P
-
-section Values
-variable {O : Oracle} {Ps P : Program} {N : Names} {K : Value → Prop}
-  {E : Value → Value → Bool}
-  {T0 : Ty} {S : Sig} {inv bi eq b1 b2 : Id}
-
-theorem sort_equality_ctor {c s : Id} {fs : List (Id × Kind)} {Q : Program}
-    (h : CtorIn c s fs Q) : sort_equality Q c = none := by
-  cases Q with
-  | Program fns cs ss is eqs =>
-  obtain ⟨params, tps, hc, _, hs⟩ := h
-  simp [sort_equality, hc, hs]
-
-/-- Values that relate are equal in the input when they are in the encoded program. -/
-theorem rel_value_eq (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) :
-    ∀ {k : Kind} {a a' : Value}, Rel O P N K E T0 S k a a' →
-      ∀ {b b' : Value}, Rel O P N K E T0 S k b b' →
-        O.value_eq Ps a b = O.value_eq P a' b' := by
-  intro k a a' h
-  induction h with
-  | elem v hv =>
-    intro b b' hb
-    cases hb with
-    | elem _ hw => rw [hB.keyS.eq _ _ hv hw, hB.key.eq _ _ hv hw]
-  | int n =>
-    intro b b' hb
-    cases hb
-    simp only [hB.sound.value_eq]
-  | bool n =>
-    intro b b' hb
-    cases hb
-    simp only [hB.sound.value_eq]
-  | bag t xs c args hxs henc hc =>
-    intro b b' hb
-    cases hb with
-    | bag u ys c2 args2 hys henc2 hc2 =>
-      have heq := enc_equal hB.sound hB.names hB.bags hB.equals hB.h1x hB.h2x hB.h12 hB.key
-        (hB.elems _) hxs hys henc henc2 t u
-      rw [bag_value_eq hB.sound hB.key hxs hys] at heq
-      rw [bag_value_eq hB.sound hB.keyS hxs hys, hB.sound.value_eq]
-      simp only [sort_equality_bag hB.bags hB.sort hc, heq]
-  | tupleNil =>
-    intro b b' hb
-    cases hb
-    simp only [hB.sound.value_eq, hB.sound.values_eq]
-  | tupleCons h hr ih ihr =>
-    intro b b' hb
-    cases hb with
-    | tupleCons h2 hr2 =>
-      have e1 := ih h2
-      have e2 := ihr hr2
-      rw [hB.sound.value_eq, hB.sound.value_eq (P := P)] at e2 ⊢
-      simp only [] at e2 ⊢
-      rw [hB.sound.values_eq, hB.sound.values_eq (P := P)]
-      simp only [e1, e2]
-  | @adt c s fs tps tps' vs vs' h hr ih =>
-    intro b b' hb
-    cases hb with
-    | @adt d _ fs2 _ _ ws ws' h2 hr2 =>
-      rw [hB.sound.value_eq, hB.sound.value_eq (P := P)]
-      simp only [sort_equality_ctor (hB.ctorS _ _ _ h), sort_equality_ctor (hB.ctor _ _ _ h)]
-      by_cases hcd : c = d
-      · subst hcd
-        have hfs := h.symm.trans h2
-        simp only [Option.some.injEq, Prod.mk.injEq] at hfs
-        obtain ⟨_, rfl⟩ := hfs
-        have e := ih hr2
-        rw [hB.sound.value_eq, hB.sound.value_eq (P := P)] at e
-        simp only [] at e
-        simp [e]
-      · simp [hcd]
-
-theorem rel_tuple_inv {k : Kind} {v v' : Value} {ks : List Kind}
-    (h : Rel O P N K E T0 S k v v') (hk : k = .tuple ks) :
-    ∃ vs vs', v = .TupleV vs ∧ v' = .TupleV vs' := by
-  cases h <;> first | exact ⟨_, _, rfl, rfl⟩ | cases hk
+/-- No constructor of the signature has a function in its fields. -/
+def Sig.fo (S : Sig) : Prop :=
+  ∀ c s fs, S.ctors c = some (s, fs) → foKinds (fs.map Prod.snd) = true
 
 /-- The kind of the component `i` of a tuple, counted from 1. -/
 def nthKind : List Kind → Int → Option Kind
   | [], _ => none
   | k :: ks, i => if i = 1 then some k else nthKind ks (i - 1)
 
-theorem rel_nth : ∀ {vs vs' : List Value} {ks : List Kind},
-    Rel O P N K E T0 S (.tuple ks) (.TupleV vs) (.TupleV vs') →
-    ∀ {i : Int} {v : Value}, nth vs i = .Ok v →
-      ∃ v' k, nthKind ks i = some k ∧ nth vs' i = .Ok v' ∧ Rel O P N K E T0 S k v v'
-  | [], _, _, h, i, v, hn => by simp [nth] at hn
-  | w :: ws, _, _, h, i, v, hn => by
-    cases h with
-    | tupleCons h hr =>
-      rw [nth] at hn
-      by_cases hi : i = 1
-      · simp only [hi, dite_true] at hn
-        cases hn
-        exact ⟨_, _, by simp [nthKind, hi], by simp [nth, hi], h⟩
-      · simp only [hi, dite_false] at hn
-        obtain ⟨v', k, h1, h2, h3⟩ := rel_nth hr hn
-        exact ⟨v', k, by simp [nthKind, hi, h1], by simp [nth, hi, h2], h3⟩
-
 /-- The kind of the field `sel` of a constructor. -/
 def fieldKind : List (Id × Kind) → Id → Option Kind
   | [], _ => none
   | (f, k) :: fs, sel => if f = sel then some k else fieldKind fs sel
 
-theorem rel_select : ∀ {fs : List (Id × Kind)} {ps ps' : List Param} {vs vs' : List Value},
-    paramNames ps = fs.map Prod.fst → paramNames ps' = fs.map Prod.fst →
-    Rel O P N K E T0 S (.tuple (fs.map Prod.snd)) (.TupleV vs) (.TupleV vs') →
-    ∀ {sel : Id} {v : Value}, select_field ps vs sel = .Ok v →
-      ∃ v' k, fieldKind fs sel = some k ∧ select_field ps' vs' sel = .Ok v' ∧
-        Rel O P N K E T0 S k v v'
-  | [], ps, _, _, _, hp, _, _, sel, v, hs => by
-    cases ps with
-    | nil => simp [select_field] at hs
-    | cons p _ => cases p; simp [paramNames] at hp
-  | (f, k) :: fs, ps, ps', vs, vs', hp, hp', h, sel, v, hs => by
-    cases ps with
-    | nil => simp [paramNames] at hp
-    | cons p ps1 =>
-    cases ps' with
-    | nil => simp [paramNames] at hp'
-    | cons p' ps1' =>
-    cases p with
-    | Param x t =>
-    cases p' with
-    | Param x' t' =>
-    simp only [paramNames, List.map, List.cons.injEq] at hp hp'
-    obtain ⟨hxf, hp⟩ := hp
-    obtain ⟨hxf', hp'⟩ := hp'
-    simp only [List.map] at h
-    cases h with
-    | tupleCons h hr =>
-      rw [select_field] at hs
-      by_cases hx : f = sel
-      · simp only [hxf, hx, dite_true] at hs
-        cases hs
-        exact ⟨_, k, by simp [fieldKind, hx], by simp [select_field, hxf', hx], h⟩
-      · simp only [hxf, hx, dite_false] at hs
-        obtain ⟨v', k2, h1, h2, h3⟩ := rel_select hp hp' hr hs
-        exact ⟨v', k2, by simp [fieldKind, hx, h1], by simp [select_field, hxf', hx, h2], h3⟩
-
-theorem rel_bind : ∀ {params : List Id} {ks : List Kind} {vs vs' : List Value},
-    Rel O P N K E T0 S (.tuple ks) (.TupleV vs) (.TupleV vs') →
-    ∀ {bs : List Binding}, bind_all params vs = .Ok bs →
-      ∃ bs', bind_all params vs' = .Ok bs' ∧
-        ∀ x k, (params.zip ks).lookup x = some k → ∃ v v', lookup_var bs x = .Ok v ∧
-          lookup_var bs' x = .Ok v' ∧ Rel O P N K E T0 S k v v'
-  | [], _, vs, _, h, bs, hb => by
-    cases h with
-    | tupleNil => exact ⟨[], by simp [bind_all], fun x k hx => by simp at hx⟩
-    | tupleCons _ _ => simp [bind_all] at hb
-  | p :: ps, _, vs, _, h, bs, hb => by
-    cases h with
-    | tupleNil => simp [bind_all] at hb
-    | @tupleCons k ks v v' vs1 vs1' h hr =>
-      rw [bind_all] at hb
-      split at hb
-      · next bs1 hbs1 =>
-        cases hb
-        obtain ⟨bs1', hb1', hl⟩ := rel_bind hr hbs1
-        refine ⟨.Binding p v' :: bs1', by simp [bind_all, hb1'], fun x k2 hx => ?_⟩
-        by_cases hxp : x = p
-        · subst hxp
-          simp at hx
-          subst hx
-          exact ⟨v, v', by simp [lookup_var], by simp [lookup_var], h⟩
-        · have hb : (x == p) = false := by simpa using hxp
-          simp only [List.zip_cons_cons, List.lookup, hb] at hx
-          obtain ⟨u, u', h1, h2, h3⟩ := hl x k2 hx
-          exact ⟨u, u', by simp [lookup_var, hxp, h1], by simp [lookup_var, hxp, h2], h3⟩
-      · cases hb
-      · cases hb
-
-end Values
-
 /-- `e'` is what the encoder makes of `e`, an expression of the kind `k`, with `Te` the type
-of the elements and `Γ` the kinds of the variables. -/
+of the elements and `Γ` the kinds of the variables. A function keeps the kinds `Γ0` of the
+variables of its body other than its parameters. -/
 inductive Encodes (N : Names) (S : Sig) (Te : Ty) :
     (Id → Option Kind) → Expr → Expr → Kind → Prop where
   | var {Γ : Id → Option Kind} (x : Id) (k : Kind) (h : Γ x = some k) :
@@ -328,8 +135,9 @@ inductive Encodes (N : Names) (S : Sig) (Te : Ty) :
   | ge {Γ : Id → Option Kind} {a a' b b' : Expr} (ha : Encodes N S Te Γ a a' .int)
       (hb : Encodes N S Te Γ b b' .int) :
       Encodes N S Te Γ (.GreaterEquals a b) (.GreaterEquals a' b') .bool
-  | eq {Γ : Id → Option Kind} {a a' b b' : Expr} {k : Kind} (ha : Encodes N S Te Γ a a' k)
-      (hb : Encodes N S Te Γ b b' k) : Encodes N S Te Γ (.Equals a b) (.Equals a' b') .bool
+  | eq {Γ : Id → Option Kind} {a a' b b' : Expr} {k : Kind} (hk : foKind k = true)
+      (hS : S.fo) (ha : Encodes N S Te Γ a a' k) (hb : Encodes N S Te Γ b b' k) :
+      Encodes N S Te Γ (.Equals a b) (.Equals a' b') .bool
   | not {Γ : Id → Option Kind} {a a' : Expr} (ha : Encodes N S Te Γ a a' .bool) :
       Encodes N S Te Γ (.Not a) (.Not a') .bool
   | andNil {Γ : Id → Option Kind} : Encodes N S Te Γ (.And []) (.And []) .bool
@@ -399,6 +207,335 @@ inductive Encodes (N : Names) (S : Sig) (Te : Ty) :
       (tps : List Ty) {es es' : List Expr} (hf : S.funs f = some ([], Tf, ks, k))
       (ha : Encodes N S Te Γ (.Tuple es) (.Tuple es') (.tuple ks)) :
       Encodes N S Te Γ (.FunctionInvocation f tps es) (.FunctionInvocation f [] es') k
+  | lambda {Γ : Id → Option Kind} (Γ0 : List (Id × Kind)) {ps ps' : List Param}
+      {body body' : Expr} {ks : List Kind} {k : Kind} (hΓ : ∀ p ∈ Γ0, Γ p.1 = some p.2)
+      (hp : param_ids ps = param_ids ps')
+      (hb : Encodes N S Te (fun x => ((param_ids ps).zip ks ++ Γ0).lookup x) body body' k) :
+      Encodes N S Te Γ (.Lambda ps body) (.Lambda ps' body') (.fn ks k)
+  | app {Γ : Id → Option Kind} {f f' : Expr} {es es' : List Expr} {ks : List Kind} {k : Kind}
+      (hf : Encodes N S Te Γ f f' (.fn ks k))
+      (ha : Encodes N S Te Γ (.Tuple es) (.Tuple es') (.tuple ks)) :
+      Encodes N S Te Γ (.Application f es) (.Application f' es') k
+
+/-- The value `v` of the input and the value `v'` of the encoded program are of the kind `k`
+and the same, up to the bags in them, which `v'` has the encodings of. Functions are the same
+when the body of one is what the encoder makes of the body of the other and the values of
+their variables are the same in this sense. -/
+inductive Rel (O : Oracle) (P : Program) (N : Names) (K : Value → Prop)
+    (E : Value → Value → Bool) (T0 : Ty) (S : Sig) : Kind → Value → Value → Prop where
+  | elem (v : Value) (h : K v) : Rel O P N K E T0 S .elem v v
+  | int (n : Int) : Rel O P N K E T0 S .int (.IntV n) (.IntV n)
+  | bool (b : Bool) : Rel O P N K E T0 S .bool (.BoolV b) (.BoolV b)
+  | bag (t : Ty) (xs : List BagEntry) (c : Id) (args : List Value) (hxs : Canon E K xs)
+      (henc : Enc O P N K E xs (.ADTV c [T0] args))
+      (hc : c = N.node ∨ c = N.elem ∨ c = N.leaf) :
+      Rel O P N K E T0 S .bag (.BagV t xs) (.ADTV c [T0] args)
+  | tupleNil : Rel O P N K E T0 S (.tuple []) (.TupleV []) (.TupleV [])
+  | tupleCons {k : Kind} {ks : List Kind} {v v' : Value} {vs vs' : List Value}
+      (h : Rel O P N K E T0 S k v v')
+      (hr : Rel O P N K E T0 S (.tuple ks) (.TupleV vs) (.TupleV vs')) :
+      Rel O P N K E T0 S (.tuple (k :: ks)) (.TupleV (v :: vs)) (.TupleV (v' :: vs'))
+  | adt {c s : Id} {fs : List (Id × Kind)} {tps tps' : List Ty} {vs vs' : List Value}
+      (h : S.ctors c = some (s, fs))
+      (hr : Rel O P N K E T0 S (.tuple (fs.map Prod.snd)) (.TupleV vs) (.TupleV vs')) :
+      Rel O P N K E T0 S (.adt s) (.ADTV c tps vs) (.ADTV c tps' vs')
+  | closure {Te : Ty} (Γ0 : List (Id × Kind)) {ps ps' : List Param} {body body' : Expr}
+      {ks : List Kind} {k : Kind} {tys tys' : List TypeBinding} {vars vars' : List Binding}
+      {vs vs' : List Value} (hp : param_ids ps = param_ids ps')
+      (hT : O.resolve_all tys' [Te] = [T0])
+      (hb : Encodes N S Te (fun x => ((param_ids ps).zip ks ++ Γ0).lookup x) body body' k)
+      (hr : Rel O P N K E T0 S (.tuple (Γ0.map Prod.snd)) (.TupleV vs) (.TupleV vs'))
+      (hv : (Γ0.map Prod.fst).map (lookup_var vars) = vs.map Result.Ok)
+      (hv' : (Γ0.map Prod.fst).map (lookup_var vars') = vs'.map Result.Ok) :
+      Rel O P N K E T0 S (.fn ks k) (.ClosureV ps body (.Env tys vars))
+        (.ClosureV ps' body' (.Env tys' vars'))
+
+/-- The names of parameters. -/
+def paramNames : List Param → List Id
+  | [] => []
+  | .Param x _ :: rest => x :: paramNames rest
+
+/-- The program has the constructor `c` of the sort `s`, a sort without an invariant nor an
+equality, with the fields `fs`. -/
+def CtorIn (c s : Id) (fs : List (Id × Kind)) : Program → Prop
+  | .Program _ cs ss _ _ => ∃ params tps, lookup_ctor cs c = .Ok (.Constructor c s params) ∧
+      paramNames params = fs.map Prod.fst ∧ lookup_sort ss s = .Ok (.Sort s tps none none)
+
+/-- The program has the function `f`. -/
+def FunIn (f : Id) (tparams params : List Id) (body : Expr) : Program → Prop
+  | .Program fs _ _ _ _ => lookup_fun fs f = .Ok (.FunDef f tparams params body)
+
+/-- What the theorems assume of the program `Ps` of the input and of the encoded program `P`,
+other than of their functions: `P` defines the datatype of the encoder as the encoder does,
+both have the same equality on the elements and the constructors of the signature. -/
+structure Base (O : Oracle) (Ps P : Program) (N : Names) (K : Value → Prop)
+    (E : Value → Value → Bool) (T0 : Ty) (S : Sig) (inv bi eq b1 b2 : Id) : Prop where
+  sound : O.Sound
+  names : N.Distinct
+  bags : HasBags N P
+  sort : HasSort N inv bi eq P
+  equals : HasEquals N eq b1 b2 P
+  h1x : b1 ≠ N.x
+  h2x : b2 ≠ N.x
+  h12 : b1 ≠ b2
+  keyS : KeyEq O Ps K E
+  key : KeyEq O P K E
+  elems : ∀ bs vs, O.params_have_types P (Env.Env (bind_types [N.T] [T0] []) bs) vs
+    [.Param N.x (.TypeParameter N.T)] = true ↔ ∃ v, vs = [v] ∧ K v
+  ctorS : ∀ c s fs, S.ctors c = some (s, fs) → CtorIn c s fs Ps
+  ctor : ∀ c s fs, S.ctors c = some (s, fs) → CtorIn c s fs P
+
+section Values
+variable {O : Oracle} {Ps P : Program} {N : Names} {K : Value → Prop}
+  {E : Value → Value → Bool}
+  {T0 : Ty} {S : Sig} {inv bi eq b1 b2 : Id}
+
+theorem sort_equality_ctor {c s : Id} {fs : List (Id × Kind)} {Q : Program}
+    (h : CtorIn c s fs Q) : sort_equality Q c = none := by
+  cases Q with
+  | Program fns cs ss is eqs =>
+  obtain ⟨params, tps, hc, _, hs⟩ := h
+  simp [sort_equality, hc, hs]
+
+/-- Values without functions in them that relate are equal in the input when they are in the
+encoded program. -/
+theorem rel_value_eq (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) (hS : S.fo) :
+    ∀ {k : Kind} {a a' : Value}, Rel O P N K E T0 S k a a' → foKind k = true →
+      ∀ {b b' : Value}, Rel O P N K E T0 S k b b' →
+        O.value_eq Ps a b = O.value_eq P a' b' := by
+  intro k a a' h
+  induction h with
+  | closure _ _ _ _ _ _ _ => intro hk; simp [foKind] at hk
+  | elem v hv =>
+    intro hk b b' hb
+    cases hb with
+    | elem _ hw => rw [hB.keyS.eq _ _ hv hw, hB.key.eq _ _ hv hw]
+  | int n =>
+    intro hk b b' hb
+    cases hb
+    simp only [hB.sound.value_eq]
+  | bool n =>
+    intro hk b b' hb
+    cases hb
+    simp only [hB.sound.value_eq]
+  | bag t xs c args hxs henc hc =>
+    intro hk b b' hb
+    cases hb with
+    | bag u ys c2 args2 hys henc2 hc2 =>
+      have heq := enc_equal hB.sound hB.names hB.bags hB.equals hB.h1x hB.h2x hB.h12 hB.key
+        (hB.elems _) hxs hys henc henc2 t u
+      rw [bag_value_eq hB.sound hB.key hxs hys] at heq
+      rw [bag_value_eq hB.sound hB.keyS hxs hys, hB.sound.value_eq]
+      simp only [sort_equality_bag hB.bags hB.sort hc, heq]
+  | tupleNil =>
+    intro hk b b' hb
+    cases hb
+    simp only [hB.sound.value_eq, hB.sound.values_eq]
+  | tupleCons h hr ih ihr =>
+    intro hk b b' hb
+    cases hb with
+    | tupleCons h2 hr2 =>
+      simp only [foKind, foKinds, Bool.and_eq_true] at hk
+      have e1 := ih hk.1 h2
+      have e2 := ihr (by simpa [foKind] using hk.2) hr2
+      rw [hB.sound.value_eq, hB.sound.value_eq (P := P)] at e2 ⊢
+      simp only [] at e2 ⊢
+      rw [hB.sound.values_eq, hB.sound.values_eq (P := P)]
+      simp only [e1, e2]
+  | @adt c s fs tps tps' vs vs' h hr ih =>
+    intro hk b b' hb
+    cases hb with
+    | @adt d _ fs2 _ _ ws ws' h2 hr2 =>
+      rw [hB.sound.value_eq, hB.sound.value_eq (P := P)]
+      simp only [sort_equality_ctor (hB.ctorS _ _ _ h), sort_equality_ctor (hB.ctor _ _ _ h)]
+      by_cases hcd : c = d
+      · subst hcd
+        have hfs := h.symm.trans h2
+        simp only [Option.some.injEq, Prod.mk.injEq] at hfs
+        obtain ⟨_, rfl⟩ := hfs
+        have e := ih (by simpa [foKind] using hS _ _ _ h) hr2
+        rw [hB.sound.value_eq, hB.sound.value_eq (P := P)] at e
+        simp only [] at e
+        simp [e]
+      · simp [hcd]
+
+theorem rel_tuple_inv {k : Kind} {v v' : Value} {ks : List Kind}
+    (h : Rel O P N K E T0 S k v v') (hk : k = .tuple ks) :
+    ∃ vs vs', v = .TupleV vs ∧ v' = .TupleV vs' := by
+  cases h <;> first | exact ⟨_, _, rfl, rfl⟩ | cases hk
+
+theorem rel_nth : ∀ {vs vs' : List Value} {ks : List Kind},
+    Rel O P N K E T0 S (.tuple ks) (.TupleV vs) (.TupleV vs') →
+    ∀ {i : Int} {v : Value}, nth vs i = .Ok v →
+      ∃ v' k, nthKind ks i = some k ∧ nth vs' i = .Ok v' ∧ Rel O P N K E T0 S k v v'
+  | [], _, _, h, i, v, hn => by simp [nth] at hn
+  | w :: ws, _, _, h, i, v, hn => by
+    cases h with
+    | tupleCons h hr =>
+      rw [nth] at hn
+      by_cases hi : i = 1
+      · simp only [hi, dite_true] at hn
+        cases hn
+        exact ⟨_, _, by simp [nthKind, hi], by simp [nth, hi], h⟩
+      · simp only [hi, dite_false] at hn
+        obtain ⟨v', k, h1, h2, h3⟩ := rel_nth hr hn
+        exact ⟨v', k, by simp [nthKind, hi, h1], by simp [nth, hi, h2], h3⟩
+
+theorem rel_select : ∀ {fs : List (Id × Kind)} {ps ps' : List Param} {vs vs' : List Value},
+    paramNames ps = fs.map Prod.fst → paramNames ps' = fs.map Prod.fst →
+    Rel O P N K E T0 S (.tuple (fs.map Prod.snd)) (.TupleV vs) (.TupleV vs') →
+    ∀ {sel : Id} {v : Value}, select_field ps vs sel = .Ok v →
+      ∃ v' k, fieldKind fs sel = some k ∧ select_field ps' vs' sel = .Ok v' ∧
+        Rel O P N K E T0 S k v v'
+  | [], ps, _, _, _, hp, _, _, sel, v, hs => by
+    cases ps with
+    | nil => simp [select_field] at hs
+    | cons p _ => cases p; simp [paramNames] at hp
+  | (f, k) :: fs, ps, ps', vs, vs', hp, hp', h, sel, v, hs => by
+    cases ps with
+    | nil => simp [paramNames] at hp
+    | cons p ps1 =>
+    cases ps' with
+    | nil => simp [paramNames] at hp'
+    | cons p' ps1' =>
+    cases p with
+    | Param x t =>
+    cases p' with
+    | Param x' t' =>
+    simp only [paramNames, List.map, List.cons.injEq] at hp hp'
+    obtain ⟨hxf, hp⟩ := hp
+    obtain ⟨hxf', hp'⟩ := hp'
+    simp only [List.map] at h
+    cases h with
+    | tupleCons h hr =>
+      rw [select_field] at hs
+      by_cases hx : f = sel
+      · simp only [hxf, hx, dite_true] at hs
+        cases hs
+        exact ⟨_, k, by simp [fieldKind, hx], by simp [select_field, hxf', hx], h⟩
+      · simp only [hxf, hx, dite_false] at hs
+        obtain ⟨v', k2, h1, h2, h3⟩ := rel_select hp hp' hr hs
+        exact ⟨v', k2, by simp [fieldKind, hx, h1], by simp [select_field, hxf', hx, h2], h3⟩
+
+theorem rel_bind : ∀ {params : List Id} {ks : List Kind} {vs vs' : List Value},
+    Rel O P N K E T0 S (.tuple ks) (.TupleV vs) (.TupleV vs') →
+    ∀ {bs : List Binding}, bind_all params vs = .Ok bs →
+      ∃ bs', bind_all params vs' = .Ok bs' ∧
+        ∀ x k, (params.zip ks).lookup x = some k → ∃ v v', lookup_var bs x = .Ok v ∧
+          lookup_var bs' x = .Ok v' ∧ Rel O P N K E T0 S k v v'
+  | [], _, vs, _, h, bs, hb => by
+    cases h with
+    | tupleNil => exact ⟨[], by simp [bind_all], fun x k hx => by simp at hx⟩
+    | tupleCons _ _ => simp [bind_all] at hb
+  | p :: ps, _, vs, _, h, bs, hb => by
+    cases h with
+    | tupleNil => simp [bind_all] at hb
+    | @tupleCons k ks v v' vs1 vs1' h hr =>
+      rw [bind_all] at hb
+      split at hb
+      · next bs1 hbs1 =>
+        cases hb
+        obtain ⟨bs1', hb1', hl⟩ := rel_bind hr hbs1
+        refine ⟨.Binding p v' :: bs1', by simp [bind_all, hb1'], fun x k2 hx => ?_⟩
+        by_cases hxp : x = p
+        · subst hxp
+          simp at hx
+          subst hx
+          exact ⟨v, v', by simp [lookup_var], by simp [lookup_var], h⟩
+        · have hb : (x == p) = false := by simpa using hxp
+          simp only [List.zip_cons_cons, List.lookup, hb] at hx
+          obtain ⟨u, u', h1, h2, h3⟩ := hl x k2 hx
+          exact ⟨u, u', by simp [lookup_var, hxp, h1], by simp [lookup_var, hxp, h2], h3⟩
+      · cases hb
+      · cases hb
+
+theorem rel_bind_app (vars vars' : List Binding) :
+    ∀ {params : List Id} {ks : List Kind} {vs vs' : List Value},
+    Rel O P N K E T0 S (.tuple ks) (.TupleV vs) (.TupleV vs') →
+    ∀ {bs : List Binding}, bind_all params vs = .Ok bs →
+      ∃ bs', bind_all params vs' = .Ok bs' ∧
+        (∀ x k, (params.zip ks).lookup x = some k →
+          ∃ v v', lookup_var (append_env bs vars) x = .Ok v ∧
+            lookup_var (append_env bs' vars') x = .Ok v' ∧ Rel O P N K E T0 S k v v') ∧
+        ∀ x, (params.zip ks).lookup x = none →
+          lookup_var (append_env bs vars) x = lookup_var vars x ∧
+            lookup_var (append_env bs' vars') x = lookup_var vars' x
+  | [], _, vs, _, h, bs, hb => by
+    cases h with
+    | tupleNil =>
+      simp only [bind_all] at hb
+      cases hb
+      exact ⟨[], by simp [bind_all], fun x k hx => by simp at hx,
+        fun x _ => by simp [append_env]⟩
+    | tupleCons _ _ => simp [bind_all] at hb
+  | p :: ps, _, vs, _, h, bs, hb => by
+    cases h with
+    | tupleNil => simp [bind_all] at hb
+    | @tupleCons k ks v v' vs1 vs1' h hr =>
+      rw [bind_all] at hb
+      split at hb
+      · next bs1 hbs1 =>
+        cases hb
+        obtain ⟨bs1', hb1', hl, hn⟩ := rel_bind_app vars vars' hr hbs1
+        refine ⟨.Binding p v' :: bs1', by simp [bind_all, hb1'], fun x k2 hx => ?_,
+          fun x hx => ?_⟩
+        · by_cases hxp : x = p
+          · subst hxp
+            simp at hx
+            subst hx
+            exact ⟨v, v', by simp [lookup_var, append_env], by simp [lookup_var, append_env], h⟩
+          · have hb : (x == p) = false := by simpa using hxp
+            simp only [List.zip_cons_cons, List.lookup, hb] at hx
+            obtain ⟨u, u', h1, h2, h3⟩ := hl x k2 hx
+            exact ⟨u, u', by simp [lookup_var, append_env, hxp, h1],
+              by simp [lookup_var, append_env, hxp, h2], h3⟩
+        · by_cases hxp : x = p
+          · subst hxp
+            simp at hx
+          · have hb : (x == p) = false := by simpa using hxp
+            simp only [List.zip_cons_cons, List.lookup, hb] at hx
+            obtain ⟨h1, h2⟩ := hn x hx
+            exact ⟨by simp [lookup_var, append_env, hxp, h1],
+              by simp [lookup_var, append_env, hxp, h2]⟩
+      · cases hb
+      · cases hb
+
+/-- The variables that a function keeps have values that relate. -/
+theorem rel_lookups {vars vars' : List Binding} :
+    ∀ {Γ0 : List (Id × Kind)} {vs vs' : List Value},
+    Rel O P N K E T0 S (.tuple (Γ0.map Prod.snd)) (.TupleV vs) (.TupleV vs') →
+    (Γ0.map Prod.fst).map (lookup_var vars) = vs.map Result.Ok →
+    (Γ0.map Prod.fst).map (lookup_var vars') = vs'.map Result.Ok →
+    ∀ x k, Γ0.lookup x = some k → ∃ v v', lookup_var vars x = .Ok v ∧
+      lookup_var vars' x = .Ok v' ∧ Rel O P N K E T0 S k v v'
+  | [], _, _, _, _, _, x, k, hx => by simp at hx
+  | (y, ky) :: Γ0, vs, vs', h, hv, hv', x, k, hx => by
+    simp only [List.map] at h
+    cases h with
+    | tupleCons h hr =>
+      simp only [List.map, List.cons.injEq] at hv hv'
+      by_cases hxy : x = y
+      · subst hxy
+        simp at hx
+        subst hx
+        exact ⟨_, _, hv.1, hv'.1, h⟩
+      · have hb : (x == y) = false := by simpa using hxy
+        simp only [List.lookup, hb] at hx
+        exact rel_lookups hr hv.2 hv'.2 x k hx
+
+theorem rel_capture {vars vars' : List Binding} : ∀ (Γ0 : List (Id × Kind)),
+    (∀ p ∈ Γ0, ∃ v v', lookup_var vars p.1 = .Ok v ∧ lookup_var vars' p.1 = .Ok v' ∧
+      Rel O P N K E T0 S p.2 v v') →
+    ∃ vs vs', Rel O P N K E T0 S (.tuple (Γ0.map Prod.snd)) (.TupleV vs) (.TupleV vs') ∧
+      (Γ0.map Prod.fst).map (lookup_var vars) = vs.map Result.Ok ∧
+      (Γ0.map Prod.fst).map (lookup_var vars') = vs'.map Result.Ok
+  | [], _ => ⟨[], [], .tupleNil, rfl, rfl⟩
+  | p :: Γ0, h => by
+    obtain ⟨v, v', h1, h2, hR⟩ := h p (by simp)
+    obtain ⟨vs, vs', hr, e1, e2⟩ := rel_capture Γ0 (fun q hq => h q (by simp [hq]))
+    exact ⟨v :: vs, v' :: vs', .tupleCons hR hr, by simp [h1, e1], by simp [h2, e2]⟩
+
+end Values
 
 /-- The functions of the encoded program are what the encoder makes of those of the input. -/
 def Funs (O : Oracle) (Ps P : Program) (N : Names) (T0 : Ty) (S : Sig) : Prop :=
@@ -653,7 +790,7 @@ theorem encodes_eval (hB : Base O Ps P N K E T0 S inv bi eq b1 b2)
       · cases hv
     · cases hv
     · cases hv
-  | eq _ _ iha ihb =>
+  | eq hk hS _ _ iha ihb =>
     intro env env' hT hΓ fuel hfn v hv
     simp only [eval] at hv
     split at hv
@@ -665,7 +802,7 @@ theorem encodes_eval (hB : Base O Ps P N K E T0 S inv bi eq b1 b2)
         split at hv
         · next same hsame =>
           cases hv
-          rw [rel_value_eq hB hR1 hR2] at hsame
+          rw [rel_value_eq hB hS hR1 hk hR2] at hsame
           exact ⟨_, max n1 n2, .bool _, fun f hf => by
             simp only [eval, e1 f (by omega), e2 f (by omega), hsame]⟩
         · cases hv
@@ -1117,6 +1254,68 @@ theorem encodes_eval (hB : Base O Ps P N K E T0 S inv bi eq b1 b2)
       simp only [eval, eval_tuple_inv (e1 f' (by omega))]
       rw [call_fun hFP (by omega) _ _ hbs']
       exact e2 (f' - 1) (by omega)
+    · cases hv
+    · cases hv
+
+  | lambda Γ0 hΓ0 hp _ _ =>
+    intro env env' hT hΓ fuel hfn v hv
+    cases env with
+    | Env tys vars =>
+    cases env' with
+    | Env tys' vars' =>
+    simp only [eval] at hv
+    cases hv
+    obtain ⟨vs, vs', hr, h1, h2⟩ := rel_capture (vars := vars) (vars' := vars') Γ0
+      (fun p hp => hΓ p.1 p.2 (hΓ0 p hp))
+    exact ⟨_, 0, .closure Γ0 hp (by simpa [env_types] using hT) (by assumption) hr h1 h2,
+      fun _ _ => by rw [eval]⟩
+  | app _ _ ihf iha =>
+    intro env env' hT hΓ fuel hfn v hv
+    simp only [eval] at hv
+    split at hv
+    · next fv hfv =>
+      split at hv
+      · next vs hvs =>
+        obtain ⟨fv', n1, hRf, e1⟩ := ihf env env' hT hΓ fuel hfn fv hfv
+        obtain ⟨t', n2, hR, e2⟩ :=
+          iha env env' hT hΓ fuel hfn (.TupleV vs) (by simp only [eval, hvs])
+        obtain ⟨_, vs', h1, rfl⟩ := rel_tuple_inv hR rfl
+        cases h1
+        cases hRf with
+        | @closure Tc Γ0 ps ps' body body' ks k tys tys' vars vars' cvs cvs' hp hTc hb hr
+            hv1 hv2 =>
+          rw [apply] at hv
+          by_cases hf0 : fuel ≤ 0
+          · rw [dite_eq_left_of_eq_true (eq_true hf0)] at hv
+            cases hv
+          · rw [dite_eq_right_of_eq_false (eq_false hf0)] at hv
+            split at hv
+            · next bs hbs =>
+              obtain ⟨bs', hbs', hl, hn⟩ := rel_bind_app vars vars' hR hbs
+              cases n with
+              | zero => omega
+              | succ m =>
+              obtain ⟨v', m2, hRv, e3⟩ := ihn m (Nat.lt_succ_self m) hb
+                (Env.Env tys (append_env bs vars)) (Env.Env tys' (append_env bs' vars'))
+                (by simpa [env_types] using hTc)
+                (fun x kx hx => by
+                  simp only [List.lookup_append] at hx
+                  simp only [env_vars]
+                  rcases Option.or_eq_some_iff.mp hx with hz | ⟨hz, hx⟩
+                  · exact hl x _ hz
+                  · obtain ⟨u, u', h1, h2, h3⟩ := rel_lookups hr hv1 hv2 x kx hx
+                    obtain ⟨g1, g2⟩ := hn x hz
+                    exact ⟨u, u', by rw [g1, h1], by rw [g2, h2], h3⟩)
+                (fuel - 1) (by omega) v hv
+              refine ⟨v', max (max n1 n2) (max (m2 + 1) 1), hRv, fun f' hf' => ?_⟩
+              simp only [eval, e1 f' (by omega), eval_tuple_inv (e2 f' (by omega))]
+              rw [apply, dite_eq_right_of_eq_false (eq_false (by omega))]
+              simp only [← hp, hbs']
+              exact e3 (f' - 1) (by omega)
+            · cases hv
+            · cases hv
+      · cases hv
+      · cases hv
     · cases hv
     · cases hv
 

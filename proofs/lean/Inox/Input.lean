@@ -82,6 +82,29 @@ theorem selOk_sound {S : CSig} {s sel : Id} {k : Kind} (h : selOk S s sel k = tr
 theorem sizeOf_string_pos (c : String) : 0 < sizeOf c := by
   cases c; simp +arith
 
+theorem sizeOf_expr_pos (e : Expr) : 0 < sizeOf e := by
+  cases e <;> simp +arith
+
+/-- Whether no constructor of the signature has a function in its fields. -/
+def foSig (S : CSig) : Bool :=
+  S.ctors.all fun (_, _, fs) => foKinds (fs.map Prod.snd)
+
+theorem foSig_sound {S : CSig} (h : foSig S = true) : S.sig.fo := by
+  intro c s fs hc
+  have hmem : (c, s, fs) ∈ S.ctors := mem_of_lookup hc
+  simpa using List.all_eq_true.1 h _ hmem
+
+/-- The variables that a function keeps: those that have the kind that they are listed with. -/
+def keep (Γ : List (Id × Kind)) : List (Id × Kind) :=
+  Γ.filter fun p => match Γ.lookup p.1 with | some k => kindEq k p.2 | none => false
+
+theorem keep_sound {Γ : List (Id × Kind)} : ∀ p ∈ keep Γ, Γ.lookup p.1 = some p.2 := by
+  intro p hp
+  have h := (List.mem_filter.1 hp).2
+  split at h
+  · next k hl => rw [hl, kindEq_eq h]
+  · cases h
+
 /-- Whether `e'` is what the encoder of bags makes of `e`, an expression of the kind `k`.
 `g` gives the kinds of subexpressions where the check needs one: the check holds for any `g`,
 and accepts more with one that gives the right kinds. -/
@@ -104,7 +127,8 @@ def encodesCheck (N : Names) (S : CSig) (Te : Ty) (g : List (Id × Kind) → Exp
   | Γ, .GreaterEquals a b, .GreaterEquals a' b', .bool =>
     encodesCheck N S Te g Γ a a' .int && encodesCheck N S Te g Γ b b' .int
   | Γ, .Equals a b, .Equals a' b', .bool =>
-    encodesCheck N S Te g Γ a a' (g Γ a) && encodesCheck N S Te g Γ b b' (g Γ a)
+    foKind (g Γ a) && foSig S && encodesCheck N S Te g Γ a a' (g Γ a) &&
+      encodesCheck N S Te g Γ b b' (g Γ a)
   | Γ, .Not a, .Not a', .bool => encodesCheck N S Te g Γ a a' .bool
   | _, .And [], .And [], .bool => true
   | Γ, .And (a :: as), .And (a' :: as'), .bool =>
@@ -170,6 +194,15 @@ def encodesCheck (N : Names) (S : CSig) (Te : Ty) (g : List (Id × Kind) → Exp
       | some ([], _, ks, k2), [] =>
         kindEq k2 k && encodesCheck N S Te g Γ (.Tuple es) (.Tuple es') (.tuple ks)
       | _, _ => false)
+  | Γ, .Lambda ps body, .Lambda ps' body', .fn ks k =>
+    decide (param_ids ps = param_ids ps') &&
+      encodesCheck N S Te g ((param_ids ps).zip ks ++ keep Γ) body body' k
+  | Γ, .Application callee es, .Application callee' es', k =>
+    (match g Γ callee with
+      | .fn ks k2 =>
+        kindEq k2 k && encodesCheck N S Te g Γ callee callee' (.fn ks k2) &&
+          encodesCheck N S Te g Γ (.Tuple es) (.Tuple es') (.tuple ks)
+      | _ => false)
   | _, _, _, _ => false
 termination_by _ e => sizeOf e
 decreasing_by
@@ -178,6 +211,7 @@ decreasing_by
     | omega
     | (have := sizeOf_string_pos c; omega)
     | (have := sizeOf_string_pos f; omega)
+    | (have := sizeOf_expr_pos callee; omega)
 
 theorem encodesCheck_sound {N : Names} {S : CSig} {Te : Ty}
     {g : List (Id × Kind) → Expr → Kind} {Γ : List (Id × Kind)} {e e' : Expr} {k : Kind} :
@@ -215,7 +249,7 @@ theorem encodesCheck_sound {N : Names} {S : CSig} {Te : Ty}
     exact .ge (iha h.1) (ihb h.2)
   · next iha ihb =>
     simp only [Bool.and_eq_true] at h
-    exact .eq (iha h.1) (ihb h.2)
+    exact .eq h.1.1.1 (foSig_sound h.1.1.2) (iha h.1.2) (ihb h.2)
   · next iha => exact .not (iha h)
   · exact .andNil
   · next iha ihb =>
@@ -322,6 +356,14 @@ theorem encodesCheck_sound {N : Names} {S : CSig} {Te : Ty}
       cases kindEq_eq h.1
       exact .callMono _ hl (ih ks h.2)
     · cases h
+  · next ih =>
+    simp only [Bool.and_eq_true, decide_eq_true_eq] at h
+    exact .lambda _ (fun p hp => keep_sound p hp) h.1 (ih h.2)
+  · next ihf iha =>
+    simp only [Bool.and_eq_true] at h
+    cases kindEq_eq h.1.1
+    exact .app (ihf h.1.2) (iha h.2)
+  · cases h
   · cases h
 
 /-! ## Reading the input -/
@@ -372,6 +414,11 @@ def kindOfSort (c : Ctx) : Nat → Sexp → Except String Kind
     | .expr [.atom "Bag", x] =>
       if x == .atom c.elem then .ok .bag else .error "a bag of other than elements"
     | .expr (.atom "Tuple" :: xs) => do pure (.tuple (← xs.mapM (kindOfSort c n)))
+    | .expr (.atom "->" :: xs) => do
+      let ks ← xs.mapM (kindOfSort c n)
+      match ks.reverse with
+      | k :: rest => pure (.fn rest.reverse k)
+      | [] => .error "a sort"
     | .expr (.atom a :: xs) =>
       if c.table.kind a == "sort" && xs.all (· == .atom c.elem) then .ok (.adt (c.table.id a))
       else .error s!"the sort {a}"
@@ -382,6 +429,31 @@ def readTy : Sexp → Ty
   | .atom "Int" => .IntegerType
   | .atom a => .TypeParameter a
   | _ => .UnitType
+
+mutual
+/-- The type of the values of a kind, with `elem` the type parameter of the elements. -/
+def kindTy (elem : Id) : Kind → Ty
+  | .elem => .TypeParameter elem
+  | .int => .IntegerType
+  | .bool => .BooleanType
+  | .bag => .BagType (.TypeParameter elem)
+  | .adt s => .ADTType s [.TypeParameter elem]
+  | .tuple ks => .TupleType (kindTys elem ks)
+  | .fn ks k => .FunctionType (kindTys elem ks) (kindTy elem k)
+def kindTys (elem : Id) : List Kind → List Ty
+  | [] => []
+  | k :: ks => kindTy elem k :: kindTys elem ks
+end
+
+/-- The kind of the values of a type that `kindTy` gives. -/
+partial def tyKind : Ty → Kind
+  | .IntegerType => .int
+  | .BooleanType => .bool
+  | .BagType _ => .bag
+  | .ADTType s _ => .adt s
+  | .TupleType ts => .tuple (ts.map tyKind)
+  | .FunctionType ts t => .fn (ts.map tyKind) (tyKind t)
+  | _ => .elem
 
 /-- The expression that `s` reads as, or what it has that isn't read. -/
 def readExpr (c : Ctx) : Nat → Sexp → Except String Expr
@@ -428,6 +500,13 @@ def readExpr (c : Ctx) : Nat → Sexp → Except String Expr
       pure (.TupleSelect (← readExpr c n e) (i.toNat! + 1))
     | .expr (.expr [.atom "as", .atom "tuple", _] :: args) => do
       pure (.Tuple (← args.mapM (readExpr c n)))
+    | .expr [.atom "lambda", .expr ps, b] => do
+      let ps ← ps.mapM fun
+        | .expr [.atom x, sort] => do pure (Param.Param x (kindTy c.elem (← kindOfSort c n sort)))
+        | _ => .error "a parameter"
+      pure (.Lambda ps (← readExpr c n b))
+    | .expr (.expr [.atom "as", .atom "@", _] :: f :: args) => do
+      pure (.Application (← readExpr c n f) (← args.mapM (readExpr c n)))
     | .expr [.atom "as", .atom k, .expr (.atom _ :: ts)] =>
       if c.table.kind k == "constructor" then pure (.ADT (c.table.id k) (ts.map readTy) [])
       else .error (c.table.kind k ++ " " ++ k)
@@ -469,6 +548,13 @@ partial def kindOf (S : CSig) (Γ : List (Id × Kind)) : Expr → Kind
     | .adt s => (fieldOf S s sel).getD .int
     | _ => .int
   | .FunctionInvocation f _ _ => ((S.funs.lookup f).map (·.2.2.2)).getD .int
+  | .Lambda ps b =>
+    let ks := ps.map fun | .Param _ t => tyKind t
+    .fn ks (kindOf S ((param_ids ps).zip ks ++ Γ) b)
+  | .Application f _ =>
+    match kindOf S Γ f with
+    | .fn _ k => k
+    | _ => .int
   | _ => .int
 
 /-- The sections of a certificate of the given name. -/
