@@ -129,12 +129,13 @@ trait WitnessTemplates { self: Templates =>
   protected def lambdaCaptures(p: LambdaPair): Seq[(Encoded, Type)] =
     (p.t1.closures ++ p.t2.closures).map((v, e) => e -> v.getType).distinct
 
-  /** A fresh literal under which the captured values have the given `values`, which only the
-    * comparisons of lambdas in a model assume. */
-  protected def fixCaptures(values: Seq[(Encoded, Expr)]): (Encoded, Clauses) = {
+  /** A fresh literal under which, with the condition of `p`, the captured values have the given
+    * `values`, which only the comparisons of the lambdas of `p` in a model assume (with that
+    * condition, see [[lambdaComparison]]). */
+  protected def fixCaptures(p: LambdaPair, values: Seq[(Encoded, Expr)]): (Encoded, Clauses) = {
     val literal = encodeSymbol(Variable.fresh("b_fix", BooleanType(), true))
     val fixed = mkAnd(values.map((c, v) => mkEquals(c, mkEncoder(Map.empty)(v)))*)
-    (literal, Rule.Hypothesis(literal, trueT, fixed).clauses)
+    (literal, Rule.Hypothesis(literal, p.cond, fixed).clauses)
   }
 
   /** Records that the lambdas of `p` agree on every input wherever both are defined, so that the

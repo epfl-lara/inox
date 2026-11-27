@@ -1214,11 +1214,15 @@ trait Templates
     *
     * The bodies are instantiated on fresh arguments `ws`, as the bodies of fresh functions `c1` and
     * `c2` rather than of the lambdas themselves: the query may make the lambdas equal, and their
-    * applications on `ws` would then be equal as well, whatever their bodies. Under the literal, `cond`
-    * holds, the arguments lie in their types, and the bodies differ on them: exactly one of them
-    * fails, or neither does and their results differ. So if a check that assumes the literal is
-    * unsatisfiable, the bodies agree on every input wherever `cond` holds. Like the other
-    * hypotheses, the clauses hold when the literal is false. */
+    * applications on `ws` would then be equal as well, whatever their bodies. Under the literal and
+    * `cond`, the arguments lie in their types, and the bodies differ on them: exactly one of them
+    * fails, or neither does and their results differ. So if a check that assumes the literal and
+    * `cond` is unsatisfiable, the bodies agree on every input wherever `cond` holds. Like the other
+    * hypotheses, the clauses hold when the literal is false.
+    *
+    * `cond` is the hypothesis's condition rather than part of its fact, so that its clause has the
+    * shape `(=> (and literal cond) fact)` that the checkers of certificates read: a condition
+    * `true` would make the solver print `(=> literal fact)`. */
   def instantiateComparison(cond: Encoded, t1: LambdaTemplate, t2: LambdaTemplate): (Encoded, Seq[Encoded], Clauses) = {
     val tpe = t1.tpe
     val literal = encodeSymbol(Variable.fresh("b_cmp", BooleanType(), true))
@@ -1252,7 +1256,7 @@ trait Templates
       (tpeClauses.foldLeft(mkClauses0(start, BooleanLiteral(true), substMap))(_ ++ _), Some(source), None)
     }, root = Rule.Define(None, _, literal).clauses)
 
-    val clauses = Rule.Hypothesis(literal, trueT, mkAnd(cond, distinguished)).clauses ++
+    val clauses = Rule.Hypothesis(literal, cond, distinguished).clauses ++
       clauses1 ++ clauses2 ++ typing ++ newFailureDefinitions()
     for (cl <- clauses) reporter.debug("  . " + cl)
     (literal, wsT, clauses)

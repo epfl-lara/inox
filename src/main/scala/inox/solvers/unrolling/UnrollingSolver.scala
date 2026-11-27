@@ -1652,7 +1652,7 @@ abstract class AbstractUnrollingSolver private
       for (p <- pairs if !abort) {
         reporter.debug(" - Comparing the bodies of lambdas that the model makes equal")
         // the captures that may contain functions are left out: their encodings in a model aren't values
-        lazy val fixed = fixedCaptures(templates.witnesses.captures(p).collect {
+        lazy val fixed = fixedCaptures(p, templates.witnesses.captures(p).collect {
           case (c, tpe) if !FunctionEquality.containsFunctions(programEncoder.targetProgram)(tpe) => c -> tpe
         }.flatMap((c, tpe) => wrapped.modelEval(c, tpe).map(c -> _)))
         if (!agreeEverywhere(p) && (fixed.isEmpty || !agreeWith(p, fixed))) {
@@ -1665,15 +1665,15 @@ abstract class AbstractUnrollingSolver private
       discarded || abort
     }
 
-    /** Checks under the comparison of the bodies of the lambdas of `p` (see [[Templates.instantiateComparison]])
-      * and under `extra`, with the given unfolding assumptions. */
+    /** Checks under the comparison of the bodies of the lambdas of `p` (see [[Templates.instantiateComparison]]),
+      * whose literal holds with the condition of `p`, and under `extra`, with the given unfolding assumptions. */
     private def checkComparison(p: templates.witnesses.LambdaPair, extra: Set[Encoded], refuting: Boolean): Response = {
       val (literal, _, clauses) = templates.witnesses.comparison(p)
       for (cl <- clauses) assertClause(cl)
       val unfolding = if (refuting) templates.unfolding.refutationAssumptions else templates.unfolding.satisfactionAssumptions
       context.timers.solvers.unrolling.check.run {
         checkUnderlying(Configuration(model = !refuting, unsatAssumptions = false))(
-          ListSet.from(encodedAssumptions) ++ unfolding ++ extra + literal)
+          ListSet.from(encodedAssumptions) ++ unfolding ++ extra + literal + p.cond)
       }
     }
 
@@ -1690,9 +1690,9 @@ abstract class AbstractUnrollingSolver private
       }
 
     /** The literal under which the captures of a pair of lambdas have the given values, if any. */
-    private def fixedCaptures(captures: Seq[(Encoded, t.Expr)]): Set[Encoded] =
+    private def fixedCaptures(p: templates.witnesses.LambdaPair, captures: Seq[(Encoded, t.Expr)]): Set[Encoded] =
       if (captures.isEmpty) Set.empty else {
-        val (fixed, clauses) = templates.witnesses.fixCaptures(captures)
+        val (fixed, clauses) = templates.witnesses.fixCaptures(p, captures)
         for (cl <- clauses) assertClause(cl)
         Set(fixed)
       }
@@ -1705,7 +1705,7 @@ abstract class AbstractUnrollingSolver private
         // model satisfies it, they are unless their encoding differs from the model's own values,
         // and the check would then hold whatever the bodies
         case _: Unsatisfiable if !abort && !checkUnderlying(Configuration(model = false, unsatAssumptions = false))(
-            ListSet.from(encodedAssumptions) ++ templates.unfolding.refutationAssumptions ++ fixed).isInstanceOf[Unsatisfiable] =>
+            ListSet.from(encodedAssumptions) ++ templates.unfolding.refutationAssumptions ++ fixed + p.cond).isInstanceOf[Unsatisfiable] =>
           reporter.debug(" - The lambdas agree on every input with the captures of the model")
           true
         case _ => false
