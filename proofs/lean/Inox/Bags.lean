@@ -103,7 +103,8 @@ def combine (op m1 m2 : Int) : Int :=
 /-- `Mult O P N t x d m`: the element `x` has the multiplicity `m` in the value `t` of the
 encoder's datatype, whose depth is `d`. An element of an `Elem` is compared with its key as the
 program compares values. -/
-inductive Mult (O : Oracle) (P : Program) (N : Names) : Value → Value → Nat → Int → Prop where
+inductive Mult (O : Oracle) (P : Program) (N : Names) :
+    Value → Value → Nat → Int → Prop where
   | leaf (tps : List Ty) (x : Value) : Mult O P N (.ADTV N.leaf tps []) x 0 0
   | elem (tps : List Ty) (k x : Value) (n : Int) (same : Bool)
       (h : O.value_eq P k x = .Ok same) :
@@ -156,6 +157,42 @@ theorem get_eval {O : Oracle} (hO : O.Sound) {P : Program} {N : Names} (hN : N.D
           hN.v1_v2, hN.v1_v2.symm, hN.op_left.symm, hN.op_right.symm, hN.left_right.symm, e1, e2,
           hO.value_eq, arith_plus, arith_minus, arith_le, arith_lt, combine, h0, hle]
     · by_cases h1 : op = 1 <;> by_cases hle : m1 ≤ m2 <;>
+        simp [eval, eval_bool, eval_list, lookup_var, env_vars, env_bind, env_types, hnode,
+          select_field, hN.op_left, hN.op_right, hN.left_right, hN.b_x, hN.b_x.symm, hN.b_v1,
+          hN.b_v1.symm, hN.b_v2, hN.b_v2.symm, hN.x_v1, hN.x_v1.symm, hN.x_v2, hN.x_v2.symm,
+          hN.v1_v2, hN.v1_v2.symm, hN.op_left.symm, hN.op_right.symm, hN.left_right.symm, e1, e2,
+          hO.value_eq, arith_plus, arith_minus, arith_le, arith_lt, combine, h0, h1, hle]
+
+/-- A call of `get` evaluates to nothing else than the multiplicity, whatever the fuel. -/
+theorem get_eval_any {O : Oracle} (hO : O.Sound) {P : Program} {N : Names} (hN : N.Distinct)
+    (hP : HasBags N P) {t x : Value} {d : Nat} {m : Int} (h : Mult O P N t x d m) :
+    ∀ (fuel : Int) (tps : List Ty) (tenv : List TypeBinding),
+      call O P fuel N.get tps tenv [t, x] = .Ok (.IntV m) ∨
+        call O P fuel N.get tps tenv [t, x] = .OutOfFuel := by
+  induction h with
+  | leaf tps x =>
+    intro fuel tps' tenv
+    by_cases hf : fuel ≤ 0
+    · right; rw [call, dite_eq_left_of_eq_true (eq_true hf)]
+    · left; exact get_eval hO hN hP (Mult.leaf tps x) fuel tps' tenv (by simp; omega)
+  | elem tps k x n same hsame =>
+    intro fuel tps' tenv
+    by_cases hf : fuel ≤ 0
+    · right; rw [call, dite_eq_left_of_eq_true (eq_true hf)]
+    · left; exact get_eval hO hN hP (Mult.elem tps k x n same hsame) fuel tps' tenv
+        (by simp; omega)
+  | node tps op l r x d1 d2 m1 m2 _ _ ih1 ih2 =>
+    intro fuel tps' tenv
+    by_cases hf : fuel ≤ 0
+    · right; rw [call, dite_eq_left_of_eq_true (eq_true hf)]
+    cases P with
+    | Program fs cs ss is eq =>
+    obtain ⟨hget, hnode, helem⟩ := hP
+    rw [call, dite_eq_right_of_eq_false (eq_false hf)]
+    simp only [hget, bind_all, getBody]
+    rcases ih1 (fuel - 1) [Ty.TypeParameter N.T] (bind_types [N.T] tps' tenv) with e1 | e1 <;>
+      rcases ih2 (fuel - 1) [Ty.TypeParameter N.T] (bind_types [N.T] tps' tenv) with e2 | e2 <;>
+      by_cases h0 : op = 0 <;> by_cases h1 : op = 1 <;> by_cases hle : m1 ≤ m2 <;>
         simp [eval, eval_bool, eval_list, lookup_var, env_vars, env_bind, env_types, hnode,
           select_field, hN.op_left, hN.op_right, hN.left_right, hN.b_x, hN.b_x.symm, hN.b_v1,
           hN.b_v1.symm, hN.b_v2, hN.b_v2.symm, hN.x_v1, hN.x_v1.symm, hN.x_v2, hN.x_v2.symm,
@@ -310,7 +347,8 @@ theorem mult_addAll (hE : KeyEq O P K E) : ∀ {xs acc : List BagEntry}, Canon E
     · simp only [mult, if_neg hxw]
 
 theorem canon_merge (hE : KeyEq O P K E) (op : BagOp) (ys : List BagEntry) :
-    ∀ {xs acc : List BagEntry}, Canon E K acc → Canon E K xs → Canon E K (merge E op acc xs ys)
+    ∀ {xs acc : List BagEntry}, Canon E K acc → Canon E K xs →
+      Canon E K (merge E op acc xs ys)
   | [], _, hacc, _ => hacc
   | .BagEntry x n :: rest, acc, hacc, ⟨hx, _, _, hrest⟩ =>
     canon_merge hE op ys (acc := set E acc x (bag_combine op n (mult E ys x)))
@@ -385,7 +423,7 @@ end Entries
 of `K` has the same multiplicity in both. -/
 def Enc (O : Oracle) (P : Program) (N : Names) (K : Value → Prop) (E : Value → Value → Bool)
     (xs : List BagEntry) (t : Value) : Prop :=
-  ∀ w, K w → ∃ d, Mult O P N t w d (mult E xs w)
+  ∃ d, ∀ w, K w → Mult O P N t w d (mult E xs w)
 
 section Encoding
 variable {O : Oracle} {P : Program} {N : Names} {K : Value → Prop} {E : Value → Value → Bool}
@@ -396,21 +434,22 @@ theorem enc_get (hO : O.Sound) (hN : N.Distinct) (hP : HasBags N P) (hE : KeyEq 
     (tps : List Ty) (tenv : List TypeBinding) :
     ∃ m, O.bag_get P xs w = .Ok m ∧
       ∃ fuel, call O P fuel N.get tps tenv [t, w] = .Ok (.IntV m) := by
-  obtain ⟨d, hd⟩ := h w hw
-  exact ⟨_, bag_get_eq hO hE hxs hw, d + 1, get_eval hO hN hP hd _ tps tenv (by omega)⟩
+  obtain ⟨d, hd⟩ := h
+  exact ⟨_, bag_get_eq hO hE hxs hw, d + 1, get_eval hO hN hP (hd w hw) _ tps tenv (by omega)⟩
 
 /-- The empty bag is `Leaf`. -/
 theorem enc_empty (tps : List Ty) : Enc O P N K E [] (.ADTV N.leaf tps []) :=
-  fun w _ => ⟨0, Mult.leaf tps w⟩
+  ⟨0, fun w _ => Mult.leaf tps w⟩
 
 /-- The sum of two bags is the `Node` of the operation 0 of their encodings. -/
 theorem enc_union (hE : KeyEq O P K E) {xs ys : List BagEntry} (hxs : Canon E K xs)
     (hys : Canon E K ys) {a b : Value} (ha : Enc O P N K E xs a) (hb : Enc O P N K E ys b)
     (tps : List Ty) : Enc O P N K E (addAll E xs ys) (.ADTV N.node tps [.IntV 0, a, b]) := by
-  intro w hw
-  obtain ⟨d1, h1⟩ := ha w hw
-  obtain ⟨d2, h2⟩ := hb w hw
-  refine ⟨max d1 d2 + 1, ?_⟩
+  obtain ⟨d1, h1⟩ := ha
+  obtain ⟨d2, h2⟩ := hb
+  refine ⟨max d1 d2 + 1, fun w hw => ?_⟩
+  have h1 := h1 w hw
+  have h2 := h2 w hw
   have := Mult.node tps 0 a b w d1 d2 _ _ h1 h2
   rw [mult_addAll hE hxs hys hw]
   simpa [combine] using this
@@ -421,10 +460,10 @@ theorem enc_add (hE : KeyEq O P K E) {xs : List BagEntry} (hxs : Canon E K xs) {
     (ha : Enc O P N K E xs a) (hv : K v) (tps tps' : List Ty) :
     Enc O P N K E (set E xs v (mult E xs v + 1))
       (.ADTV N.node tps [.IntV 0, a, .ADTV N.elem tps' [v, .IntV 1]]) := by
-  intro w hw
-  obtain ⟨d1, h1⟩ := ha w hw
+  obtain ⟨d1, h1⟩ := ha
+  refine ⟨max d1 0 + 1, fun w hw => ?_⟩
+  have h1 := h1 w hw
   have h2 := Mult.elem (N := N) tps' v w 1 (E v w) (hE.eq v w hv hw)
-  refine ⟨max d1 0 + 1, ?_⟩
   have := Mult.node tps 0 a _ w d1 0 _ _ h1 h2
   rw [mult_set hE hxs hv hw]
   have h0 := mult_nonneg hxs v
@@ -439,10 +478,11 @@ theorem enc_difference (hE : KeyEq O P K E) {xs ys : List BagEntry} (hxs : Canon
     (hys : Canon E K ys) {a b : Value} (ha : Enc O P N K E xs a) (hb : Enc O P N K E ys b)
     (tps : List Ty) :
     Enc O P N K E (merge E .DifferenceOp [] xs ys) (.ADTV N.node tps [.IntV 1, a, b]) := by
-  intro w hw
-  obtain ⟨d1, h1⟩ := ha w hw
-  obtain ⟨d2, h2⟩ := hb w hw
-  refine ⟨max d1 d2 + 1, ?_⟩
+  obtain ⟨d1, h1⟩ := ha
+  obtain ⟨d2, h2⟩ := hb
+  refine ⟨max d1 d2 + 1, fun w hw => ?_⟩
+  have h1 := h1 w hw
+  have h2 := h2 w hw
   have := Mult.node tps 1 a b w d1 d2 _ _ h1 h2
   rw [mult_merge hE _ hys (acc := []) (by trivial) hxs hw]
   have hx := mult_nonneg hxs w
@@ -463,10 +503,11 @@ theorem enc_intersection (hE : KeyEq O P K E) {xs ys : List BagEntry} (hxs : Can
     (hys : Canon E K ys) {a b : Value} (ha : Enc O P N K E xs a) (hb : Enc O P N K E ys b)
     (tps : List Ty) :
     Enc O P N K E (merge E .IntersectionOp [] xs ys) (.ADTV N.node tps [.IntV 2, a, b]) := by
-  intro w hw
-  obtain ⟨d1, h1⟩ := ha w hw
-  obtain ⟨d2, h2⟩ := hb w hw
-  refine ⟨max d1 d2 + 1, ?_⟩
+  obtain ⟨d1, h1⟩ := ha
+  obtain ⟨d2, h2⟩ := hb
+  refine ⟨max d1 d2 + 1, fun w hw => ?_⟩
+  have h1 := h1 w hw
+  have h2 := h2 w hw
   have := Mult.node tps 2 a b w d1 d2 _ _ h1 h2
   rw [mult_merge hE _ hys (acc := []) (by trivial) hxs hw]
   have hx := mult_nonneg hxs w
