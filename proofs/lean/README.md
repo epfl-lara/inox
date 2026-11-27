@@ -1217,9 +1217,9 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   and defines the encoder's datatype as the encoder does, on values of the free
   variables that relate. `inox-solution --input` says how many constraints of
   each certificate that covers, and what the first of the others has that isn't
-  read. On the corpus it covers 9 of the 36 constraints, among which that of
+  read. On the corpus it covers 12 of the 36 constraints, among which that of
   `bags/split-preserves-content`, with its two recursive functions, three with
-  quantifiers, and two with uninterpreted functions or errors: the others have
+  quantifiers, and five with uninterpreted functions or errors: the others have
   quantifiers over elements or datatypes, sets, maps, bitvectors, reals, or
   sorts whose type arguments are not the elements. Nor is this theorem joined
   to `no_solution_of_reached` yet, whose program has neither sorts with type
