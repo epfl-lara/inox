@@ -577,6 +577,23 @@ theorem setConsts_self {M : SmtModel} {σ : List (native_String × SmtType × Sm
 
 /-! ## The clauses of the instances -/
 
+/-- Putting definitions that hold in place, twice, keeps the value of a term. -/
+theorem eval_subst2 {M : SmtModel} {σ : List (native_String × SmtType × SmtTerm)}
+    (hσ : ∀ e ∈ σ, (Unreserved e.1 ∧ plainHead e.2.2 = true) ∧
+      M.values (model_key e.1 e.2.1) = __smtx_model_eval M e.2.2)
+    {t : SmtTerm} (h : substB σ t = true) :
+    __smtx_model_eval M (subst2 σ t) = __smtx_model_eval M t := by
+  simp only [substB, Bool.and_eq_true] at h
+  have hself : setConsts M (bindingValues M σ) = M := by
+    apply setConsts_self
+    intro e he
+    obtain ⟨e', he', rfl⟩ := List.mem_map.mp he
+    exact (hσ e' he').2
+  have h1 := eval_subst (fun e he => (hσ e he).1) M _ h.1
+  have h2 := eval_subst (fun e he => (hσ e he).1) M _ h.2
+  rw [hself] at h1 h2
+  exact h2.trans h1
+
 /-- A clause of an instance that `instClauseB` accepts holds in each model of the defining
 equations where the definitions that `σ` binds hold. -/
 theorem instClause_sound (hty : LogosTyping) {eqs : List Equation} {M : SmtModel}
@@ -587,14 +604,7 @@ theorem instClause_sound (hty : LogosTyping) {eqs : List Equation} {M : SmtModel
     {c : Term} (h : instClauseB eqs K σ c = true) :
     __smtx_model_eval M (__eo_to_smt c) = SmtValue.Boolean true := by
   simp only [instClauseB, Bool.and_eq_true] at h
-  have hself : setConsts M (bindingValues M σ) = M := by
-    apply setConsts_self
-    intro e he
-    obtain ⟨e', he', rfl⟩ := List.mem_map.mp he
-    exact (hσ e' he').2
-  have := eval_subst (fun e he => (hσ e he).1) M _ h.1
-  rw [hself] at this
-  rw [← this]
+  rw [← eval_subst2 hσ h.1]
   exact verify_sound hty hM hwf _ hK h.2
 
 theorem subset_foldl_append : ∀ (sts : List Step) (acc : List Term),

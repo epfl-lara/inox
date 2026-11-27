@@ -46,7 +46,8 @@ def isCall : SmtTerm → Bool
 literals `K` have their values, with the terms seen through `w`: `c` is `w t`, if `t` is not the
 function of an application (`top`), or it is reached in an operand of `t` that is evaluated. An
 operand of `ite`, `and`, `or` or `=>` after the first is evaluated when the first, through `w`,
-reduces under `K` to the value that selects it. A call of a function without parameters is a
+reduces under `K` to the value that selects it, and one of the two branches of an `ite` is in
+any case, so that `c` is reached if it is in both. A call of a function without parameters is a
 constant, as a variable is, and is not counted. With a substitution for `w`, `t` is the body of a
 function and the terms are those of a call: the calls reached in the arguments are not counted,
 since evaluating the body doesn't go through them. -/
@@ -57,7 +58,8 @@ def reachesW (w : SmtTerm → SmtTerm) (K : List (SmtTerm × Bool)) (c : SmtTerm
       reachesW w K c true a
   | _, .ite x a b =>
     reachesW w K c true x || (decide (red K (w x) = .Boolean true) && reachesW w K c true a) ||
-      (decide (red K (w x) = .Boolean false) && reachesW w K c true b)
+      (decide (red K (w x) = .Boolean false) && reachesW w K c true b) ||
+      (reachesW w K c true a && reachesW w K c true b)
   | _, .and x y =>
     reachesW w K c true x || (decide (red K (w x) = .Boolean true) && reachesW w K c true y)
   | _, .or x y =>
@@ -285,7 +287,7 @@ theorem called_of_reachesW (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (
     have hcM := (hT _ _ htc).trans
       ((ev hO hty hS hPD hct htc env _ hE (eval_bool_ok hb)).2 M hw hc hV)
     simp only [tr, reachesW, Bool.or_eq_true, Bool.and_eq_true, decide_eq_true_eq] at hr
-    rcases hr with (hr | ⟨hred, hr⟩) | ⟨hred, hr⟩
+    rcases hr with ((hr | ⟨hred, hr⟩) | ⟨hred, hr⟩) | ⟨hra, hrb⟩
     · exact ihc env _ hE (eval_bool_ok hb) M hw hc hV N w hN hT K hK c hr
     · have hb' := red_agrees hty hN hK hcM hred
       subst hb'
@@ -295,6 +297,11 @@ theorem called_of_reachesW (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S) (
       subst hb'
       rw [dite_eq_right_of_eq_false (eq_false Bool.false_ne_true)] at he
       exact ihb env v hE he M hw hc hV N w hN hT K hK c hr
+    · cases b
+      · rw [dite_eq_right_of_eq_false (eq_false Bool.false_ne_true)] at he
+        exact ihb env v hE he M hw hc hV N w hN hT K hK c hrb
+      · rw [dite_eq_left_of_eq_true (eq_true rfl)] at he
+        exact iha env v hE he M hw hc hV N w hN hT K hK c hra
   | @and es hes ih =>
     intro env v hE he M hw hc hV N w hN hT K hK c hr
     rw [eval] at he
@@ -553,7 +560,8 @@ def assumesW (D : List Data) (S : List Sig) (Γ : List (Id × Ty)) (w : SmtTerm 
   | .IfExpr c a b =>
     assumesW D S Γ w K φ c ||
       (decide (red K (w (tr D S Γ c)) = .Boolean true) && assumesW D S Γ w K φ a) ||
-      (decide (red K (w (tr D S Γ c)) = .Boolean false) && assumesW D S Γ w K φ b)
+      (decide (red K (w (tr D S Γ c)) = .Boolean false) && assumesW D S Γ w K φ b) ||
+      (assumesW D S Γ w K φ a && assumesW D S Γ w K φ b)
   | .And es => assumesAnd D S Γ w K φ es
   | .Or es => assumesOr D S Γ w K φ es
   | .Not a | .UMinus a | .BVNot a | .BVUnsignedToSigned a | .BVSignedToUnsigned a
@@ -702,7 +710,7 @@ theorem holds_of_assumesW (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S)
     have hcM := (hT _ _ htc).trans
       ((ev hO hty hS hPD hct htc env _ hE (eval_bool_ok hb)).2 M hw hc hV)
     simp only [assumesW, Bool.or_eq_true, Bool.and_eq_true, decide_eq_true_eq] at hr
-    rcases hr with (hr | ⟨hred, hr⟩) | ⟨hred, hr⟩
+    rcases hr with ((hr | ⟨hred, hr⟩) | ⟨hred, hr⟩) | ⟨hra, hrb⟩
     · exact ihc env _ hE (eval_bool_ok hb) M hw hc hV N w hN hT K hK φ hr
     · have hb' := red_agrees hty hN hK hcM hred
       subst hb'
@@ -712,6 +720,11 @@ theorem holds_of_assumesW (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S)
       subst hb'
       rw [dite_eq_right_of_eq_false (eq_false Bool.false_ne_true)] at he
       exact ihb env v hE he M hw hc hV N w hN hT K hK φ hr
+    · cases b
+      · rw [dite_eq_right_of_eq_false (eq_false Bool.false_ne_true)] at he
+        exact ihb env v hE he M hw hc hV N w hN hT K hK φ hrb
+      · rw [dite_eq_left_of_eq_true (eq_true rfl)] at he
+        exact iha env v hE he M hw hc hV N w hN hT K hK φ hra
   | @and es hes ih =>
     intro env v hE he M hw hc hV N w hN hT K hK φ hr
     rw [eval] at he

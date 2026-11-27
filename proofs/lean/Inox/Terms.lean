@@ -1023,6 +1023,8 @@ structure TermSteps where
   equations : List Equation := []
   /-- the instances of templates: the definitions of their local symbols, and their clauses -/
   instances : List (List Term × List Term) := []
+  /-- the definitions of the symbols that the clauses of every instance may mention -/
+  shared : List Term := []
   /-- the base clauses with the assumptions of the source expressions marked (`markAssumes`) -/
   query : List Term := []
   /-- how many of the defining equations are the reflexivity of an equality -/
@@ -1283,10 +1285,19 @@ def termStepsOf (checked : Checked) (terms : List Term) : Except String TermStep
     let base := terms.take nq ++ exprs ++ completeBase.map (·.1)
     let axioms := reflexivities terms fresh (withKinds counts ruleTerms)
     let eqs := equations checked ++ axioms
-    -- the definitions of the symbols that are true, such as the typing of a set, which the
-    -- clauses of another instance than theirs may mention
+    -- the definitions of the symbols that name values over the symbols of the query only, such
+    -- as the typing of a set, which is true, or a constructor with an invariant: the clauses
+    -- of another instance than theirs may mention them
+    let defined : Std.HashSet SmtEval.native_String := Std.HashSet.ofList (defs.filterMap fun d =>
+      match d with
+      | .Apply (.Apply (.UOp .eq) v) _ => (asConst (__eo_to_smt v)).map (·.1)
+      | _ => none)
+    let ground (rhs : Term) : Bool :=
+      (addClauseNames {} [rhs]).all fun n => !defined.contains n
     let trues := defs.filter fun d => match d with
       | .Apply (.Apply (.UOp .eq) _) (.Boolean true) => true
+      | .Apply (.Apply (.UOp .eq) _) rhs =>
+        decide (__smtx_typeof (__eo_to_smt rhs) ≠ .Bool) && ground rhs
       | _ => false
     -- the definitions and the clauses of each instance
     let instances := (counts.zip ndefs).foldl
@@ -1300,7 +1311,8 @@ def termStepsOf (checked : Checked) (terms : List Term) : Except String TermStep
     let fresh := unconstrained eqs base fresh defs facts ++ fresh
     .ok { assums := [], base, fresh := addDefinitions eqs base fresh defs,
           facts, derived, equations := eqs,
-          instances := instances.1, axioms := axioms.length, expressions := exprs.length,
+          instances := instances.1, shared := trues, axioms := axioms.length,
+          expressions := exprs.length,
           completeBase := completeBase.length,
           kinds := factKinds checked ++ completeFacts.map fun (_, c) => ("complete", c) }
 
@@ -1570,11 +1582,20 @@ def defBinding : Term → Option (SmtEval.native_String × SmtType × SmtTerm)
     | _ => none
   | _ => none
 
+/-- `t` with the definitions `σ` in place, and then in place in what they put: a definition of
+an instance may mention a symbol that another instance defines. -/
+def subst2 (σ : List (SmtEval.native_String × SmtType × SmtTerm)) (t : SmtTerm) : SmtTerm :=
+  substSmt σ (substSmt σ t)
+
+/-- `t` has no binder, before and after the definitions `σ` are put in place. -/
+def substB (σ : List (SmtEval.native_String × SmtType × SmtTerm)) (t : SmtTerm) : Bool :=
+  noBinder t && noBinder (substSmt σ t)
+
 /-- The clause `c` holds, under the literals `K`, once the definitions `σ` are substituted in
 it. -/
 def instClauseB (eqs : List Equation) (K : List (SmtTerm × Bool))
     (σ : List (SmtEval.native_String × SmtType × SmtTerm)) (c : Term) : Bool :=
-  noBinder (__eo_to_smt c) && verify eqs K (substSmt σ (__eo_to_smt c))
+  substB σ (__eo_to_smt c) && verify eqs K (subst2 σ (__eo_to_smt c))
 
 /-- The constants of the root steps: the clauses that state them are among those of the
 fresh-symbol steps. -/

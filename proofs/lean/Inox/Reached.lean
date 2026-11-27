@@ -133,14 +133,23 @@ def substituted (r : TermSteps) : List (Term × SmtTerm) :=
   let ctx := Std.HashSet.ofList (extend r.base r.fresh)
   r.instances.flatMap fun (defs, cs) =>
     let σ := (defs.filter ctx.contains).filterMap defBinding
-    (cs.filter fun c => noBinder (__eo_to_smt c)).map fun c => (c, substSmt σ (__eo_to_smt c))
+    (cs.filter fun c => substB σ (__eo_to_smt c)).map fun c => (c, subst2 σ (__eo_to_smt c))
 
-/-- What `Paths` reads from the steps of `r`. -/
+/-- The definitions that the clauses of every instance may mention, among the clauses of the
+fresh-symbol steps, as bindings. -/
+def sharedBindings (r : TermSteps) : List (native_String × SmtType × SmtTerm) :=
+  let ctx := Std.HashSet.ofList (extend r.base r.fresh)
+  (r.shared.filter ctx.contains).filterMap defBinding
+
+/-- What `Paths` reads from the steps of `r`: a definition is read with the shared definitions in
+place, as the clauses of the instances are. -/
 def pathsOf (r : TermSteps) : Paths where
   eqs := r.equations
   base := r.base
   defs := r.fresh.filterMap fun st => match st with
-    | .define c rhs => some (__eo_to_smt c, __eo_to_smt rhs)
+    | .define c rhs =>
+      some (__eo_to_smt c, if noBinder (__eo_to_smt rhs) then
+        substSmt (sharedBindings r) (__eo_to_smt rhs) else __eo_to_smt rhs)
     | _ => none
   enab := r.fresh.filterMap fun st => match st with
     | .enables c bs => some (__eo_to_smt c, bs.map __eo_to_smt)
@@ -650,7 +659,25 @@ theorem ctx_of {Γ : List (Id × Ty)} {env : Env} (hty : LogosTyping) {r : TermS
     cases st <;> simp only [Option.some.injEq, reduceCtorEq] at hd
     case define c rhs =>
       subst hd
-      exact hsat.2 (Extend.mkEq c rhs) (hsub (clause_mem_extend hst (by simp [Step.clauses])))
+      have h := hsat.2 (Extend.mkEq c rhs) (hsub (clause_mem_extend hst (by simp [Step.clauses])))
+      split
+      · next hnb =>
+        have hσ : ∀ e ∈ sharedBindings r, (Unreserved e.1 ∧ plainHead e.2.2 = true) ∧
+            M.values (model_key e.1 e.2.1) = __smtx_model_eval M e.2.2 := by
+          intro e he
+          obtain ⟨d, hd, hb⟩ := List.mem_filterMap.mp he
+          simp only [List.mem_filter, Std.HashSet.contains_ofList, List.contains_iff_mem] at hd
+          exact defBinding_sound hty hsat.1 hb (hsat.2 d (hsub hd.2))
+        have hself : setConsts M (bindingValues M (sharedBindings r)) = M := by
+          apply setConsts_self
+          intro e he
+          obtain ⟨e', he', rfl⟩ := List.mem_map.mp he
+          exact (hσ e' he').2
+        have h1 := eval_subst (fun e he => (hσ e he).1) M _ hnb
+        rw [hself] at h1
+        simp only [Extend.eo_to_smt_mkEq, __smtx_model_eval] at h ⊢
+        rw [h1]; exact h
+      · exact h
   enab := by
     intro q hq hne hv
     simp only [pathsOf, List.mem_filterMap] at hq
@@ -679,16 +706,7 @@ theorem eval_of_substituted (hty : LogosTyping) {r : TermSteps} {M : SmtModel}
     obtain ⟨d, hd, hb⟩ := List.mem_filterMap.mp he
     simp only [List.mem_filter, Std.HashSet.contains_ofList, List.contains_iff_mem] at hd
     exact defBinding_sound hty hsat.1 hb (hsat.2 d (hsub hd.2))
-  have hself : setConsts M (bindingValues M
-      ((defs.filter (Std.HashSet.ofList (extend r.base r.fresh)).contains).filterMap
-        defBinding)) = M := by
-    apply setConsts_self
-    intro e he
-    obtain ⟨e', he', rfl⟩ := List.mem_map.mp he
-    exact (hσ e' he').2
-  have := eval_subst (fun e he => (hσ e he).1) M _ hnb
-  rw [hself] at this
-  exact this.symm
+  exact (eval_subst2 hσ hnb).symm
 
 /-- A fact that `reachedCovered` accepts holds in the models that the check is about. -/
 theorem holds_reachedCovered (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S)

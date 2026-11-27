@@ -373,6 +373,15 @@ accepts:
   the instance that unfolds it, so the definitions of the symbols that are
   `true` are in place in the clauses of every instance. This is for the sets
   whose elements have no typing of their own.
+- **The symbols that other instances mention**: a symbol of an instance may be
+  in an argument of another, as the typing of the rest of a set is, or the
+  value of a constructor with an invariant, `adt`, which the query defines and
+  the calls take. So the definitions of the symbols that are `true`, and of
+  those that name a value over no defined symbol, are in place in the clauses
+  of every instance (`TermSteps.shared`), and the definitions are put in place
+  twice (`subst2`, `eval_subst2`), since a definition of an instance may
+  mention such a symbol. `Paths` reads the definitions of the blockers with
+  them in place too (`sharedBindings`).
 
 `inox-check --terms` prints, for each certificate, how many facts are
 unfoldings, how many are clauses of instances that the check accepts, how many
@@ -939,7 +948,9 @@ only. It does, and `reachedCheck` decides it:
 - under each blocker, with the literals that its definition and those of the
   constants it mentions make known (`closeK`), evaluation goes through the call
   (`Paths.guards`): a base clause reaches it, or the body of a call that is
-  already guarded, by a literal that is known, reaches it (`reachedBy`);
+  already guarded, by a literal that is known, reaches it (`reachedBy`). A
+  term reaches the calls of its operands that are evaluated: those of a branch
+  of an `ite` whose condition is known, and those that both branches make;
 - the other facts hold without the equations (`TermSteps.covered` with none),
   and no fresh symbol is a function of the program or a variable of the query
   (`apart`).
@@ -973,7 +984,8 @@ for a certificate that they hold of: given the soundness of Logos, the query
 that it reads has no solution in the program that it reads. For another it
 prints which check fails: the part of `sourceCheck` that puts it outside the
 fragment, or how many facts `reachedCheck` doesn't cover, by the kinds of their
-rules. It exits with 1 unless they hold of every certificate.
+rules, and with `--remaining` their clauses. It exits with 1 unless they hold
+of every certificate.
 
 ```sh
 cd proofs/lean/verification && lake build inox-solution
