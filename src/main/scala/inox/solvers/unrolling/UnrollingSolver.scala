@@ -1641,10 +1641,13 @@ abstract class AbstractUnrollingSolver private
       var discarded = false
       for (p <- pairs if !abort) {
         reporter.debug(" - Comparing the bodies of lambdas that the model makes equal")
-        val captures = templates.witnesses.captures(p).flatMap((c, tpe) => wrapped.modelEval(c, tpe).map(c -> _))
-        if (!agreeEverywhere(p) && (captures.isEmpty || !agreeWith(p, captures))) {
+        // the captures that may contain functions are left out: their encodings in a model aren't values
+        lazy val fixed = fixedCaptures(templates.witnesses.captures(p).collect {
+          case (c, tpe) if !FunctionEquality.containsFunctions(programEncoder.targetProgram)(tpe) => c -> tpe
+        }.flatMap((c, tpe) => wrapped.modelEval(c, tpe).map(c -> _)))
+        if (!agreeEverywhere(p) && (fixed.isEmpty || !agreeWith(p, fixed))) {
           discarded = true
-          if (!templates.witnesses.canProbe(p) || !probe(p, captures)) {
+          if (!templates.witnesses.canProbe(p) || !probe(p, fixed)) {
             for (cl <- templates.witnesses.keepApart(p)) assertClause(cl)
           }
         }
@@ -1676,18 +1679,17 @@ abstract class AbstractUnrollingSolver private
         case _ => false
       }
 
-    /** The literal under which the captures of `p` have the given values, with its clauses. */
+    /** The literal under which the captures of a pair of lambdas have the given values, if any. */
     private def fixedCaptures(captures: Seq[(Encoded, t.Expr)]): Set[Encoded] =
       if (captures.isEmpty) Set.empty else {
-        val (fixed, clauses) = templates.witnesses.fixCaptures(captures.map(_._1), captures.map(_._2))
+        val (fixed, clauses) = templates.witnesses.fixCaptures(captures)
         for (cl <- clauses) assertClause(cl)
         Set(fixed)
       }
 
     /** Whether the bodies of the lambdas of `p` agree on every input when their captures have the
-      * given values, as in a model: if so, the model may keep them equal. */
-    private def agreeWith(p: templates.witnesses.LambdaPair, captures: Seq[(Encoded, t.Expr)]): Boolean = {
-      val fixed = fixedCaptures(captures)
+      * values of a model, under `fixed` (see [[fixedCaptures]]): if so, the model may keep them equal. */
+    private def agreeWith(p: templates.witnesses.LambdaPair, fixed: Set[Encoded]): Boolean =
       !abort && (checkComparison(p, fixed, refuting = true) match {
         // the values of the model must be consistent with the unfolding when they are fixed: as the
         // model satisfies it, they are unless their encoding differs from the model's own values,
@@ -1698,20 +1700,17 @@ abstract class AbstractUnrollingSolver private
           true
         case _ => false
       })
-    }
 
     /** Applies the lambdas of `p` to an input on which their bodies differ when their captures have the
-      * given values, if a model of their comparison gives one (see [[WitnessTemplates.probeLambdas]]).
-      * Returns whether it did. */
-    private def probe(p: templates.witnesses.LambdaPair, captures: Seq[(Encoded, t.Expr)]): Boolean =
-      !abort && (checkComparison(p, fixedCaptures(captures), refuting = false) match {
+      * values of a model, under `fixed`, if a model of their comparison gives one (see
+      * [[WitnessTemplates.probeLambdas]]). Returns whether it did. */
+    private def probe(p: templates.witnesses.LambdaPair, fixed: Set[Encoded]): Boolean =
+      !abort && (checkComparison(p, fixed, refuting = false) match {
         case SatWithModel(model) =>
-          val wrapped = wrapModel(model)
           val (_, args, _) = templates.witnesses.comparison(p)
-          val input = new ProbeInput(wrapped, templates.witnesses.allCaptures(p))
-          val values = (args zip templates.witnesses.argumentTypes(p)).map(input.value(_, _))
-          if (!values.forall(_.isDefined)) reporter.debug(" - No input of the model can be probed: " +
-            (args zip templates.witnesses.argumentTypes(p)).map((a, tpe) => wrapped.modelEval(a, tpe)).mkString(", "))
+          val input = new ProbeInput(wrapModel(model), templates.witnesses.captures(p))
+          val values = (args zip p.t1.tpe.from).map(input.value(_, _))
+          if (!values.forall(_.isDefined)) reporter.debug(" - The model gives no input that can be probed")
           values.forall(_.isDefined) && {
             reporter.debug(" - The lambdas differ on " + values.flatten.mkString(", "))
             for (cl <- templates.witnesses.probe(p, values.flatten, input.terms)) assertClause(cl)
@@ -1763,11 +1762,9 @@ abstract class AbstractUnrollingSolver private
             val v = abstractTerm(gv)
             if (v.isEmpty) ok = false
             v
-          case _: t.Lambda | _: t.Error => ok = false; None
-          case fi: t.FunctionInvocation if lookupFunction(fi.id).isEmpty => ok = false; None
           case _ => None
         }(value)
-        Option.when(ok && (t.exprOps.variablesOf(res) -- bound.keySet).isEmpty)(res)
+        Option.when(ok && closed(res) && !t.exprOps.exists { case _: t.Lambda | _: t.Error => true; case _ => false }(res))(res)
       }
 
       /** Whether `e` is a closed expression over the program and the terms. */

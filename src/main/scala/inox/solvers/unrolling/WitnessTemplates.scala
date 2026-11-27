@@ -78,8 +78,7 @@ trait WitnessTemplates { self: Templates =>
     * once that was done in the current round of the unfolding, the model checks assume them
     * distinct through these literals until the next round (see [[keepApart]] and [[nextRound]]).
     * Like the equalities, they are only assumed by the model checks, so refutations are unchanged. */
-  protected def lambdaDistinctions: Set[Encoded] =
-    apartLambdas.toSet.collect { case p if !equalLambdas(p) => distinctLambdas(p) }
+  protected def lambdaDistinctions: Set[Encoded] = apartLambdas.toSet.map(distinctLambdas(_))
 
   /** The pairs of lambdas that the model, given by `holds`, makes equal although their equality
     * doesn't follow from their structure, and that aren't known to be extensionally equal. */
@@ -96,8 +95,8 @@ trait WitnessTemplates { self: Templates =>
   /** Starts a new round of the unfolding, in which the models may make the lambdas equal again that
     * were kept apart, and returns these lambdas, whose comparison the unrolling may now decide. */
   protected def nextRound(): Seq[LambdaPair] = {
-    val apart = apartLambdas.toSeq.filterNot(equalLambdas(_))
-    for (p <- apartLambdas.toSeq) apartLambdas -= p
+    val apart = apartLambdas.toSeq
+    for (p <- apart) apartLambdas -= p
     for (p <- probedLambdas.toSeq) probedLambdas -= p
     for (t <- comparedLambdas.toSeq) comparedLambdas -= t
     apart
@@ -126,20 +125,15 @@ trait WitnessTemplates { self: Templates =>
   }
 
   /** The values that the lambdas of `p` capture, with their types, which a comparison can fix to
-    * those of a model (see [[fixCaptures]]). The values that may contain functions are left out:
-    * their encodings in a model aren't values. */
+    * those of a model (see [[fixCaptures]]). */
   protected def lambdaCaptures(p: LambdaPair): Seq[(Encoded, Type)] =
-    allLambdaCaptures(p).filterNot((_, tpe) => FunctionEquality.containsFunctions(program)(tpe))
-
-  /** The values that the lambdas of `p` capture, with their types. */
-  protected def allLambdaCaptures(p: LambdaPair): Seq[(Encoded, Type)] =
     (p.t1.closures ++ p.t2.closures).map((v, e) => e -> v.getType).distinct
 
-  /** A fresh literal under which the captured values `captures` are equal to `values`, which only
-    * the comparisons of lambdas in a model assume. */
-  protected def fixCaptures(captures: Seq[Encoded], values: Seq[Expr]): (Encoded, Clauses) = {
+  /** A fresh literal under which the captured values have the given `values`, which only the
+    * comparisons of lambdas in a model assume. */
+  protected def fixCaptures(values: Seq[(Encoded, Expr)]): (Encoded, Clauses) = {
     val literal = encodeSymbol(Variable.fresh("b_fix", BooleanType(), true))
-    val fixed = mkAnd((captures zip values).map((c, v) => mkEquals(c, mkEncoder(Map.empty)(v)))*)
+    val fixed = mkAnd(values.map((c, v) => mkEquals(c, mkEncoder(Map.empty)(v)))*)
     (literal, Rule.Hypothesis(literal, trueT, fixed).clauses)
   }
 

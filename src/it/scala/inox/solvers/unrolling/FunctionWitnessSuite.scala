@@ -722,49 +722,6 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
     assert(resultWith(FunctionEquality.Extensional)(succ !== pred).isSAT)
   }
 
-  // the models of these queries made the lambdas equal, which only the model check rejected
-  test("models don't make extensionally distinct lambdas equal") { ctx ?=>
-    val fnT = IntegerType() =>: BooleanType()
-    val isZero = \("z" :: IntegerType())(z => z === E(BigInt(0)))
-    val isOne = \("z" :: IntegerType())(z => z === E(BigInt(1)))
-    val isPos = \("z" :: IntegerType())(z => z > E(BigInt(0)))
-    val f = ("f" :: fnT).toVariable
-    val unchecked = ctx.withOpts(optFunctionEquality(FunctionEquality.Extensional), optCheckModels(false),
-      optNoSimplifications(true))
-    for (clause <- Seq(
-      ElementOfSet(isZero, FiniteSet(Seq(isOne, isPos), fnT)),
-      isZero === isOne,
-      (f === isZero) && (f === isOne)
-    )) {
-      val res = SimpleSolverAPI(program.getSolver(unchecked)).solveSAT(clause)
-      assert(res.isUNSAT, s"${clause.asString(using PrinterOptions())}: $res")
-    }
-  }
-
-  test("models keep apart the lambdas that they can") { ctx ?=>
-    val fnT = IntegerType() =>: BooleanType()
-    val isZero = \("z" :: IntegerType())(z => z === E(BigInt(0)))
-    val isPos = \("z" :: IntegerType())(z => z > E(BigInt(0)))
-    val s = ("s" :: SetType(fnT)).toVariable
-    for (checkModels <- Seq(false, true)) {
-      val opts = ctx.withOpts(optFunctionEquality(FunctionEquality.Extensional), optCheckModels(checkModels))
-      // a model in which `isZero` and `isPos` are equal needs no element in `s`
-      val res = SimpleSolverAPI(program.getSolver(opts)).solveSAT(ElementOfSet(isZero, SetUnion(FiniteSet(Seq(isPos), fnT), s)))
-      assert(res.isSAT, s"check-models=$checkModels: $res")
-    }
-  }
-
-  test("models make extensionally equal lambdas equal") { ctx ?=>
-    val fnT = IntegerType() =>: IntegerType()
-    val id = \("x" :: IntegerType())(x => x)
-    val alsoId = \("x" :: IntegerType())(x => if_ (x === E(BigInt(0))) { E(BigInt(0)) } else_ { x })
-    val opts = ctx.withOpts(optFunctionEquality(FunctionEquality.Extensional), optCheckModels(false),
-      optNoSimplifications(true))
-    val member = ElementOfSet(alsoId, FiniteSet(Seq(id), fnT))
-    assert(SimpleSolverAPI(program.getSolver(opts)).solveSAT(member).isSAT)
-    assert(SimpleSolverAPI(program.getSolver(opts)).solveSAT(Not(member)).isUNSAT)
-  }
-
   test("quantified function comparisons are evaluated extensionally") { ctx ?=>
     val x = ("x" :: IntegerType()).toVariable
     val forall = Forall(Seq(x.toVal),

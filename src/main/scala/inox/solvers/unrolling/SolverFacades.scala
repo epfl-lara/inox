@@ -77,14 +77,11 @@ trait SolverFacades { self: Templates =>
     /** @see [[WitnessTemplates.lambdaComparison]] */
     def comparison(p: LambdaPair): (Encoded, Seq[Encoded], Clauses) = self.lambdaComparison(p)
 
-    /** The argument types of the lambdas of `p`. */
-    def argumentTypes(p: LambdaPair): Seq[Type] = p.t1.tpe.from
-
     /** @see [[WitnessTemplates.lambdaCaptures]] */
     def captures(p: LambdaPair): Seq[(Encoded, Type)] = self.lambdaCaptures(p)
 
     /** @see [[WitnessTemplates.fixCaptures]] */
-    def fixCaptures(captures: Seq[Encoded], values: Seq[Expr]): (Encoded, Clauses) = self.fixCaptures(captures, values)
+    def fixCaptures(values: Seq[(Encoded, Expr)]): (Encoded, Clauses) = self.fixCaptures(values)
 
     /** @see [[WitnessTemplates.markEqualLambdas]] */
     def markEqual(p: LambdaPair): Unit = self.markEqualLambdas(p)
@@ -97,9 +94,6 @@ trait SolverFacades { self: Templates =>
 
     /** @see [[WitnessTemplates.probeLambdas]] */
     def probe(p: LambdaPair, args: Seq[Expr], terms: Map[Variable, Encoded]): Clauses = self.probeLambdas(p, args, terms)
-
-    /** The values that the lambdas of `p` capture, with their types, including those that contain functions. */
-    def allCaptures(p: LambdaPair): Seq[(Encoded, Type)] = self.allLambdaCaptures(p)
 
     /** @see [[WitnessTemplates.instantiateWitnesses]] */
     def instantiate(equalities: Set[Encoded]): Clauses = self.instantiateWitnesses(equalities)
