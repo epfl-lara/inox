@@ -1,10 +1,22 @@
 name: Native builds
+# Not for changes to the Lean proofs and the documentation alone, which the native compilers don't
+# compile.
 on:
   workflow_dispatch:
   pull_request:
+    paths-ignore:
+      - 'proofs/lean/**'
+      - 'proofs/semantics/**'
+      - '**.md'
+      - '.github/workflows/lean-proofs.yml'
   push:
     branches:
       - main
+    paths-ignore:
+      - 'proofs/lean/**'
+      - 'proofs/semantics/**'
+      - '**.md'
+      - '.github/workflows/lean-proofs.yml'
 
 # Cancel a pull request's superseded runs when new commits are pushed.
 concurrency:
