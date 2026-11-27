@@ -38,9 +38,16 @@ def mkImplies (l r : Sexp) : Sexp := app "=>" [l, r]
 def mkEq (l r : Sexp) : Sexp := app "=" [l, r]
 
 /-- `e` with its testers `((_ is C) e)` and `(is-C e)` as cvc5 prints them in its proofs,
-`(is C e)`, and otherwise as it is. -/
+`(is C e)`, likewise its extractions and extensions of bit-vectors `((_ extract i j) e)` as
+`(extract i j e)`, and otherwise as it is. -/
 partial def testers : Sexp → Sexp
   | .expr (.expr [.atom "_", .atom "is", c] :: args) => .expr (.atom "is" :: c :: args.map testers)
+  | .expr [.expr (.atom "_" :: .atom "extract" :: indices), x] =>
+    .expr (.atom "extract" :: indices ++ [testers x])
+  | .expr [.expr (.atom "_" :: .atom "zero_extend" :: indices), x] =>
+    .expr (.atom "zero_extend" :: indices ++ [testers x])
+  | .expr [.expr (.atom "_" :: .atom "sign_extend" :: indices), x] =>
+    .expr (.atom "sign_extend" :: indices ++ [testers x])
   | .expr (.atom op :: args) =>
     if op.startsWith "is-" then .expr (.atom "is" :: .atom (op.drop 3).toString :: args.map testers)
     else .expr (.atom op :: args.map testers)

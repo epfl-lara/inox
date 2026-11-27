@@ -137,20 +137,20 @@ inductive Expr : Type where
   | FPIsSubnormal (expr : Expr) : Expr
   | Tuple (exprs : List Expr) : Expr
   | TupleSelect (tuple : Expr) (index : Int) : Expr
-  | FiniteSet (elems : List Expr) : Expr
+  | FiniteSet (elems : List Expr) (base : Ty) : Expr
   | SetAdd (set : Expr) (elem : Expr) : Expr
   | ElementOfSet (elem : Expr) (set : Expr) : Expr
   | SubsetOf (lhs : Expr) (rhs : Expr) : Expr
   | SetIntersection (lhs : Expr) (rhs : Expr) : Expr
   | SetUnion (lhs : Expr) (rhs : Expr) : Expr
   | SetDifference (lhs : Expr) (rhs : Expr) : Expr
-  | FiniteBag (elems : List ExprPair) : Expr
+  | FiniteBag (elems : List ExprPair) (base : Ty) : Expr
   | BagAdd (bag : Expr) (elem : Expr) : Expr
   | MultiplicityInBag (elem : Expr) (bag : Expr) : Expr
   | BagIntersection (lhs : Expr) (rhs : Expr) : Expr
   | BagUnion (lhs : Expr) (rhs : Expr) : Expr
   | BagDifference (lhs : Expr) (rhs : Expr) : Expr
-  | FiniteMap (pairs : List ExprPair) (default : Expr) : Expr
+  | FiniteMap (pairs : List ExprPair) (default : Expr) (keys : Ty) (values : Ty) : Expr
   | MapApply (map : Expr) (key : Expr) : Expr
   | MapUpdated (map : Expr) (key : Expr) (value : Expr) : Expr
   | MapMerge (mask : Expr) (map1 : Expr) (map2 : Expr) : Expr
@@ -175,9 +175,9 @@ inductive Value : Type where
   | RoundingModeV (mode : RoundingMode) : Value
   | TupleV (elems : List Value) : Value
   | ClosureV (params : List Param) (body : Expr) (env : Env) : Value
-  | SetV (elems : List Value) : Value
-  | BagV (entries : List BagEntry) : Value
-  | MapV (entries : List MapEntry) (default : Value) : Value
+  | SetV (base : Ty) (elems : List Value) : Value
+  | BagV (base : Ty) (entries : List BagEntry) : Value
+  | MapV (keys : Ty) (values : Ty) (entries : List MapEntry) (default : Value) : Value
   | ADTV (ctor : Id) (args : List Value) : Value
 
 inductive BagEntry : Type where
@@ -1421,6 +1421,20 @@ def set_insert_all (O : Oracle) (P : Program) (xs : List Value) (vs : List Value
     | Result.Stuck => Result.Stuck
     | Result.OutOfFuel => Result.OutOfFuel))
 
+def set_elems (v : Value) : List Value :=
+  (match v with
+  | (Value.SetV _ xs) =>
+    xs
+  | _ =>
+    List.nil)
+
+def set_with (v : Value) (xs : List Value) : Value :=
+  (match v with
+  | (Value.SetV base _) =>
+    (Value.SetV base xs)
+  | _ =>
+    v)
+
 def set_filter (O : Oracle) (P : Program) (xs : List Value) (ys : List Value) (keep : Bool) : Result (List Value) :=
   (match xs with
   | List.nil =>
@@ -1466,6 +1480,20 @@ def bag_set (O : Oracle) (P : Program) (xs : List BagEntry) (v : Value) (n : Int
       (Result.Ok ys))
   | Result.Stuck => Result.Stuck
   | Result.OutOfFuel => Result.OutOfFuel)
+
+def bag_entries (v : Value) : List BagEntry :=
+  (match v with
+  | (Value.BagV _ xs) =>
+    xs
+  | _ =>
+    List.nil)
+
+def bag_with (v : Value) (xs : List BagEntry) : Value :=
+  (match v with
+  | (Value.BagV base _) =>
+    (Value.BagV base xs)
+  | _ =>
+    v)
 
 def min (a : Int) (b : Int) : Int :=
   (if _h : a < b then
@@ -2360,24 +2388,24 @@ def eval (O : Oracle) (P : Program) (fuel : Int) (env : Env) (e : Expr) : Result
         Result.Stuck)
     | Result.Stuck => Result.Stuck
     | Result.OutOfFuel => Result.OutOfFuel)
-  | (Expr.FiniteSet es) =>
+  | (Expr.FiniteSet es base) =>
     (match (eval_list O P fuel env es) with
     | Result.Ok vs =>
       (match (set_insert_all O P List.nil vs) with
       | Result.Ok xs =>
-        (Result.Ok (Value.SetV xs))
+        (Result.Ok (Value.SetV (O.resolve (env_types env) base) xs))
       | Result.Stuck => Result.Stuck
       | Result.OutOfFuel => Result.OutOfFuel)
     | Result.Stuck => Result.Stuck
     | Result.OutOfFuel => Result.OutOfFuel)
   | (Expr.SetAdd set elem) =>
     (match (eval_set O P fuel env set) with
-    | Result.Ok xs =>
+    | Result.Ok s =>
       (match (eval O P fuel env elem) with
       | Result.Ok v =>
-        (match (set_insert O P xs v) with
+        (match (set_insert O P (set_elems s) v) with
         | Result.Ok ys =>
-          (Result.Ok (Value.SetV ys))
+          (Result.Ok (set_with s ys))
         | Result.Stuck => Result.Stuck
         | Result.OutOfFuel => Result.OutOfFuel)
       | Result.Stuck => Result.Stuck
@@ -2388,8 +2416,8 @@ def eval (O : Oracle) (P : Program) (fuel : Int) (env : Env) (e : Expr) : Result
     (match (eval O P fuel env elem) with
     | Result.Ok v =>
       (match (eval_set O P fuel env set) with
-      | Result.Ok xs =>
-        (match (O.set_contains P xs v) with
+      | Result.Ok s =>
+        (match (O.set_contains P (set_elems s) v) with
         | Result.Ok in_ =>
           (Result.Ok (Value.BoolV in_))
         | Result.Stuck => Result.Stuck
@@ -2400,10 +2428,10 @@ def eval (O : Oracle) (P : Program) (fuel : Int) (env : Env) (e : Expr) : Result
     | Result.OutOfFuel => Result.OutOfFuel)
   | (Expr.SubsetOf lhs rhs) =>
     (match (eval_set O P fuel env lhs) with
-    | Result.Ok xs =>
+    | Result.Ok s =>
       (match (eval_set O P fuel env rhs) with
-      | Result.Ok ys =>
-        (match (O.subset P xs ys) with
+      | Result.Ok u =>
+        (match (O.subset P (set_elems s) (set_elems u)) with
         | Result.Ok sub =>
           (Result.Ok (Value.BoolV sub))
         | Result.Stuck => Result.Stuck
@@ -2414,12 +2442,12 @@ def eval (O : Oracle) (P : Program) (fuel : Int) (env : Env) (e : Expr) : Result
     | Result.OutOfFuel => Result.OutOfFuel)
   | (Expr.SetIntersection lhs rhs) =>
     (match (eval_set O P fuel env lhs) with
-    | Result.Ok xs =>
+    | Result.Ok s =>
       (match (eval_set O P fuel env rhs) with
-      | Result.Ok ys =>
-        (match (set_filter O P xs ys true) with
+      | Result.Ok u =>
+        (match (set_filter O P (set_elems s) (set_elems u) true) with
         | Result.Ok zs =>
-          (Result.Ok (Value.SetV zs))
+          (Result.Ok (set_with s zs))
         | Result.Stuck => Result.Stuck
         | Result.OutOfFuel => Result.OutOfFuel)
       | Result.Stuck => Result.Stuck
@@ -2428,12 +2456,12 @@ def eval (O : Oracle) (P : Program) (fuel : Int) (env : Env) (e : Expr) : Result
     | Result.OutOfFuel => Result.OutOfFuel)
   | (Expr.SetUnion lhs rhs) =>
     (match (eval_set O P fuel env lhs) with
-    | Result.Ok xs =>
+    | Result.Ok s =>
       (match (eval_set O P fuel env rhs) with
-      | Result.Ok ys =>
-        (match (set_insert_all O P xs ys) with
+      | Result.Ok u =>
+        (match (set_insert_all O P (set_elems s) (set_elems u)) with
         | Result.Ok zs =>
-          (Result.Ok (Value.SetV zs))
+          (Result.Ok (set_with s zs))
         | Result.Stuck => Result.Stuck
         | Result.OutOfFuel => Result.OutOfFuel)
       | Result.Stuck => Result.Stuck
@@ -2442,34 +2470,34 @@ def eval (O : Oracle) (P : Program) (fuel : Int) (env : Env) (e : Expr) : Result
     | Result.OutOfFuel => Result.OutOfFuel)
   | (Expr.SetDifference lhs rhs) =>
     (match (eval_set O P fuel env lhs) with
-    | Result.Ok xs =>
+    | Result.Ok s =>
       (match (eval_set O P fuel env rhs) with
-      | Result.Ok ys =>
-        (match (set_filter O P xs ys false) with
+      | Result.Ok u =>
+        (match (set_filter O P (set_elems s) (set_elems u) false) with
         | Result.Ok zs =>
-          (Result.Ok (Value.SetV zs))
+          (Result.Ok (set_with s zs))
         | Result.Stuck => Result.Stuck
         | Result.OutOfFuel => Result.OutOfFuel)
       | Result.Stuck => Result.Stuck
       | Result.OutOfFuel => Result.OutOfFuel)
     | Result.Stuck => Result.Stuck
     | Result.OutOfFuel => Result.OutOfFuel)
-  | (Expr.FiniteBag es) =>
+  | (Expr.FiniteBag es base) =>
     (match (eval_bag_entries O P fuel env List.nil es) with
     | Result.Ok xs =>
-      (Result.Ok (Value.BagV xs))
+      (Result.Ok (Value.BagV (O.resolve (env_types env) base) xs))
     | Result.Stuck => Result.Stuck
     | Result.OutOfFuel => Result.OutOfFuel)
   | (Expr.BagAdd bag elem) =>
     (match (eval_bag O P fuel env bag) with
-    | Result.Ok xs =>
+    | Result.Ok b =>
       (match (eval O P fuel env elem) with
       | Result.Ok v =>
-        (match (O.bag_get P xs v) with
+        (match (O.bag_get P (bag_entries b) v) with
         | Result.Ok n =>
-          (match (bag_set O P xs v (n + (1 : Int))) with
+          (match (bag_set O P (bag_entries b) v (n + (1 : Int))) with
           | Result.Ok ys =>
-            (Result.Ok (Value.BagV ys))
+            (Result.Ok (bag_with b ys))
           | Result.Stuck => Result.Stuck
           | Result.OutOfFuel => Result.OutOfFuel)
         | Result.Stuck => Result.Stuck
@@ -2482,8 +2510,8 @@ def eval (O : Oracle) (P : Program) (fuel : Int) (env : Env) (e : Expr) : Result
     (match (eval O P fuel env elem) with
     | Result.Ok v =>
       (match (eval_bag O P fuel env bag) with
-      | Result.Ok xs =>
-        (match (O.bag_get P xs v) with
+      | Result.Ok b =>
+        (match (O.bag_get P (bag_entries b) v) with
         | Result.Ok n =>
           (Result.Ok (Value.IntV n))
         | Result.Stuck => Result.Stuck
@@ -2494,12 +2522,12 @@ def eval (O : Oracle) (P : Program) (fuel : Int) (env : Env) (e : Expr) : Result
     | Result.OutOfFuel => Result.OutOfFuel)
   | (Expr.BagIntersection lhs rhs) =>
     (match (eval_bag O P fuel env lhs) with
-    | Result.Ok xs =>
+    | Result.Ok b =>
       (match (eval_bag O P fuel env rhs) with
-      | Result.Ok ys =>
-        (match (bag_merge O P BagOp.IntersectionOp List.nil xs ys) with
+      | Result.Ok c =>
+        (match (bag_merge O P BagOp.IntersectionOp List.nil (bag_entries b) (bag_entries c)) with
         | Result.Ok zs =>
-          (Result.Ok (Value.BagV zs))
+          (Result.Ok (bag_with b zs))
         | Result.Stuck => Result.Stuck
         | Result.OutOfFuel => Result.OutOfFuel)
       | Result.Stuck => Result.Stuck
@@ -2508,12 +2536,12 @@ def eval (O : Oracle) (P : Program) (fuel : Int) (env : Env) (e : Expr) : Result
     | Result.OutOfFuel => Result.OutOfFuel)
   | (Expr.BagUnion lhs rhs) =>
     (match (eval_bag O P fuel env lhs) with
-    | Result.Ok xs =>
+    | Result.Ok b =>
       (match (eval_bag O P fuel env rhs) with
-      | Result.Ok ys =>
-        (match (bag_add_all O P xs ys) with
+      | Result.Ok c =>
+        (match (bag_add_all O P (bag_entries b) (bag_entries c)) with
         | Result.Ok zs =>
-          (Result.Ok (Value.BagV zs))
+          (Result.Ok (bag_with b zs))
         | Result.Stuck => Result.Stuck
         | Result.OutOfFuel => Result.OutOfFuel)
       | Result.Stuck => Result.Stuck
@@ -2522,24 +2550,24 @@ def eval (O : Oracle) (P : Program) (fuel : Int) (env : Env) (e : Expr) : Result
     | Result.OutOfFuel => Result.OutOfFuel)
   | (Expr.BagDifference lhs rhs) =>
     (match (eval_bag O P fuel env lhs) with
-    | Result.Ok xs =>
+    | Result.Ok b =>
       (match (eval_bag O P fuel env rhs) with
-      | Result.Ok ys =>
-        (match (bag_merge O P BagOp.DifferenceOp List.nil xs ys) with
+      | Result.Ok c =>
+        (match (bag_merge O P BagOp.DifferenceOp List.nil (bag_entries b) (bag_entries c)) with
         | Result.Ok zs =>
-          (Result.Ok (Value.BagV zs))
+          (Result.Ok (bag_with b zs))
         | Result.Stuck => Result.Stuck
         | Result.OutOfFuel => Result.OutOfFuel)
       | Result.Stuck => Result.Stuck
       | Result.OutOfFuel => Result.OutOfFuel)
     | Result.Stuck => Result.Stuck
     | Result.OutOfFuel => Result.OutOfFuel)
-  | (Expr.FiniteMap pairs default) =>
+  | (Expr.FiniteMap pairs default kt vt) =>
     (match (eval_map_entries O P fuel env List.nil pairs) with
     | Result.Ok xs =>
       (match (eval O P fuel env default) with
       | Result.Ok d =>
-        (Result.Ok (Value.MapV xs d))
+        (Result.Ok (Value.MapV (O.resolve (env_types env) kt) (O.resolve (env_types env) vt) xs d))
       | Result.Stuck => Result.Stuck
       | Result.OutOfFuel => Result.OutOfFuel)
     | Result.Stuck => Result.Stuck
@@ -2550,7 +2578,7 @@ def eval (O : Oracle) (P : Program) (fuel : Int) (env : Env) (e : Expr) : Result
       (match (eval O P fuel env key) with
       | Result.Ok k =>
         (match m with
-        | (Value.MapV xs d) =>
+        | (Value.MapV _ _ xs d) =>
           (O.map_get P xs k d)
         | _ =>
           Result.Stuck)
@@ -2566,10 +2594,10 @@ def eval (O : Oracle) (P : Program) (fuel : Int) (env : Env) (e : Expr) : Result
         (match (eval O P fuel env value) with
         | Result.Ok v =>
           (match m with
-          | (Value.MapV xs d) =>
+          | (Value.MapV kt vt xs d) =>
             (match (map_put O P xs k v) with
             | Result.Ok ys =>
-              (Result.Ok (Value.MapV ys d))
+              (Result.Ok (Value.MapV kt vt ys d))
             | Result.Stuck => Result.Stuck
             | Result.OutOfFuel => Result.OutOfFuel)
           | _ =>
@@ -2588,14 +2616,14 @@ def eval (O : Oracle) (P : Program) (fuel : Int) (env : Env) (e : Expr) : Result
         (match (eval O P fuel env map2) with
         | Result.Ok m2 =>
           (match m1 with
-          | (Value.MapV xs d1) =>
+          | (Value.MapV _ _ xs d1) =>
             (match m2 with
-            | (Value.MapV ys d2) =>
-              (match (map_without O P ys ks) with
+            | (Value.MapV kt vt ys d2) =>
+              (match (map_without O P ys (set_elems ks)) with
               | Result.Ok rest =>
-                (match (map_take O P rest ks xs d1) with
+                (match (map_take O P rest (set_elems ks) xs d1) with
                 | Result.Ok zs =>
-                  (Result.Ok (Value.MapV zs d2))
+                  (Result.Ok (Value.MapV kt vt zs d2))
                 | Result.Stuck => Result.Stuck
                 | Result.OutOfFuel => Result.OutOfFuel)
               | Result.Stuck => Result.Stuck
@@ -2749,24 +2777,24 @@ def eval_string (O : Oracle) (P : Program) (fuel : Int) (env : Env) (e : Expr) :
   | Result.OutOfFuel => Result.OutOfFuel)
 termination_by (fuel.toNat, sizeOf e, 1)
 
-def eval_set (O : Oracle) (P : Program) (fuel : Int) (env : Env) (e : Expr) : Result (List Value) :=
+def eval_set (O : Oracle) (P : Program) (fuel : Int) (env : Env) (e : Expr) : Result Value :=
   (match (eval O P fuel env e) with
   | Result.Ok v =>
     (match v with
-    | (Value.SetV xs) =>
-      (Result.Ok xs)
+    | (Value.SetV _ _) =>
+      (Result.Ok v)
     | _ =>
       Result.Stuck)
   | Result.Stuck => Result.Stuck
   | Result.OutOfFuel => Result.OutOfFuel)
 termination_by (fuel.toNat, sizeOf e, 1)
 
-def eval_bag (O : Oracle) (P : Program) (fuel : Int) (env : Env) (e : Expr) : Result (List BagEntry) :=
+def eval_bag (O : Oracle) (P : Program) (fuel : Int) (env : Env) (e : Expr) : Result Value :=
   (match (eval O P fuel env e) with
   | Result.Ok v =>
     (match v with
-    | (Value.BagV xs) =>
-      (Result.Ok xs)
+    | (Value.BagV _ _) =>
+      (Result.Ok v)
     | _ =>
       Result.Stuck)
   | Result.Stuck => Result.Stuck
@@ -2909,9 +2937,9 @@ structure Oracle.Sound (O : Oracle) : Prop where
           Result.Stuck
         | FunctionEquality.ExtensionalEquality =>
           (Result.Ok (O.closures_equal P a b))))
-    | (Value.SetV xs) =>
+    | (Value.SetV _ xs) =>
       (match b with
-      | (Value.SetV ys) =>
+      | (Value.SetV _ ys) =>
         (match (O.subset P xs ys) with
         | Result.Ok sub =>
           (if _h : sub = true then
@@ -2922,9 +2950,9 @@ structure Oracle.Sound (O : Oracle) : Prop where
         | Result.OutOfFuel => Result.OutOfFuel)
       | _ =>
         (Result.Ok false))
-    | (Value.BagV xs) =>
+    | (Value.BagV _ xs) =>
       (match b with
-      | (Value.BagV ys) =>
+      | (Value.BagV _ ys) =>
         (match (O.sub_bag P xs ys) with
         | Result.Ok sub =>
           (if _h : sub = true then
@@ -2935,9 +2963,9 @@ structure Oracle.Sound (O : Oracle) : Prop where
         | Result.OutOfFuel => Result.OutOfFuel)
       | _ =>
         (Result.Ok false))
-    | (Value.MapV xs d) =>
+    | (Value.MapV _ _ xs d) =>
       (match b with
-      | (Value.MapV ys e) =>
+      | (Value.MapV _ _ ys e) =>
         (match (O.value_eq P d e) with
         | Result.Ok same =>
           (if _h : same = true then
@@ -3196,19 +3224,19 @@ structure Oracle.Sound (O : Oracle) : Prop where
         false)
     | (Ty.SetType u) =>
       (match v with
-      | (Value.SetV xs) =>
+      | (Value.SetV _ xs) =>
         ((O.all_have_type P env xs u) && (distinct_values O P xs))
       | _ =>
         false)
     | (Ty.BagType u) =>
       (match v with
-      | (Value.BagV xs) =>
+      | (Value.BagV _ xs) =>
         ((O.bag_has_type P env xs u) && (distinct_values O P (bag_elems xs)))
       | _ =>
         false)
     | (Ty.MapType u w) =>
       (match v with
-      | (Value.MapV xs d) =>
+      | (Value.MapV _ _ xs d) =>
         ((O.has_type P env d w) && ((O.map_has_type P env xs u w) && (distinct_values O P (map_keys xs))))
       | _ =>
         false)

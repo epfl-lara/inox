@@ -356,6 +356,32 @@ accepts:
   which the theorems about the semantics take as a hypothesis (`Total`) or do
   without, for the calls that evaluation goes through
   (`no_solution_of_reached`).
+- **The typing of a set**: a variable or a parameter of a type of sets has
+  clauses for the typing of its elements,
+  `(=> nonEmpty (= s (set.union (set.insert e empty) rest)))` with the typing
+  of `rest` in turn, where `e` and `rest` are symbols of the template that
+  nothing else constrains: any element of a set that is not empty and the
+  others. The source gives the typing as
+  `(ite (= s empty) true (assume (= s (union {e} rest)) typing(rest)))`, which
+  `Meanings.setTyping` recognises: it reads `e` as `(set.choose s)`, the
+  element that Logos chooses of `s`, `rest` as
+  `(set.minus s (set.singleton e))`, and the typing as `true`. These are
+  definitions of fresh symbols like the others, and the clause is then the
+  split of a set that its guard makes known not to be empty, which `verify`
+  accepts (`setSplit`, `setSplit_sound`, by `choose_mem` and `split_eq` of
+  [`Inox/Sets.lean`](Inox/Sets.lean)). The typing of the rest is a parameter of
+  the instance that unfolds it, so the definitions of the symbols that are
+  `true` are in place in the clauses of every instance. This is for the sets
+  whose elements have no typing of their own.
+- **The symbols that other instances mention**: a symbol of an instance may be
+  in an argument of another, as the typing of the rest of a set is, or the
+  value of a constructor with an invariant, `adt`, which the query defines and
+  the calls take. So the definitions of the symbols that are `true`, and of
+  those that name a value over no defined symbol, are in place in the clauses
+  of every instance (`TermSteps.shared`), and the definitions are put in place
+  twice (`subst2`, `eval_subst2`), since a definition of an instance may
+  mention such a symbol. `Paths` reads the definitions of the blockers with
+  them in place too (`sharedBindings`).
 
 `inox-check --terms` prints, for each certificate, how many facts are
 unfoldings, how many are clauses of instances that the check accepts, how many
@@ -409,8 +435,9 @@ blocks, and total definitions `eval O P fuel env e` and
 are relative to an oracle `O` for the functions that quantify over values, and
 `O.Sound` states that it gives them as the semantics defines them. The checker
 and Logos, on the other side, work on SMT-LIB terms and on `SmtValue`s. This
-section says what connects them. The proved part is the first-order integer and
-Boolean fragment, against the generated evaluator (see [What is proved of it so
+section says what connects them. The proved part is the first-order fragment of
+integers, Booleans, reals, bit-vectors, datatypes without type parameters and
+sets, against the generated evaluator (see [What is proved of it so
 far](#what-is-proved-of-it-so-far)).
 
 ### The fragment
@@ -656,54 +683,127 @@ integers, fractions, Booleans, strings and unit, `ADT`, `IsConstructor`,
 and rounding modes, and the string, bit-vector and floating-point operations.
 
 **The agreement theorem** ([`Inox/Bridge.lean`](Inox/Bridge.lean)). The
-translation is for integers and Booleans: `trT` sends `IntegerType` and
-`BooleanType` to `Int` and `Bool`, `trV` sends `IntV i` and `BoolV b` to
-`Numeral i` and `Boolean b`, and `tr S Γ e` sends an expression to a Logos
-term: a variable `x` of type `T` in `Γ` to `UConst (nm x) (trT T)`, an
-invocation of `f` to the application spine of `f`'s constant, and the operators
-to their SMT-LIB counterparts. `S : List Sig` gives each function its
-parameters and return type, which the semantics' `FunDef` doesn't carry.
-`HasTy S Γ e T` is the typing of the fragment: variables, the integer and
-Boolean literals, `IfExpr`, `And`, `Or`, `Not`, `Implies`, `Equals`, `Plus`,
-`Minus`, `Times`, `Division`, `Remainder`, `Modulo`, `UMinus`, `LessThan`,
-`GreaterThan`, `LessEquals`, `GreaterEquals`, `Assume`, and
-`FunctionInvocation` without type arguments of a function of `S`. For a model
-whose function constants agree with `call` at fuel `n` (`CallsOk`) and whose
-variable constants agree with the environment (`VarsOk`):
+translation is for integers, Booleans, reals, bit-vectors, datatypes without
+type parameters and sets ([`Inox/Data.lean`](Inox/Data.lean)). `D : List Data`
+gives each datatype its name, its declaration in Logos and its constructors
+with their fields. `trT D` sends `IntegerType`, `BooleanType` and `RealType` to
+`Int`, `Bool` and `Real`, `BVType s w` to `BitVec w`, whatever the sign `s`,
+and `ADTType d []` to the datatype of `d`, `trV D` sends `IntV i` and `BoolV b`
+to `Numeral i` and `Boolean b`, `RealV n d` to the real number of the fraction
+`n / d`, `BVV s w x` to `Binary w x` and `ADTV c vs` to the constructor of `c`
+applied to the translations of `vs`, and `tr D S Γ e` sends an expression to a
+Logos term: a variable `x` of type `T` in `Γ` to `UConst (nm x) (trT D T)`, an
+invocation of `f` to the application spine of `f`'s constant, `ADT`,
+`IsConstructor` and `ADTSelector` to the constructor, the tester and the
+selector of Logos, which are indices into the declaration, a `FractionLiteral`
+to the division of its integers, as Inox prints it (`(/ (- 1) 2)`), and the
+operators to their SMT-LIB counterparts. Those of the integers are also those
+of the reals, except `/` for `Division`, and the bit-vectors have others
+(`bvadd` for `Plus`, `bvudiv` or `bvsdiv` for `Division`, `bvult` or `bvslt`
+for `LessThan`): `isBv`, `isSigned` and `isReal` say which an expression is of,
+from its variables, its literals and the signatures. `S : List Sig` gives each
+function its parameters and return type, which the semantics' `FunDef` doesn't
+carry. `HasTy D S Γ e T` is the typing of the fragment: variables, the integer
+and Boolean literals, `IfExpr`, `And`, `Or`, `Not`, `Implies`, `Equals`,
+`Plus`, `Minus`, `Times`, `Division`, `Remainder`, `Modulo`, `UMinus`,
+`LessThan`, `GreaterThan`, `LessEquals`, `GreaterEquals`, `Assume`,
+`FunctionInvocation` without type arguments of a function of `S`, the literals
+of the reals, with a denominator that is not zero, with `Plus`, `Minus`,
+`Times`, `Division`, `UMinus` and the four comparisons on them, the literals of
+the bit-vectors with `Plus`, `Minus`, `Times`, `Division`, `Remainder`,
+`Modulo`, `UMinus`, `BVNot`, `BVAnd`, `BVOr`, `BVXor`, the three shifts and the
+four comparisons on them, signed or not, `BVUnsignedToSigned` and
+`BVSignedToUnsigned`, which translate to their operand, `BVNarrowingCast` to a
+smaller width and `BVWideningCast` to a larger one, and `ADT`, `IsConstructor`
+and `ADTSelector` of a constructor or a field of `D`. A bit-vector of the
+semantics is its unsigned integer with a sign, which says how the division, the
+remainder, the modulo and the comparisons read it, and Logos defines the signed
+operators of SMT-LIB from the unsigned ones by the cases of the top bits:
+[`Inox/Signed.lean`](Inox/Signed.lean) proves that they agree (`bvsdiv_eq`,
+`bvsrem_eq`, `bvsmod_eq`, `bvsgt_eq`, `bvsge_eq`). The two signs have one sort.
+[`Inox/Bits.lean`](Inox/Bits.lean) proves the agreement of the bitwise
+operators, which the semantics defines by recursion on the bits and Logos by
+those of `BitVec` (`bvand_eq`, `bvor_eq`, `bvxor_eq`), of the shifts, where the
+semantics cuts the amount at the width and the arithmetic one of Logos is by
+the cases of the top bit (`bvshl_eq`, `bvlshr_eq`, `bvashr_eq`), and of the
+casts, which Inox prints as `extract`, `sign_extend` and `zero_extend`
+(`extract_eq`, `sign_extend_eq`, `zero_extend_eq`). `BVToInt` and `IntToBV` are
+not there. The reals of the semantics are the fractions in lowest terms, and
+those of Logos the real numbers: the operators agree on the fractions
+(`real_eq`, `ratOf_add` and the like), and a real number that is not a fraction
+is the translation of no value. `DataOk D` asks that the names of the
+datatypes, of the constructors and of the fields be distinct, that the fields
+have types of the fragment, and that each declaration be well-formed and the
+one that Logos types its datatype with. Under it a value translates to a value
+of Logos of its type (`typed_trV`), each canonical value of Logos of a type
+without reals (`NoReal`), in datatypes without real fields (`RealFree D`), is
+the translation of one (`typed_inv1`), and `value-eq` on two values of a type
+says whether they are the same value of Logos (`value_eq_hasV`). `ProgData D P`
+says that the program has the constructors and the sorts of `D`, without
+invariants. For a model whose function constants agree with `call` at fuel `n`
+(`CallsOk`) and whose variable constants agree with the environment (`VarsOk`):
+
+The sets are those of a type of the fragment: `trT D` sends `SetType A` to
+`Set` of the sort of `A`, and `HasTy` has `FiniteSet` of no element or of one,
+`SetAdd`, `ElementOfSet`, `SubsetOf`, `SetUnion`, `SetIntersection` and
+`SetDifference`, which `tr` sends to `set.empty`, `set.singleton`, the union
+with a singleton, `set.member`, `set.subset`, `set.union`, `set.inter` and
+`set.minus`. Inox prints a set of several elements as insertions into a set of
+one or of none, which is how the certificate is read: as `SetAdd`s. A set of
+the semantics is the list of its elements in the order of their insertion, with
+the type of its elements, and a set of Logos is a map to the Booleans whose
+entries are sorted and none of which is the default, so that two sets with the
+same elements are the same value. [`Inox/Sets.lean`](Inox/Sets.lean) builds the
+set of Logos of a list by inserting its elements (`setOf`) and proves that it
+is canonical, that its members are those of the list and that it depends on
+them only (`setOf_lookup`, `setOf_ext`), that the operators of Logos on such
+sets are those of the lists (`union_eq`, `inter_eq`, `minus_eq`, `member_eq`,
+`subset_eq`), and that every canonical set of Logos is the set of the list of
+its keys (`set_inv`). `trV D` sends `SetV A xs` to the set of the translations
+of `xs`. Two lists with the same elements in another order are two values of
+the semantics with one translation, so the translation is no longer injective:
+`value-eq` on them is true, the agreement theorem is up to it, and the function
+of the intended model is well defined because the calls to values with the same
+translations give values with the same translation (`call_congr`: the value of
+a call is that of the term of its body in a model that depends on the
+translations of the arguments only, by the agreement theorem and induction on
+the fuel).
 
 ```lean
-theorem ev (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S) {n : Int}
-    (hct : CallTy O P S n) {Γ : List (Id × Ty)} {e : Expr} {T : Ty}
-    (h : HasTy S Γ e T) : Ev O P S n Γ e T
--- Ev: eval O P n env e = Ok v → HasV v T ∧
---   ∀ M, model_wf M → CallsOk O P S n M → VarsOk Γ env M →
---     __smtx_model_eval M (tr S Γ e) = trV v
+theorem ev (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S)
+    (hPD : ProgData D P) {n : Int} (hct : CallTy O P D S n)
+    {Γ : List (Id × Ty)} {e : Expr} {T : Ty} (h : HasTy D S Γ e T) :
+    Ev O P D S n Γ e T
+-- Ev: eval O P n env e = Ok v → HasV D v T ∧
+--   ∀ M, model_wf M → CallsOk O P D S n M → VarsOk D Γ env M →
+--     __smtx_model_eval M (tr D S Γ e) = trV D v
 ```
 
-The intended model is `Model.star (defs S) (interpOf O P S) M0 cd N`, with
-`interpOf` giving the function of `s` on `vs.map trV` the value of
+The intended model is `Model.star (defs D S) (interpOf O P D S) M0 cd N`, with
+`interpOf` giving the function of `s` on `vs.map (trV D)` the value of
 `call O P n s.name [] [] vs` for some fuel `n` where it is `Ok` (unique by fuel
-monotonicity). `callsOk_star` shows that it satisfies `CallsOk` at every fuel.
+monotonicity, and the same for the values with these translations, by
+`call_congr`). `callsOk_star` shows that it satisfies `CallsOk` at every fuel.
 `goodOn_star` then shows that it satisfies the defining equations (the equation
-of `s` relates the spine of its constant to `tr S s.params body`, `EqFor`) on
+of `s` relates the spine of its constant to `tr D S s.params body`, `EqFor`) on
 the arguments where the calls give values (`okCall`), and so:
 
 ```lean
 theorem no_star_model (sound : LogosSound) (hO : O.Sound) (hty : LogosTyping)
-    (hS : SigOk S) (hPF : ProgFrag P) (hP : ProgTy S P)
+    (hS : SigOk D S) (hPF : ProgFrag P) (hP : ProgTy D S P)
     (hAccept : accept certificate = .ok checked)
     (hr : termSteps checked = .ok r)
     (hcheck : r.check = true) (hkeeps : r.keeps = true)
-    (hE : ∀ e ∈ r.equations, ∃ s ∈ S, EqFor P S s e)
-    (hfacts : FactsHoldBy (GoodOn (okCall O P S) r.equations)
-      (GuardedUnfold (okCall O P S) r.equations)
+    (hE : ∀ e ∈ r.equations, ∃ s ∈ S, EqFor P D S s e)
+    (hfacts : FactsHoldBy (GoodOn (okCall O P D S) r.equations)
+      (GuardedUnfold (okCall O P D S) r.equations)
       (extend r.base r.fresh) r.facts)
     (cd : Codes) (hM0 : model_wf M0) (hN : model_wf N)
     (hu : N.usortDom = M0.usortDom) :
-    ¬ Satisfies (Model.star (defs S) (interpOf O P S) M0 cd N) r.base
+    ¬ Satisfies (Model.star (defs D S) (interpOf O P D S) M0 cd N) r.base
 ```
 
-`GuardOk (okCall O P S)` is discharged for programs whose functions all
+`GuardOk (okCall O P D S)` is discharged for programs whose functions all
 terminate on values of their parameter types (`guardOk_total`). For others it
 stays a hypothesis, inside `hfacts`.
 
@@ -718,16 +818,16 @@ and `=>` after the first are evaluated only when the first has the value that
 selects them, which `red K` has to give.
 
 ```lean
-theorem called_of_reaches (hO : O.Sound) (hty : LogosTyping) (hS : SigOk S)
-    (hP : ProgTy S P) {n : Int} (hct : CallTy O P S n) {Γ : List (Id × Ty)}
-    {e : Expr} {T : Ty} (h : HasTy S Γ e T) {env : Env} {v : Value}
-    (hE : EnvTy Γ env) (he : eval O P n env e = .Ok v) {M : SmtModel}
-    (hw : model_wf M) (hc : CallsOk O P S n M) (hV : VarsOk Γ env M)
+theorem called_of_reaches (hO : O.Sound) (hty : LogosTyping) (hS : SigOk D S)
+    (hP : ProgTy D S P) {n : Int} (hct : CallTy O P D S n) {Γ : List (Id × Ty)}
+    {e : Expr} {T : Ty} (h : HasTy D S Γ e T) {env : Env} {v : Value}
+    (hE : EnvTy D Γ env) (he : eval O P n env e = .Ok v) {M : SmtModel}
+    (hw : model_wf M) (hc : CallsOk O P D S n M) (hV : VarsOk D Γ env M)
     {K : List (SmtTerm × Bool)} (hK : KSound M K) {c : SmtTerm}
-    (hr : reaches K c true (tr S Γ e) = true) : Called O P S M c
+    (hr : reaches K c true (tr D S Γ e) = true) : Called O P D S M c
 ```
 
-`Called O P S M c` says that `c` is a function of `S` applied to terms whose
+`Called O P D S M c` says that `c` is a function of `S` applied to terms whose
 values in `M` are those of values of its parameters' types, on which the call
 is `Ok` at some fuel. `called_of_call` is the same of the body of a function
 whose call is `Ok`, with the arguments of the call for its parameters.
@@ -736,56 +836,70 @@ through a substitution, so that the body is compared with the terms of the
 certificate without counting the calls of the arguments.
 
 **The query has no solution** ([`Inox/NoSolution.lean`](Inox/NoSolution.lean)).
-For a program whose calls all give values (`Total O P S`: each function of `S`,
-on values of the types of its parameters, is `Ok` at some fuel), the intended
-model satisfies the defining equations for all arguments (`good_star`), so
-`no_good_model_of_instances` applies to it with all that it covers, not only
-the unfoldings. A solution of the query gives the model `N`: `varsModel M0 Γ
-vs` sets the constants of the free variables `Γ` to their values `vs`, and the
-intended model over it satisfies each base clause that is the translation of an
-expression of the query that the solution makes true (`satisfies_star`, by `ev`
-and `varsOk_star`). So:
+For a program whose calls all give values (`Total O P D S`: each function of
+`S`, on values of the types of its parameters, is `Ok` at some fuel, and no
+real is among the parameters and the fields of the datatypes, `Discrete D S`,
+so that the arguments of a model are all values of the semantics), the intended
+model satisfies the defining equations for all arguments
+(`good_star`), so `no_good_model_of_instances` applies to it with all that it
+covers, not only the unfoldings. A solution of the query gives the model `N`:
+`varsModel D M0 Γ vs` sets the constants of the free variables `Γ` to their
+values `vs`, and the intended model over it satisfies each base clause that is
+the translation of an expression of the query that the solution makes true
+(`satisfies_star`, by `ev` and `varsOk_star`). So:
 
 ```lean
-def Solution (O : Oracle) (P : Program) (Γ : List (Id × Ty)) (qs : List Expr)
-    (vs : List Value) : Prop :=
-  List.Forall₂ HasV vs (Γ.map Prod.snd) ∧
+def Solution (O : Oracle) (P : Program) (D : List Data)
+    (Γ : List (Id × Ty)) (qs : List Expr) (vs : List Value) : Prop :=
+  List.Forall₂ (HasV D) vs (Γ.map Prod.snd) ∧
     ∃ bs, bind_all (Γ.map Prod.fst) vs = .Ok bs ∧
       ∀ q ∈ qs, ∃ n, eval O P n (Env.Env [] bs) q = .Ok (.BoolV true)
 
 theorem no_solution (sound : LogosSound) (hO : O.Sound) (hty : LogosTyping)
-    (hS : SigOk S) (hPF : ProgFrag P) (hP : ProgTy S P) (htot : Total O P S)
+    (hS : SigOk D S) (hPF : ProgFrag P) (hP : ProgTy D S P)
+    (htot : Total O P D S)
     (hAccept : accept certificate = .ok checked)
     (hr : termSteps checked = .ok r)
     (hcheck : r.check = true) (hkeeps : r.keeps = true)
-    (hE : ∀ e ∈ r.equations, ∃ s ∈ S, EqFor P S s e)
-    (hΓ : VarsFresh S Γ) (hbase : BaseFor S Γ qs r.base)
+    (hE : ∀ e ∈ r.equations, ∃ s ∈ S, EqFor P D S s e)
+    (hΓ : VarsFresh D S Γ) (hbase : BaseFor D S Γ qs r.base)
     (hfacts : FactsHoldExcept (Good r.equations) r.covered
       (extend r.base r.fresh) r.facts) :
-    ∀ vs, ¬ Solution O P Γ qs vs
+    ∀ vs, ¬ Solution O P D Γ qs vs
 ```
 
-`BaseFor S Γ qs base` says that each base clause is `tr S Γ q` for a Boolean
-expression `q` of the query, and `VarsFresh` that the free variables have types
-of the fragment and are named after no function. This is the theorem of an
-UNSAT answer for this fragment, up to its hypotheses: `Total`, the two that
-relate the certificate to the program and the query (`hE`, `hbase`), and
-`hfacts` for the facts that the check doesn't cover.
+`BaseFor D S Γ qs base` says that each base clause is `tr D S Γ q` for a
+Boolean expression `q` of the query, and `VarsFresh` that the free variables
+have types of the fragment and are named after no function. This is the theorem
+of an UNSAT answer for this fragment, up to its hypotheses: `Total`, the two
+that relate the certificate to the program and the query (`hE`, `hbase`), and
+`hfacts` for the facts that the check doesn't cover. A solution gives the free
+variables values of the semantics, so a real variable a fraction: the theorem
+says that the query has no rational solution, where the certificate shows that
+it has no real one.
 
 **The program and the query of a certificate**
 ([`Inox/Source.lean`](Inox/Source.lean)). `no_solution` is about a program and
 a query, and asks that the equations and the base clauses of the certificate
 are their translations. `no_solution_of_check` takes them from the certificate:
-`back` reads a term of Logos as an expression, `programOf r.equations` is the
-program of the functions that the defining equations read as, with the
-signatures `sigsOf r.equations`, and `queryOf r.query` the expressions that the
-base clauses read as, over the free variables `varsOf`, where `r.query` is the
-base with the assumptions that are inside the source expressions marked, as for
-the bodies (see below). Nothing is proved of `back`. Instead `sourceCheck r`
-translates what it gives and compares the result with the terms, types the
-bodies and the query (`infer`, with `infer_sound`), and checks the names and
-the types, which gives `EqFor`, `BaseFor`, `SigOk`, `ProgTy`, `ProgFrag` and
-`VarsFresh`:
+`back` reads a term of Logos as an expression, `dataOf r` is the datatypes that
+its terms and their sorts mention, `programOf (dataOf r) r.equations` is the
+program of their constructors and of the functions that the defining equations
+read as, with the signatures `sigsOf r.equations`, and `queryOf r.query` the
+expressions that the base clauses read as, over the free variables `varsOf`,
+where `r.query` is the base with the assumptions that are inside the source
+expressions marked, as for the bodies (see below). Logos names a constructor by
+its datatype and its index, so the program has the constructors and their
+fields under names made from these (`ctorName`, `fieldName`), not under those
+of the script, and a sort `BitVec w` is read as the unsigned type, since
+SMT-LIB has one sort for the two: a signed operator is read as the operator of
+Inox on its operands turned signed (`BVUnsignedToSigned`), and `bvsdiv`,
+`bvsrem` and `bvsmod` with their result turned unsigned. Nothing is proved of
+`back`. Instead `sourceCheck r` translates what it gives and compares the
+result with the terms, types the bodies and the query (`infer`, with
+`infer_sound`), and checks the names, the types and the datatypes
+(`dataCheck`), which gives `DataOk`, `ProgData`, `EqFor`, `BaseFor`, `SigOk`,
+`ProgTy`, `ProgFrag` and `VarsFresh`:
 
 ```lean
 theorem no_solution_of_check (sound : LogosSound) (hO : O.Sound)
@@ -794,10 +908,11 @@ theorem no_solution_of_check (sound : LogosSound) (hO : O.Sound)
     (hr : termSteps checked = .ok r)
     (hcheck : r.check = true) (hkeeps : r.keeps = true)
     (hsrc : sourceCheck r = true)
-    (htot : Total O (programOf r.equations) (sigsOf r.equations))
+    (htot : Total O (programOf (dataOf r) r.equations) (dataOf r)
+      (sigsOf r.equations))
     (hfacts : FactsHoldExcept (Good r.equations) r.covered
       (extend r.base r.fresh) r.facts) :
-    ∀ vs, ¬ Solution O (programOf r.equations)
+    ∀ vs, ¬ Solution O (programOf (dataOf r) r.equations) (dataOf r)
       (varsOf (sigsOf r.equations) r.query) (queryOf r.query) vs
 ```
 
@@ -833,7 +948,9 @@ only. It does, and `reachedCheck` decides it:
 - under each blocker, with the literals that its definition and those of the
   constants it mentions make known (`closeK`), evaluation goes through the call
   (`Paths.guards`): a base clause reaches it, or the body of a call that is
-  already guarded, by a literal that is known, reaches it (`reachedBy`);
+  already guarded, by a literal that is known, reaches it (`reachedBy`). A
+  term reaches the calls of its operands that are evaluated: those of a branch
+  of an `ite` whose condition is known, and those that both branches make;
 - the other facts hold without the equations (`TermSteps.covered` with none),
   and no fresh symbol is a function of the program or a variable of the query
   (`apart`).
@@ -849,7 +966,7 @@ theorem no_solution_of_reached {O : Oracle} (sound : LogosSound) (hO : O.Sound)
     {r : TermSteps} (hAccept : accept certificate = .ok checked)
     (hr : termSteps checked = .ok r) (hcheck : r.check = true)
     (hsrc : sourceCheck r = true) (hreached : reachedCheck r = true) :
-    ∀ vs, ¬ Solution O (programOf r.equations)
+    ∀ vs, ¬ Solution O (programOf (dataOf r) r.equations) (dataOf r)
       (varsOf (sigsOf r.equations) r.query) (queryOf r.query) vs
 ```
 
@@ -867,7 +984,8 @@ for a certificate that they hold of: given the soundness of Logos, the query
 that it reads has no solution in the program that it reads. For another it
 prints which check fails: the part of `sourceCheck` that puts it outside the
 fragment, or how many facts `reachedCheck` doesn't cover, by the kinds of their
-rules. It exits with 1 unless they hold of every certificate.
+rules, and with `--remaining` their clauses. It exits with 1 unless they hold
+of every certificate.
 
 ```sh
 cd proofs/lean/verification && lake build inox-solution
@@ -876,10 +994,12 @@ cd proofs/lean/verification && lake build inox-solution
 
 The first build compiles the modules that the executable imports, those of
 Mathlib too, which takes a quarter of an hour. Of the 36 certificates of the
-corpus, the checks hold of 4: the 3 of `error-is-infeasible.smt3` and one of
-`empty-function-codomains.smt3`. 28 are outside the fragment of first-order
-integers and Booleans, 2 have facts that are not covered, and 2 have a proof
-with a constant array, which Logos doesn't read.
+corpus, the checks hold of 7: the 3 of `error-is-infeasible.smt3`, one of
+`empty-function-codomains.smt3`, that of `size-negative.smt3`, whose function
+is over lists, and those of `bitvector-division-by-zero-is-total.smt3` and
+`real-division-by-zero-is-infeasible.smt3`. 25 are outside the fragment, 2
+have facts that are not covered, and 2 have a proof with a constant array,
+which Logos doesn't read.
 
 **Assumptions.** A body with assumptions is read with them: Logos doesn't read
 `(assume c b)` in a term, so the equation that the clauses instantiate is
@@ -900,7 +1020,8 @@ goes through, under the literals that `g` makes known, which make the guard of
 the call true (`Paths.assumed`): the precondition of a call is one. A division
 by zero is stuck in the same way, and SMT-LIB leaves its value open, so Inox
 states that a divisor that is not a literal is not zero, in a clause
-`(=> g (not (= d 0)))` under the blocker of the branch of the division.
+`(=> g (not (= d 0)))` under the blocker of the branch of the division
+(`(not (= d (/ 0 1)))` on the reals).
 `Division` is translated to `div`, and `Remainder` and `Modulo`, which are the
 same on integers, to `mod`, which `back` reads as `Modulo`. Where the divisor
 is not zero the terms have the values of the expressions (`ev`), `assumesW`
@@ -940,8 +1061,8 @@ body with many nested assumptions is read slowly.
   the oracle of `Forall` and `UninterpretedCall` agrees with the semantics
   (unused on the fragment but required by `call`).
 - For `no_solution` and `no_star_model`, the shape of the program
-  (`ProgFrag P`, `ProgTy S P`, `SigOk S`) and that the equations and the base
-  clauses of the certificate are the translations of its bodies and of the
+  (`ProgFrag P`, `ProgTy D S P`, `SigOk D S`) and that the equations and the
+  base clauses of the certificate are the translations of its bodies and of the
   query (`EqFor`, `BaseFor`). `sourceCheck` decides them for the program and
   the query read from the certificate, so `no_solution_of_check` has
   `sourceCheck r = true` in their place. A reflexivity axiom among the
@@ -960,9 +1081,26 @@ body with many nested assumptions is read slowly.
   than guarded unfoldings. `no_solution_of_reached` has none: `reachedCheck`
   asks that every fact be covered.
 
-The translation stops at integers and Booleans: ADTs, unit, `Let`, `Error`,
+The translation stops at integers, Booleans, reals, bit-vectors, datatypes
+without type parameters and sets. Not translated: unit, `Let`, `Error`,
 `Division`, `Remainder`, `Modulo`, type arguments, closures, `Forall` and
-`UninterpretedCall` are not translated.
+`UninterpretedCall`.
+
+A certificate whose program has type parameters or `let`s is in the fragment
+all the same, because the program that the theorem is about is the one read
+from the terms of the certificate, where neither is left. Inox's session is
+monomorphic: each instance of a sort or of a function at given type arguments
+has a symbol of its own, `size!0` for `size` of lists of Booleans and `size!1`
+for that of lists of integers, and the lowering of a template's source
+(`Inox/Lowering.lean`) instantiates the definition at the type arguments of its
+call. So the program of the theorem has one datatype for each instance of a
+sort and one function for each instance of a function, none of them with type
+parameters. A `let` of a source is a `let` of SMT-LIB, which Logos reads as its
+body with the bound term in place of the variable, and that is the expression
+that `back` reads. The checks were run on certificates made for this, of
+functions over lists and pairs at one and at several instances, at nested ones,
+and of functions with `let`s, around a recursive call too: the theorem holds of
+all of them.
 
 **What would make the generated Lean easier to prove things about.** The
 generated `match`es on `Result` (one auxiliary matcher per site) defeat generic
@@ -982,21 +1120,22 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   base, and the facts that hold as they are (congruence, the reflexivity of the
   declared equalities). The theorem to come is the one of an UNSAT answer in
   [`semantics.md`](../semantics.md): the query has no solution. `no_solution`
-  states it for the first-order programs over integers and Booleans whose calls
-  all give values, with hypotheses (see [The bridge to the
-  semantics](#the-bridge-to-the-semantics-partly-proved)), and
-  `no_solution_of_reached` for those programs whatever their calls, for the
-  certificates of which its checks hold. In general it needs
-  the bridge beyond that fragment, that its solutions give `Good` models (where
-  the declared equalities are reflexive and the completeness assumptions hold,
-  and for the programs with calls that give no value, with the clauses of
-  instances relativized as the unfoldings are), and for each other kind of
-  rule, that its clauses hold in them (`hfacts`): the preconditions,
-  postconditions, ADT invariants and refinements of the templates (`contract`),
-  which are assumptions about the program; the clauses of assertions about the
-  instances of quantifiers, and those whose source expression has a binder or
-  mentions a fresh symbol; the typing predicates; the templates whose source is
-  not a function; the clauses with binders; and the other rules (`Dispatched`,
+  states it for the first-order programs over integers, Booleans, reals,
+  bit-vectors, datatypes and sets whose calls all give values, with hypotheses
+  (see
+  [The bridge to the semantics](#the-bridge-to-the-semantics-partly-proved)),
+  and `no_solution_of_reached` for those programs whatever their calls, for the
+  certificates of which its checks hold. In general it needs the bridge beyond
+  that fragment, that its solutions give `Good` models (where the declared
+  equalities are reflexive and the completeness assumptions hold, and for the
+  programs with calls that give no value, with the clauses of instances
+  relativized as the unfoldings are), and for each other kind of rule, that its
+  clauses hold in them (`hfacts`): the preconditions, postconditions, ADT
+  invariants and refinements of the templates (`contract`), which are
+  assumptions about the program; the clauses of assertions about the instances
+  of quantifiers, and those whose source expression has a binder or mentions a
+  fresh symbol; the typing predicates; the templates whose source is not a
+  function; the clauses with binders; and the other rules (`Dispatched`,
   `SameLambda`, the `Congruence` of instances of quantifiers, …).
 - **Longer cycles of `Enables` rules.** A cycle where a target reaches a
   definition that enables it only through other definitions or targets

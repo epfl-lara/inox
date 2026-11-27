@@ -17,6 +17,10 @@ Scala checker (`inox.certificates.Sources`) does:
   `(= (or b1 b2 ..) b)`;
 - failing these, a symbol that one clause `(=> b (= v t))` (or `(=> b (= t v))`) defines means `t`.
 
+The typing of a set has no such meaning: it names an element and a rest of the set, which are
+any when the set is not empty. `setTyping` reads them as the element that `set.choose` gives and
+the others, which makes the typing true.
+
 Symbols in a meaning are replaced by theirs. A symbol defined from itself, such as an element of a
 set that is a union with it, has no meaning, nor has one defined several times.
 
@@ -39,6 +43,38 @@ partial def unassumed : Sexp → Sexp
   | .expr [.atom "assume", _, v] => unassumed v
   | .expr es => .expr (es.map unassumed)
   | a => a
+
+/-- `e` with `(ite c a a)` as `a`. -/
+partial def collapse : Sexp → Sexp
+  | .expr es => match es.map collapse with
+    | [.atom "ite", c, a, b] => if a == b then a else .expr [.atom "ite", c, a, b]
+    | es => .expr es
+  | a => a
+
+/-- What a meaning `(l, r)` that the source gives says, if it is that of the typing of a set whose
+elements have no typing of their own: `l` is a marker of the typing of `x`, and `r` is
+`(ite (= x empty) true (assume (= x (set.union {e} rest)) l'))`, where `l'` is `l` of `rest`.
+Such a typing is true of each set, with an element of `x` for `e` and the others for `rest` when
+`x` is not empty. This gives the meanings of the two markers, `true`, and those of `e` and `rest`:
+the element that `set.choose` gives of `x`, and `x` without it. -/
+def setTyping : Sexp × Sexp → Option (List (Sexp × Sexp) × List (String × Sexp))
+  | (l@(.expr _), .expr [.atom "ite", .expr [.atom "=", .atom x, empty], .atom "true",
+      .expr [.atom "assume",
+        .expr [.atom "=", .atom x', .expr [.atom "set.union", one, .atom rest]], l']]) =>
+    let elem := match one with
+      | .expr [.atom "set.insert", .atom e, empty'] => if empty' == empty then some e else none
+      | .expr [.atom "set.singleton", .atom e] => some e
+      | _ => none
+    match elem with
+    | some e =>
+      if x' == x && e != x && rest != x && e != rest &&
+          l' == substitute (Std.HashMap.ofList [(x, .atom rest)]) [] l then
+        let c := app "set.choose" [.atom x]
+        some ([(l, tt), (l', tt)],
+          [(e, c), (rest, app "set.minus" [.atom x, app "set.singleton" [c]])])
+      else none
+    | none => none
+  | _ => none
 
 /-- What the clauses of a template state of its local symbols. -/
 structure Shape where
@@ -138,7 +174,7 @@ def meanings (params : List Sexp) (locals : List String) (body : List Sexp)
       if localSet.contains v then some (v, unassumed m) else none)
     let s :=
       Shape.of start (fun a => localSet.contains a && !givenMap.contains a) givenMap call body
-    locals.filterMap fun v => (s.meaning [] v).map (v, ·)
+    locals.filterMap fun v => (s.meaning [] v).map fun m => (v, collapse m)
   | _ => []
 
 end Inox.Meanings

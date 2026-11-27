@@ -379,10 +379,13 @@ def check (certificate : Sexp) : Check Checked := do
           let terms := source.meanings.filter fun (l, _) => match l with
             | .expr _ => true
             | _ => false
+          -- the typing of a set is true, of an element of it and of the others
+          let sets := source.meanings.filterMap Meanings.setTyping
+          let terms := sets.flatMap (·.1) ++ terms
           -- those with markers left, such as the typing of a value, the clauses can't state
-          let symbols := source.meanings.filterMap fun (l, r) => match l with
+          let symbols := sets.flatMap (·.2) ++ source.meanings.filterMap fun (l, r) => match l with
             | .atom v =>
-              let m := Lowering.Tables.unmark terms [] r
+              let m := Meanings.collapse (Lowering.Tables.unmark terms [] r)
               if tables.hasMarker m then none else some (v, m)
             | _ => none
           given := given.push (symbols, match source with
