@@ -144,7 +144,8 @@ trait SimplifierWithPC extends Transformer { self =>
         if (bs.isEmpty) last
         else {
           r.rewrite("bind", Let(bs.head._1, bs.head._2, inner))
-          r.at(inner)(rec(bs.tail))
+          // the subterm becomes the binding around what its body becomes
+          Let(bs.head._1, bs.head._2, r.at(inner)(rec(bs.tail)))
         }
       rec(bindings)
     }
@@ -293,7 +294,11 @@ trait SimplifierWithPC extends Transformer { self =>
             val freshFields = cons.fields.map(_.freshen)
             val bindings = (freshFields zip es).filter(_._2 != value)
             recordedBinds(bindings, ADTSelector(re, sel), path)(step("select", value, path))
-            simplify(bindings.foldRight(value) { case ((vd, e), b) => Let(vd, e, b).copiedFrom(s) }, path)
+            // the bindings are simplified as the recorded steps have them, so that the recorder
+            // finds their subterms
+            val bound = if (path.recorder.active) path.recorder.node
+              else bindings.foldRight(value) { case ((vd, e), b) => Let(vd, e, b).copiedFrom(s) }
+            simplify(bound, path)
 
           case _ =>
             (ADTSelector(re, sel).copiedFrom(s), pe)

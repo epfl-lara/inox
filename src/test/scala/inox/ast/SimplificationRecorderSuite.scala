@@ -62,7 +62,13 @@ class SimplificationRecorderSuite extends AnyFunSuite with DatastructureUtils {
   val wrapEq = new FunDef(wrapEqID, Seq(), Seq(wa, wb), BooleanType(),
     Forall(Seq(wk), Equals(GreaterThan(ADTSelector(wa.toVariable, unwrap), wk.toVariable), GreaterThan(ADTSelector(wb.toVariable, unwrap), wk.toVariable))), Seq())
 
-  given symbols: Symbols = baseSymbols.withSorts(Seq(wrap)).withFunctions(Seq(inc, ones, increases, ever, calls, bounded, idf, wrapEq, downDef, againDef))
+  // a sort of three fields, of which a selection binds the others
+  val (tripleID, tripleConsID) = (FreshIdentifier("Triple"), FreshIdentifier("Triple"))
+  val Seq(first, second, third) = Seq("first", "second", "third").map(FreshIdentifier(_))
+  val triple = new ADTSort(tripleID, Seq(), Seq(new ADTConstructor(tripleConsID, tripleID,
+    Seq(first, second, third).map(ValDef(_, IntegerType())))), Seq())
+
+  given symbols: Symbols = baseSymbols.withSorts(Seq(wrap, triple)).withFunctions(Seq(inc, ones, increases, ever, calls, bounded, idf, wrapEq, downDef, againDef))
   import symbols._
 
   given ctx: Context = TestContext.empty
@@ -140,6 +146,12 @@ class SimplificationRecorderSuite extends AnyFunSuite with DatastructureUtils {
 
   test("The other elements of a selection are bound when they have effects") {
     assert(rules(GreaterThan(TupleSelect(Tuple(Seq(x, Division(x, y))), 1), y)) == Seq("bind", "select"))
+  }
+
+  test("The bindings of the other fields of a selection are simplified by their own steps") {
+    // the first field, which has no effects, is dropped, and the second is kept
+    val selected = ADTSelector(ADT(tripleConsID, Seq(), Seq(Plus(x, int(1)), Division(x, y), Plus(y, int(2)))), third)
+    assert(rules(GreaterThan(selected, int(0))) == Seq("bind", "bind", "select", "logic"))
   }
 
   test("Bound variables are expanded where their value is selected from") {
