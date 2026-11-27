@@ -706,7 +706,9 @@ class EvaluatorSuite extends AnyFunSuite {
     import solvers.unrolling.{optFunctionEquality, FunctionEquality}
     // uses the recursive evaluator directly, as subclasses of this suite test other evaluators
     // (eg. Stainless's code generator) that don't implement these semantics
-    def recursive(semantics: FunctionEquality) = RecursiveEvaluator(program, ctx.withOpts(optFunctionEquality(semantics)))
+    // without quantifier evaluation, the evaluator doesn't call solvers to compare functions
+    def recursive(semantics: FunctionEquality, solving: Boolean = false) = RecursiveEvaluator(program,
+      ctx.withOpts(optFunctionEquality(semantics), optEvalQuantifiers(solving)))
 
     def lambda(body: Expr => Expr): Lambda = {
       val x = ValDef.fresh("x", IntegerType())
@@ -739,10 +741,19 @@ class EvaluatorSuite extends AnyFunSuite {
     // functions that agree on every candidate input can't be told apart
     eval(extensional, Equals(succ, succ2)).failed
     eval(extensional, Equals(id, alsoId)).failed
+    val squareIs49 = lambda(x => IfExpr(Equals(Times(x, x), int(49)), int(1), int(0)))
+    eval(extensional, Equals(squareIs49, lambda(x => int(0)))).failed
+    // unless a solver proves them equal, or gives an input on which they differ
+    val solving = recursive(FunctionEquality.Extensional, solving = true)
+    eval(solving, Equals(succ, succ2)) === BooleanLiteral(true)
+    eval(solving, Equals(id, alsoId))  === BooleanLiteral(true)
+    eval(solving, Equals(squareIs49, lambda(x => int(0)))) === BooleanLiteral(false)
+    eval(solving, ElementOfSet(id, FiniteSet(Seq(alsoId), FunctionType(Seq(IntegerType()), IntegerType())))) === BooleanLiteral(true)
     // a lambda that applies a function is equal to it
     val appliesSucc2 = lambda(x => Application(succ2, Seq(x)))
     eval(extensional, Equals(appliesSucc2, succ2)) === BooleanLiteral(true)
     eval(extensional, Equals(appliesSucc2, succ)).failed
+    eval(solving, Equals(appliesSucc2, succ)) === BooleanLiteral(true)
     // but a nullary lambda that applies a function to a value isn't that function
     eval(extensional, Equals(Lambda(Seq.empty, Application(succ, Seq(int(1)))), Lambda(Seq.empty, int(2)))) === BooleanLiteral(true)
     // nullary functions are equal when their only results are

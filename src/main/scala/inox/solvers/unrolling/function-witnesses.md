@@ -525,7 +525,12 @@ be told apart elsewhere, eg. by their constructors. Under `extensional`, it comp
 their results. Structurally equal values are equal. Otherwise, the values are applied to the closed
 subexpressions of the parameter types that they contain, and to the simplest values of those types.
 For extracted models these include the distinguishing inputs. The values are distinct if some
-input tells them apart, and the comparison is an evaluation error otherwise. Ground simplification
+input tells them apart. When quantifiers are evaluated (`optEvalQuantifiers`, as for model
+validation), a solver then decides the comparison as it decides a quantifier, under the same
+semantics and with the model's interpretations (`SolvingEvaluator.onLambdaComparison`). The values are
+equal if it refutes `λ1 ≠ λ2`, which is sound. They are distinct if it gives an input on which their
+applications differ and evaluating them on that input confirms it, since the solver's model isn't
+checked. The comparison is an evaluation error otherwise. Ground simplification
 and model validation follow, so a model is never accepted on a comparison that the semantics
 doesn't make. `SolvingEvaluator` checks quantifiers under the same semantics.
 

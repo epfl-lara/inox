@@ -62,8 +62,8 @@
 (assert (member (lambda ((f (-> S Int))) (f s)) (insert (as emptyset (-> (-> S Int) Int)) (lambda ((f (-> S Int))) 0))))
 (check-sat)
 (pop 1)
-; the same queries, with the models checked: the evaluator can't tell whether lambdas with different
-; bodies are equal, so it can't validate the models that make them equal
+; the same queries, with the models checked: the evaluator decides whether lambdas with different
+; bodies are equal with a solver, and so validates the models that make them equal
 (set-option :check-models true)
 ; a function in a tuple or in a field
 (push 1)
@@ -73,7 +73,6 @@
 (pop 1)
 (push 1)
 (set-info :status sat)
-(set-info :inox-may-be-unknown true)
 (assert (not (member (lambda ((p (Tuple Int (-> Int Int)))) (@ ((_ tuple.select 1) p) 0)) (insert (as emptyset (-> (Tuple Int (-> Int Int)) Int)) (lambda ((p (Tuple Int (-> Int Int)))) (@ ((_ tuple.select 1) p) 1))))))
 (check-sat)
 (pop 1)
@@ -91,7 +90,6 @@
 (push 1)
 (declare-const c Int)
 (set-info :status sat)
-(set-info :inox-may-be-unknown true)
 (assert (member (lambda ((f (-> Int (-> Int Int)))) (@ (f c) 1)) (insert (as emptyset (-> (-> Int (-> Int Int)) Int)) (lambda ((f (-> Int (-> Int Int)))) (@ (f 0) 1)))))
 (check-sat)
 (pop 1)
@@ -103,14 +101,12 @@
 (pop 1)
 (push 1)
 (set-info :status sat)
-(set-info :inox-may-be-unknown true)
 (assert (member (lambda ((g (-> (-> Int Int) Int))) (g (lambda ((x Int)) x))) (insert (as emptyset (-> (-> (-> Int Int) Int) Int)) (lambda ((g (-> (-> Int Int) Int))) (+ 0 (g (lambda ((y Int)) y)))))))
 (check-sat)
 (pop 1)
 ; values of an uninterpreted sort, which are given by the captures that have them
 (push 1)
 (set-info :status sat)
-(set-info :inox-may-be-unknown true)
 (assert (member (lambda ((z S)) (= z s)) (insert (as emptyset (-> S Bool)) (lambda ((z S)) (= z t)))))
 (check-sat)
 (pop 1)

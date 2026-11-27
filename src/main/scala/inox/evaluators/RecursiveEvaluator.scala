@@ -172,7 +172,9 @@ abstract class RecursiveEvaluator(override val program: Program,
     *   input. They are told apart by their results on the closed subexpressions of the right type
     *   that they contain (for extracted models, the inputs that tell them apart). Functions are
     *   partial: they differ on an input on which one fails and the other doesn't, and agree on one
-    *   on which both fail. Their equality is undecidable otherwise, unless they take no arguments. */
+    *   on which both fail. Otherwise, they are equal if they take no arguments, and when quantifiers
+    *   are evaluated, a solver may prove them equal or give an input on which they differ (see
+    *   [[onLambdaComparison]]). Their equality is undecidable in the other cases. */
   protected def valuesEqual(v1: Expr, v2: Expr)(using rctx: RC, gctx: GC): Boolean = {
     v1 match {
       case FiniteSet(_, base) => checkKeys(base)
@@ -257,7 +259,12 @@ abstract class RecursiveEvaluator(override val program: Program,
       if (inputs.exists(agreeOn(_) == Some(false))) false
       // nullary functions have a single input
       else if (l1.params.isEmpty && agreeOn(Seq.empty) == Some(true)) true
-      else throw EvalError(s"Can't decide whether ${l1.asString} and ${l2.asString} are equal")
+      // a solver may prove them equal, or give an input on which they differ
+      else onLambdaComparison(l1, l2, rctx.interpretations) match {
+        case LambdaComparison.Equal => true
+        case LambdaComparison.Input(args) if agreeOn(args.map(modelValue)) == Some(false) => false
+        case _ => throw EvalError(s"Can't decide whether ${l1.asString} and ${l2.asString} are equal")
+      }
     case _ => false
   }
 

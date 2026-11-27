@@ -71,8 +71,8 @@
 (assert (member (lambda ((f (-> Int Int))) (f 0)) (insert (as emptyset (-> (-> Int Int) Int)) (lambda ((f (-> Int Int))) (+ (f 0) 0)))))
 (check-sat)
 (pop 1)
-; the same queries, with the models checked: the evaluator can't tell whether lambdas with different
-; bodies are equal, so it can't validate the models that make them equal
+; the same queries, with the models checked: the evaluator decides whether lambdas with different
+; bodies are equal with a solver, and so validates the models that make them equal
 (set-option :check-models true)
 (push 1)
 (declare-const c Int)
@@ -90,7 +90,6 @@
 (push 1)
 (declare-const c Int)
 (set-info :status sat)
-(set-info :inox-may-be-unknown true)
 (assert (member (lambda ((z Int)) (= (+ z c) 1)) (insert (as emptyset (-> Int Bool)) (lambda ((z Int)) (= z 0)))))
 (check-sat)
 (pop 1)
@@ -114,7 +113,6 @@
 ; the bodies only agree once the call in one of them is unfolded
 (push 1)
 (set-info :status sat)
-(set-info :inox-may-be-unknown true)
 (assert (member (lambda ((z Int)) (succ z)) (insert (as emptyset (-> Int Int)) (lambda ((z Int)) (+ 1 z)))))
 (check-sat)
 (pop 1)
@@ -132,14 +130,12 @@
 (push 1)
 (declare-const c Int)
 (set-info :status sat)
-(set-info :inox-may-be-unknown true)
 (assert (member (lambda ((f (-> Int Int))) (f c)) (insert (as emptyset (-> (-> Int Int) Int)) (lambda ((f (-> Int Int))) (f 1)))))
 (check-sat)
 (pop 1)
 ; higher-order lambdas whose bodies agree on every input
 (push 1)
 (set-info :status sat)
-(set-info :inox-may-be-unknown true)
 (assert (member (lambda ((f (-> Int Int))) (f 0)) (insert (as emptyset (-> (-> Int Int) Int)) (lambda ((f (-> Int Int))) (+ (f 0) 0)))))
 (check-sat)
 (pop 1)
