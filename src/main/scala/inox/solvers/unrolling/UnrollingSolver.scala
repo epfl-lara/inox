@@ -10,7 +10,7 @@ import theories._
 import evaluators._
 import combinators._
 
-import scala.collection.immutable.{ListSet, VectorMap}
+import scala.collection.immutable.{ListMap, ListSet, VectorMap}
 import scala.collection.mutable.{Map => MutableMap, Set => MutableSet, ListBuffer}
 
 object optUnrollBound       extends IntOptionDef("unroll-bound", default = -1, "<Int> | -1 (unbounded)")
@@ -322,7 +322,7 @@ abstract class AbstractUnrollingSolver private
     * identifiers were created before, and the order of the declarations and of the clauses about
     * them changes how much work the underlying solver does. */
   private def orderedBindings(vars: Set[Variable]): Map[Variable, Encoded] =
-    scala.collection.immutable.ListMap.from(vars.toSeq.sortBy(_.id).map {
+    ListMap.from(vars.toSeq.sortBy(_.id).map {
       v => v -> freeVars.cached(v)(declareVariable(encode(v)))
     })
 

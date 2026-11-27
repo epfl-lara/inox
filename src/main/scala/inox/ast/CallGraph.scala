@@ -6,6 +6,8 @@ package ast
 import utils.Lazy
 import utils.Graphs._
 
+import scala.collection.mutable.{ArrayBuffer, PriorityQueue}
+
 trait CallGraph {
   protected val trees: Trees
   import trees._
@@ -146,9 +148,9 @@ trait CallGraph {
         val graph = sccs
         val key: Set[Identifier] => Identifier = _.min
         var callers = graph.N.map(n => n -> (graph.pred(n) - n).size).toMap
-        val ready = scala.collection.mutable.PriorityQueue.empty[Set[Identifier]](using Ordering.by(key).reverse)
+        val ready = PriorityQueue.empty[Set[Identifier]](using Ordering.by(key).reverse)
         ready ++= graph.N.filter(callers(_) == 0)
-        val order = scala.collection.mutable.ArrayBuffer.empty[Set[Identifier]]
+        val order = ArrayBuffer.empty[Set[Identifier]]
         while (ready.nonEmpty) {
           val n = ready.dequeue()
           order += n

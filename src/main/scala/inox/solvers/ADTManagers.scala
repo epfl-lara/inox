@@ -5,6 +5,8 @@ package solvers
 
 import utils._
 
+import scala.collection.mutable.{ArrayBuffer, Set => MutableSet}
+
 trait ADTManagers {
   val program: Program
   val context: Context
@@ -74,8 +76,8 @@ trait ADTManagers {
       val sorted = components.map(_.toSeq.sortBy(key))
       val componentOf = sorted.flatMap(c => c.map(_ -> c)).toMap
       val dependencies = sorted.map(c => c -> (c.flatMap(deps.getOrElse(_, Set.empty)).map(componentOf).toSet - c)).toMap
-      val result = scala.collection.mutable.ArrayBuffer.empty[Seq[Type]]
-      val done = scala.collection.mutable.Set.empty[Seq[Type]]
+      val result = ArrayBuffer.empty[Seq[Type]]
+      val done = MutableSet.empty[Seq[Type]]
       var remaining = sorted
       while (remaining.nonEmpty) {
         val next = remaining.filter(c => dependencies(c).forall(done)).minBy(c => key(c.head))
