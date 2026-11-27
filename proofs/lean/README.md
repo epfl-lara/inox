@@ -1249,9 +1249,21 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   errors, sets, maps, merges of maps, reals or bitvectors. The others are those
   of the `simplifications` scripts, which have operations that the reader
   doesn't read yet, such as integer division, `exists` or `str.++`, or compare
-  functions extensionally. Nor is this theorem joined to
-  `no_solution_of_reached` yet, whose program has neither sorts with type
-  parameters nor sorts with an equality.
+  functions extensionally. [`Joined.lean`](Inox/Joined.lean) joins
+  `no_solution_of_reached` to the input where it is lowered without
+  simplifications: [`Lowered.lean`](Inox/Lowered.lean) relates an expression of
+  the input to what Logos reads of its lowering, whose symbols have other
+  names, whose errors are assumptions that fail and whose sums end in `+ 0`,
+  and proves that where the expression evaluates to a value, so does what it is
+  lowered to (`lowers_eval`). `no_input_solution` says that where
+  `no_solution_of_reached` holds and the constraints and the functions of the
+  input are lowered to the query and the program that Logos reads
+  (`linkCheck`), no values of the variables of the input make all its
+  constraints evaluate to `true` in its program. It covers first-order inputs
+  without datatypes, lets nor type parameters, over integers, booleans and
+  reals: on the corpus, the 3 certificates of `error-is-infeasible` and that of
+  `real-division-by-zero-is-infeasible`, as `inox-solution --input` says. The
+  encoders aren't in this theorem yet.
 - **The link between the proof and the script.** The checker checks that each
   assumption of the proof is the text of an assert of the script, up to how
   cvc5 prints testers (`(is C e)` for `((_ is C) e)`), once the terms that the
