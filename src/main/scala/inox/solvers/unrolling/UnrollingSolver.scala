@@ -1617,22 +1617,74 @@ abstract class AbstractUnrollingSolver private
       }
     }
 
+    /** Decides the equality of the lambdas that `umodel` makes equal although their equality doesn't
+      * follow from their structure, by comparing their bodies (see [[WitnessTemplates.lambdaComparison]]):
+      *  - if no solution makes the bodies differ on some input, the lambdas are extensionally equal,
+      *    and the models may keep them equal;
+      *  - otherwise, the models keep them apart, and if a model of the comparison gives an input on
+      *    which they differ, they are applied to it, so that refutations can tell them apart;
+      *  - if neither check decides, they are kept apart until unrolling decides (see [[unroll]]).
+      * Returns whether there was any such pair, in which case `umodel` is discarded. */
+    private def decideEquatedLambdas(umodel: underlying.Model): Boolean = {
+      val wrapped = wrapModel(umodel)
+      val pairs = templates.witnesses.equatedLambdas(
+        e => wrapped.modelEval(e, t.BooleanType()) == Some(t.BooleanLiteral(true)))
+      for (p <- pairs if !abort) {
+        reporter.debug(" - Comparing the bodies of lambdas that the model makes equal")
+        if (!compareLambdas(p)) {
+          for (cl <- templates.witnesses.distinguish(p)) assertClause(cl)
+        }
+      }
+      pairs.nonEmpty
+    }
+
+    /** Compares the bodies of the lambdas of `p`. Returns whether they agree on every input, and
+      * applies them to an input on which they differ if a model of the comparison gives one. */
+    private def compareLambdas(p: templates.witnesses.LambdaPair): Boolean = {
+      val (literal, args, clauses) = templates.witnesses.comparison(p)
+      for (cl <- clauses) assertClause(cl)
+
+      // as in the proof check: unsatisfiable, the bodies agree on every input in every solution
+      val refuted = context.timers.solvers.unrolling.check.run {
+        checkUnderlying(Configuration(model = false, unsatAssumptions = false))(
+          ListSet.from(encodedAssumptions) ++ templates.unfolding.refutationAssumptions + literal)
+      }
+      refuted match {
+        case _: Unsatisfiable =>
+          reporter.debug(" - The lambdas agree on every input")
+          templates.witnesses.markEqual(p)
+          true
+        case _ if abort => false
+        case _ =>
+          // as in the model check: satisfiable, the bodies differ on the arguments of the model
+          val res = context.timers.solvers.unrolling.check.run {
+            checkUnderlying(Configuration(model = true, unsatAssumptions = false))(
+              ListSet.from(encodedAssumptions) ++ templates.unfolding.satisfactionAssumptions + literal)
+          }
+          res match {
+            case SatWithModel(model) =>
+              val wrapped = wrapModel(model)
+              val values = (args zip templates.witnesses.argumentTypes(p)).map((a, tpe) => wrapped.modelEval(a, tpe))
+              // the input must be a value that the unfolding can apply the lambdas to as is
+              if (values.forall(_.exists(v => !t.exprOps.exists { case _: t.Lambda => true; case _ => false } (v)))) {
+                reporter.debug(" - The lambdas differ on " + values.flatten.mkString(", "))
+                for (cl <- templates.witnesses.probe(p, values.flatten)) assertClause(cl)
+              }
+            case _ =>
+          }
+          false
+      }
+    }
+
     /** Extracts a model from `umodel` and validates it, once the unfolding has related the lambdas
       * of `umodel` to the functions they capture. */
     private def validate(umodel: underlying.Model): CheckState = {
       if (abort) {
         // Extracting and validating a large model takes time: skip them once interrupted
         CheckResult.cast(Unknown)
-      } else if (templates.witnesses.hasLambdaPairs && {
-        val wrapped = wrapModel(umodel)
-        val distinguish = templates.witnesses.distinguishEquatedLambdas(
-          e => wrapped.modelEval(e, t.BooleanType()) == Some(t.BooleanLiteral(true)))
-        for (cl <- distinguish) assertClause(cl)
-        distinguish.nonEmpty
-      }) {
-        // under extensional equality, the model made lambdas equal that may differ on some input
-        // (see [[WitnessTemplates.lambdaDistinctions]]), so we look for a model that keeps them apart
-        reporter.debug(" - Keeping apart the lambdas that the model makes equal")
+      } else if (templates.witnesses.hasLambdaPairs && decideEquatedLambdas(umodel)) {
+        // under extensional equality, the model made lambdas equal whose bodies we had to compare
+        // (see [[WitnessTemplates.lambdaDistinctions]]), so we look for a model again
         ModelCheck
       } else if (equalCaptures(umodel).nonEmpty) {
         // the unrolling left out the clauses that relate these lambdas to the functions they capture
@@ -1870,6 +1922,9 @@ abstract class AbstractUnrollingSolver private
 
         unrollCount += 1
         if (witnessLevel > 0) witnessLevel += 1
+
+        // the lambdas whose bodies couldn't be compared yet may be now
+        for (p <- templates.witnesses.undecidedLambdas if !abort) compareLambdas(p)
 
         reporter.debug(" - Finished unrolling")
         ModelCheck

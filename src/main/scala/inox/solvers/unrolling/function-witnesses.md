@@ -235,8 +235,9 @@ thesis Theorem 1.
 
 *Proof sketch.* The returned `M` satisfies `Φi ∪ Bi`, and Theorem 1 applies. Under `extensional`, `M`
 also satisfies the `eq_p` of the pending pairs, which make functions equal. That is sound for a pair
-with a free function, which extraction takes to be the other one, and validation rejects the models
-that make two lambdas equal otherwise than by their structure and closures (§9). The applications that
+with a free function, which extraction takes to be the other one, and validation only accepts the models
+that make two lambdas equal otherwise than by their structure and closures once their bodies are
+shown to agree on every input (§9). The applications that
 witnesses introduce, like `f(w̄)`, are embedded applications like any other. Their blockers are in
 `Bi`, and extraction treats them as additional points of the `if`-chain. Each point agrees with the
 dispatch interpretation in `M`, by congruence of the encoded application. So (A3) still holds.
@@ -458,15 +459,29 @@ the depth that the unrolling has reached. `id ≠ alsoId` is UNSAT this way.
 Assuming that two lambdas are equal doesn't give a model, though. A free function can be taken to be
 any other function, but two lambdas that differ in structure or in closures are only equal if they
 agree on every input, which neither the unfolding nor the witness establishes: the witness only
-tells distinct functions apart. So when a model makes such lambdas equal (and the structural rule
-doesn't), validation rejects it, and the model checks from then on assume a literal `n_p` with the
-clause `n_p ∧ c_p ⇒ λ1 ≄ λ2` (or the closures are equal), which keeps them apart
-(`WitnessTemplates.lambdaDistinctions`). The `n_p` are handled like `Ei`: they are only assumed by
-model checks, and R1 and R2 apply to the checks under them, so the refutations of §4 are unchanged.
-Without this, `(λz. z = 0) ∈ {λz. z = 1, λz. z > 0}` was SAT whenever the model check was off. A
-query that is only satisfiable with such lambdas equal, or only refutable by applying them to an
-input that no witness provides, isn't answered: refuting `(λz. z = 0) = (λz. z = 1)` needs an input
-on which they differ, which the unfolding doesn't look for.
+tells distinct functions apart. Without the model check, `(λz. z = 0) ∈ {λz. z = 1, λz. z > 0}` was
+SAT this way. So when a model makes such lambdas equal (and the structural rule doesn't), validation
+compares their bodies (`Templates.instantiateComparison`). It instantiates the bodies on fresh
+arguments `w̄`, as the bodies of fresh functions rather than of the lambdas themselves, since the
+query may make the lambdas equal and their applications on `w̄` would then be equal too. Under a
+fresh literal `k_p`, `c_p` holds, `w̄` lies in the parameter types, and the bodies differ on `w̄`
+(exactly one fails, or neither does and their results differ). Then:
+
+- If the check under the refutation assumptions and `k_p` is UNSAT, no solution has the bodies differ
+  on any input where `c_p` holds, by Theorem A. The lambdas are extensionally equal, and the models
+  may keep them equal.
+- Otherwise, the model checks from then on assume a literal `n_p` with `n_p ∧ c_p ⇒ λ1 ≄ λ2` (or
+  the closures are equal), which keeps them apart (`WitnessTemplates.lambdaDistinctions`). If the
+  check under the satisfaction assumptions and `k_p` gives a model, the lambdas are also applied to
+  its value `ā` of `w̄` under `c_p` (`Templates.instantiateProbe`): equal functions have the same
+  applications, which the bodies define, so refutations can then use that they differ on `ā`.
+  This refutes `(λz. z = 0) = (λz. z = 1)`.
+- If neither check decides, the comparison is tried again after each unrolling.
+
+The `k_p` and `n_p` only occur in antecedents and are never assumed by refutations of the query,
+so they are inert there as the `e_p` are (Lemma W1). The `n_p` are handled like `Ei`: R1 and R2
+apply to the checks under them. A query that is only satisfiable with lambdas equal whose
+comparison stays undecided isn't answered.
 
 Instantiating lambda witnesses eagerly, with each new lambda, doesn't terminate. A witness can
 create lambdas on the spot (eg. in the typing constraints of application results, as in Stainless's

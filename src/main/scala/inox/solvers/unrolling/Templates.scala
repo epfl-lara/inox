@@ -1207,6 +1207,79 @@ trait Templates
     clauses ++ newFailureDefinitions()
   }
 
+  /** Instantiates the comparison of the bodies of the lambdas of `t1` and `t2`, which are both defined
+    * when `cond` holds, under a fresh literal that only the checks deciding their equality assume
+    * (see [[WitnessTemplates.lambdaComparison]]). Returns the literal and the arguments on which the
+    * bodies are compared.
+    *
+    * The bodies are instantiated on fresh arguments `ws`, as the bodies of fresh functions `c1` and
+    * `c2` rather than of the lambdas themselves: the query may make the lambdas equal, and their
+    * applications on `ws` would then be equal as well, whatever their bodies. Under the literal, `cond`
+    * holds, the arguments lie in their types, and the bodies differ on them: exactly one of them
+    * fails, or neither does and their results differ. So if a check that assumes the literal is
+    * unsatisfiable, the bodies agree on every input wherever `cond` holds. Like the other
+    * hypotheses, the clauses hold when the literal is false. */
+  def instantiateComparison(cond: Encoded, t1: LambdaTemplate, t2: LambdaTemplate): (Encoded, Seq[Encoded], Clauses) = {
+    val tpe = t1.tpe
+    val literal = encodeSymbol(Variable.fresh("b_cmp", BooleanType(), true))
+    val ws = tpe.from.map(tp => Variable.fresh("w", tp, true))
+    val wsT = ws.map(encodeSymbol)
+    val partial = modes.partialFunctions
+
+    def body(t: LambdaTemplate): (Encoded, Option[Encoded], Clauses) = {
+      val copy = encodeSymbol(Variable.fresh("body", tpe, true))
+      val template = t.substitute(mkSubstituter(Map(t.ids._2 -> copy)), Map.empty)
+      val failure = if (partial) Some(encodeSymbol(Variable.fresh("fails", BooleanType(), true))) else None
+      (mkApp(copy, tpe, wsT), failure, Rule.Unfold(template, literal, wsT.map(Left(_)), failure).clauses)
+    }
+    val (res1, fail1, clauses1) = body(t1)
+    val (res2, fail2, clauses2) = body(t2)
+
+    val differ = mkNot(mkEquals(res1, res2))
+    val distinguished = (fail1, fail2) match {
+      case (Some(e1), Some(e2)) => mkOr(mkNot(mkEquals(e1, e2)), mkAnd(mkNot(e1), mkNot(e2), differ))
+      case _ => differ
+    }
+
+    val bindings = (ws zip wsT).toMap
+    val typing = instantiate(bindings, { (start, encodedStart) =>
+      val substMap = bindings + (start -> encodedStart)
+      val tpeClauses = ws.map { w =>
+        declared += w -> bindings(w)
+        mkClauses1(start, w.tpe, w, substMap)(using FreeGenerator)
+      }
+      val source = ws.foldRight(BooleanLiteral(true): Expr)((w, e) => Assume(freeTyping(w.tpe, w), e))
+      (tpeClauses.foldLeft(mkClauses0(start, BooleanLiteral(true), substMap))(_ ++ _), Some(source), None)
+    }, root = Rule.Define(None, _, literal).clauses)
+
+    val clauses = Rule.Hypothesis(literal, trueT, mkAnd(cond, distinguished)).clauses ++
+      clauses1 ++ clauses2 ++ typing ++ newFailureDefinitions()
+    for (cl <- clauses) reporter.debug("  . " + cl)
+    (literal, wsT, clauses)
+  }
+
+  /** Instantiates the applications of the functions `f1` and `f2` of type `tpe` to the values `args`
+    * where `cond` holds, so that `f1` and `f2` can only be equal if they agree on `args`: equal
+    * functions have the same applications, which the bodies of lambdas then define. The applications
+    * may fail. */
+  def instantiateProbe(cond: Encoded, tpe: FunctionType, f1: Encoded, f2: Encoded, args: Seq[Expr]): Clauses = {
+    val v1 = Variable.fresh("f", tpe, true)
+    val v2 = Variable.fresh("g", tpe, true)
+    val agree = Variable.fresh("agree", BooleanType(), true)
+    val bindings = Map(v1 -> f1, v2 -> f2, agree -> encodeSymbol(agree))
+    // the compared functions have already been typed where they were registered
+    declared += v1 -> f1
+    declared += v2 -> f2
+
+    val partial = modes.partialFunctions
+    def isProbeApp(app: App): Boolean = partial && (app.caller == f1 || app.caller == f2) && app.tpe == tpe
+
+    val expr = Equals(agree, Equals(Application(v1, args), Application(v2, args)))
+    instantiate(bindings, { (start, encodedStart) =>
+      (mkClauses0(start, expr, bindings + (start -> encodedStart)), Some(expr), None)
+    }, isProbeApp, Rule.Define(None, _, cond).clauses) ++ newFailureDefinitions()
+  }
+
   protected def instantiateExpr(expr: Expr, bindings: Map[Variable, Encoded]): Clauses = {
     instantiate(bindings, { (start, encodedStart) =>
       // with the steps of the simplification, when certificates need them

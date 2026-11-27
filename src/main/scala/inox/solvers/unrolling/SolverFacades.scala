@@ -65,10 +65,29 @@ trait SolverFacades { self: Templates =>
     /** @see [[WitnessTemplates.lambdaDistinctions]] */
     def distinctions: Set[Encoded] = self.lambdaDistinctions
 
-    /** The clauses that keep apart the lambdas that the model, given by `holds`, makes equal although
-      * their equality doesn't follow from their structure (see [[WitnessTemplates.equatedLambdas]]). */
-    def distinguishEquatedLambdas(holds: Encoded => Boolean): Clauses =
-      self.distinguishLambdas(self.equatedLambdas(holds))
+    /** A pair of lambdas whose equality a model must justify (see [[WitnessTemplates.lambdaDistinctions]]). */
+    type LambdaPair = self.LambdaPair
+
+    /** @see [[WitnessTemplates.equatedLambdas]] */
+    def equatedLambdas(holds: Encoded => Boolean): Seq[LambdaPair] = self.equatedLambdas(holds)
+
+    /** @see [[WitnessTemplates.undecidedLambdas]] */
+    def undecidedLambdas: Seq[LambdaPair] = self.undecidedLambdas
+
+    /** @see [[WitnessTemplates.lambdaComparison]] */
+    def comparison(p: LambdaPair): (Encoded, Seq[Encoded], Clauses) = self.lambdaComparison(p)
+
+    /** The argument types of the lambdas of `p`. */
+    def argumentTypes(p: LambdaPair): Seq[Type] = p.t1.tpe.from
+
+    /** @see [[WitnessTemplates.markEqualLambdas]] */
+    def markEqual(p: LambdaPair): Unit = self.markEqualLambdas(p)
+
+    /** @see [[WitnessTemplates.distinguishLambdas]] */
+    def distinguish(p: LambdaPair): Clauses = self.distinguishLambdas(Seq(p))
+
+    /** @see [[WitnessTemplates.probeLambdas]] */
+    def probe(p: LambdaPair, args: Seq[Expr]): Clauses = self.probeLambdas(p, args)
 
     /** @see [[WitnessTemplates.instantiateWitnesses]] */
     def instantiate(equalities: Set[Encoded]): Clauses = self.instantiateWitnesses(equalities)

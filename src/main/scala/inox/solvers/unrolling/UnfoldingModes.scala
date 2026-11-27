@@ -43,7 +43,7 @@ class UnfoldingModes(options: Options) {
     * every input. It is then unfolded like those of free functions (see
     * [[WitnessTemplates.witnessEqualities]]): the lambdas are assumed equal when looking for a model,
     * and the input is instantiated when that equality is part of an unsat core. A model that keeps
-    * them equal isn't accepted, though, since they may still differ on other inputs (see
+    * them equal is only accepted once their bodies are shown to agree on every input (see
     * [[WitnessTemplates.lambdaDistinctions]]).
     *
     * Instantiating them with each new lambda instead doesn't terminate: distinguishing inputs can
