@@ -446,7 +446,9 @@ def kindOfSort (c : Ctx) : Nat → Sexp → Except String Kind
     | .atom "Int" => .ok .int
     | .atom "Bool" => .ok .bool
     | .atom a =>
-      if a == c.elem then .ok (if c.ints then .int else .elem) else .error s!"the sort {a}"
+      if a == c.elem then .ok (if c.ints then .int else .elem)
+      else if c.table.kind a == "sort" then .ok (.adt (c.table.id a))
+      else .error s!"the sort {a}"
     | .expr [.atom "Bag", x] =>
       if x == .atom c.elem then .ok .bag else .error "a bag of other than elements"
     | .expr (.atom "Tuple" :: xs) => do pure (.tuple (← xs.mapM (kindOfSort c n)))
@@ -458,7 +460,8 @@ def kindOfSort (c : Ctx) : Nat → Sexp → Except String Kind
       | k :: rest => pure (.fn rest.reverse k)
       | [] => .error "a sort"
     | .expr (.atom a :: xs) =>
-      if c.table.kind a == "sort" && xs.all (· == .atom c.elem) then .ok (.adt (c.table.id a))
+      let base : Sexp → Sexp := fun | .expr (.atom "!" :: b :: _) => b | b => b
+      if c.table.kind a == "sort" && xs.all (base · == .atom c.elem) then .ok (.adt (c.table.id a))
       else .error s!"the sort {a}"
     | _ => .error "a sort"
 
@@ -504,6 +507,7 @@ def readExpr (c : Ctx) : Nat → Sexp → Except String Expr
       else if a == "false" then .ok (.BooleanLiteral false)
       else if c.table.kind a == "uninterpreted" then .ok (.UninterpretedCall (c.table.id a) [] [])
       else if c.table.kind a == "function" then .ok (.FunctionInvocation (c.table.id a) [] [])
+      else if c.table.kind a == "constructor" then .ok (.ADT (c.table.id a) [] [])
       else if a.contains '!' then .ok (.Variable a)
       else .error a
     | .expr [.atom "not", a] => do pure (.Not (← readExpr c n a))
@@ -536,6 +540,8 @@ def readExpr (c : Ctx) : Nat → Sexp → Except String Expr
       pure (.MultiplicityInBag (← readExpr c n e) (← readExpr c n b))
     | .expr [.expr [.atom "as", .expr [.atom "_", .atom "is", .atom k], _], e] => do
       pure (.IsConstructor (← readExpr c n e) (c.table.id k))
+    | .expr [.expr [.atom "_", .atom "is", .atom k], e] => do
+      pure (.IsConstructor (← readExpr c n e) (c.table.id k))
     | .expr [.expr [.atom "as", .expr [.atom "_", .atom "tuple.select", .atom i], _], e] => do
       pure (.TupleSelect (← readExpr c n e) (i.toNat! + 1))
     | .expr (.expr [.atom "as", .atom "tuple", _] :: args) => do
@@ -554,8 +560,10 @@ def readExpr (c : Ctx) : Nat → Sexp → Except String Expr
       pure (.Forall ps (← readExpr c n b))
     | .expr (.expr [.atom "as", .atom "@", _] :: f :: args) => do
       pure (.Application (← readExpr c n f) (← args.mapM (readExpr c n)))
-    | .expr [.atom "as", .atom k, .expr (.atom _ :: ts)] =>
+    | .expr [.atom "as", .atom k, .expr (.atom t :: ts)] =>
       if c.table.kind k == "constructor" then pure (.ADT (c.table.id k) (ts.map readTy) [])
+      else if c.table.kind k == "function" then
+        pure (.FunctionInvocation (c.table.id k) ((Sexp.atom t :: ts).map readTy) [])
       else .error (c.table.kind k ++ " " ++ k)
     | .expr (.expr [.atom "as", .atom k, .expr ts] :: args) => do
       let args ← args.mapM (readExpr c n)
@@ -570,10 +578,16 @@ def readExpr (c : Ctx) : Nat → Sexp → Except String Expr
         pure (.FunctionInvocation (c.table.id k) [] (← args.mapM (readExpr c n)))
       else if c.table.kind k == "uninterpreted" then do
         pure (.UninterpretedCall (c.table.id k) [] (← args.mapM (readExpr c n)))
+      else if c.table.kind k == "constructor" then do
+        pure (.ADT (c.table.id k) [] (← args.mapM (readExpr c n)))
+      else if c.table.kind k == "selector" then do
+        match ← args.mapM (readExpr c n) with
+        | [e] => pure (.ADTSelector e (c.table.field k))
+        | _ => .error k
       else .error k
     | .expr (.expr [.atom "as", .atom a, _] :: _) => .error a
     | .expr (.expr [.atom "as", .expr (.atom "_" :: .atom a :: _), _] :: _) => .error a
-    | _ => .error "a term"
+    | _ => .error s!"the term {String.ofList (s.serialize.toList.take 60)}"
 
 /-- The kind of a field of some constructor of the sort `s`. -/
 def fieldOf (S : CSig) (s sel : Id) : Option Kind :=
