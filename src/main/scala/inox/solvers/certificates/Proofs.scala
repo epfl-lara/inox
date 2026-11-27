@@ -254,9 +254,12 @@ final case class Constraint(input: SExpr, encoded: SExpr, steps: Seq[(String, SE
   * of the session from the program of the input, in their order (see
   * [[transformers.ProgramTransformer.encoders]]), the declarations of the datatypes and the
   * definitions of the functions of the input, as its printer made them, the constraints that
-  * were asserted, and the sorts of the variables and uninterpreted functions of the input. */
+  * were asserted, the sorts of the variables and uninterpreted functions of the input, and for
+  * each function that the sources define, the call of the function on its parameters (as the
+  * `input` of a [[Constraint]]), its body after the encoders and the steps of its
+  * simplification, as sources. */
 final case class Input(encoders: Seq[String], definitions: Seq[SExpr], constraints: Seq[Constraint],
-                       sorts: Map[Ref, SExpr] = Map()) {
+                       sorts: Map[Ref, SExpr] = Map(), functions: Seq[Constraint] = Seq()) {
   /** What the symbols of the input stand for, by their text and in its order: those of the
     * printer that printed it, and the variables of the session. */
   def symbols: Seq[(String, Ref)] =
@@ -278,7 +281,8 @@ final case class Certificate(proof: ScriptProof, templateScript: Seq[SExpr], tem
   /** What the symbols of the sources of the templates stand for, by their text and in its order:
     * those of the printer that printed them, and the variables of the session. */
   def sourceSymbols: Seq[(String, Ref)] =
-    (templates.flatMap(_.source.terms) ++ input.toSeq.flatMap(_.constraints).flatMap(c => c.encoded +: c.steps.map(_._2)) ++
+    (templates.flatMap(_.source.terms) ++ input.toSeq.flatMap(in => in.constraints ++ in.functions).flatMap(c => c.encoded +: c.steps.map(_._2)) ++
+      input.toSeq.flatMap(_.functions).map(_.input) ++
       sourceDefinitions ++ sourceSorts.values ++ simplifications).flatMap(_.symbols).map(s => s.text -> s.ref).distinct.sortBy(_._1)
 
   override def toString: String = {
@@ -310,6 +314,9 @@ final case class Certificate(proof: ScriptProof, templateScript: Seq[SExpr], tem
         "(input\n(encoders" + in.encoders.map(" " + string(_)).mkString + ")\n" + Proof.block("definitions", in.definitions) + "\n" +
           in.constraints.map { c =>
             s"(constraint ${c.input} (encoded ${c.encoded}) (simplified${c.steps.map((rule, e) => s" ($rule $e)").mkString}))\n"
+          }.mkString +
+          in.functions.map { f =>
+            s"(function ${f.input} (encoded ${f.encoded}) (simplified${f.steps.map((rule, e) => s" ($rule $e)").mkString}))\n"
           }.mkString +
           "(symbols\n" + symbolLines(in.symbols, in.sorts).map(_ + "\n").mkString + "))\n"
       }.getOrElse("(input)\n") +

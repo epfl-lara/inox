@@ -34,6 +34,8 @@ certificate of that query on standard output:
     )
     (constraint <a constraint of the input> (encoded <what the encoders make of it>) (simplified (<rule> <term>) ...))
     ...
+    (function <the call of a function of the sources on its parameters> (encoded <its body>) (simplified (<rule> <term>) ...))
+    ...
     (symbols
     (<symbol of the input> <kind> "<identifier, type or index>" ... [<sort>])
     ...))
@@ -142,9 +144,11 @@ prints. The steps of `simplified` are those of the solver's simplification
 of the encoded constraint (`ast.SymbolOps.simplifyFormulaRecorded`), each the
 rule that names it (see `transformers.TransformationRecorder`) and the term
 after it, a source: the last term is the formula of the template of the
-constraint, whose source assumes the typing of its variables. The checkers
-don't yet check the steps, nor relate the definitions of the input to the
-source definitions.
+constraint, whose source assumes the typing of its variables. Each function
+that the source definitions define comes with its body in the program of the
+session, after the encoders, and the steps of its simplification, whose last
+term is the body of its source definition (the body that the solver unfolds).
+The checkers don't yet check the steps.
 
 A source names what its body doesn't have with markers (`unrolling.TemplateGenerator.markers`), whose
 meanings a `(where (<marker> <meaning>) ...)` after the body gives. A marker
@@ -239,7 +243,9 @@ apart from the solver. From the text of a certificate, it checks that:
 - the clauses of each template are those of its source, once the source is
   lowered to the syntax of the script;
 - each encoded constraint of the input is what the named encoders make of its
-  constraint;
+  constraint, and the body of each function of the sources what they make of
+  its definition in the input, which the steps of its simplification lead to
+  the body of its source definition;
 - the proof's `assume` commands are asserts of the script.
 
 Ethos then checks the proof. The checker also exists in Lean

@@ -39,17 +39,20 @@ import Lowering.{Entry, entry}
   *
   * Each constraint also gives the steps of the solver's simplification of the encoded term, the
   * rule of each and the term after it, which lead to the source of the template of the
-  * constraint. The check reads them, and doesn't check them yet. */
+  * constraint. The check reads them, and doesn't check them yet. Each function of the source
+  * definitions comes with its body after the encoders, which is what the encoders make of its
+  * definition in the input, and the steps of its simplification, the last of which is the body
+  * of its source definition. */
 object Encoders {
   private val known = Set("propositions", "bags", "map-merge")
 
-  /** Checks the input `input` of a certificate whose sources have the symbols `sourceSymbols`,
-    * and gives the number of constraints that it checked: none when the certificate has no
-    * input. */
-  def check(input: List[SExpr], sourceSymbols: Seq[SExpr]): Int = input match {
+  /** Checks the input `input` of a certificate whose sources have the definitions
+    * `sourceDefinitions` and the symbols `sourceSymbols`, and gives the number of constraints
+    * and functions that it checked: none when the certificate has no input. */
+  def check(input: List[SExpr], sourceDefinitions: Seq[SExpr], sourceSymbols: Seq[SExpr]): Int = input match {
     case Nil => 0
-    case SList(Atom("encoders") :: names) :: SList(Atom("definitions") :: _) :: rest if rest.nonEmpty =>
-      val (constraints, symbols) = (rest.init, rest.last match {
+    case SList(Atom("encoders") :: names) :: SList(Atom("definitions") :: definitions) :: rest if rest.nonEmpty =>
+      val (lines, symbols) = (rest.init, rest.last match {
         case SList(Atom("symbols") :: lines) => lines.map(entry)
         case other => fail(s"$other is not the symbols of the input")
       })
@@ -59,19 +62,87 @@ object Encoders {
       }
       for (n <- encoders if !known(n)) fail(s"the checker doesn't check the encoder $n")
       val relation = new Relation(encoders.toSet, symbols, sourceSymbols.map(entry))
-      for (c <- constraints) c match {
+      val (inFuns, outFuns) = (functions(definitions), functions(sourceDefinitions))
+      val (inData, outData) = (datatypes(definitions), datatypes(sourceDefinitions))
+
+      // the steps of a simplification are recorded, and not yet checked: the term after the last
+      def simplified(term: SExpr, steps: List[SExpr]): SExpr = steps.foldLeft(term) {
+        case (_, SList(List(Atom(_), t))) => t
+        case (_, other) => fail(s"$other is not a step of a simplification")
+      }
+      // the variables that `xs` bind face those that `ys` bind, the sorts of parameters under `bound`
+      def bind(xs: List[SExpr], ys: List[SExpr], bound: Map[Atom, Atom], in: SExpr, out: SExpr): Map[Atom, Atom] =
+        if (xs.size != ys.size) relation.no(in, out) else (xs zip ys).map {
+          case (x: Atom, y: Atom) => x -> y
+          case (SList(List(x: Atom, s)), SList(List(y: Atom, s2))) => relation.relate(s, s2, bound); x -> y
+          case _ => relation.no(in, out)
+        }.toMap
+
+      val defined = scala.collection.mutable.Set[Atom]()
+      for (line <- lines) line match {
         case SList(List(Atom("constraint"), in, SList(List(Atom("encoded"), out)), SList(Atom("simplified") :: steps))) =>
           relation.relate(in, out, Map.empty)
-          // the steps of the simplification are recorded, and not yet checked
-          for (step <- steps) step match {
-            case SList(List(Atom(_), _)) =>
-            case other => fail(s"$other is not a step of a simplification")
+          simplified(out, steps)
+
+        // a function of the sources: its body after the encoders is the body of its definition
+        // in the input, and its simplification the body of its source definition
+        case SList(List(Atom("function"), call, SList(List(Atom("encoded"), body)), SList(Atom("simplified") :: steps))) =>
+          val (f, args) = call match {
+            case SList(List(Atom("as"), f: Atom, _)) => (f, Nil)
+            case SList(SList(List(Atom("as"), f: Atom, _)) :: args) => (f, args)
+            case SList((f: Atom) :: args) => (f, args)
+            case f: Atom => (f, Nil)
+            case other => fail(s"$other is not the call of a function")
           }
-        case other => fail(s"$other is not a constraint of the input")
+          val (ps2, xs2, range2, body2) = outFuns.getOrElse(f, fail(s"$f is not a function of the source definitions"))
+          if (xs2.map { case SList(x :: _) => x; case x => x } != args) fail(s"$call is not the call of $f on its parameters")
+          if (simplified(body, steps) != body2) fail(s"the body of $f is not the simplification of its encoded body")
+          for (g <- relation.inputOf(f, inFuns.keys)) {
+            val (ps, xs, range, inBody) = inFuns(g)
+            val tparams = bind(ps, ps2, Map.empty, g, f)
+            val params = bind(xs, xs2, tparams, g, f)
+            relation.relate(range, range2, tparams)
+            relation.relate(inBody, body, tparams ++ params)
+          }
+          defined += f
+        case other => fail(s"$other is not a constraint or a function of the input")
       }
-      constraints.size
+      for (f <- outFuns.keys if !defined(f)) fail(s"the input doesn't say what $f is the simplification of")
+
+      // the datatypes of the input are those of the sources
+      for ((d, decl) <- inData; d2 <- relation.sourceOf(d, outData.keys)) (decl, outData(d2)) match {
+        case (SList(List(Atom("par"), SList(ps), cs)), SList(List(Atom("par"), SList(ps2), cs2))) =>
+          relation.relate(cs, cs2, bind(ps, ps2, Map.empty, decl, outData(d2)))
+        case (decl, decl2) => relation.relate(decl, decl2, Map.empty)
+      }
+      lines.size
     case _ => fail("the input of the certificate is not one")
   }
+
+  /** The functions that `commands`, declarations and definitions of SMT-LIB 3, define: each
+    * defined symbol with its sort parameters, its parameters, its sort and its body. */
+  private def functions(commands: Seq[SExpr]): Map[Atom, (List[SExpr], List[SExpr], SExpr, SExpr)] = {
+    def signature(s: SExpr): (Atom, List[SExpr], List[SExpr], SExpr) = s match {
+      case SList(List(Atom("par"), SList(ps), SList(List(f: Atom, SList(xs), range)))) => (f, ps, xs, range)
+      case SList(List(f: Atom, SList(xs), range)) => (f, Nil, xs, range)
+      case other => fail(s"$other is not the signature of a function")
+    }
+    commands.flatMap {
+      case SList(List(Atom("define-fun" | "define-fun-rec"), f: Atom, SList(xs), range, body)) => List(f -> (Nil, xs, range, body))
+      case SList(List(Atom("define-fun" | "define-fun-rec"), SList(List(Atom("par"), SList(ps), SList(List(f: Atom, SList(xs), range, body)))))) =>
+        List(f -> (ps, xs, range, body))
+      case SList(List(Atom("define-funs-rec"), SList(decs), SList(bodies))) if decs.size == bodies.size =>
+        (decs zip bodies).map { (d, body) => val (f, ps, xs, range) = signature(d); f -> (ps, xs, range, body) }
+      case _ => Nil
+    }.toMap
+  }
+
+  /** The datatypes that `commands` declare: each sort with its sort parameters and constructors. */
+  private def datatypes(commands: Seq[SExpr]): Map[Atom, SExpr] = commands.flatMap {
+    case SList(List(Atom("declare-datatypes"), SList(sorts), SList(decls))) if sorts.size == decls.size =>
+      (sorts zip decls).collect { case (SList(List(d: Atom, _)), decl) => d -> decl }
+    case _ => Nil
+  }.toMap
 
   private final class Relation(encoders: Set[String], input: Seq[Entry], sources: Seq[Entry]) {
     private val inputs: Map[Atom, Entry] = input.map(e => e.name -> e).toMap
@@ -109,7 +180,17 @@ object Encoders {
       case _ => false
     }
 
-    private def no(in: SExpr, out: SExpr): Nothing = fail(s"$out is not what the encoders make of $in")
+    /** The symbol of the input among `ins` that stands for the identifier that `a`, a symbol of
+      * the sources, stands for. */
+    def inputOf(a: Atom, ins: Iterable[Atom]): Option[Atom] =
+      outputs.get(a).flatMap(y => ins.find(b => inputs.get(b).exists(x => identifier(x) == identifier(y))))
+
+    /** The symbol of the sources among `outs` that stands for the identifier that `a`, a symbol
+      * of the input, stands for. */
+    def sourceOf(a: Atom, outs: Iterable[Atom]): Option[Atom] =
+      inputs.get(a).flatMap(x => outs.find(b => outputs.get(b).exists(y => identifier(x) == identifier(y))))
+
+    def no(in: SExpr, out: SExpr): Nothing = fail(s"$out is not what the encoders make of $in")
 
     private def isInt(a: SExpr): Option[BigInt] = a match {
       case Atom(t) if t.nonEmpty && t.forall(_.isDigit) => Some(BigInt(t))

@@ -309,7 +309,7 @@ object Checker {
       if (version != Version) fail(s"the certificate has version $version, and the checker checks version $Version")
 
       // the constraints of the input are encoded as the certificate states
-      Encoders.check(input, sourceSymbols)
+      Encoders.check(input, sourceDefinitions, sourceSymbols)
 
       val clauses = asserts(script)
       val templateClauses = asserts(templateScript)

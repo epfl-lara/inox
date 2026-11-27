@@ -32,7 +32,9 @@ for an identifier of its name that the input doesn't have.
 
 Each constraint also gives the steps of the solver's simplification of the encoded term, the rule
 of each and the term after it, which lead to the source of the template of the constraint. The
-check reads them, and doesn't check them yet.
+check reads them, and doesn't check them yet. Each function of the source definitions comes with
+its body after the encoders, which is what the encoders make of its definition in the input, and
+the steps of its simplification, the last of which is the body of its source definition.
 -/
 
 namespace Inox.Encoders
@@ -204,13 +206,90 @@ partial def relate (r : Relation) (i o : Sexp) (bound : List (String × String))
 
 end Relation
 
-/-- Checks the input `input` of a certificate whose sources have the symbols `sourceSymbols`, and
-gives the number of constraints that it checked: none when the certificate has no input. -/
-def check (input sourceSymbols : List Sexp) : Lower Nat :=
+/-- A function that commands of SMT-LIB 3 define: its sort parameters, its parameters, its sort
+and its body. -/
+structure Function where
+  params : List Sexp
+  args : List Sexp
+  range : Sexp
+  body : Sexp
+
+/-- The functions that `commands`, declarations and definitions of SMT-LIB 3, define. -/
+def functions (commands : List Sexp) : List (String × Function) :=
+  let signature : Sexp → Option (String × List Sexp × List Sexp × Sexp)
+    | .expr [.atom "par", .expr ps, .expr [.atom f, .expr xs, range]] => some (f, ps, xs, range)
+    | .expr [.atom f, .expr xs, range] => some (f, [], xs, range)
+    | _ => none
+  commands.flatMap fun c =>
+    match c with
+    | .expr [.atom "define-fun", .atom f, .expr xs, range, body]
+    | .expr [.atom "define-fun-rec", .atom f, .expr xs, range, body] =>
+      [(f, ⟨[], xs, range, body⟩)]
+    | .expr [.atom "define-fun", .expr [.atom "par", .expr ps, .expr [.atom f, .expr xs, r, b]]]
+    | .expr [.atom "define-fun-rec",
+        .expr [.atom "par", .expr ps, .expr [.atom f, .expr xs, r, b]]] =>
+      [(f, ⟨ps, xs, r, b⟩)]
+    | .expr [.atom "define-funs-rec", .expr decs, .expr bodies] =>
+      (decs.zip bodies).filterMap fun (d, body) =>
+        (signature d).map fun (f, ps, xs, range) => (f, ⟨ps, xs, range, body⟩)
+    | _ => []
+
+/-- The datatypes that `commands` declare: each sort with its sort parameters and
+constructors. -/
+def datatypes (commands : List Sexp) : List (String × Sexp) :=
+  commands.flatMap fun c =>
+    match c with
+    | .expr [.atom "declare-datatypes", .expr sorts, .expr decls] =>
+      if sorts.length != decls.length then []
+      else (sorts.zip decls).filterMap fun (s, decl) =>
+        match s with
+        | .expr [.atom d, _] => some (d, decl)
+        | _ => none
+    | _ => []
+
+namespace Relation
+
+/-- The symbol of the input among `ins` that stands for the identifier that `a`, a symbol of the
+sources, stands for. -/
+def inputOf (r : Relation) (a : String) (ins : List String) : Option String :=
+  (r.output a).bind fun y => ins.find? fun b =>
+    (r.input b).any fun x => Entry.identifier x == Entry.identifier y
+
+/-- The symbol of the sources among `outs` that stands for the identifier that `a`, a symbol of
+the input, stands for. -/
+def sourceOf (r : Relation) (a : String) (outs : List String) : Option String :=
+  (r.input a).bind fun x => outs.find? fun b =>
+    (r.output b).any fun y => Entry.identifier x == Entry.identifier y
+
+/-- The variables that `xs` bind face those that `ys` bind, the sorts of parameters under
+`bound`. -/
+def bind (r : Relation) (xs ys : List Sexp) (bound : List (String × String)) (i o : Sexp) :
+    Lower (List (String × String)) :=
+  if xs.length != ys.length then no i o
+  else (xs.zip ys).mapM fun p =>
+    match p with
+    | (.atom x, .atom y) => pure (x, y)
+    | (.expr [.atom x, s], .expr [.atom y, s2]) => do r.relate s s2 bound; pure (x, y)
+    | _ => no i o
+
+end Relation
+
+/-- The term after the steps `steps` of a simplification of `term`, which are recorded, and not
+yet checked. -/
+def simplified (term : Sexp) (steps : List Sexp) : Lower Sexp :=
+  steps.foldlM (init := term) fun _ step =>
+    match step with
+    | .expr [.atom _, t] => pure t
+    | other => refuse s!"{text other} is not a step of a simplification"
+
+/-- Checks the input `input` of a certificate whose sources have the definitions
+`sourceDefinitions` and the symbols `sourceSymbols`, and gives the number of constraints and
+functions that it checked: none when the certificate has no input. -/
+def check (input sourceDefinitions sourceSymbols : List Sexp) : Lower Nat :=
   match input with
   | [] => pure 0
-  | .expr (.atom "encoders" :: names) :: .expr (.atom "definitions" :: _) :: rest => do
-    let (constraints, symbols) ← match rest.getLast? with
+  | .expr (.atom "encoders" :: names) :: .expr (.atom "definitions" :: definitions) :: rest => do
+    let (lines, symbols) ← match rest.getLast? with
       | some (.expr (.atom "symbols" :: lines)) => pure (rest.dropLast, lines)
       | _ => refuse "the input of the certificate has no symbols"
     let encoders ← names.mapM fun n =>
@@ -223,18 +302,56 @@ def check (input sourceSymbols : List Sexp) : Lower Nat :=
     for n in encoders do
       if !known.contains n then refuse s!"the checker doesn't check the encoder {n}"
     let r : Relation := ⟨encoders, ← symbols.mapM entry, ← sourceSymbols.mapM entry⟩
-    for c in constraints do
-      match c with
+    let inFuns := functions definitions
+    let outFuns := functions sourceDefinitions
+    let mut defined : List String := []
+    for line in lines do
+      match line with
       | .expr [.atom "constraint", i, .expr [.atom "encoded", o],
           .expr (.atom "simplified" :: steps)] =>
         r.relate i o []
-        -- the steps of the simplification are recorded, and not yet checked
-        for step in steps do
-          match step with
-          | .expr [.atom _, _] => pure ()
-          | other => refuse s!"{text other} is not a step of a simplification"
-      | other => refuse s!"{text other} is not a constraint of the input"
-    pure constraints.length
+        let _ ← simplified o steps
+      -- a function of the sources: its body after the encoders is the body of its definition in
+      -- the input, and its simplification the body of its source definition
+      | .expr [.atom "function", call, .expr [.atom "encoded", body],
+          .expr (.atom "simplified" :: steps)] =>
+        let (f, args) ← match call with
+          | .expr [.atom "as", .atom f, _] => pure (f, [])
+          | .expr (.expr [.atom "as", .atom f, _] :: args) => pure (f, args)
+          | .expr (.atom f :: args) => pure (f, args)
+          | .atom f => pure (f, [])
+          | other => refuse s!"{text other} is not the call of a function"
+        let some out := outFuns.lookup f
+          | refuse s!"{f} is not a function of the source definitions"
+        let params := out.args.map fun x => match x with
+          | .expr (p :: _) => p
+          | p => p
+        if params != args then refuse s!"{text call} is not the call of {f} on its parameters"
+        if (← simplified body steps) != out.body then
+          refuse s!"the body of {f} is not the simplification of its encoded body"
+        match r.inputOf f (inFuns.map (·.1)) with
+        | some g =>
+          let some inp := inFuns.lookup g | pure ()
+          let tparams ← r.bind inp.params out.params [] (.atom g) (.atom f)
+          let ps ← r.bind inp.args out.args tparams (.atom g) (.atom f)
+          r.relate inp.range out.range tparams
+          r.relate inp.body body (ps ++ tparams)
+        | none => pure ()
+        defined := f :: defined
+      | other => refuse s!"{text other} is not a constraint or a function of the input"
+    for (f, _) in outFuns do
+      if !defined.contains f then refuse s!"the input doesn't say what {f} is the simplification of"
+    -- the datatypes of the input are those of the sources
+    let outData := datatypes sourceDefinitions
+    for (d, decl) in datatypes definitions do
+      match (r.sourceOf d (outData.map (·.1))).bind (List.lookup · outData) with
+      | some decl2 =>
+        match decl, decl2 with
+        | .expr [.atom "par", .expr ps, cs], .expr [.atom "par", .expr ps2, cs2] =>
+          r.relate cs cs2 (← r.bind ps ps2 [] decl decl2)
+        | _, _ => r.relate decl decl2 []
+      | none => pure ()
+    pure lines.length
   | _ => refuse "the input of the certificate is not one"
 
 end Inox.Encoders

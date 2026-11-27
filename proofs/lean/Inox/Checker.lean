@@ -353,7 +353,7 @@ def check (certificate : Sexp) : Check Checked := do
       .expr (.atom "cpc" :: cpc)] =>
     if v != version then fail s!"the certificate has version {v}, and the checker checks version {version}"
     -- the constraints of the input are encoded as the certificate states
-    let _ ← Encoders.check input sourceSymbols
+    let _ ← Encoders.check input sourceDefinitions sourceSymbols
     let clauses := assertsOf script
     let templateClauses := assertsOf templateScript
 

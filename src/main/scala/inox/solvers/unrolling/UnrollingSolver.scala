@@ -2140,6 +2140,10 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
         assertedConstraints.map { c =>
           val encoded = encode(c)
           (c.asInstanceOf[t.Expr], encoded, templates.simplifications.getOrElse(encoded, Seq()))
+        },
+        () => templates.simplifiedBodies.map { (id, steps) =>
+          val fd = targetProgram.symbols.getFunction(id)
+          (fd.typed(using targetProgram.symbols).applied(fd.params.map(_.toVariable)), fd.fullBody, steps)
         })
     }
 
