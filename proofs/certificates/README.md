@@ -115,14 +115,19 @@ rule of `unrolling.RuleKernel` builds. Two things are left to the reader:
   merging quantifiers (`merge`), dropping the unused variables of a
   quantifier over inhabited sorts (`unused`), lifting the quantifiers of
   the operands of a connective (`prenex`), polynomial arithmetic
-  (`arith`), and renaming bound variables (`rename`). The simplifiers name
+  (`arith`), renaming bound variables (`rename`), and the evaluation of a
+  closed term (`evaluate`): the term and its value are read as terms of
+  Inox with the source definitions, and both are evaluated, with fuel, by
+  the evaluator that is generated from [`semantics.md`](../semantics.md),
+  to the same value. The simplifiers name
   every rewrite, and don't judge which ones the checker can check: a step
   of a rule that the checker doesn't know is applied as it is given, and
   the certificate then holds over the simplified program only, which the
-  checker says with the rules. This is the case of the evaluation of ground
-  terms beyond the constants of the program (`evaluate`), of an assumption
-  or a quantifier that is lifted from where the term may not evaluate it
-  (`lift-assumptions`, `lift-quantifiers`). A step of a rule that the
+  checker says with the rules. This is the case of an assumption or a
+  quantifier that is lifted from where the term may not evaluate it
+  (`lift-assumptions`, `lift-quantifiers`), and of the evaluation of a term
+  that the generated evaluator gives no value to (it covers a fragment of
+  Inox, and doesn't compare functions). A step of a rule that the
   checker knows, and which doesn't hold, makes the certificate fail, and so
   does what a simplifier did without recording it (`unrecorded`). When the
   program compares functions (`--function-equality` is not `none`), a

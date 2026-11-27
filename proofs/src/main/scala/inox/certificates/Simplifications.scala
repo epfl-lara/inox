@@ -63,10 +63,14 @@ package certificates
   *    subterms that are evaluated whenever the term is, an equality between terms that are the
   *    same polynomial becomes `true`, and one between literals that differ becomes `false`;
   *  - `rename`: a term becomes itself, up to the names of the variables that it binds.
+  *  - `evaluate`: a closed term becomes its value, or a term of the same value: both are read as
+  *    terms of Inox with the source definitions, and evaluated with fuel by the evaluator that is
+  *    generated from `proofs/semantics.md` (see [[Evaluation]]).
   * Substitutions refuse to capture a variable.
   *
   * The simplifiers name each of their rewrites, including those that no rule above tells (the
-  * evaluation of a ground term, say). A step of a rule that the checker doesn't know is applied
+  * lifting of an assumption from where the term may not evaluate it, say, or the evaluation of
+  * a term that the generated evaluator gives no value to). A step of a rule that the checker doesn't know is applied
   * as it is given, and the certificate then holds over the simplified program only: the checker
   * reports the rules. A step of a rule that it knows, and which doesn't hold, makes the
   * certificate fail, and so does a step of `unrecorded`: what a simplifier did without naming it,
@@ -230,6 +234,8 @@ object Simplifications {
     * symbol, with the constructors of the datatype, and their selectors, with their constructor
     * and index. */
   private final class Program(commands: List[SExpr]) {
+    /** The evaluation of closed terms with the functions of the program. */
+    lazy val evaluation = new Evaluation(commands)
     val functions = scala.collection.mutable.Map[String, Function]()
     val constructors = scala.collection.mutable.Map[String, List[String]]()
     val selectors = scala.collection.mutable.Map[String, (String, Int)]()
@@ -680,6 +686,16 @@ object Simplifications {
       val target = canonical(rewritten)
       // what a simplifier did without naming it is not a simplification that is known of at all
       if (rule == "unrecorded") fail(s"the step at ${deepest.mkString("(", " ", ")")} that gives $subterm was not recorded by a simplifier")
+      else if (rule == "evaluate") {
+        // The terms at the position, or around it, are closed and have the same value. Terms that
+        // the evaluator gives no value to are taken as the steps of the rules that aren't known.
+        val same = deepest.inits.flatMap(pos => program.evaluation.same(at(term, pos), at(rewritten, pos))).nextOption()
+        same match {
+          case Some(true) =>
+          case Some(false) => fail(s"no evaluate step at ${deepest.mkString("(", " ", ")")} gives $subterm: ${at(term, deepest)} has another value")
+          case None => unknown += rule
+        }
+      }
       else if (!rules(rule)) unknown += rule
       else if (target != current) {
         // The rule rewrites the subterm at the position, outside of which the terms are the

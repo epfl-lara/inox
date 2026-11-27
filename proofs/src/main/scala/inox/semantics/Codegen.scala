@@ -11,7 +11,7 @@ import java.nio.file.{Files, Path}
   * imports it and is generated the same way, with its own outputs, package and namespace. */
 object Codegen {
   val source = "semantics.md"
-  val scalaOutput = "src/test/scala/inox/semantics/generated/Semantics.scala"
+  val scalaOutput = "src/main/scala/inox/semantics/generated/Semantics.scala"
   val scalaPackage = "inox.semantics.generated"
   val leanOutput = "semantics/Inox/Semantics.lean"
   val leanNamespace = "Inox.Semantics"

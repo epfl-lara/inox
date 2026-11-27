@@ -13,7 +13,9 @@ class SimplificationsSuite extends AnyFunSuite {
 
   val definitions: List[SExpr] = parse(
     """(declare-datatypes ((List 0)) (((Nil) (Cons (head Int) (tail List)))))
-      |(define-fun f ((y Int)) Bool (and (> y 0) true))""".stripMargin)
+      |(define-fun f ((y Int)) Bool (and (> y 0) true))
+      |(define-fun-rec len ((l List)) Int (ite ((_ is Cons) l) (+ 1 (len (tail l))) 0))
+      |(define-fun-rec loop ((y Int)) Int (loop y))""".stripMargin)
 
   /** Checks that `steps` rewrite `original` into the expression `simplified`. */
   def check(original: String, simplified: String, steps: String, equality: String = "none"): Either[String, List[String]] =
@@ -193,5 +195,20 @@ class SimplificationsSuite extends AnyFunSuite {
     // and the steps must end at the source
     refused("(and p q)", "p", "(steps (evaluate () q))")
     refused("(and p q)", "p", "(steps (evaluate (7) p))")
+  }
+
+  test("An evaluation of a closed term gives its value in the semantics") {
+    holds("(and p (> (+ 1 2) 2))", "p", "(steps (evaluate (2) true) (logic () p))")
+    holds("(= x (ite true 5 0))", "(= x 5)", "(steps (evaluate (2) 5))")
+    // with the functions of the source definitions
+    holds("(= x (len (Cons 1 (Cons 2 Nil))))", "(= x 2)", "(steps (evaluate (2) 2))")
+    holds("(and p (f 1))", "p", "(steps (evaluate (2) true) (logic () p))")
+    // another value than the one of the term is refused
+    refused("(and p (> (+ 1 2) 2))", "(and p false)", "(steps (evaluate (2) false))")
+    refused("(= x (len (Cons 1 (Cons 2 Nil))))", "(= x 3)", "(steps (evaluate (2) 3))")
+    refused("(= x (ite true 5 0))", "(= x 0)", "(steps (evaluate (2) 0))")
+    // a term that has no value within the fuel, or that isn't closed, is reported
+    reported("(= x (loop 0))", "(= x 0)", "(steps (evaluate (2) 0))")
+    reported("(= x (+ y 0))", "(= x y)", "(steps (evaluate (2) y))")
   }
 }
