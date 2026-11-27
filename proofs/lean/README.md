@@ -1231,13 +1231,13 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   and defines the encoder's datatype as the encoder does, on values of the free
   variables that relate. `inox-solution --input` says how many constraints of
   each certificate that covers, and what the first of the others has that isn't
-  read. On the corpus it covers 32 of the 36 constraints, among which that of
+  read. On the corpus it covers 34 of the 36 constraints, among which that of
   `bags/split-preserves-content`, with its two recursive functions, and those
-  with quantifiers, uninterpreted functions, errors, sets, reals or bitvectors:
-  the others have encoders that rewrite terms, maps, or a polymorphic function
-  called at another type than the elements. Nor is this theorem joined to
-  `no_solution_of_reached` yet, whose program has neither sorts with type
-  parameters nor sorts with an equality.
+  with quantifiers, uninterpreted functions, errors, sets, maps, reals or
+  bitvectors: the others have an encoder that rewrites a merge of maps into a
+  call, or a polymorphic function called at another type than the elements. Nor
+  is this theorem joined to `no_solution_of_reached` yet, whose program has
+  neither sorts with type parameters nor sorts with an equality.
 - **The link between the proof and the script.** The checker checks that each
   assumption of the proof is the text of an assert of the script, up to how
   cvc5 prints testers (`(is C e)` for `((_ is C) e)`), once the terms that the

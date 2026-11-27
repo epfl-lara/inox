@@ -22,7 +22,8 @@ booleans, bags of elements, values of a sort of the program, tuples, functions, 
 kinds of their arguments to the kind of their result, sets, which the encoders keep, and
 the other primitive values, such as reals and bitvectors, which the encoders keep too. A sort
 with several type parameters has the kinds of its type arguments (`app`), which its fields
-refer to by their position (`param`). -/
+refer to by their position (`param`). Maps, which the encoders keep, have the kinds of their
+keys and of their values. -/
 inductive Kind where
   | elem
   | int
@@ -35,6 +36,7 @@ inductive Kind where
   | prim
   | app (s : Id) (ks : List Kind)
   | param (i : Nat)
+  | map (k v : Kind)
 
 mutual
 /-- Whether two kinds are the same. -/
@@ -50,6 +52,7 @@ def kindEq : Kind → Kind → Bool
   | .prim, .prim => true
   | .app s ks, .app t ls => s == t && kindsEq ks ls
   | .param i, .param j => i == j
+  | .map k v, .map l w => kindEq k l && kindEq v w
   | _, _ => false
 def kindsEq : List Kind → List Kind → Bool
   | [], [] => true
@@ -74,6 +77,9 @@ theorem kindEq_eq : ∀ {a b : Kind}, kindEq a b = true → a = b
   | .app s ks, b, h => by
     cases b <;> simp [kindEq] at h ⊢
     exact ⟨h.1, kindsEq_eq h.2⟩
+  | .map k v, b, h => by
+    cases b <;> simp [kindEq] at h ⊢
+    exact ⟨kindEq_eq h.1, kindEq_eq h.2⟩
 theorem kindsEq_eq : ∀ {a b : List Kind}, kindsEq a b = true → a = b
   | [], [], _ => rfl
   | k :: ks, l :: ls, h => by
@@ -97,6 +103,7 @@ def substKind (ks : List Kind) : Kind → Kind
   | .fn ls l => .fn (substKinds ks ls) (substKind ks l)
   | .set l => .set (substKind ks l)
   | .app s ls => .app s (substKinds ks ls)
+  | .map k v => .map (substKind ks k) (substKind ks v)
   | k => k
 def substKinds (ks : List Kind) : List Kind → List Kind
   | [] => []
@@ -107,12 +114,17 @@ end
 def substFields (ks : List Kind) (fs : List (Id × Kind)) : List (Id × Kind) :=
   fs.map fun f => (f.1, substKind ks f.2)
 
+/-- The types of the keys and values of maps: those of the elements, integers and booleans,
+which resolve alike in both programs. -/
+def ClosedTy (Te t : Ty) : Prop := t = Te ∨ t = .IntegerType ∨ t = .BooleanType
+
 /-- The kinds of the elements of bags: `elem`, or integers where the elements are integers. -/
 def BagKind (κ : Kind) (k : Kind) : Prop := k = .elem ∨ (k = .int ∧ κ = .int)
 
-/-- The kinds of the elements of sets: values that are the same in both programs. -/
+/-- The kinds of the elements of sets and of the keys and values of maps: values that are the
+same in both programs. -/
 def setKind : Kind → Bool
-  | .elem | .int | .bool => true
+  | .elem | .int | .bool | .prim => true
   | _ => false
 
 /-- The signature of a program: the sort of each constructor with the names and the kinds of
@@ -144,6 +156,7 @@ def pureKind (κ : Kind) : Ty → Kind
   | .BooleanType => .bool
   | .ADTType s _ => .adt s
   | .RefinementType _ t _ => pureKind κ t
+  | .MapType k v => .map (pureKind κ k) (pureKind κ v)
   | _ => κ
 
 /-- The arguments of sorts are of the kind of their type parameters. -/
@@ -345,6 +358,17 @@ inductive Encodes (N : Names) (S : Sig) (Te : Ty) :
   | toUnsigned {Γ : Id → Option Kind} {u : Bool} {a a' : Expr}
       (ha : Encodes N S Te Γ a a' .prim u) :
       Encodes N S Te Γ (.BVSignedToUnsigned a) (.BVSignedToUnsigned a') .prim u
+  | mapEmpty {Γ : Id → Option Kind} {u : Bool} {kk kv : Kind} {d d' : Expr} {kt vt : Ty}
+      (hk : setKind kk = true) (hv : setKind kv = true) (hkt : ClosedTy Te kt)
+      (hvt : ClosedTy Te vt) (hd : Encodes N S Te Γ d d' kv u) :
+      Encodes N S Te Γ (.FiniteMap [] d kt vt) (.FiniteMap [] d' kt vt) (.map kk kv) u
+  | mapApply {Γ : Id → Option Kind} {u : Bool} {kk kv : Kind} {m m' k k' : Expr}
+      (hm : Encodes N S Te Γ m m' (.map kk kv) u) (hk : Encodes N S Te Γ k k' kk u) :
+      Encodes N S Te Γ (.MapApply m k) (.MapApply m' k') kv u
+  | mapUpdated {Γ : Id → Option Kind} {u : Bool} {kk kv : Kind} {m m' k k' w w' : Expr}
+      (hm : Encodes N S Te Γ m m' (.map kk kv) u) (hk : Encodes N S Te Γ k k' kk u)
+      (hw : Encodes N S Te Γ w w' kv u) :
+      Encodes N S Te Γ (.MapUpdated m k w) (.MapUpdated m' k' w') (.map kk kv) u
   | setEmpty {Γ : Id → Option Kind} {u : Bool} {k : Kind} (hk : setKind k = true) :
       Encodes N S Te Γ (.FiniteSet [] Te) (.FiniteSet [] Te) (.set k) u
   | setAdd {Γ : Id → Option Kind} {u : Bool} {k : Kind} {a a' e e' : Expr}
@@ -401,6 +425,11 @@ inductive Rel (O : Oracle) (P : Program) (N : Names) (K : Value → Prop)
       (hr : Rel O P N K E T0 S (.tuple ((substFields ks fs).map Prod.snd)) (.TupleV vs)
         (.TupleV vs')) :
       Rel O P N K E T0 S (.app s ks) (.ADTV c tps vs) (.ADTV c tps' vs')
+  | map {kk kv : Kind} (kt vt : Ty) (xs : List MapEntry) (d : Value) (hk : setKind kk = true)
+      (hv : setKind kv = true) (hks : ∀ k w, MapEntry.MapEntry k w ∈ xs → Rel O P N K E T0 S kk k k)
+      (hws : ∀ k w, MapEntry.MapEntry k w ∈ xs → Rel O P N K E T0 S kv w w)
+      (hd : Rel O P N K E T0 S kv d d) :
+      Rel O P N K E T0 S (.map kk kv) (.MapV kt vt xs d) (.MapV kt vt xs d)
   | set {k : Kind} (t : Ty) (xs : List Value) (hk : setKind k = true)
       (h : ∀ x ∈ xs, Rel O P N K E T0 S k x x) :
       Rel O P N K E T0 S (.set k) (.SetV t xs) (.SetV t xs)
@@ -469,6 +498,10 @@ theorem elem_value_eq (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) {k : Kind}
       | elem _ hw => rw [hB.keyS.eq _ _ hv hw, hB.key.eq _ _ hv hw]
   · cases ha; cases hb; simp only [hB.sound.value_eq]
   · cases ha; cases hb; simp only [hB.sound.value_eq]
+  · cases ha with
+    | prim _ hv =>
+      rw [hB.sound.value_eq, hB.sound.value_eq (P := P)]
+      cases a <;> simp_all [IsPrim]
 
 theorem rel_set_elem {k : Kind} (hk : setKind k = true) {v v' : Value}
     (h : Rel O P N K E T0 S k v v') : v' = v := by
@@ -579,6 +612,113 @@ theorem subset_same (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) {k : Kind}
     simp only [set_contains_same hB hk (h x (List.mem_cons_self ..)) hys,
       subset_same hB hk hys (fun y hy => h y (List.mem_cons_of_mem _ hy))]
 
+theorem map_get_same (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) {kk : Kind}
+    (hk : setKind kk = true) {key : Value} (hkey : Rel O P N K E T0 S kk key key) (d : Value) :
+    ∀ {xs : List MapEntry}, (∀ k w, MapEntry.MapEntry k w ∈ xs → Rel O P N K E T0 S kk k k) →
+      O.map_get Ps xs key d = O.map_get P xs key d
+  | [], _ => by rw [hB.sound.map_get, hB.sound.map_get (P := P)]
+  | .MapEntry x w :: xs, h => by
+    rw [hB.sound.map_get, hB.sound.map_get (P := P)]
+    simp only []
+    rw [elem_value_eq hB hk (h x w List.mem_cons_self) hkey,
+      map_get_same hB hk hkey d (fun k w' hm => h k w' (List.mem_cons_of_mem _ hm))]
+
+theorem map_get_rel (hO : O.Sound) {Q : Program} {kv : Kind} {key d : Value}
+    (hd : Rel O P N K E T0 S kv d d) :
+    ∀ {xs : List MapEntry} {w : Value},
+      (∀ k w, MapEntry.MapEntry k w ∈ xs → Rel O P N K E T0 S kv w w) →
+      O.map_get Q xs key d = .Ok w → Rel O P N K E T0 S kv w w
+  | [], w, _, hg => by rw [hO.map_get] at hg; cases hg; exact hd
+  | .MapEntry x v :: xs, w, h, hg => by
+    rw [hO.map_get] at hg
+    simp only [] at hg
+    split at hg
+    · split at hg
+      · cases hg; exact h x _ List.mem_cons_self
+      · exact map_get_rel hO hd (fun k w' hm => h k w' (List.mem_cons_of_mem _ hm)) hg
+    · cases hg
+    · cases hg
+
+theorem map_remove_same (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) {kk : Kind}
+    (hk : setKind kk = true) {key : Value} (hkey : Rel O P N K E T0 S kk key key) :
+    ∀ {xs : List MapEntry}, (∀ k w, MapEntry.MapEntry k w ∈ xs → Rel O P N K E T0 S kk k k) →
+      map_remove O Ps xs key = map_remove O P xs key
+  | [], _ => by simp only [map_remove]
+  | .MapEntry x w :: xs, h => by
+    simp only [map_remove]
+    rw [elem_value_eq hB hk (h x w List.mem_cons_self) hkey,
+      map_remove_same hB hk hkey (fun k w' hm => h k w' (List.mem_cons_of_mem _ hm))]
+
+theorem map_remove_sub {Q : Program} {key : Value} :
+    ∀ {xs ys : List MapEntry}, map_remove O Q xs key = .Ok ys → ∀ e ∈ ys, e ∈ xs
+  | [], ys, h => by simp only [map_remove] at h; cases h; simp
+  | .MapEntry x w :: xs, ys, h => by
+    simp only [map_remove] at h
+    split at h
+    · split at h
+      · cases h; intro e he; exact List.mem_cons_of_mem _ he
+      · split at h
+        · next zs hzs =>
+          cases h
+          intro e he
+          cases List.mem_cons.1 he with
+          | inl e1 => subst e1; exact List.mem_cons_self
+          | inr e1 => exact List.mem_cons_of_mem _ (map_remove_sub hzs e e1)
+        · cases h
+        · cases h
+    · cases h
+    · cases h
+
+theorem map_put_sub {Q : Program} {key w : Value} {xs ys : List MapEntry}
+    (h : map_put O Q xs key w = .Ok ys) : ∀ e ∈ ys, e = .MapEntry key w ∨ e ∈ xs := by
+  simp only [map_put] at h
+  split at h
+  · next zs hzs =>
+    cases h
+    intro e he
+    cases List.mem_cons.1 he with
+    | inl e1 => exact .inl e1
+    | inr e1 => exact .inr (map_remove_sub hzs e e1)
+  · cases h
+  · cases h
+
+theorem same_entries_same (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) {kk kv : Kind}
+    (hk : setKind kk = true) (hv : setKind kv = true) {xs ys : List MapEntry} {d e : Value}
+    (hxk : ∀ k w, MapEntry.MapEntry k w ∈ xs → Rel O P N K E T0 S kk k k)
+    (hxw : ∀ k w, MapEntry.MapEntry k w ∈ xs → Rel O P N K E T0 S kv w w)
+    (hyk : ∀ k w, MapEntry.MapEntry k w ∈ ys → Rel O P N K E T0 S kk k k)
+    (hyw : ∀ k w, MapEntry.MapEntry k w ∈ ys → Rel O P N K E T0 S kv w w)
+    (hd : Rel O P N K E T0 S kv d d) (he : Rel O P N K E T0 S kv e e) :
+    ∀ {ks : List MapEntry}, (∀ k w, MapEntry.MapEntry k w ∈ ks → Rel O P N K E T0 S kk k k) →
+      O.same_entries Ps ks xs d ys e = O.same_entries P ks xs d ys e
+  | [], _ => by rw [hB.sound.same_entries, hB.sound.same_entries (P := P)]
+  | .MapEntry k w :: ks, h => by
+    have hkk := h k w List.mem_cons_self
+    rw [hB.sound.same_entries, hB.sound.same_entries (P := P)]
+    simp only []
+    rw [map_get_same hB hk hkk d hxk, map_get_same hB hk hkk e hyk]
+    cases ha : O.map_get P xs k d with
+    | Ok a =>
+      cases hb : O.map_get P ys k e with
+      | Ok b =>
+        simp only []
+        rw [elem_value_eq hB hv (map_get_rel hB.sound hd hxw ha) (map_get_rel hB.sound he hyw hb),
+          same_entries_same hB hk hv hxk hxw hyk hyw hd he
+            (fun k' w' hm => h k' w' (List.mem_cons_of_mem _ hm))]
+      | Stuck => rfl
+      | OutOfFuel => rfl
+    | Stuck => rfl
+    | OutOfFuel => rfl
+
+theorem closed_resolve (hO : O.Sound) {Te t : Ty} (hc : ClosedTy Te t) {tys tys' : List TypeBinding}
+    (h1 : O.resolve_all tys [Te] = [T0]) (h2 : O.resolve_all tys' [Te] = [T0]) :
+    O.resolve tys t = O.resolve tys' t := by
+  rcases hc with rfl | rfl | rfl
+  · simp only [hO.resolve_all, List.cons.injEq, and_true] at h1 h2
+    rw [h1, h2]
+  · rw [hO.resolve, hO.resolve]
+  · rw [hO.resolve, hO.resolve]
+
 /-- Values that relate are equal in the encoded program when they are in the input, which
 compares no functions. -/
 theorem rel_value_eq (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) :
@@ -605,6 +745,14 @@ theorem rel_value_eq (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) :
     | set u ys _ hys =>
       rw [← he, hB.sound.value_eq, hB.sound.value_eq (P := Ps)]
       simp only [subset_same hB hk hys hxs, subset_same hB hk hxs hys]
+  | map kt vt xs d hk hv hks hws hd _ _ _ =>
+    intro b b' hb r he
+    cases hb with
+    | map kt2 vt2 ys e _ _ hks2 hws2 he2 =>
+      rw [← he, hB.sound.value_eq, hB.sound.value_eq (P := Ps)]
+      simp only [elem_value_eq hB hv hd he2,
+        same_entries_same hB hk hv hks hws hks2 hws2 hd he2 hks,
+        same_entries_same hB hk hv hks hws hks2 hws2 hd he2 hks2]
   | elem v hv =>
     intro b b' hb r he
     cases hb with
@@ -1123,6 +1271,24 @@ theorem elems_typed (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) (v : Value) :
   rw [hB.sound.params_have_types, hB.sound.has_type] at h
   simpa [env_types, bind_types, lookup_type, env_bind] using h
 
+theorem map_has_type_mem (hO : O.Sound) {Q : Program} {env : Env} {u t : Ty} :
+    ∀ {xs : List MapEntry}, O.map_has_type Q env xs u t = true →
+      ∀ k w, MapEntry.MapEntry k w ∈ xs → O.has_type Q env k u = true ∧
+        O.has_type Q env w t = true
+  | [], _ => by simp
+  | .MapEntry x v :: xs, h => by
+    rw [hO.map_has_type] at h
+    simp only [Bool.and_eq_true] at h
+    intro k w hm
+    cases List.mem_cons.1 hm with
+    | inl e => cases e; exact h.1
+    | inr e => exact map_has_type_mem hO h.2 k w e
+
+theorem flat_setKind {κ : Kind} : ∀ {t : Ty}, FlatTy t → setKind (pureKind κ t) = true
+  | _, .int => rfl
+  | _, .bool => rfl
+  | .RefinementType _ _ _, .refine h => by simpa [pureKind] using flat_setKind (κ := κ) h
+
 /-- Values of types of `PureTy` relate to themselves. -/
 theorem rel_pure (hO : O.Sound) (hSo : S.Ok) {Q : Program} (hQ : SortsIn S.sorts Q) :
     ∀ (sz : Nat) (v : Value), sizeOf v ≤ sz → ∀ (n : Nat) {B : List Id} {T : Ty}
@@ -1202,6 +1368,31 @@ theorem rel_pure (hO : O.Sound) (hSo : S.Ok) {Q : Program} (hQ : SortsIn S.sorts
               (by simpa [paramTy] using hfs (.Param x t) (by simp)) hC2 hps.1)
             (ih fs _ (fun p hp => hfs p (by simp [hp])) (fun w hw => hsz w (by simp [hw]))
               hps.2)
+    all_goals rw [hO.has_type] at hty; simp at hty
+  | @map t ht hf ih =>
+    intro hC hty
+    cases v
+    case MapV kt vt xs d =>
+      rw [hO.has_type] at hty
+      simp only [Bool.and_eq_true] at hty
+      obtain ⟨hdt, hmt, _⟩ := hty
+      have hsz : sizeOf d < sz ∧ ∀ k w, MapEntry.MapEntry k w ∈ xs → sizeOf w < sz := by
+        simp only [Value.MapV.sizeOf_spec] at hv
+        refine ⟨by omega, fun k w hw => ?_⟩
+        have := List.sizeOf_lt_of_mem hw
+        simp only [MapEntry.MapEntry.sizeOf_spec] at this
+        omega
+      have hent := map_has_type_mem hO hmt
+      simp only [pureKind]
+      exact .map kt vt xs d rfl (flat_setKind hf)
+        (fun k w hm => by
+          have hk := (hent k w hm).1
+          rw [hO.has_type] at hk
+          cases k <;> simp at hk
+          exact .int _)
+        (fun k w hm => ihs (sizeOf w) (hsz.2 k w hm) w (Nat.le_refl _) n vars ht hC
+          (hent k w hm).2)
+        (ihs (sizeOf d) hsz.1 d (Nat.le_refl _) n vars ht hC hdt)
     all_goals rw [hO.has_type] at hty; simp at hty
   | refine ht hp ih =>
     intro hC hty
@@ -2473,6 +2664,86 @@ theorem encodes_eval (hB : Base O Ps P N K E T0 S inv bi eq b1 b2) (hSo : S.Ok)
       · cases hv
         exact ⟨_, n1, fun hu => by bnd hu, .prim _ rfl, fun f hf => by
           simp only [eval, e1 f hf]⟩
+      · cases hv
+    · cases hv
+    · cases hv
+  | mapEmpty hk hv hkt hvt _ ihd =>
+    intro env env' hT hΓ fuel hfn v hv'
+    simp only [eval, eval_map_entries] at hv'
+    split at hv'
+    · next dv hd =>
+      cases hv'
+      obtain ⟨dv', n1, bd1, hR, e1⟩ := ihd env env' hT hΓ fuel hfn dv hd
+      have h1 := rel_set_elem hv hR
+      subst h1
+      rw [closed_resolve hO hkt hT.1 hT.2, closed_resolve hO hvt hT.1 hT.2]
+      exact ⟨_, n1, fun hu => by bnd hu, .map _ _ [] _ hk hv (by simp) (by simp) hR,
+        fun f hf => by simp only [eval, eval_map_entries, e1 f hf]⟩
+    · cases hv'
+    · cases hv'
+  | mapApply _ _ ihm ihk =>
+    intro env env' hT hΓ fuel hfn v hv
+    simp only [eval] at hv
+    split at hv
+    · next mv hm =>
+      split at hv
+      · next kv hk =>
+        obtain ⟨_, n1, bd1, hR1, e1⟩ := ihm env env' hT hΓ fuel hfn mv hm
+        obtain ⟨kv', n2, bd2, hR2, e2⟩ := ihk env env' hT hΓ fuel hfn kv hk
+        cases hR1 with
+        | map kt vt xs d hkk hkv hks hws hd =>
+        have h2 := rel_set_elem hkk hR2
+        subst h2
+        simp only [] at hv
+        rw [map_get_same hB hkk hR2 d hks] at hv
+        exact ⟨_, max n1 n2, fun hu => by bnd hu, map_get_rel hO hd hws hv, fun f hf => by
+          simp only [eval, e1 f (by omega), e2 f (by omega), hv]⟩
+      · cases hv
+      · cases hv
+    · cases hv
+    · cases hv
+  | mapUpdated _ _ _ ihm ihk ihw =>
+    intro env env' hT hΓ fuel hfn v hv
+    simp only [eval] at hv
+    split at hv
+    · next mv hm =>
+      split at hv
+      · next kv hk =>
+        split at hv
+        · next wv hw =>
+          obtain ⟨_, n1, bd1, hR1, e1⟩ := ihm env env' hT hΓ fuel hfn mv hm
+          obtain ⟨kv', n2, bd2, hR2, e2⟩ := ihk env env' hT hΓ fuel hfn kv hk
+          obtain ⟨wv', n3, bd3, hR3, e3⟩ := ihw env env' hT hΓ fuel hfn wv hw
+          cases hR1 with
+          | map kt vt xs d hkk hkv hks hws hd =>
+          have h2 := rel_set_elem hkk hR2
+          subst h2
+          have h3 := rel_set_elem hkv hR3
+          subst h3
+          simp only [] at hv
+          split at hv
+          · next ys hys =>
+            cases hv
+            simp only [map_put] at hys
+            rw [map_remove_same hB hkk hR2 hks] at hys
+            have hsub := map_put_sub (Q := P) (show map_put O P xs _ _ = .Ok ys by
+              simp only [map_put]; exact hys)
+            refine ⟨_, max (max n1 n2) n3, fun hu => by bnd hu,
+              .map kt vt ys d hkk hkv (fun k w hm => ?_) (fun k w hm => ?_) hd,
+              fun f hf => by
+                simp only [eval, e1 f (by omega), e2 f (by omega), e3 f (by omega), map_put,
+                  hys]⟩
+            · rcases hsub _ hm with e | e
+              · cases e; exact hR2
+              · exact hks k w e
+            · rcases hsub _ hm with e | e
+              · cases e; exact hR3
+              · exact hws k w e
+          · cases hv
+          · cases hv
+        · cases hv
+        · cases hv
+      · cases hv
       · cases hv
     · cases hv
     · cases hv

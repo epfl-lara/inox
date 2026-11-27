@@ -36,6 +36,25 @@ theorem sameTy_eq : ∀ {a b : Ty}, sameTy a b = true → a = b
     simp only [sameTy, beq_iff_eq] at h
     rw [h]
 
+/-- Whether two types are the same `ClosedTy` of `Te`. -/
+def closedSame (Te t t' : Ty) : Bool :=
+  (sameTy t Te && sameTy t' Te) ||
+    (match t, t' with
+      | .IntegerType, .IntegerType | .BooleanType, .BooleanType => true
+      | _, _ => false)
+
+theorem closedSame_sound {Te : Ty} {t t' : Ty} (h : closedSame Te t t' = true) :
+    t' = t ∧ ClosedTy Te t := by
+  simp only [closedSame, Bool.or_eq_true, Bool.and_eq_true] at h
+  rcases h with ⟨h1, h2⟩ | h
+  · cases sameTy_eq h1
+    cases sameTy_eq h2
+    exact ⟨rfl, .inl rfl⟩
+  · split at h
+    · exact ⟨rfl, .inr (.inl rfl)⟩
+    · exact ⟨rfl, .inr (.inr rfl)⟩
+    · cases h
+
 /-- The type arguments `tps` are those of a call of an uninterpreted function with a type
 parameter at the elements `Te` (`p`), or none (otherwise). -/
 def tpsCheck (Te : Ty) : Bool → List Ty → Bool
@@ -103,6 +122,7 @@ def tyEq : Ty → Ty → Bool
   | .ADTType s as, .ADTType s' bs => s == s' && tysEq as bs
   | .RefinementType x t p, .RefinementType x' t' p' => x == x' && tyEq t t' && exprEq p p'
   | .FunctionType ts t, .FunctionType ts' t' => tysEq ts ts' && tyEq t t'
+  | .MapType k v, .MapType k' v' => tyEq k k' && tyEq v v'
   | _, _ => false
 def tysEq : List Ty → List Ty → Bool
   | [], [] => true
@@ -139,6 +159,9 @@ theorem tyEq_eq : ∀ {a b : Ty}, tyEq a b = true → a = b
   | .FunctionType ts t, .FunctionType ts' t', h => by
     simp only [tyEq, Bool.and_eq_true] at h
     rw [tysEq_eq h.1, tyEq_eq h.2]
+  | .MapType k v, .MapType k' v', h => by
+    simp only [tyEq, Bool.and_eq_true] at h
+    rw [tyEq_eq h.1, tyEq_eq h.2]
 theorem tysEq_eq : ∀ {a b : List Ty}, tysEq a b = true → a = b
   | [], [], _ => rfl
   | t :: ts, t' :: ts', h => by
@@ -198,6 +221,17 @@ theorem pureExprCheck_sound {x : Id} : ∀ {e : Expr}, pureExprCheck x e = true 
     simp only [pureExprCheck] at h
     exact .not (pureExprCheck_sound h)
 
+/-- Whether a type is of `FlatTy`. -/
+def flatCheck : Ty → Bool
+  | .IntegerType | .BooleanType => true
+  | .RefinementType _ t _ => flatCheck t
+  | _ => false
+
+theorem flatCheck_sound : ∀ {t : Ty}, flatCheck t = true → FlatTy t
+  | .IntegerType, _ => .int
+  | .BooleanType, _ => .bool
+  | .RefinementType _ t _, h => .refine (flatCheck_sound (by simpa [flatCheck] using h))
+
 mutual
 /-- Whether a type is of `PureTy`, with the type parameters `B`. -/
 def pureCheck (S : CSig) (B : List Id) : Ty → Bool
@@ -208,6 +242,7 @@ def pureCheck (S : CSig) (B : List Id) : Ty → Bool
       | some (tps, _) => args.length == tps.length
       | none => false) && pureChecks S B args
   | .RefinementType x t p => pureCheck S B t && pureExprCheck x p
+  | .MapType .IntegerType t => pureCheck S B t && flatCheck t
   | _ => false
 def pureChecks (S : CSig) (B : List Id) : List Ty → Bool
   | [] => true
@@ -231,6 +266,9 @@ theorem pureCheck_sound {S : CSig} {B : List Id} :
   | .RefinementType x t p, h => by
     simp only [pureCheck, Bool.and_eq_true] at h
     exact .refine (pureCheck_sound h.1) (pureExprCheck_sound h.2)
+  | .MapType .IntegerType t, h => by
+    simp only [pureCheck, Bool.and_eq_true] at h
+    exact .map (pureCheck_sound h.1) (flatCheck_sound h.2)
 termination_by t _ => sizeOf t
 decreasing_by all_goals simp_wf; all_goals omega
 theorem pureChecks_sound {S : CSig} {B : List Id} :
@@ -601,6 +639,14 @@ def encodesCheck (N : Names) (S : CSig) (Te : Ty) (g : List (Id × Kind) → Exp
     encodesCheck N S Te g Γ a a' (.set k) u && encodesCheck N S Te g Γ b b' (.set k) u
   | Γ, .SetDifference a b, .SetDifference a' b', .set k, u =>
     encodesCheck N S Te g Γ a a' (.set k) u && encodesCheck N S Te g Γ b b' (.set k) u
+  | Γ, .FiniteMap [] d kt vt, .FiniteMap [] d' kt' vt', .map kk kv, u =>
+    closedSame Te kt kt' && closedSame Te vt vt' && setKind kk && setKind kv &&
+      encodesCheck N S Te g Γ d d' kv u
+  | Γ, .MapApply m k, .MapApply m' k', kv, u =>
+    encodesCheck N S Te g Γ m m' (.map (g Γ k) kv) u && encodesCheck N S Te g Γ k k' (g Γ k) u
+  | Γ, .MapUpdated m k w, .MapUpdated m' k' w', .map kk kv, u =>
+    encodesCheck N S Te g Γ m m' (.map kk kv) u && encodesCheck N S Te g Γ k k' kk u &&
+      encodesCheck N S Te g Γ w w' kv u
   | _, _, _, _, _ => false
 termination_by _ e => sizeOf e
 decreasing_by
@@ -834,6 +880,18 @@ theorem encodesCheck_sound {N : Names} {S : CSig} {Te : Ty}
   · next iha ihb =>
     simp only [Bool.and_eq_true] at h
     exact .setDiff (iha h.1) (ihb h.2)
+  · next ihd =>
+    simp only [Bool.and_eq_true] at h
+    obtain ⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩ := h
+    obtain ⟨rfl, c1⟩ := closedSame_sound h1
+    obtain ⟨rfl, c2⟩ := closedSame_sound h2
+    exact .mapEmpty h3 h4 c1 c2 (ihd h5)
+  · next ihm ihk =>
+    simp only [Bool.and_eq_true] at h
+    exact .mapApply (ihm h.1) (ihk h.2)
+  · next ihm ihk ihw =>
+    simp only [Bool.and_eq_true] at h
+    exact .mapUpdated (ihm h.1.1) (ihk h.1.2) (ihw h.2)
   · cases h
 
 /-! ## Reading the input -/
@@ -897,6 +955,10 @@ def kindOfSort (c : Ctx) : Nat → Sexp → Except String Kind
       let k ← kindOfSort c n x
       if setKind k then pure (.set k) else .error "a set of other than elements"
     | .expr (.atom "Tuple" :: xs) => do pure (.tuple (← xs.mapM (kindOfSort c n)))
+    | .expr [.atom "Array", k, v] => do
+      let a ← kindOfSort c n k
+      let b ← kindOfSort c n v
+      if setKind a && setKind b then pure (.map a b) else .error "a map of other than elements"
     -- the kind of a refinement is that of its base
     | .expr (.atom "!" :: base :: _) => kindOfSort c n base
     | .expr (.atom "->" :: xs) => do
@@ -916,6 +978,7 @@ def kindOfSort (c : Ctx) : Nat → Sexp → Except String Kind
 /-- The type that a sort is read as, where the checks compare types: `Int` and the atoms. -/
 def readTy : Sexp → Ty
   | .atom "Int" => .IntegerType
+  | .atom "Bool" => .BooleanType
   | .atom a => .TypeParameter a
   | _ => .UnitType
 
@@ -930,6 +993,7 @@ def kindTy (elem : Id) : Kind → Ty
   | .tuple ks => .TupleType (kindTys elem ks)
   | .fn ks k => .FunctionType (kindTys elem ks) (kindTy elem k)
   | .set k => .SetType (kindTy elem k)
+  | .map k v => .MapType (kindTy elem k) (kindTy elem v)
   | .prim | .app _ _ | .param _ => .UnitType
 def kindTys (elem : Id) : List Kind → List Ty
   | [] => []
@@ -945,6 +1009,7 @@ partial def tyKind : Ty → Kind
   | .TupleType ts => .tuple (ts.map tyKind)
   | .FunctionType ts t => .fn (ts.map tyKind) (tyKind t)
   | .SetType t => .set (tyKind t)
+  | .MapType k v => .map (tyKind k) (tyKind v)
   | _ => .elem
 
 /-- The predicate of a refinement, of `PureExpr`. -/
@@ -982,6 +1047,8 @@ def readSortTy (c : Ctx) (B : List String) : Nat → Sexp → Option Ty
       else none
     | .expr [.atom "!", base, .atom ":var", .atom y, .atom ":restrict", p] => do
       pure (.RefinementType y (← readSortTy c B n base) (← readPure 100 p))
+    | .expr [.atom "Array", k, v] => do
+      pure (.MapType (← readSortTy c B n k) (← readSortTy c B n v))
     | .expr (.atom a :: args) =>
       if c.table.kind a == "sort" then do
         pure (.ADTType (c.table.id a) (← args.mapM (readSortTy c B n)))
@@ -1034,6 +1101,11 @@ def readExpr (c : Ctx) : Nat → Sexp → Except String Expr
       pure (.Division (← readExpr c n a) (← readExpr c n b))
     | .expr [.atom "!", e, .atom ":unsigned"] => do pure (.BVSignedToUnsigned (← readExpr c n e))
     | .expr [.atom "!", e, .atom ":signed"] => do pure (.BVUnsignedToSigned (← readExpr c n e))
+    | .expr [.expr [.atom "as", .atom "const", .expr [.atom "Array", k, v]], d] => do
+      pure (.FiniteMap [] (← readExpr c n d) (readTy k) (readTy v))
+    | .expr [.atom "select", m, k] => do pure (.MapApply (← readExpr c n m) (← readExpr c n k))
+    | .expr [.atom "store", m, k, w] => do
+      pure (.MapUpdated (← readExpr c n m) (← readExpr c n k) (← readExpr c n w))
     | .expr [.atom "insert", a, e] => do pure (.SetAdd (← readExpr c n a) (← readExpr c n e))
     | .expr [.atom "member", e, a] => do
       pure (.ElementOfSet (← readExpr c n e) (← readExpr c n a))
@@ -1140,6 +1212,9 @@ partial def kindOf (S : CSig) (Γ : List (Id × Kind)) : Expr → Kind
   | .FractionLiteral _ _ | .BVLiteral _ _ _ | .BVUnsignedToSigned _ | .BVSignedToUnsigned _ =>
     .prim
   | .Division a _ => kindOf S Γ a
+  | .FiniteMap _ _ kt vt => .map (tyKind kt) (tyKind vt)
+  | .MapApply m _ => match kindOf S Γ m with | .map _ v => v | _ => .int
+  | .MapUpdated m _ _ => kindOf S Γ m
   | .SetAdd a _ | .SetUnion a _ | .SetIntersection a _ | .SetDifference a _ => kindOf S Γ a
   | .FiniteBag _ _ | .BagAdd _ _ | .BagUnion _ _ | .BagDifference _ _
   | .BagIntersection _ _ => .bag

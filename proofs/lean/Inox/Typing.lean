@@ -4,10 +4,11 @@ import Inox.Semantics
 /-!
 # Types whose values are the same in two programs
 
-The values of a type of integers, booleans, sorts and refinements of these by predicates on
-integers and booleans are typed in a program by the definitions of its sorts and the meaning
-of the predicates alone. Two programs that define these sorts alike type their values alike
-(`has_type_same`), whatever else they define and whatever the values of the variables.
+The values of a type of integers, booleans, sorts, maps from integers to integers or booleans,
+and refinements of these by predicates on integers and booleans are typed in a program by the
+definitions of its sorts and the meaning of the predicates alone. Two programs that define these
+sorts alike type their values alike (`has_type_same`), whatever else they define and whatever the
+values of the variables.
 -/
 
 namespace Inox.Typing
@@ -52,8 +53,15 @@ abbrev Sorts := Id → Option (List Id × List (Id × List Param))
 def paramTy : Param → Ty
   | .Param _ t => t
 
+/-- The types of integers, booleans and refinements of these. -/
+inductive FlatTy : Ty → Prop where
+  | int : FlatTy .IntegerType
+  | bool : FlatTy .BooleanType
+  | refine {x : Id} {t : Ty} {p : Expr} (ht : FlatTy t) : FlatTy (.RefinementType x t p)
+
 /-- The types of integers, booleans, the type parameters `B`, sorts of `D` with arguments of
-these that satisfy `ok`, and refinements of these by predicates on integers and booleans. -/
+these that satisfy `ok`, maps from integers to integers or booleans, and refinements of these
+by predicates on integers and booleans. -/
 inductive PureTy (D : Sorts) (ok : Ty → Prop) : List Id → Ty → Prop where
   | int (B : List Id) : PureTy D ok B .IntegerType
   | bool (B : List Id) : PureTy D ok B .BooleanType
@@ -64,6 +72,8 @@ inductive PureTy (D : Sorts) (ok : Ty → Prop) : List Id → Ty → Prop where
       (hok : ∀ t ∈ args, ok t) : PureTy D ok B (.ADTType s args)
   | refine {B : List Id} {x : Id} {t : Ty} {p : Expr} (ht : PureTy D ok B t)
       (hp : PureExpr x p) : PureTy D ok B (.RefinementType x t p)
+  | map {B : List Id} {t : Ty} (ht : PureTy D ok B t) (hf : FlatTy t) :
+      PureTy D ok B (.MapType .IntegerType t)
 
 /-- The fields of the sorts are of these types, of their type parameters. -/
 def SortsWF (D : Sorts) (ok : Ty → Prop) : Prop :=
@@ -146,6 +156,11 @@ theorem resolve_same (hO : O.Sound) {D : Sorts} {ok : Ty → Prop} :
     intro hC
     rw [hO.resolve, hO.resolve]
     simp only [ih hC]
+  | map _ _ ih =>
+    intro hC
+    have hi : ∀ e, O.resolve e .IntegerType = .IntegerType := fun e => by rw [hO.resolve]
+    rw [hO.resolve, hO.resolve]
+    simp only [ih hC, hi]
 
 theorem mem_of_lookup' {β : Type} : ∀ {l : List (Id × β)} {c : Id} {v : β},
     l.lookup c = some v → (c, v) ∈ l
@@ -205,6 +220,42 @@ theorem has_type_adt (hO : O.Sound) {D : Sorts} {Q : Program} (hQ : SortsIn D Q)
       · simp [hc, hsort, hss]
     | Stuck => simp [hc]
     | OutOfFuel => simp [hc]
+
+/-- Lists of integers have distinct values in any program alike. -/
+theorem distinct_ints (hO : O.Sound) {Q Q' : Program} :
+    ∀ {ks : List Value}, (∀ k ∈ ks, ∃ n, k = .IntV n) →
+      distinct_values O Q ks = distinct_values O Q' ks
+  | [], _ => by simp [distinct_values]
+  | k :: ks, h => by
+    have hc : ∀ (rest : List Value), (∀ k ∈ rest, ∃ n, k = .IntV n) → ∀ n,
+        O.set_contains Q rest (.IntV n) = O.set_contains Q' rest (.IntV n) := by
+      intro rest hr n
+      induction rest with
+      | nil => rw [hO.set_contains, hO.set_contains]
+      | cons x rest ih =>
+        obtain ⟨m, rfl⟩ := hr x List.mem_cons_self
+        rw [hO.set_contains, hO.set_contains (P := Q')]
+        simp only [hO.value_eq, ih (fun k hk => hr k (List.mem_cons_of_mem _ hk))]
+    obtain ⟨n, rfl⟩ := h k List.mem_cons_self
+    have hks : ∀ k ∈ ks, ∃ n, k = .IntV n := fun k hk => h k (List.mem_cons_of_mem _ hk)
+    simp only [distinct_values]
+    rw [hc ks hks n, distinct_ints hO hks]
+
+theorem map_keys_int (hO : O.Sound) {Q : Program} {env : Env} {t : Ty} :
+    ∀ {xs : List MapEntry}, O.map_has_type Q env xs .IntegerType t = true →
+      ∀ k ∈ map_keys xs, ∃ n, k = .IntV n
+  | [], _ => by simp [map_keys]
+  | .MapEntry k v :: xs, h => by
+    rw [hO.map_has_type] at h
+    simp only [Bool.and_eq_true] at h
+    obtain ⟨⟨hk, _⟩, hr⟩ := h
+    intro w hw
+    simp only [map_keys, List.mem_cons] at hw
+    rcases hw with rfl | hw
+    · rw [hO.has_type] at hk
+      cases w <;> simp at hk
+      exact ⟨_, rfl⟩
+    · exact map_keys_int hO hr w hw
 
 /-- Values of types of `PureTy` are typed alike in two programs that define the sorts alike,
 where the type parameters are bound alike, whatever the values of the variables. -/
@@ -283,6 +334,36 @@ theorem has_type_same (hO : O.Sound) {D : Sorts} {ok : Ty → Prop} {Ps P : Prog
         exact ⟨fs, h1, hres ▸ h2, (hfields fs h1) ▸ h3⟩
       · rintro ⟨fs, h1, h2, h3⟩
         exact ⟨fs, h1, hres ▸ h2, (hfields fs h1) ▸ h3⟩
+    all_goals rw [hO.has_type, hO.has_type]
+  | @map t ht hf ih =>
+    intro hC
+    cases v
+    case MapV kt vt xs d =>
+      have hsz : sizeOf d < sz ∧ ∀ k w, MapEntry.MapEntry k w ∈ xs → sizeOf w < sz := by
+        simp only [Value.MapV.sizeOf_spec] at hv
+        refine ⟨by omega, fun k w hw => ?_⟩
+        have := List.sizeOf_lt_of_mem hw
+        simp only [MapEntry.MapEntry.sizeOf_spec] at this
+        omega
+      have hd := ihs (sizeOf d) hsz.1 d (Nat.le_refl _) n vars vars' ht hC
+      have hm : ∀ ys : List MapEntry, (∀ k w, MapEntry.MapEntry k w ∈ ys → sizeOf w < sz) →
+          O.map_has_type Ps (.Env tenv vars) ys .IntegerType t =
+            O.map_has_type P (.Env tenv' vars') ys .IntegerType t := by
+        intro ys hys
+        induction ys with
+        | nil => rw [hO.map_has_type, hO.map_has_type]
+        | cons e ys ihy =>
+          cases e with
+          | MapEntry k w =>
+          rw [hO.map_has_type, hO.map_has_type (P := P)]
+          simp only [hO.has_type (t := .IntegerType),
+            ihs (sizeOf w) (hys k w (by simp)) w (Nat.le_refl _) n vars vars' ht hC,
+            ihy (fun k w hw => hys k w (by simp [hw]))]
+      rw [hO.has_type, hO.has_type (P := P)]
+      simp only [hd, hm xs hsz.2]
+      cases hmt : O.map_has_type P (.Env tenv' vars') xs .IntegerType t
+      · simp
+      · simp only [Bool.true_and, distinct_ints hO (Q := Ps) (Q' := P) (map_keys_int hO hmt)]
     all_goals rw [hO.has_type, hO.has_type]
   | @refine x t p ht hp ih =>
     intro hC
