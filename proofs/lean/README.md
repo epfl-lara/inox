@@ -1074,6 +1074,22 @@ without type parameters and sets. Not translated: unit, `Let`, `Error`,
 `Division`, `Remainder`, `Modulo`, type arguments, closures, `Forall` and
 `UninterpretedCall`.
 
+A certificate whose program has type parameters or `let`s is in the fragment
+all the same, because the program that the theorem is about is the one read
+from the terms of the certificate, where neither is left. Inox's session is
+monomorphic: each instance of a sort or of a function at given type arguments
+has a symbol of its own, `size!0` for `size` of lists of Booleans and `size!1`
+for that of lists of integers, and the lowering of a template's source
+(`Inox/Lowering.lean`) instantiates the definition at the type arguments of its
+call. So the program of the theorem has one datatype for each instance of a
+sort and one function for each instance of a function, none of them with type
+parameters. A `let` of a source is a `let` of SMT-LIB, which Logos reads as its
+body with the bound term in place of the variable, and that is the expression
+that `back` reads. The checks were run on certificates made for this, of
+functions over lists and pairs at one and at several instances, at nested ones,
+and of functions with `let`s, around a recursive call too: the theorem holds of
+all of them.
+
 **What would make the generated Lean easier to prove things about.** The
 generated `match`es on `Result` (one auxiliary matcher per site) defeat generic
 lemmas about binding, so each proof splits them by hand (the `ok_split` macro);
