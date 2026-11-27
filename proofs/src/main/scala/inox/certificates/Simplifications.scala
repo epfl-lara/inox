@@ -260,6 +260,10 @@ object Simplifications {
     val selectors = scala.collection.mutable.Map[String, (String, Int)]()
     /** The datatypes, by name: their parameters, and the sorts of the fields of each constructor. */
     val datatypes = scala.collection.mutable.Map[String, (List[String], List[List[SExpr]])]()
+    /** The invariants of the datatypes: the variable that stands for a value, and what holds of it. */
+    val invariants = scala.collection.mutable.Map[String, (String, SExpr)]()
+    /** The datatype of each constructor. */
+    val datatypeOf = scala.collection.mutable.Map[String, String]()
     /** The uninterpreted functions and the constants that the program declares. */
     val declared = scala.collection.mutable.Set[String]()
 
@@ -291,12 +295,36 @@ object Simplifications {
       }
       case SList(List(Atom("declare-datatype"), Atom(d), SList(cs))) => datatype(cs); declare(d, Nil, cs)
       case SList(Atom("declare-fun" | "declare-const") :: Atom(f) :: _) => declared += f
+      case SList(List(Atom("datatype-invariant"), Atom(x), Applied(d, _), pred)) => invariants(d) = (x, pred)
+      case SList(List(Atom("datatype-invariant"), SList(List(Atom("par"), _, Atom(x), Applied(d, _), pred)))) => invariants(d) = (x, pred)
       case SList(List(Atom("declare-fun" | "declare-const"), SList(List(Atom("par"), _, SList(Atom(f) :: _))))) => declared += f
       case _ =>
     }
 
-    private def declare(d: String, params: List[String], cs: List[SExpr]): Unit =
+    private def declare(d: String, params: List[String], cs: List[SExpr]): Unit = {
       datatypes(d) = (params, cs.collect { case SList(Atom(_) :: fields) => fields.collect { case SList(List(_, s)) => s } })
+      for (case SList(Atom(c) :: _) <- cs) datatypeOf(c) = d
+    }
+
+    /** What the invariant of the sort of the construction `t` states of it, if it has one: the
+      * invariant of the construction, whose tests are known and whose selections are its fields. */
+    def invariant(t: SExpr): Option[SExpr] = construction(t).flatMap { (cons, _) =>
+      datatypeOf.get(cons).flatMap(invariants.get).flatMap((x, pred) => of(t, x, pred))
+    }
+
+    /** What `pred` states of the construction `t` as `x`, where `t` has a value: its tests are
+      * known, and its selections are its fields. */
+    def of(t: SExpr, x: String, pred: SExpr): Option[SExpr] = construction(t).map { (cons, fields) =>
+      def reduce(e: SExpr): SExpr = e match {
+        case SList(items) => SList(items.map(reduce)) match {
+          case Tester(c, `t`) if constructors.contains(c) => Atom((c == cons).toString)
+          case Applied(sel, List(`t`)) if selectors.get(sel).exists(_._1 == cons) => fields(selectors(sel)._2)
+          case r => r
+        }
+        case a => a
+      }
+      reduce(subst(pred, Map(x -> t)))
+    }
 
     /** Whether the sort `s` has values, as far as the checker can tell: it doesn't decide the
       * sorts with a refinement, nor the sort parameters, which may stand for sorts without values. */
@@ -758,11 +786,21 @@ object Simplifications {
             symbol(x)
             if (named(a) != ta || named(b) != tb) fail(s"$n is not the equality $t")
           case _ => assumed(n) match {
-            // A construction under what its sort needs of it. The certificate doesn't have the
-            // invariants of sorts: the assumption is checked when it is closed and holds, and
-            // reported otherwise.
+            // A construction under what its sort needs of it: the invariant of the sort, or an
+            // assumption that is closed and holds. It is reported otherwise.
             case (List(p), c) if named(c) == t && original.construction(t).nonEmpty =>
-              original.evaluation.same(named(p), Atom("true")) match {
+              // the construction has a value when the invariant of its sort holds of it
+              // which the assumption states, or a function of the same body applied to it
+              val stated = named(p) match {
+                case Applied(f, List(`t`)) if original.functions.get(f).exists(_.params.size == 1) =>
+                  val Function(List(y), _, body) = original.functions(f): @unchecked
+                  original.of(t, y, body).toList :+ named(p)
+                case np => List(np)
+              }
+              val invariant = original.invariant(t).exists { q =>
+                stated.exists(r => try new Logic(original, Nil).check(q, r).isEmpty catch { case _: Failure => false })
+              }
+              if (!invariant) original.evaluation.same(named(p), Atom("true")) match {
                 case Some(true) =>
                 case Some(false) => fail(s"$t doesn't satisfy $p")
                 case None => unexplained += s"the expression of template $i has the construction $t under the assumption $p, which is not checked"

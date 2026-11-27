@@ -121,7 +121,7 @@ object Certificates {
     * (<symbol of the session> <kind> "<identifier, type or index>" ... [<sort>])
     * ...)
     * (source-definitions
-    * <the declarations of the datatypes and the definitions of the functions of the sources>
+    * <the declarations of the datatypes, with their invariants, and the definitions of the functions of the sources>
     * )
     * (source-symbols
     * (<symbol of the sources> <kind> "<identifier, type or index>" ... [<sort>])

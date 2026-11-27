@@ -17,7 +17,11 @@ class SimplificationsSuite extends AnyFunSuite {
       |(define-fun-rec len ((l List)) Int (ite ((_ is Cons) l) (+ 1 (len (tail l))) 0))
       |(define-fun twice ((y Int)) Int (double y))
       |(define-fun double ((y Int)) Int (+ y y))
-      |(define-fun-rec loop ((y Int)) Int (loop y))""".stripMargin)
+      |(define-fun-rec loop ((y Int)) Int (loop y))
+      |(declare-datatypes ((Pos 0)) (((pos (pv Int)))))
+      |(datatype-invariant q Pos (positive (pv q)))
+      |(define-fun positive ((y Int)) Bool (> y 0))
+      |(define-fun inv ((r Pos)) Bool (positive (pv r)))""".stripMargin)
 
   /** Checks that `steps` rewrite `original` into the expression `simplified`. */
   def check(original: String, simplified: String, steps: String, equality: String = "none"): Either[String, List[String]] =
@@ -320,5 +324,21 @@ class SimplificationsSuite extends AnyFunSuite {
     assert(name("(> (len l) 0)").exists(_.size == 1))
     // and the assumption is around the construction that it names
     assert(named(s"(= l $cons)", "(= l (assume true Nil))", s"((assume true Nil) $cons)").isLeft)
+  }
+
+  test("A construction is named under the invariant of its sort") {
+    def name(invariant: String) = named("(= u (pos x))", s"(= u (assume $invariant (pos x)))", s"((assume $invariant (pos x)) (pos x))")
+    // as the sort states it of the construction, whose selections are its fields
+    assert(name("(positive x)") == Right(Nil))
+    // or as a function of the same body does
+    assert(name("(inv (pos x))") == Right(Nil))
+    // another assumption is reported
+    assert(name("(> x 5)").exists(_.size == 1))
+    assert(name("(positive y)").exists(_.size == 1))
+  }
+
+  test("An evaluation of a construction is that of the invariant of its sort") {
+    holds("(= x (pv (pos 1)))", "(= x 1)", "(steps (evaluate (2) 1))")
+    reported("(= x (pv (pos 0)))", "(= x 0)", "(steps (evaluate (2) 0))")
   }
 }

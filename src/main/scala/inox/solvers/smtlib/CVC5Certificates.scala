@@ -251,7 +251,8 @@ trait CVC5Certificates extends CVC5Solver with SymbolRefs with certificates.Cert
       cmd match {
         case _: DefineFun | _: DefineFunRec | _: DefineFunPar | _: DefineFunRecPar | _: DefineFunsRec | _: DefineFunsRecPar |
              _: DeclareDatatypes | _: DeclareDatatypesPar | _: inox.smtlib3.Commands.DeclareDatatypesWithPars |
-             _: DeclareSort | _: DeclareFun | _: DeclareFunPar | _: DeclareConst | _: DeclareConstPar => kept += cmd
+             _: DeclareSort | _: DeclareFun | _: DeclareFunPar | _: DeclareConst | _: DeclareConstPar |
+             _: inox.tip.Commands.DatatypeInvariant | _: inox.tip.Commands.DatatypeInvariantPar => kept += cmd
         case _ =>
       }
       super.emit(cmd, rawOut)
@@ -262,10 +263,27 @@ trait CVC5Certificates extends CVC5Solver with SymbolRefs with certificates.Cert
       (es.map(termText(_, bindings)), sourceSymbols)
     }
 
-    def declarations: Seq[certificates.SExpr] = kept.toSeq.map { d =>
-      val writer = new java.io.StringWriter
-      printingContext(writer).output(d)
-      proofSExpr(writer.toString, sourceSymbols)
+    private val invariants = scala.collection.mutable.Set[Identifier]()
+
+    /** Declares the invariants of the sorts that are declared, which only a script declares
+      * otherwise, until none declares another sort. */
+    private def declareInvariants(): Unit = {
+      import program.symbols.given
+      val sorts = adtManager.types.collect { case adt: ADTType => adt.getSort.definition }
+        .toSeq.distinct.sortBy(_.id.globalId).filter(sort => sort.invariant.nonEmpty && invariants.add(sort.id))
+      if (sorts.nonEmpty) {
+        declaring(declareSortProperties(sorts))
+        declareInvariants()
+      }
+    }
+
+    def declarations: Seq[certificates.SExpr] = {
+      declareInvariants()
+      kept.toSeq.map { d =>
+        val writer = new java.io.StringWriter
+        printingContext(writer).output(d)
+        proofSExpr(writer.toString, sourceSymbols)
+      }
     }
 
     private val sorted = new certificates.Certificates.DistinctSorts[Type](_.asString(using PrinterOptions()))
