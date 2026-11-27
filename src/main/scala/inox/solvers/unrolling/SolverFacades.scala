@@ -71,8 +71,8 @@ trait SolverFacades { self: Templates =>
     /** @see [[WitnessTemplates.equatedLambdas]] */
     def equatedLambdas(holds: Encoded => Boolean): Seq[LambdaPair] = self.equatedLambdas(holds)
 
-    /** @see [[WitnessTemplates.undecidedLambdas]] */
-    def undecidedLambdas: Seq[LambdaPair] = self.undecidedLambdas
+    /** @see [[WitnessTemplates.nextRound]] */
+    def nextRound(): Seq[LambdaPair] = self.nextRound()
 
     /** @see [[WitnessTemplates.lambdaComparison]] */
     def comparison(p: LambdaPair): (Encoded, Seq[Encoded], Clauses) = self.lambdaComparison(p)
@@ -80,11 +80,20 @@ trait SolverFacades { self: Templates =>
     /** The argument types of the lambdas of `p`. */
     def argumentTypes(p: LambdaPair): Seq[Type] = p.t1.tpe.from
 
+    /** @see [[WitnessTemplates.lambdaCaptures]] */
+    def captures(p: LambdaPair): Seq[(Encoded, Type)] = self.lambdaCaptures(p)
+
+    /** @see [[WitnessTemplates.fixCaptures]] */
+    def fixCaptures(captures: Seq[Encoded], values: Seq[Expr]): (Encoded, Clauses) = self.fixCaptures(captures, values)
+
     /** @see [[WitnessTemplates.markEqualLambdas]] */
     def markEqual(p: LambdaPair): Unit = self.markEqualLambdas(p)
 
-    /** @see [[WitnessTemplates.distinguishLambdas]] */
-    def distinguish(p: LambdaPair): Clauses = self.distinguishLambdas(Seq(p))
+    /** @see [[WitnessTemplates.keepApart]] */
+    def keepApart(p: LambdaPair): Clauses = self.keepApart(p)
+
+    /** @see [[WitnessTemplates.wasProbed]] */
+    def wasProbed(p: LambdaPair): Boolean = self.wasProbed(p)
 
     /** @see [[WitnessTemplates.probeLambdas]] */
     def probe(p: LambdaPair, args: Seq[Expr]): Clauses = self.probeLambdas(p, args)

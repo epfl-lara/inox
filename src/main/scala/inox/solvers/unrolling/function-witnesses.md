@@ -470,17 +470,24 @@ fresh literal `k_p`, `c_p` holds, `w̄` lies in the parameter types, and the bod
 - If the check under the refutation assumptions and `k_p` is UNSAT, no solution has the bodies differ
   on any input where `c_p` holds, by Theorem A. The lambdas are extensionally equal, and the models
   may keep them equal.
-- Otherwise, the model checks from then on assume a literal `n_p` with `n_p ∧ c_p ⇒ λ1 ≄ λ2` (or
-  the closures are equal), which keeps them apart (`WitnessTemplates.lambdaDistinctions`). If the
-  check under the satisfaction assumptions and `k_p` gives a model, the lambdas are also applied to
-  its value `ā` of `w̄` under `c_p` (`Templates.instantiateProbe`): equal functions have the same
-  applications, which the bodies define, so refutations can then use that they differ on `ā`.
-  This refutes `(λz. z = 0) = (λz. z = 1)`.
-- If neither check decides, the comparison is tried again after each unrolling.
+- Otherwise, if the check also assumes a literal `x_M` under which the captured values have their
+  values in `M` (those without functions, whose encodings in `M` aren't values) and is UNSAT, the
+  bodies agree on every input with these captures, and `M` may keep the lambdas equal.
+- Otherwise, the check under the satisfaction assumptions, `k_p` and `x_M` gives an input `ā` on
+  which the bodies differ with the captures of `M`, and the lambdas are applied to it under `c_p`
+  (`Templates.instantiateProbe`): equal functions have the same applications, which the bodies
+  define, so the next models can't keep them equal with the same captures, and refutations can use
+  that they differ on `ā`. This refutes `(λz. z = 0) = (λz. z = 1)`, and finds `c = 1` in
+  `(λz. z + c = 1) ∈ {λz. z = 0}`.
+- A pair is only applied to one such input per unrolling, so that each model search terminates. When
+  a later model of the same search makes it equal again (or no input without lambdas is found), the
+  model checks assume a literal `n_p` with `n_p ∧ c_p ⇒ λ1 ≄ λ2` (or the closures are equal) until
+  the next unrolling, which keeps them apart (`WitnessTemplates.lambdaDistinctions`). The unrolling
+  then tries the first check again, and the models may make them equal again.
 
-The `k_p` and `n_p` only occur in antecedents and are never assumed by refutations of the query,
-so they are inert there as the `e_p` are (Lemma W1). The `n_p` are handled like `Ei`: R1 and R2
-apply to the checks under them. A query that is only satisfiable with lambdas equal whose
+The `k_p`, `x_M` and `n_p` only occur in antecedents and are never assumed by refutations of the
+query, so they are inert there as the `e_p` are (Lemma W1). The `n_p` are handled like `Ei`: R1 and
+R2 apply to the checks under them. A query that is only satisfiable with lambdas equal whose
 comparison stays undecided isn't answered.
 
 Instantiating lambda witnesses eagerly, with each new lambda, doesn't terminate. A witness can
