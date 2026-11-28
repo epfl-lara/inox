@@ -53,6 +53,8 @@ inductive OfTy (cs : List Constructor) : Ty → Value → Prop where
   | adt {c s : Id} {fs : List Param} {vs : List Value}
       (hc : lookup_ctor cs c = .Ok (.Constructor c s fs)) (hvs : OfTys cs fs vs) :
       OfTy cs (.ADTType s []) (.ADTV c [] vs)
+  | bv {s : Bool} {w x : Int} (h : 0 < w ∧ 0 ≤ x ∧ x < 2 ^ w.toNat) :
+      OfTy cs (.BVType s w) (.BVV s w x)
 /-- The values `vs` are of the types of the fields `fs`, position by position. -/
 inductive OfTys (cs : List Constructor) : List Param → List Value → Prop where
   | nil : OfTys cs [] []
@@ -2290,6 +2292,7 @@ theorem typed_refl (hO : O.Sound) (hEq : ∀ c, sort_equality P c = none)
   | _, _, .int _ => by rw [hO.value_eq]; simp
   | _, _, .bool _ => by rw [hO.value_eq]; simp
   | _, _, .real _ => by rw [hO.value_eq]; simp
+  | _, _, .bv _ => by rw [hO.value_eq]; simp
   | _, _, .adt _ hvs => by
     rw [hO.value_eq]
     simp only [hEq, dite_true]
@@ -2469,6 +2472,7 @@ theorem etaCheck_refines (hO : O.Sound) {fns : List FunDef} {cs : List Construct
           | int _ => simp at hw0
           | bool _ => simp at hw0
           | real _ => simp at hw0
+          | bv _ => simp at hw0
           | @adt c0 s0 fs0 vs0 hc0 hvs0 =>
             simp only [ctorsOf] at hc0
             simp only [hc0] at hw0

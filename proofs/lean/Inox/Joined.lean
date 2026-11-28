@@ -16,10 +16,11 @@ the names of their symbols, which the check matches (`linkCheck`). Then no value
 variables of the input make all its constraints evaluate to `true` in its program
 (`no_input_solution`).
 
-The input is read where it is first-order, with datatypes without type parameters nor
-invariants, and its variables are integers, booleans, reals or values of datatypes, of their
+The input is read where it is first-order, with datatypes without type parameters, and its
+variables are integers, booleans, reals, signed bit-vectors or values of datatypes, of their
 types (`InputSolution`). The variables that the query of Logos has are of primitive types: one of
-a datatype is only in constraints whose simplifications remove it.
+a datatype is only in constraints whose simplifications remove it, and one of a signed
+bit-vector is unsigned in the query, whose signed view is the variable of the input.
 -/
 
 namespace Inox.Joined
@@ -36,23 +37,37 @@ def primTy : Sexp → Option Ty
   | .atom "Int" => some .IntegerType
   | .atom "Bool" => some .BooleanType
   | .atom "Real" => some .RealType
+  | .expr [.atom "_", .atom "BitVec", .atom n] =>
+    if !n.isEmpty && n.all Char.isDigit && n.toNat! > 0 then some (.BVType true n.toNat!)
+    else none
   | _ => none
 
-/-- The types that are read. -/
+/-- The types that are read: bit-vectors are signed, as Inox reads them by default. -/
 def isPrimTy : Ty → Bool
   | .IntegerType | .BooleanType | .RealType => true
+  | .BVType s _ => s
   | _ => false
 
-/-- The equality of the types that are read. -/
+/-- The type of a variable of the query is that of the variable of the input, where Logos
+reads a signed bit-vector as an unsigned one. -/
 def primEq : Ty → Ty → Bool
   | .IntegerType, .IntegerType | .BooleanType, .BooleanType | .RealType, .RealType => true
+  | .BVType s w, .BVType s' w' => s && !s' && w == w'
   | _, _ => false
 
-theorem primEq_eq {a b : Ty} (h : primEq a b = true) : a = b := by
-  cases a <;> cases b <;> simp [primEq] at h <;> rfl
-
 theorem primEq_prim {a b : Ty} (h : primEq a b = true) : isPrimTy a = true := by
-  cases a <;> cases b <;> simp [primEq] at h <;> rfl
+  cases a <;> cases b <;> simp_all [primEq, isPrimTy]
+
+/-- The type of signed bit-vectors. -/
+def isSignedTy : Ty → Bool
+  | .BVType s _ => s
+  | _ => false
+
+/-- The unsigned view of a signed bit-vector, the value of the variable of the query of a
+variable of the input of a signed bit-vector. -/
+def unsignedOf : Value → Value
+  | .BVV _ w x => .BVV false w x
+  | v => v
 
 /-- The type of a datatype without type arguments. -/
 def isDataTy : Ty → Bool
@@ -296,6 +311,9 @@ def pairs : Nat → Expr → Expr → Names
       ({ funs := [(f, g)] } : Names).app (all es es')
     | .ADT c _ es, .ADT c' _ es' => ({ ctors := [(c, c')] } : Names).app (all es es')
     | .ADT c _ es, .Assume _ (.ADT c' _ es') => ({ ctors := [(c, c')] } : Names).app (all es es')
+    | .BVUnsignedToSigned a, .BVUnsignedToSigned a' => pairs n a a'
+    | .BVUnsignedToSigned a, e' => pairs n a e'
+    | .BVSignedToUnsigned a, e' => pairs n a e'
     | .IsConstructor a c, .IsConstructor a' c' =>
       ({ ctors := [(c, c')] } : Names).app (pairs n a a')
     | .ADTSelector a f, .ADTSelector a' f' =>
@@ -369,10 +387,24 @@ def Link.sig (L : Link) (R : InputRead) : LSig where
       | _ => none
     | _ => none
 
+/-- What a variable of the input of the type `T` is lowered to, where it is matched with the
+variable `y` of the query, with its kind: the signed view of `y` for a signed bit-vector. -/
+def ctxOf (y : Id) (T : Ty) : Expr × LK :=
+  if isSignedTy T then (.BVUnsignedToSigned (.Variable y), .prim) else (.Variable y, kindOfTy T)
+
+/-- The variable of the query in what a variable of the input is lowered to. -/
+def ctxVar : Expr → Option Id
+  | .Variable y => some y
+  | .BVUnsignedToSigned (.Variable y) => some y
+  | _ => none
+
+theorem ctxVar_ctxOf (y : Id) (T : Ty) : ctxVar (ctxOf y T).1 = some y := by
+  unfold ctxOf; split <;> rfl
+
 /-- The variables of the input that are matched, with their kinds. -/
 def Link.ctx (L : Link) (R : InputRead) : Id → Option (Expr × LK) := fun x =>
   match L.ρ.lookup x, R.vars.lookup x with
-  | some y, some T => some (.Variable y, kindOfTy T)
+  | some y, some T => some (ctxOf y T)
   | _, _ => none
 
 /-- The variable of the input that is matched with the variable `y` of the query. -/
@@ -459,11 +491,13 @@ def linkCheck (R : InputRead) (r : TermSteps) : Bool :=
           | some T' => primEq T' T
           | none => false) &&
         (match Γ x with
-          | some (.Variable y0, _) => y0 == y
+          | some (e, _) => ctxVar e == some y
           | _ => false)
       | none => false) &&
     L.ρ.all (fun (x, _) => match Γ x with
-      | some (.Variable y, _) => L.pre y == some x && Γt.any (·.1 == y)
+      | some (e, _) => match ctxVar e with
+        | some y => L.pre y == some x && Γt.any (·.1 == y)
+        | none => true
       | _ => true) &&
     L.κ.all (fun (c, _) => match S.ctors c with
       | some c' => ctorCheck S R.ctors R.sorts ((dataOf r).flatMap ctorsOfData)
@@ -485,6 +519,14 @@ theorem hasV_of_typed {cs : List Constructor} {T : Ty} (hT : isPrimTy T = true) 
     (h : OfTy cs T v) : HasV [] v T := by
   cases h <;> simp [isPrimTy] at hT <;> simp only [HasV]
   next h => exact h
+  next h => exact ⟨trivial, trivial, h⟩
+
+/-- The value of a variable of the query is of its type. -/
+theorem hasV_query {cs : List Constructor} {D : List Data} {T' T : Ty} {v : Value}
+    (h : primEq T' T = true) (hv : OfTy cs T' v) : HasV D (unsignedOf v) T := by
+  cases T' <;> cases T <;> simp [primEq] at h
+  all_goals cases hv
+  all_goals simp_all [unsignedOf, HasV]
 
 theorem primValue_of_typed {cs : List Constructor} {T : Ty} (hT : isPrimTy T = true)
     {v : Value} (h : OfTy cs T v) : primValue v = true := by
@@ -543,6 +585,7 @@ theorem has_of_hasV {D : List Data} {K : Id → Option (Id × List LK)} {T : Ty}
     (hT : isPrimTy T = true) {v : Value} (h : HasV D v T) : Has K (kindOfTy T) v := by
   cases T <;> simp [isPrimTy] at hT <;> cases v <;> simp [HasV] at h
   · exact .int _
+  · exact .prim rfl
   · exact .prim rfl
   · exact .prim rfl
 
@@ -670,14 +713,15 @@ theorem no_input_solution {O : Oracle} (sound : LogosSound) (hO : O.Sound)
           · cases hv
         · cases hv
       · cases hv
-  -- the values of the variables of the query: those of the variables of the input
+  -- the values of the variables of the query: those of the variables of the input, as Logos
+  -- reads them
   let g : Id → Value := fun y => match L.pre y with
     | some x => match lookup_var bs x with
-      | .Ok v => v
+      | .Ok v => unsignedOf v
       | _ => .UnitV
     | none => .UnitV
   have hg : ∀ x T y, R.vars.lookup x = some T → L.pre y = some x →
-      ∃ v, lookup_var bs x = .Ok v ∧ OfTy R.ctors T v ∧ g y = v := by
+      ∃ v, lookup_var bs x = .Ok v ∧ OfTy R.ctors T v ∧ g y = unsignedOf v := by
     intro x T y hx hy
     obtain ⟨v, hv1, hv2⟩ := bind_lookup_typed R.vars vs bs hbs hvs x T hx
     exact ⟨v, hv1, hv2, by simp only [g, hy, hv1]⟩
@@ -689,9 +733,11 @@ theorem no_input_solution {O : Oracle} (sound : LogosSound) (hO : O.Sound)
     unfold Link.ctx at hx'
     split at hx'
     · next y0 T h1 h2 =>
-      cases hx'
+      have hyk : ctxOf y0 T = (y, k) := Option.some.inj hx'
+      have hyv : ctxVar y = some y0 := by
+        rw [show y = (ctxOf y0 T).1 by rw [hyk]]; exact ctxVar_ctxOf y0 T
       have hc := hρ (x, y0) (Inox.Lowered.mem_of_lookup h1)
-      simp only [hx, Bool.and_eq_true, beq_iff_eq, List.any_eq_true] at hc
+      simp only [hx, hyv, Bool.and_eq_true, beq_iff_eq, List.any_eq_true] at hc
       obtain ⟨hpre, y1, hy1, hy⟩ := hc
       obtain ⟨v, hv1, hv2, hgv⟩ := hg x T y0 h2 hpre
       have hTp : isPrimTy T = true := by
@@ -700,9 +746,24 @@ theorem no_input_solution {O : Oracle} (sound : LogosSound) (hO : O.Sound)
         simp only [h2, Bool.and_eq_true] at hc
         exact primEq_prim hc.1
       have hk := has_of_hasV (K := (L.sig R).kinds) hTp (hasV_of_typed hTp hv2)
-      refine ⟨v, hv1, hk, v, 0, .prim (prim_of_kind hk), fun _ _ => ?_⟩
-      rw [eval, show lookup_var (env_vars (Env.Env [] bs')) y0 = lookup_var bs' y0 from rfl,
-        hl' y0 (List.mem_map.mpr ⟨y1, hy1, hy⟩), hgv]
+      have hl := hl' y0 (List.mem_map.mpr ⟨y1, hy1, hy⟩)
+      refine ⟨v, hv1, ?_⟩
+      have hlv : lookup_var (env_vars (Env.Env [] bs')) y0 = .Ok (unsignedOf v) := by
+        rw [← hgv]; exact hl
+      unfold ctxOf at hyk
+      split at hyk
+      · next hs =>
+        cases hyk
+        cases hv2 <;> simp [isSignedTy] at hs
+        subst hs
+        refine ⟨.prim rfl, _, 0, .prim rfl, fun _ _ => ?_⟩
+        simp only [eval, hlv, unsignedOf]
+      · next hs =>
+        cases hyk
+        refine ⟨hk, v, 0, .prim (prim_of_kind hk), fun _ _ => ?_⟩
+        have hu : unsignedOf v = v := by
+          cases hv2 <;> simp_all [isSignedTy, unsignedOf, isPrimTy]
+        simp only [eval, hlv, hu]
     · cases hx'
   have hvs' : List.Forall₂ (HasV (dataOf r))
       (((varsOf (sigsOf r.equations) r.query).map Prod.fst).map g)
@@ -715,10 +776,9 @@ theorem no_input_solution {O : Oracle} (sound : LogosSound) (hO : O.Sound)
       obtain ⟨hT, _⟩ := hc
       split at hT
       · next T' hx =>
-        have hTT := primEq_eq hT
         obtain ⟨v, _, hv, hgv⟩ := hg x T' p.1 hx hpre
-        rw [hgv, ← hTT]
-        exact hasV_prim (primEq_prim hT) (hasV_of_typed (primEq_prim hT) hv)
+        rw [hgv]
+        exact hasV_query hT hv
       · cases hT
     · cases hc
   refine no_solution_of_reached sound hO hty hAccept hr hcheck hsrc hreached _

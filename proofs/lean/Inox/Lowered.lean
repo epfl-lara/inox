@@ -18,7 +18,8 @@ The relation is of first-order expressions over integers, other primitive values
 of datatypes, with calls of functions without type parameters, and lets, which the lowering
 inlines or drops: no lambdas yet. A construction of a sort with an invariant is lowered to the
 assumption of the invariant of its arguments (`instInv`), where its body doesn't depend on the
-fuel or the types. It follows the kinds of the values, so that
+fuel or the types. A signed bit-vector may be lowered to the signed view of an unsigned one,
+as Logos reads bit-vectors, whose unsigned view is then the unsigned one (`toUnsigned`). It follows the kinds of the values, so that
 a field of a value of a datatype is known to be an integer where the field is of the integers
 and the value is a construction of fields of their kinds (`Has`).
 -/
@@ -183,6 +184,22 @@ inductive Lowers (S : LSig) : (Id → Option (Expr × LK)) → Expr → Expr →
       Lowers S Γ (.BooleanLiteral b) (.BooleanLiteral b) .prim
   | frac {Γ : Id → Option (Expr × LK)} (n d : Int) :
       Lowers S Γ (.FractionLiteral n d) (.FractionLiteral n d) .prim
+  | bvLit {Γ : Id → Option (Expr × LK)} (s : Bool) (w x : Int) :
+      Lowers S Γ (.BVLiteral s w x) (.BVLiteral s w x) .prim
+  /-- A signed bit-vector, as Logos reads it: the signed view of an unsigned one. -/
+  | bvSignedLit {Γ : Id → Option (Expr × LK)} (w x : Int) :
+      Lowers S Γ (.BVLiteral true w x) (.BVUnsignedToSigned (.BVLiteral false w x)) .prim
+  /-- The unsigned view of what is lowered to the signed view of an unsigned bit-vector. -/
+  | toUnsigned {Γ : Id → Option (Expr × LK)} {a a' : Expr}
+      (ha : Lowers S Γ a (.BVUnsignedToSigned a') .prim) :
+      Lowers S Γ (.BVSignedToUnsigned a) a' .prim
+  | toSigned {Γ : Id → Option (Expr × LK)} {a a' : Expr} (ha : Lowers S Γ a a' .any) :
+      Lowers S Γ (.BVUnsignedToSigned a) (.BVUnsignedToSigned a') .prim
+  /-- Signed bit-vectors are equal where their unsigned views are. -/
+  | eqSigned {Γ : Id → Option (Expr × LK)} {a a' b b' : Expr}
+      (ha : Lowers S Γ a (.BVUnsignedToSigned a') .prim)
+      (hb : Lowers S Γ b (.BVUnsignedToSigned b') .prim) :
+      Lowers S Γ (.Equals a b) (.Equals a' b') .prim
   /-- An error has no value, whatever it is lowered to. -/
   | error {Γ : Id → Option (Expr × LK)} (e' : Expr) (k : LK) : Lowers S Γ .Error e' k
   | weaken {Γ : Id → Option (Expr × LK)} {e e' : Expr} {k k' : LK} (h : Lowers S Γ e e' k)
@@ -722,6 +739,40 @@ theorem envOk_letDrop {O : Oracle} {P : Program} {K : Id → Option Id}
     obtain ⟨v, h1, h2, h3⟩ := h z y k hz
     exact ⟨v, by simpa [env_bind, env_vars, lookup_var, hzx] using h1, h2, h3⟩
 
+theorem toSigned_inv {Q : Program} {fuel : Int} {env : Env} {a : Expr} {v : Value}
+    (h : eval O Q fuel env (.BVUnsignedToSigned a) = .Ok v) :
+    ∃ w x, v = .BVV true w x ∧ eval O Q fuel env a = .Ok (.BVV false w x) := by
+  simp only [eval] at h
+  split at h
+  · next va ha =>
+    split at h
+    · cases h; exact ⟨_, _, rfl, ha⟩
+    · cases h
+  · cases h
+  · cases h
+
+theorem toUnsigned_inv {Q : Program} {fuel : Int} {env : Env} {a : Expr} {v : Value}
+    (h : eval O Q fuel env (.BVSignedToUnsigned a) = .Ok v) :
+    ∃ w x, v = .BVV false w x ∧ eval O Q fuel env a = .Ok (.BVV true w x) := by
+  simp only [eval] at h
+  split at h
+  · next va ha =>
+    split at h
+    · cases h; exact ⟨_, _, rfl, ha⟩
+    · cases h
+  · cases h
+  · cases h
+
+/-- What is lowered to the signed view of `a'` is a signed bit-vector, whose unsigned view is the
+value of `a'`. -/
+theorem unsigned_of {Q : Program} {env : Env} {a' : Expr} {w x : Int} {m : Int}
+    (h : ∀ f : Int, m ≤ f → eval O Q f env (.BVUnsignedToSigned a') = .Ok (.BVV true w x)) :
+    ∀ f : Int, m ≤ f → eval O Q f env a' = .Ok (.BVV false w x) := by
+  intro f hf
+  obtain ⟨w', x', he, h'⟩ := toSigned_inv (h f hf)
+  cases he
+  exact h'
+
 /-- Where an expression of the input evaluates to a value, the expression that it is lowered
 to evaluates with enough fuel to a value that relates to it, and it is of the kind of the
 relation. -/
@@ -777,6 +828,60 @@ theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) (hC : Ctors Ps P S) :
     intro env env' hΓ fuel hfn v hv
     simp only [eval] at hv
     cases hv
+  | bvLit s w x =>
+    intro env env' hΓ fuel hfn v hv
+    simp only [eval] at hv
+    cases hv
+    exact ⟨.prim rfl, _, 0, .prim rfl, fun _ _ => by simp only [eval]⟩
+  | bvSignedLit w x =>
+    intro env env' hΓ fuel hfn v hv
+    simp only [eval] at hv
+    cases hv
+    exact ⟨.prim rfl, _, 0, .prim rfl, fun _ _ => by simp only [eval]⟩
+  | toUnsigned _ iha =>
+    intro env env' hΓ fuel hfn v hv
+    obtain ⟨w, x, rfl, ha⟩ := toUnsigned_inv hv
+    obtain ⟨_, v', n1, r1, e1⟩ := iha env env' hΓ fuel hfn _ ha
+    rw [vr_prim r1 rfl] at e1
+    exact ⟨.prim rfl, _, n1, .prim rfl, unsigned_of e1⟩
+  | toSigned _ iha =>
+    intro env env' hΓ fuel hfn v hv
+    obtain ⟨w, x, rfl, ha⟩ := toSigned_inv hv
+    obtain ⟨_, v', n1, r1, e1⟩ := iha env env' hΓ fuel hfn _ ha
+    rw [vr_prim r1 rfl] at e1
+    exact ⟨.prim rfl, _, n1, .prim rfl, fun f hf => by simp only [eval, e1 f hf]⟩
+  | eqSigned _ _ iha ihb =>
+    intro env env' hΓ fuel hfn v hv
+    simp only [eval] at hv
+    split at hv
+    · next va ha =>
+      split at hv
+      · next vb hb =>
+        obtain ⟨hka, va', n1, ra, e1⟩ := iha env env' hΓ fuel hfn va ha
+        obtain ⟨hkb, vb', n2, rb, e2⟩ := ihb env env' hΓ fuel hfn vb hb
+        cases hka with
+        | prim hpa =>
+        cases hkb with
+        | prim hpb =>
+        rw [vr_prim ra hpa] at e1; rw [vr_prim rb hpb] at e2
+        obtain ⟨wa, xa, rfl, _⟩ := toSigned_inv (e1 n1 (Int.le_refl _))
+        obtain ⟨wb, xb, rfl, _⟩ := toSigned_inv (e2 n2 (Int.le_refl _))
+        have ea := unsigned_of e1
+        have eb := unsigned_of e2
+        split at hv
+        · next r hr =>
+          cases hv
+          have hr' : O.value_eq P (.BVV false wa xa) (.BVV false wb xb) = .Ok r := by
+            rw [← hr, hO.value_eq, hO.value_eq (P := Ps)]
+            simp
+          refine ⟨.prim rfl, _, max n1 n2, .prim rfl, fun f hf => ?_⟩
+          simp only [eval, ea f (by omega), eb f (by omega), hr']
+        · cases hv
+        · cases hv
+      · cases hv
+      · cases hv
+    · cases hv
+    · cases hv
   | weaken _ hs ih =>
     intro env env' hΓ fuel hfn v hv
     obtain ⟨hk, v', m, hr, e1⟩ := ih env env' hΓ fuel hfn v hv
@@ -1577,6 +1682,8 @@ def exprEq : Nat → Expr → Expr → Bool
     | .Assume a b, .Assume a' b' => exprEq n a a' && exprEq n b b'
     | .UMinus a, .UMinus a' => exprEq n a a'
     | .Not a, .Not a' => exprEq n a a'
+    | .BVUnsignedToSigned a, .BVUnsignedToSigned a' => exprEq n a a'
+    | .BVSignedToUnsigned a, .BVSignedToUnsigned a' => exprEq n a a'
     | .IfExpr c a b, .IfExpr c' a' b' => exprEq n c c' && exprEq n a a' && exprEq n b b'
     | .IsConstructor a c, .IsConstructor a' c' => c == c' && exprEq n a a'
     | .ADTSelector a f, .ADTSelector a' f' => f == f' && exprEq n a a'
@@ -1689,6 +1796,11 @@ def lowersCheck (S : LSig) : Nat → (Id → Option (Expr × LK)) → Expr → E
     | .IntegerLiteral a, .IntegerLiteral b => a == b && Sub .int k
     | .BooleanLiteral a, .BooleanLiteral b => a == b && Sub .prim k
     | .FractionLiteral a b, .FractionLiteral c d => a == c && b == d && Sub .prim k
+    | .BVLiteral s w x, .BVLiteral s' w' x' => s == s' && w == w' && x == x' && Sub .prim k
+    | .BVLiteral s w x, .BVUnsignedToSigned (.BVLiteral s' w' x') =>
+      s && !s' && w == w' && x == x' && Sub .prim k
+    | .BVSignedToUnsigned a, e' => Sub .prim k && lowersCheck S n Γ a (.BVUnsignedToSigned e') .prim
+    | .BVUnsignedToSigned a, .BVUnsignedToSigned a' => Sub .prim k && lowersCheck S n Γ a a' .any
     | .Plus a b, .Plus a' b' =>
       (Sub .int k && lowersCheck S n Γ a a' .int &&
         match b' with
@@ -1726,7 +1838,9 @@ def lowersCheck (S : LSig) : Nat → (Id → Option (Expr × LK)) → Expr → E
     | .GreaterEquals a b, .GreaterEquals a' b' =>
       Sub .prim k && lowersCheck S n Γ a a' .any && lowersCheck S n Γ b b' .any
     | .Equals a b, .Equals a' b' =>
-      Sub .prim k && lowersCheck S n Γ a a' .prim && lowersCheck S n Γ b b' .prim
+      (Sub .prim k && lowersCheck S n Γ a a' .prim && lowersCheck S n Γ b b' .prim) ||
+      (Sub .prim k && lowersCheck S n Γ a (.BVUnsignedToSigned a') .prim &&
+        lowersCheck S n Γ b (.BVUnsignedToSigned b') .prim)
     | .Not a, .Not a' => Sub .prim k && lowersCheck S n Γ a a' .any
     | .Implies a b, .Implies a' b' =>
       Sub .prim k && lowersCheck S n Γ a a' .any && lowersCheck S n Γ b b' .any
@@ -1828,6 +1942,18 @@ theorem lowers_sound (S : LSig) : ∀ n : Nat,
       · simp only [Bool.and_eq_true, beq_iff_eq] at h
         obtain ⟨⟨rfl, rfl⟩, hs⟩ := h
         exact .weaken (.frac _ _) hs
+      · simp only [Bool.and_eq_true, beq_iff_eq] at h
+        obtain ⟨⟨⟨rfl, rfl⟩, rfl⟩, hs⟩ := h
+        exact .weaken (.bvLit _ _ _) hs
+      · simp only [Bool.and_eq_true, beq_iff_eq, Bool.not_eq_true'] at h
+        obtain ⟨⟨⟨⟨rfl, rfl⟩, rfl⟩, rfl⟩, hs⟩ := h
+        exact .weaken (.bvSignedLit _ _) hs
+      · simp only [Bool.and_eq_true] at h
+        obtain ⟨hs, ha⟩ := h
+        exact .weaken (.toUnsigned (ih _ _ _ _ ha)) hs
+      · simp only [Bool.and_eq_true] at h
+        obtain ⟨hs, ha⟩ := h
+        exact .weaken (.toSigned (ih _ _ _ _ ha)) hs
       · simp only [Bool.or_eq_true] at h
         rcases h with (h | h) | h
         · simp only [Bool.and_eq_true] at h
@@ -1890,9 +2016,10 @@ theorem lowers_sound (S : LSig) : ∀ n : Nat,
       · simp only [Bool.and_eq_true] at h
         obtain ⟨⟨hs, ha⟩, hb⟩ := h
         exact .weaken (.ge (ih _ _ _ _ ha) (ih _ _ _ _ hb)) hs
-      · simp only [Bool.and_eq_true] at h
-        obtain ⟨⟨hs, ha⟩, hb⟩ := h
-        exact .weaken (.eq (ih _ _ _ _ ha) (ih _ _ _ _ hb)) hs
+      · simp only [Bool.and_eq_true, Bool.or_eq_true] at h
+        rcases h with ⟨⟨hs, ha⟩, hb⟩ | ⟨⟨hs, ha⟩, hb⟩
+        · exact .weaken (.eq (ih _ _ _ _ ha) (ih _ _ _ _ hb)) hs
+        · exact .weaken (.eqSigned (ih _ _ _ _ ha) (ih _ _ _ _ hb)) hs
       · simp only [Bool.and_eq_true] at h
         obtain ⟨hs, ha⟩ := h
         exact .weaken (.not (ih _ _ _ _ ha)) hs
