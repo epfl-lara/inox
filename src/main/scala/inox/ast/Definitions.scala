@@ -306,6 +306,47 @@ trait Definitions { self: Trees =>
       ensureStratifiedInvariant(sort)
     }
 
+    /** The indices of the type parameters of each function whose values it quantifies over,
+      * directly or in the functions it calls (functions that quantify over none are left out).
+      * See [[ensureStratifiedInvariant]]. */
+    protected def quantifiedTypeParams: Map[Identifier, Set[Int]] = _quantifiedTypeParams.get
+    private val _quantifiedTypeParams: Lazy[Map[Identifier, Set[Int]]] = Lazy {
+      // the types that the body of `fd` quantifies over directly, and the functions it calls
+      // with the type arguments it gives them
+      def bound(fd: FunDef): Seq[Type] = exprOps.collect[Type] {
+        case Forall(params, _) => params.map(_.getType).toSet
+        case UninterpretedCall(_, _, _, FunctionType(_, to)) => Set(to)
+        case UninterpretedCall(_, _, _, PiType(_, to)) => Set(to)
+        case _ => Set()
+      }(fd.fullBody).toSeq
+      val generic = functions.values.filter(_.tparams.nonEmpty).toSeq
+      val direct = generic.map(fd => fd.id -> bound(fd)).toMap
+      val calls = generic.map(fd => fd.id -> exprOps.collect[(Identifier, Seq[Type])] {
+        case FunctionInvocation(callee, tps, _) if lookupFunction(callee).exists(_.tparams.nonEmpty) => Set(callee -> tps)
+        case _ => Set()
+      }(fd.fullBody).toSeq).toMap
+
+      def mentioned(fd: FunDef, tpes: Seq[Type]): Set[Int] = fd.tparams.zipWithIndex.collect {
+        case (tpd, i) if tpes.exists(tpe => typeOps.typeParamsOf(tpe) contains tpd.tp) => i
+      }.toSet
+
+      var result: Map[Identifier, Set[Int]] =
+        generic.map(fd => fd.id -> mentioned(fd, direct(fd.id))).filter(_._2.nonEmpty).toMap
+      var changed = true
+      while (changed) {
+        changed = false
+        for (fd <- generic) {
+          val tpes = calls(fd.id).flatMap { case (callee, tps) => result.getOrElse(callee, Set()).toSeq.map(tps) }
+          val is = result.getOrElse(fd.id, Set()) ++ mentioned(fd, tpes)
+          if (is != result.getOrElse(fd.id, Set())) {
+            result += fd.id -> is
+            changed = true
+          }
+        }
+      }
+      result
+    }
+
     /** Makes sure that the invariant of `sort` and the refinements of its field types don't
       * quantify over values that depend on the values of `sort`, directly or in the functions they
       * call. A sort's values depend on another sort's values when they can hold them, or when its
@@ -332,20 +373,14 @@ trait Definitions { self: Trees =>
         case _ => Set()
       }(e)
 
-      // whether the function `id`, or a function it calls, has a quantifier
-      def quantifies(id: Identifier): Boolean =
-        (transitiveCallees(id) + id).exists(callee => exprOps.exists {
-          case _: Forall | _: UninterpretedCall => true
-          case _ => false
-        }(getFunction(callee).fullBody))
-
       // the sorts that `e` quantifies over, directly or in the functions it calls, where a
-      // function that quantifies could quantify over the sorts it is given as type arguments
+      // function quantifies over the sorts it is given as the type arguments it quantifies over
       def quantifiedSortsIn(e: Expr): Set[Identifier] = {
         val called = exprOps.functionCallsOf(e).map(_.id)
         (Seq(e) ++ (called ++ transitiveCallees(called)).toSeq.map(getFunction(_).fullBody)).flatMap { body =>
           boundSorts(body) ++ exprOps.collect[Identifier] {
-            case FunctionInvocation(callee, tps, _) if quantifies(callee) => tps.flatMap(sortsOf).toSet
+            case FunctionInvocation(callee, tps, _) =>
+              quantifiedTypeParams.getOrElse(callee, Set()).flatMap(i => sortsOf(tps(i)))
             case _ => Set()
           }(body)
         }.toSet
