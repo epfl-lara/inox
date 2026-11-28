@@ -1264,7 +1264,10 @@ def readExpr (c : Ctx) : Nat → Sexp → Except String Expr
         | .expr [.atom x, sort] => do pure (Param.Param x (kindTy c.elem (← kindOfSort c n sort)))
         | _ => .error "a parameter"
       pure (.Lambda ps (← readExpr c n b))
-    | .expr [.atom "forall", .expr ps, b] => do
+    | .expr [.atom "forall", .expr ps, b] | .expr [.atom "exists", .expr ps, b] => do
+      let q := match s with
+        | .expr (.atom q :: _) => q
+        | _ => ""
       let ps ← ps.mapM fun
         | .expr [.atom x, sort] =>
           match readSortTy c [] 100 sort, sort with
@@ -1272,7 +1275,9 @@ def readExpr (c : Ctx) : Nat → Sexp → Except String Expr
           | none, .expr (.atom "!" :: _) => .error s!"the refined parameter {x}"
           | none, _ => do pure (Param.Param x (kindTy c.elem (← kindOfSort c n sort)))
         | _ => .error "a parameter"
-      pure (.Forall ps (← readExpr c n b))
+      let b ← readExpr c n b
+      -- an existential quantifier is the negation of the universal one of the negation
+      pure (if q == "forall" then .Forall ps b else .Not (.Forall ps (.Not b)))
     | .expr (.expr [.atom "as", .atom "@", _] :: f :: args) => do
       pure (.Application (← readExpr c n f) (← args.mapM (readExpr c n)))
     | .expr [.atom "as", .atom k, .expr (.atom t :: ts)] =>

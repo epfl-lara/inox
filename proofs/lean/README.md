@@ -1265,7 +1265,7 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   strings is its value), `eta` (the construction of the fields of a variable
   of a datatype is the variable) and `unused` (a quantifier over parameters
   whose types have values, as integers, booleans and functions into them do,
-  of a ground body, is the body), and proves
+  of a ground body, is the body), also in the bodies of quantifiers, and proves
   that what the steps rewrite a constraint into refines it: wherever the
   constraint has a value, what it becomes has the same (`stepsApply_refines`).
   [`Lowered.lean`](Inox/Lowered.lean) relates an expression of the input to
@@ -1294,8 +1294,10 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   `selections-of-constructions-with-partial-fields`, the first of
   `real-division-by-zero-is-infeasible` and the 1st and 3rd of
   `constructions-under-invariants`, that of
-  `bitvector-division-by-zero-is-total` and the first of
-  `empty-function-codomains`, as `inox-solution --input` says.
+  `bitvector-division-by-zero-is-total`, the first of
+  `empty-function-codomains` and the first of
+  `quantifiers-in-connectives-over-partial-bodies`, as `inox-solution --input`
+  says.
   The encoders aren't in this theorem yet.
 - **The link between the proof and the script.** The checker checks that each
   assumption of the proof is the text of an assert of the script, up to how
