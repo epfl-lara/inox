@@ -1272,6 +1272,16 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   of a ground body, is the body), also in the bodies of quantifiers, and proves
   that what the steps rewrite a constraint into refines it: wherever the
   constraint has a value, what it becomes has the same (`stepsApply_refines`).
+  [`Closures.lean`](Inox/Closures.lean) checks the steps that keep the values
+  up to closures with the same results: a call with literal arguments to a
+  construction of lambdas is that construction where the parameters of the
+  call are the arguments, a lambda or a set of lambdas is its renaming, the
+  application of a lambda to a literal is a let of it, and a closure is in a
+  set of closures where it is equal to one of them, through comparisons,
+  negations, selectors, applications, memberships and insertions. It proves
+  that the equality compares such values alike (`ext_same`), where the sorts
+  have no equalities of their own, so that what the steps rewrite a
+  constraint into refines it up to closures (`stepsApplyX_refines`).
   [`Lowered.lean`](Inox/Lowered.lean) relates an expression of the input to
   what Logos reads of its lowering, whose symbols have other names, whose
   errors are assumptions that fail and whose sums and products of two integers
@@ -1302,8 +1312,9 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   `bitvector-division-by-zero-is-total`, the first of
   `empty-function-codomains`, the first of
   `quantifiers-in-connectives-over-partial-bodies`, that of `size-negative`
-  and the 2nd, 3rd and 6th of `lambdas-with-partial-bodies-extensional`, as
-  `inox-solution --input` says.
+  the 2nd, 3rd and 6th of `lambdas-with-partial-bodies-extensional` and the
+  4 of `functions-in-sets-and-fields-extensional`, as `inox-solution --input`
+  says.
   The encoders aren't in this theorem yet.
 - **The link between the proof and the script.** The checker checks that each
   assumption of the proof is the text of an assert of the script, up to how

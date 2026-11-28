@@ -1132,6 +1132,11 @@ def readSortTy (c : Ctx) (B : List String) : Nat → Sexp → Option Ty
       pure (.RefinementType y (← readSortTy c B n base) (← readPure 100 p))
     | .expr [.atom "Array", k, v] => do
       pure (.MapType (← readSortTy c B n k) (← readSortTy c B n v))
+    | .expr (.atom "->" :: xs) => do
+      let Ts ← xs.mapM (readSortTy c B n)
+      match Ts.reverse with
+      | U :: rest => pure (.FunctionType rest.reverse U)
+      | [] => none
     | .expr (.atom a :: args) =>
       if c.table.kind a == "sort" then do
         pure (.ADTType (c.table.id a) (← args.mapM (readSortTy c B n)))
@@ -1231,6 +1236,9 @@ def readExpr (c : Ctx) : Nat → Sexp → Except String Expr
     | .expr [.atom "store", m, k, w] => do
       pure (.MapUpdated (← readExpr c n m) (← readExpr c n k) (← readExpr c n w))
     | .expr [.atom "insert", a, e] => do pure (.SetAdd (← readExpr c n a) (← readExpr c n e))
+    | .expr (.atom "insert" :: a :: e :: e' :: es) => do
+      (e' :: es).foldlM (fun acc x => do pure (.SetAdd acc (← readExpr c n x)))
+        (.SetAdd (← readExpr c n a) (← readExpr c n e))
     | .expr [.atom "member", e, a] => do
       pure (.ElementOfSet (← readExpr c n e) (← readExpr c n a))
     | .expr [.atom "union", a, b] => do pure (.SetUnion (← readExpr c n a) (← readExpr c n b))

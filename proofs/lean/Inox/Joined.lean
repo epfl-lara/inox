@@ -3,6 +3,7 @@ import Inox.Reached
 import Inox.Input
 import Inox.Lowered
 import Inox.Simplified
+import Inox.Closures
 
 /-!
 # The input has no solution
@@ -262,23 +263,23 @@ def InputSolution (O : Oracle) (R : InputRead) (vs : List Value) : Prop :=
 /-- What the constraint `q` is after the steps of its simplification, if they hold. -/
 def InputRead.finalOf (R : InputRead) (q : Expr) : Expr :=
   match R.simps.find? (fun p => exprEq 1000 p.1 q) with
-  | some (_, ss) => (stepsApply R.ctors R.sorts R.facts ss q).getD q
+  | some (_, ss) => (Inox.Closures.stepsApplyX R.ctors R.sorts R.funs R.facts ss q).getD q
   | none => q
 
 /-- The constraints after their simplifications. -/
 def InputRead.final (R : InputRead) : List Expr := R.query.map R.finalOf
 
 theorem finalOf_refines {O : Oracle} (hO : O.Sound) (R : InputRead) (q : Expr) :
-    Refines O R.program R.facts q (R.finalOf q) := by
+    Inox.Closures.RefinesX (O := O) (P := R.program) R.facts q (R.finalOf q) := by
   unfold InputRead.finalOf
   split
   · next ss _ =>
-    cases h : stepsApply R.ctors R.sorts R.facts ss q with
-    | none => exact Inox.Simplified.refines_refl
+    cases h : Inox.Closures.stepsApplyX R.ctors R.sorts R.funs R.facts ss q with
+    | none => exact Inox.Closures.refinesX_of Inox.Simplified.refines_refl
     | some e =>
       simp only [Option.getD_some]
-      exact stepsApply_refines (P := R.program) hO ⟨_, _, _, rfl⟩ R.facts ss q e h
-  · exact Inox.Simplified.refines_refl
+      exact Inox.Closures.stepsApplyX_refines (P := R.program) hO rfl R.facts ss q e h
+  · exact Inox.Closures.refinesX_of Inox.Simplified.refines_refl
 
 /-- The expression that a source expression of the simplifications assumes the typing of its
 free variables of, and how many of them it assumes. -/
@@ -1020,8 +1021,8 @@ theorem no_input_solution {O : Oracle} (sound : LogosSound) (hO : O.Sound)
         obtain ⟨v, hv1, hv2⟩ := bind_lookup_typed R.vars vs bs hbs hvs p.1 T hT
         exact ⟨v, hv1, primValue_of_typed hpT hv2⟩
       · cases hpf
-  have hn := finalOf_refines hO R q0 n _ _ hfacts hn0
-  rw [hfq] at hn
+  obtain ⟨_, hn, hx⟩ := finalOf_refines hO R q0 n _ _ hfacts hn0
+  rw [Inox.Closures.ext_bool hx, hfq] at hn
   have hl := (lowers_sound _ 1000).1 _ _ _ _ (hq (q, q') hqq)
   obtain ⟨_, v', m, rv, hm⟩ := lowers_eval hO hF hC n.toNat hl _ _ hEnv n (Int.self_le_toNat n) _ hn
   rw [vr_bool rv] at hm

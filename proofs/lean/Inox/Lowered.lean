@@ -1662,7 +1662,8 @@ def tyEq : Nat → Ty → Ty → Bool
     let all (Ts Ts' : List Ty) : Bool :=
       Ts.length == Ts'.length && (Ts.zip Ts').all fun p => tyEq n p.1 p.2
     match T, T' with
-    | .IntegerType, .IntegerType | .BooleanType, .BooleanType | .RealType, .RealType => true
+    | .IntegerType, .IntegerType | .BooleanType, .BooleanType | .RealType, .RealType
+    | .UnitType, .UnitType => true
     | .BVType s w, .BVType s' w' => s == s' && w == w'
     | .TypeParameter a, .TypeParameter b => a == b
     | .FunctionType Ts U, .FunctionType Ts' U' => all Ts Ts' && tyEq n U U'
@@ -1720,6 +1721,10 @@ def exprEq : Nat → Expr → Expr → Bool
     | .Let x a b, .Let y a' b' => x == y && exprEq n a a' && exprEq n b b'
     | .Forall ps b, .Forall ps' b' => paramsEq 1000 ps ps' && exprEq n b b'
     | .Lambda ps b, .Lambda ps' b' => paramsEq 1000 ps ps' && exprEq n b b'
+    | .Application f es, .Application f' es' => exprEq n f f' && all es es'
+    | .ElementOfSet a b, .ElementOfSet a' b' => exprEq n a a' && exprEq n b b'
+    | .SetAdd a b, .SetAdd a' b' => exprEq n a a' && exprEq n b b'
+    | .FiniteSet es t, .FiniteSet es' t' => all es es' && tyEq 100 t t'
     | _, _ => false
 
 theorem list_eq_of_all {α : Type} {r : α → α → Bool} (hr : ∀ a b, r a b = true → a = b) :
@@ -1776,6 +1781,9 @@ theorem exprEq_eq : ∀ n e e', exprEq n e e' = true → e = e'
       | (subst h; rfl)
       | (obtain ⟨⟨rfl, rfl⟩, rfl⟩ := h; rfl)
       | (obtain ⟨h1, h2⟩ := h; rw [paramsEq_eq h1, ih _ _ h2])
+      | (obtain ⟨h1, h2, h3⟩ := h; rw [ih _ _ h1, list_eq_of_all ih (by simpa using h2) h3])
+      | (obtain ⟨⟨h1, h2⟩, h3⟩ := h
+         rw [list_eq_of_all ih (by simpa using h1) h2, tyEq_eq _ _ _ h3])
       | cases h
 
 /-- The operations whose operands are matched position by position, by a tag. -/
