@@ -236,6 +236,7 @@ trait Definitions { self: Trees =>
       ensureUniformRecursion
       for ((_, fd) <- functions) ensureWellFormedFunction(fd)
       for ((_, sort) <- sorts) ensureWellFormedSort(sort)
+      ensureStratifiedInvariants
     }
 
     /** Makes sure that no sort recurses through a larger instance of itself, as the nested
@@ -303,20 +304,21 @@ trait Definitions { self: Trees =>
       if (!(sort.constructors forall (cons => cons.sort == sort.id))) throw NotWellFormedException(sort)
       if (!(sort.constructors forall (_.fields forall (_.isTyped)))) throw NotWellFormedException(sort)
       if (sort.constructors.flatMap(_.fields).groupBy(_.id).exists(_._2.size > 1)) throw NotWellFormedException(sort)
-      ensureStratifiedInvariant(sort)
     }
 
-    /** Makes sure that the invariant of `sort` and the refinements of its field types don't
-      * quantify over values that depend on the values of `sort`, directly or in the functions they
-      * call. A sort's values depend on another sort's values when they can hold them, or when its
-      * invariant or field refinements quantify over them, directly or through other sorts. An
+    /** Makes sure that the invariant of each sort and the refinements of its field types don't
+      * quantify over values that depend on the values of the sort, directly or in the functions
+      * they call. A sort's values depend on another sort's values when they can hold them, or when
+      * its invariant or field refinements quantify over them, directly or through other sorts. An
       * uninterpreted call quantifies over the values of its type, as it stands for some value of
-      * that type (Stainless's `choose` becomes one). A sort that quantifies over its own values
-      * can be paradoxical: the invariant `forall((t: T) => false)` of a sort `T` holds iff `T`
-      * has no value, and so does the invariant `forall((b: B) => false)` of a sort `A` whose
-      * values are not held by `B`, if the invariant of `B` is that some `A` exists.
+      * that type (Stainless's `choose` becomes one), and a generic function quantifies over the
+      * values of the type arguments it gets for the type parameters it quantifies over. A sort that
+      * quantifies over its own values can be paradoxical: the invariant `forall((t: T) => false)`
+      * of a sort `T` holds iff `T` has no value, and so does the invariant `forall((b: B) => false)`
+      * of a sort `A` whose values are not held by `B`, if the invariant of `B` is that some `A`
+      * exists. The sorts are checked together, so that they share what they find of the functions.
       */
-    protected def ensureStratifiedInvariant(sort: ADTSort): Unit = {
+    protected def ensureStratifiedInvariants: Unit = {
       // the sorts whose values the values of `tpe` can hold, as fields, elements, arguments,
       // results, type arguments, and so on
       def sortsOf(tpe: Type): Set[Identifier] = typeOps.collect[Identifier] {
@@ -324,66 +326,97 @@ trait Definitions { self: Trees =>
         case _ => Set()
       }(tpe)
 
-      // the sorts that `e` quantifies over directly
-      def boundSorts(e: Expr): Set[Identifier] = exprOps.collect[Identifier] {
-        case Forall(params, _) => params.flatMap(vd => sortsOf(vd.getType)).toSet
-        case UninterpretedCall(_, _, _, FunctionType(_, to)) => sortsOf(to)
-        case UninterpretedCall(_, _, _, PiType(_, to)) => sortsOf(to)
+      // the types that `e` quantifies over directly
+      def boundTypes(e: Expr): Set[Type] = exprOps.collect[Type] {
+        case Forall(params, _) => params.map(_.getType).toSet
+        case UninterpretedCall(_, _, _, FunctionType(_, to)) => Set(to)
+        case UninterpretedCall(_, _, _, PiType(_, to)) => Set(to)
         case _ => Set()
       }(e)
 
-      // whether the function `id`, or a function it calls, has a quantifier
-      def quantifies(id: Identifier): Boolean =
-        (transitiveCallees(id) + id).exists(callee => exprOps.exists {
-          case _: Forall | _: UninterpretedCall => true
-          case _ => false
-        }(getFunction(callee).fullBody))
+      // the calls of `e`, with the type arguments they give
+      def calls(e: Expr): Set[(Identifier, Seq[Type])] = exprOps.collect[(Identifier, Seq[Type])] {
+        case FunctionInvocation(callee, tps, _) => Set(callee -> tps)
+        case _ => Set()
+      }(e)
 
-      // the sorts that `e` quantifies over, directly or in the functions it calls, where a
-      // function that quantifies could quantify over the sorts it is given as type arguments
-      def quantifiedSortsIn(e: Expr): Set[Identifier] = {
-        val called = exprOps.functionCallsOf(e).map(_.id)
-        (Seq(e) ++ (called ++ transitiveCallees(called)).toSeq.map(getFunction(_).fullBody)).flatMap { body =>
-          boundSorts(body) ++ exprOps.collect[Identifier] {
-            case FunctionInvocation(callee, tps, _) if quantifies(callee) => tps.flatMap(sortsOf).toSet
-            case _ => Set()
-          }(body)
+      // the indices of the type parameters of each generic function whose values it quantifies
+      // over, directly or in the functions it calls (those that quantify over none are left out)
+      val quantifiedTypeParams: Map[Identifier, Set[Int]] = {
+        val generic = functions.values.filter(_.tparams.nonEmpty).toSeq
+        val direct = generic.map(fd => fd.id -> boundTypes(fd.fullBody).toSeq).toMap
+        val genericCalls = generic.map(fd => fd.id -> calls(fd.fullBody).toSeq.filter {
+          case (callee, tps) => tps.nonEmpty
+        }).toMap
+        def mentioned(fd: FunDef, tpes: Seq[Type]): Set[Int] = fd.tparams.zipWithIndex.collect {
+          case (tpd, i) if tpes.exists(tpe => typeOps.typeParamsOf(tpe) contains tpd.tp) => i
         }.toSet
+
+        var result = generic.map(fd => fd.id -> mentioned(fd, direct(fd.id))).filter(_._2.nonEmpty).toMap
+        var changed = true
+        while (changed) {
+          changed = false
+          for (fd <- generic) {
+            val tpes = genericCalls(fd.id).flatMap { case (callee, tps) => result.getOrElse(callee, Set()).toSeq.map(tps) }
+            val is = result.getOrElse(fd.id, Set()) ++ mentioned(fd, tpes)
+            if (is != result.getOrElse(fd.id, Set())) {
+              result += fd.id -> is
+              changed = true
+            }
+          }
+        }
+        result
       }
 
-      // the refinements of the field types of `other`
-      def fieldRefinements(other: ADTSort): Seq[Expr] =
-        other.constructors.flatMap(_.fields).flatMap(vd => typeOps.collect[Expr] {
+      // the sorts that `e` quantifies over itself, not in the functions it calls
+      def ownQuantifiedSorts(e: Expr): Set[Identifier] =
+        boundTypes(e).flatMap(sortsOf) ++ calls(e).flatMap { case (callee, tps) =>
+          quantifiedTypeParams.getOrElse(callee, Set()).flatMap(i => sortsOf(tps(i)))
+        }
+
+      val functionSorts = scala.collection.mutable.Map.empty[Identifier, Set[Identifier]]
+      // the sorts that `e` quantifies over, directly or in the functions it calls
+      def quantifiedSortsIn(e: Expr): Set[Identifier] = {
+        val called = exprOps.functionCallsOf(e).map(_.id)
+        ownQuantifiedSorts(e) ++ (called ++ transitiveCallees(called)).flatMap(id =>
+          functionSorts.getOrElseUpdate(id, ownQuantifiedSorts(getFunction(id).fullBody)))
+      }
+
+      // the refinements of the field types of `sort`
+      def fieldRefinements(sort: ADTSort): Seq[Expr] =
+        sort.constructors.flatMap(_.fields).flatMap(vd => typeOps.collect[Expr] {
           case RefinementType(_, pred) => Set(pred)
           case _ => Set()
         }(vd.tpe))
 
-      // the sorts that the invariant and the field refinements of the sort `id` quantify over
-      def quantifiedSorts(id: Identifier): Set[Identifier] = {
-        val other = getSort(id)
-        (other.invariant.map(_.fullBody).toSeq ++ fieldRefinements(other)).flatMap(quantifiedSortsIn).toSet
+      // the sorts that the invariant and the field refinements of `sort` quantify over
+      val quantifiedSorts: Map[Identifier, (Set[Identifier], Set[Identifier])] = sorts.map { case (id, sort) =>
+        id -> (sort.invariant.toSet.flatMap(inv => quantifiedSortsIn(inv.fullBody)),
+          fieldRefinements(sort).toSet.flatMap(quantifiedSortsIn))
       }
 
-      // whether the values of the sort `from` depend on the values of `sort`
-      def dependsOnSort(from: Identifier): Boolean = {
+      // the sorts whose values the values of each sort depend on directly
+      val dependencies: Map[Identifier, Set[Identifier]] = sorts.map { case (id, sort) =>
+        val (inv, fields) = quantifiedSorts(id)
+        id -> (sort.constructors.flatMap(_.fields).flatMap(vd => sortsOf(vd.getType)).toSet ++ inv ++ fields)
+      }
+
+      // whether the values of the sort `from` depend on the values of `to`
+      def dependsOn(from: Identifier, to: Identifier): Boolean = {
         val seen = scala.collection.mutable.Set.empty[Identifier]
-        def rec(id: Identifier): Boolean = id == sort.id || (seen.add(id) && (lookupSort(id) match {
-          case Some(other) =>
-            (other.constructors.flatMap(_.fields).flatMap(vd => sortsOf(vd.getType)).toSet ++
-              quantifiedSorts(id)).exists(rec)
-          case None => false
-        }))
+        def rec(id: Identifier): Boolean =
+          id == to || (seen.add(id) && dependencies.getOrElse(id, Set()).exists(rec))
         rec(from)
       }
 
-      def check(what: String, es: Seq[Expr]): Unit =
-        for (quantified <- es.flatMap(quantifiedSortsIn).find(dependsOnSort)) {
+      for ((id, sort) <- sorts) {
+        val (inv, fields) = quantifiedSorts(id)
+        for ((what, quantified) <- Seq("its invariant" -> inv, "the refinement of one of its field types" -> fields);
+             q <- quantified.find(dependsOn(_, id))) {
           throw NotWellFormedException(sort, Some(
-            s"$what quantifies over the values of $quantified, which depend on those of ${sort.id}"))
+            s"$what quantifies over the values of $q, which depend on those of ${sort.id}"))
         }
-
-      check("its invariant", sort.invariant.map(_.fullBody).toSeq)
-      check("the refinement of one of its field types", fieldRefinements(sort))
+      }
     }
 
     // Cheap by design: definitions are equal by identifier, so two tables holding the same

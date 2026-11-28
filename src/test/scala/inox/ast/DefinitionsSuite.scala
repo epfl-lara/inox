@@ -90,6 +90,18 @@ class DefinitionsSuite extends AnyFunSuite {
     }
     val tGeneric = invariant(tID)(_ => FunctionInvocation(noneOf.id, Seq(T(tID)()), Seq()))
     assert(!wellFormed(Seq(refined(tID, tGeneric)), Seq(tGeneric, noneOf)))
+    // also when it gives the type parameter to another one
+    val noneOfVia = mkFunDef(FreshIdentifier("noneOfVia"))("A") { case Seq(a) =>
+      (Seq(), BooleanType(), { case Seq() => FunctionInvocation(noneOf.id, Seq(a), Seq()) })
+    }
+    val tVia = invariant(tID)(_ => FunctionInvocation(noneOfVia.id, Seq(T(tID)()), Seq()))
+    assert(!wellFormed(Seq(refined(tID, tVia)), Seq(tVia, noneOfVia, noneOf)))
+    // but not through a generic function that quantifies over other values than its type parameter
+    val noInt = mkFunDef(FreshIdentifier("noInt"))("A") { case Seq(a) =>
+      (Seq("a" :: a), BooleanType(), { case Seq(_) => forall("n" :: IntegerType())(_ => E(true)) })
+    }
+    val tOther = invariant(tID)(t => FunctionInvocation(noInt.id, Seq(T(tID)()), Seq(t)))
+    assert(wellFormed(Seq(refined(tID, tOther)), Seq(tOther, noInt)))
 
     // through functions of the sort, and through another sort that holds it
     val tFun = invariant(tID)(_ => forall("f" :: (IntegerType() =>: T(tID)()))(_ => E(false)))
