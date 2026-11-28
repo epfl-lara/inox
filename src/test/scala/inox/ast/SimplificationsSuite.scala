@@ -56,7 +56,15 @@ class SimplificationsSuite extends AnyFunSuite {
     Seq((loopConsID, Seq(ValDef(FreshIdentifier("next"), ADTType(loopID, Seq())))))
   }
 
-  val symbols = NoSymbols.withSorts(Seq(listSort, twoSort, loopSort))
+  // an inductive sort whose first constructor holds a value of the sort
+  val treeID = FreshIdentifier("Tree")
+  val treeSort: ADTSort = mkSort(treeID)() { _ =>
+    Seq(
+      (FreshIdentifier("Node"), Seq(ValDef(FreshIdentifier("t"), ADTType(treeID, Seq())), ValDef(FreshIdentifier("n"), IntegerType()))),
+      (FreshIdentifier("Leaf"), Seq(ValDef(FreshIdentifier("n"), IntegerType()))))
+  }
+
+  val symbols = NoSymbols.withSorts(Seq(listSort, twoSort, loopSort, treeSort))
   given Symbols = symbols
 
   val program = InoxProgram(symbols)
@@ -379,6 +387,7 @@ class SimplificationsSuite extends AnyFunSuite {
     checkConstructExpr(MapType(BooleanType(), UnitType()), 1)
     checkConstructExpr(ADTType(listID, Seq(IntegerType())), 10)
     checkConstructExpr(ADTType(twoID, Seq()), 4)
+    checkConstructExpr(ADTType(treeID, Seq()), 10)
     checkConstructExpr(FunctionType(Seq(), BooleanType()), 2)
     checkConstructExpr(FunctionType(Seq(IntegerType()), IntegerType()), 5)
   }

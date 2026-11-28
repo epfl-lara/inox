@@ -820,7 +820,18 @@ trait SymbolOps extends TypeOps { self =>
         }
       }
 
-      val (ni, cons) = rec(i, sort.constructors.sortBy(constructorCardinality(_).getOrElse(Int.MaxValue)))
+      // the constructors of infinite cardinality that hold no value of the sort come first among them,
+      // so that the values built from the others are finite
+      def reachesSort(cons: TypedADTConstructor): Boolean = {
+        def rec(tpe: Type, seen: Set[Identifier]): Boolean = typeOps.exists {
+          case ADTType(id, _) if id == sort.id => true
+          case t: ADTType if !seen(t.id) => t.getSort.constructors.exists(_.fields.exists(vd => rec(vd.getType, seen + t.id)))
+          case _ => false
+        }(tpe)
+        cons.fields.exists(vd => rec(vd.getType, Set.empty))
+      }
+      val (ni, cons) = rec(i, sort.constructors.sortBy(cons =>
+        (constructorCardinality(cons).getOrElse(Int.MaxValue), reachesSort(cons))))
       ADT(cons.id, cons.tps, {
         if (cons.fields.isEmpty) Seq()
         else unwrapTuple(constructExpr(ni, tupleTypeWrap(cons.fields.map(_.getType))), cons.fields.size)
