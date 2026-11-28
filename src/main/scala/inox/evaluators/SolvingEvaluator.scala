@@ -108,5 +108,68 @@ trait SolvingEvaluator extends Evaluator { self =>
       }
     }))
   }
-}
 
+  private val lambdaComparisonCache: MutableMap[(Lambda, Lambda), LambdaComparison] = MutableMap.empty
+
+  /** Compares the closed lambdas `l1` and `l2` with a solver, under extensional function equality
+    * (see [[solvers.unrolling.optFunctionEquality]]), when the inputs that the evaluator tries don't
+    * tell them apart.
+    *
+    * The answer is [[LambdaComparison.Equal]] when the solver proves that they are equal (an UNSAT
+    * answer, which is sound), and [[LambdaComparison.Input]] with an input on which the solver finds
+    * that they differ. The caller then confirms that they differ on it by evaluating them, since
+    * the solver's models aren't checked. Quantifiers must be evaluated (see [[optEvalQuantifiers]]),
+    * as these queries use the same solvers. */
+  def onLambdaComparison(l1: Lambda, l2: Lambda,
+      modelInterpretations: Map[(Identifier, Seq[Type]), Expr] = Map.empty): LambdaComparison = {
+    if (!evalQuantifiers) LambdaComparison.Unknown else {
+      val interpretations = transitiveInterpretations(Tuple(Seq(l1, l2)), modelInterpretations)
+      // The results in a model only hold in that model
+      val cached = if (interpretations.isEmpty) lambdaComparisonCache.get(l1 -> l2) else None
+      cached.getOrElse {
+        import SolverResponses._
+        val api = SimpleSolverAPI(context.timers.evaluators.forall.run {
+          getSolver(interpretations)(using context.withOpts(
+            optSilentErrors(true),
+            optCheckModels(false),
+            unrolling.optFeelingLucky(false),
+            optForallCache(forallCache)
+          ))
+        })
+
+        // a query that the solver rejects or fails on decides nothing
+        def solve(expr: Expr) = try {
+          context.timers.evaluators.forall.run(api.solveSAT(expr))
+        } catch {
+          case scala.util.control.NonFatal(_) => Unknown
+        }
+
+        val res = solve(Not(Equals(l1, l2))) match {
+          case Unsat => LambdaComparison.Equal
+          case _ =>
+            val args = l1.params.map(vd => Variable.fresh(vd.id.name, vd.getType))
+            solve(Not(Equals(Application(l1, args), Application(l2, args)))) match {
+              case SatWithModel(model) =>
+                val values = args.map(a => model.vars.get(a.toVal))
+                if (values.forall(_.isDefined)) LambdaComparison.Input(values.flatten)
+                else LambdaComparison.Unknown
+              case _ => LambdaComparison.Unknown
+            }
+        }
+        // an unknown answer may come from an interrupt or a timeout
+        if (interpretations.isEmpty && res != LambdaComparison.Unknown) lambdaComparisonCache(l1 -> l2) = res
+        res
+      }
+    }
+  }
+
+  /** The result of [[onLambdaComparison]]. */
+  enum LambdaComparison {
+    /** The lambdas agree on every input. */
+    case Equal
+    /** An input on which the lambdas may differ. */
+    case Input(args: Seq[Expr])
+    /** The solver can't tell. */
+    case Unknown
+  }
+}
