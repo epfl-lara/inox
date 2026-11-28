@@ -186,12 +186,14 @@ def readSteps (c : Ctx) (k : Nat) (steps : List Sexp) : Option (List Step) :=
       pure ⟨rule, p.drop k, e⟩
     | _ => none
 
-/-- The source expressions of the simplifications without names, with their steps, whose
-symbols are those of the sources. -/
+/-- The source expressions of the simplifications, with their steps, whose symbols are those of
+the sources. The names that the solver gives their subterms don't matter, since the steps are
+checked on the expressions as they are read. -/
 def readSimps (certificate : Sexp) : List (Expr × List Step) :=
   let c : Ctx := ⟨Table.of (sectionOf certificate "source-symbols"), "Int", true, []⟩
   (sectionOf certificate "simplifications").filterMap fun
-    | .expr [.atom "expression", _, original, .expr [.atom "names"], .expr (.atom "steps" :: ss)] =>
+    | .expr [.atom "expression", _, original, .expr (.atom "names" :: _),
+        .expr (.atom "steps" :: ss)] =>
       let (k, body) := untyped 100 original
       match (readExpr c 1000 body).toOption, readSteps c k ss with
       | some e, some steps => some (e, steps)
@@ -204,8 +206,9 @@ def orThrow {α : Type} (o : Option α) (why : String) : Except String α :=
   | none => .error why
 
 /-- The input of the certificate, or why it isn't read: every definition is that of a function
-without type parameters over the sorts that are read or that of a datatype without type
-parameters, and every constraint is read. -/
+without type parameters over the sorts that are read, that of a datatype without type
+parameters or that of the invariant of a datatype, which is the function `s$inv` of the datatype
+`s`, and every constraint is read. -/
 def readInput (certificate : Sexp) : Except String InputRead := do
   let input := sectionOf certificate "input"
   let symbols := input.flatMap fun | .expr (.atom "symbols" :: rows) => rows | _ => []
@@ -217,7 +220,11 @@ def readInput (certificate : Sexp) : Except String InputRead := do
   let c : Ctx := ⟨t, "Int", true, []⟩
   let fs := funsOf t true "Int" definitions
   let sorts := Inox.Input.sortsOf t true "Int" definitions
-  if fs.length + sorts.length != definitions.length then
+  -- the invariants of the datatypes: the datatype, the parameter and the body
+  let invs := definitions.filterMap fun
+    | .expr [.atom "datatype-invariant", .atom p, .atom sort, body] => some (t.id sort, p, body)
+    | _ => none
+  if fs.length + sorts.length + invs.length != definitions.length then
     throw "a definition of the input is not that of a function or a datatype that is read"
   if sorts.any (fun s => !s.2.1.isEmpty) then throw "a datatype has type parameters"
   -- the kind of a sort: that of its type, or of the values of a datatype
@@ -232,6 +239,12 @@ def readInput (certificate : Sexp) : Except String InputRead := do
       orThrow (kindOf s) s!"a parameter of {f.name} is of a sort that isn't read"
     let k ← orThrow (kindOf f.ret) s!"{f.name} is of a sort that isn't read"
     pure (FunDef.FunDef f.name [] f.params body, (f.name, ks, k))
+  -- the invariant of the datatype `s` is the function `s$inv`, of no other name
+  let invFuns ← invs.mapM fun (s, p, body) => do
+    if fs.any (·.name == s ++ "$inv") || (invs.filter (·.1 == s)).length != 1 then
+      throw s!"the invariant of {s} has the name of another function"
+    let b ← (readExpr c 1000 body).mapError (s!"the invariant of {s} has `{·}`")
+    pure (FunDef.FunDef (s ++ "$inv") [] [p] b)
   let query ← constraints.mapM fun i =>
     (readExpr c 1000 i).mapError (s!"a constraint has `{·}`")
   let vars ← (symbols.filterMap fun
@@ -244,9 +257,10 @@ def readInput (certificate : Sexp) : Except String InputRead := do
         else throw s!"the variable {x} is of a sort that isn't read"
       | none, _ => throw s!"the variable {x} is of a sort that isn't read"
   pure
-    { funs := read.map (·.1), sigs := read.map (·.2), query, vars
+    { funs := read.map (·.1) ++ invFuns, sigs := read.map (·.2), query, vars
       ctors := sorts.flatMap fun (s, _, cs) => cs.map fun (c, ps) => .Constructor c s ps
-      sorts := sorts.map fun (s, _, _) => .Sort s [] none none
+      sorts := sorts.map fun (s, _, _) =>
+        .Sort s [] (if invs.any (·.1 == s) then some (s ++ "$inv") else none) none
       extEq := !(sectionOf certificate "simplifications").contains
         (.expr [.atom "function-equality", .atom "none"])
       simps := readSimps certificate }
