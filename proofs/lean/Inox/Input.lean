@@ -1132,6 +1132,11 @@ def readSortTy (c : Ctx) (B : List String) : Nat → Sexp → Option Ty
       pure (.RefinementType y (← readSortTy c B n base) (← readPure 100 p))
     | .expr [.atom "Array", k, v] => do
       pure (.MapType (← readSortTy c B n k) (← readSortTy c B n v))
+    | .expr (.atom "->" :: xs) => do
+      let Ts ← xs.mapM (readSortTy c B n)
+      match Ts.reverse with
+      | U :: rest => pure (.FunctionType rest.reverse U)
+      | [] => none
     | .expr (.atom a :: args) =>
       if c.table.kind a == "sort" then do
         pure (.ADTType (c.table.id a) (← args.mapM (readSortTy c B n)))
@@ -1157,7 +1162,17 @@ partial def callsIn (t : Table) : Sexp → List (String × Sexp)
   | .expr xs => xs.flatMap (callsIn t)
   | _ => []
 
-/-- The expression that `s` reads as, or what it has that isn't read. -/
+/-- The characters of a string literal of printable characters without quotes or escapes. -/
+def strChars (a : String) : Option (List Int) :=
+  let body := (a.toList.drop 1).dropLast
+  if a.length ≥ 2 && a.startsWith "\"" && a.endsWith "\"" &&
+      body.all (fun ch => ch != '"' && ch != '\\' && ' ' ≤ ch && ch ≤ '~') then
+    some (body.map fun ch => (ch.toNat : Int))
+  else none
+
+/-- The expression that `s` reads as, or what it has that isn't read. A sum or a product of more
+than two operands, which the printer and the lowering make of nested ones, is read nested to the
+right, which is the same where they are integers. -/
 def readExpr (c : Ctx) : Nat → Sexp → Except String Expr
   | 0, _ => .error "a term too deep"
   | n + 1, s =>
@@ -1166,6 +1181,7 @@ def readExpr (c : Ctx) : Nat → Sexp → Except String Expr
       if !a.isEmpty && a.all Char.isDigit then .ok (.IntegerLiteral a.toNat!)
       else if a == "true" then .ok (.BooleanLiteral true)
       else if a == "false" then .ok (.BooleanLiteral false)
+      else if let some cs := strChars a then .ok (.StringLiteral cs)
       else if a.startsWith "#b" then
         let bits := a.toList.drop 2
         .ok (.BVLiteral true bits.length
@@ -1178,6 +1194,17 @@ def readExpr (c : Ctx) : Nat → Sexp → Except String Expr
     | .expr [.atom "not", a] => do pure (.Not (← readExpr c n a))
     | .expr [.atom "+", a, b] => do pure (.Plus (← readExpr c n a) (← readExpr c n b))
     | .expr [.atom "-", a, b] => do pure (.Minus (← readExpr c n a) (← readExpr c n b))
+    | .expr [.atom "-", a] => do pure (.UMinus (← readExpr c n a))
+    | .expr [.atom "*", a, b] => do pure (.Times (← readExpr c n a) (← readExpr c n b))
+    | .expr [.atom "bvadd", a, b] => do pure (.Plus (← readExpr c n a) (← readExpr c n b))
+    | .expr [.atom "str.++", a, b] => do
+      pure (.StringConcat (← readExpr c n a) (← readExpr c n b))
+    | .expr (.atom "+" :: a :: b :: d :: es) => do
+      pure (.Plus (← readExpr c n a) (← readExpr c n (.expr (.atom "+" :: b :: d :: es))))
+    | .expr (.atom "*" :: a :: b :: d :: es) => do
+      pure (.Times (← readExpr c n a) (← readExpr c n (.expr (.atom "*" :: b :: d :: es))))
+    | .expr [.atom "div", a, b] => do pure (.Division (← readExpr c n a) (← readExpr c n b))
+    | .expr [.atom "mod", a, b] => do pure (.Modulo (← readExpr c n a) (← readExpr c n b))
     | .expr [.atom "<", a, b] => do pure (.LessThan (← readExpr c n a) (← readExpr c n b))
     | .expr [.atom ">", a, b] => do pure (.GreaterThan (← readExpr c n a) (← readExpr c n b))
     | .expr [.atom "<=", a, b] => do pure (.LessEquals (← readExpr c n a) (← readExpr c n b))
@@ -1209,6 +1236,9 @@ def readExpr (c : Ctx) : Nat → Sexp → Except String Expr
     | .expr [.atom "store", m, k, w] => do
       pure (.MapUpdated (← readExpr c n m) (← readExpr c n k) (← readExpr c n w))
     | .expr [.atom "insert", a, e] => do pure (.SetAdd (← readExpr c n a) (← readExpr c n e))
+    | .expr (.atom "insert" :: a :: e :: e' :: es) => do
+      (e' :: es).foldlM (fun acc x => do pure (.SetAdd acc (← readExpr c n x)))
+        (.SetAdd (← readExpr c n a) (← readExpr c n e))
     | .expr [.atom "member", e, a] => do
       pure (.ElementOfSet (← readExpr c n e) (← readExpr c n a))
     | .expr [.atom "union", a, b] => do pure (.SetUnion (← readExpr c n a) (← readExpr c n b))
@@ -1242,7 +1272,10 @@ def readExpr (c : Ctx) : Nat → Sexp → Except String Expr
         | .expr [.atom x, sort] => do pure (Param.Param x (kindTy c.elem (← kindOfSort c n sort)))
         | _ => .error "a parameter"
       pure (.Lambda ps (← readExpr c n b))
-    | .expr [.atom "forall", .expr ps, b] => do
+    | .expr [.atom "forall", .expr ps, b] | .expr [.atom "exists", .expr ps, b] => do
+      let q := match s with
+        | .expr (.atom q :: _) => q
+        | _ => ""
       let ps ← ps.mapM fun
         | .expr [.atom x, sort] =>
           match readSortTy c [] 100 sort, sort with
@@ -1250,7 +1283,9 @@ def readExpr (c : Ctx) : Nat → Sexp → Except String Expr
           | none, .expr (.atom "!" :: _) => .error s!"the refined parameter {x}"
           | none, _ => do pure (Param.Param x (kindTy c.elem (← kindOfSort c n sort)))
         | _ => .error "a parameter"
-      pure (.Forall ps (← readExpr c n b))
+      let b ← readExpr c n b
+      -- an existential quantifier is the negation of the universal one of the negation
+      pure (if q == "forall" then .Forall ps b else .Not (.Forall ps (.Not b)))
     | .expr (.expr [.atom "as", .atom "@", _] :: f :: args) => do
       pure (.Application (← readExpr c n f) (← args.mapM (readExpr c n)))
     | .expr [.atom "as", .atom k, .expr (.atom t :: ts)] =>

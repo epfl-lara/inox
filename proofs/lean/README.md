@@ -1248,10 +1248,80 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   recursive functions, and those with quantifiers, uninterpreted functions,
   errors, sets, maps, merges of maps, reals or bitvectors. The others are those
   of the `simplifications` scripts, which have operations that the reader
-  doesn't read yet, such as integer division, `exists` or `str.++`, or compare
-  functions extensionally. Nor is this theorem joined to
-  `no_solution_of_reached` yet, whose program has neither sorts with type
-  parameters nor sorts with an equality.
+  doesn't read yet, such as `exists` or `str.++`, or compare functions
+  extensionally. [`Joined.lean`](Inox/Joined.lean) joins
+  `no_solution_of_reached` to the input.
+  [`Simplified.lean`](Inox/Simplified.lean) checks the steps that the
+  certificate records of the simplification of each constraint, for the rules
+  `logic` (three-valued propositional reasoning over the atoms of the subterm
+  that a step rewrites, under the facts of the path to it, once the variables
+  of its lets are their values), `select` (the selection of a field of a
+  construction is the argument of the field), `bind` (a let of a subterm that
+  the term always evaluates, to a variable that it doesn't mention), `expand`
+  (a variable is the value of its let), `arith` (a product with a factor `0` is
+  `0`, a sum with an operand `0` is the other, and an equality of an expression
+  of a primitive type, or a variable of a datatype, with itself is `true`),
+  `evaluate` (a ground term of literals, arithmetic, comparisons, conditionals
+  and concatenations of strings is its value, and two lambdas of an integer
+  are different where their bodies are different values at an integer, and
+  equal where their bodies are the same up to the names of their parameters),
+  `eta`
+  (the construction of the fields of a variable
+  of a datatype is the variable) and `unused` (a quantifier over parameters
+  whose types have values, as integers, booleans and functions into them do,
+  of a ground body, is the body), also in the bodies of quantifiers, and proves
+  that what the steps rewrite a constraint into refines it: wherever the
+  constraint has a value, what it becomes has the same (`stepsApply_refines`).
+  [`Closures.lean`](Inox/Closures.lean) checks the steps that keep the values
+  up to closures with the same results: a call with literal arguments to a
+  construction of lambdas is that construction where the parameters of the
+  call are the arguments, a lambda or a set of lambdas is its renaming, the
+  application of a lambda to a literal or a variable is a let of it, a
+  closure is in a set of closures where it is equal to one of them, a tester
+  of a construction is a literal, and a conditional on a literal is its
+  branch, through comparisons, negations, selectors, testers, applications,
+  memberships, insertions, conditionals and lets, and, where functions
+  aren't compared, the values of lets and the bodies of lambdas, where a
+  variable bound to a lambda of a ground body is that lambda. It proves that
+  the equality compares such values alike (`ext_same`), where the sorts have
+  no equalities of their own, that a term that reads closures only through
+  these operands has related values where they are related (`fl_ext`), so
+  that what the steps rewrite a constraint into refines it up to closures
+  (`stepsApplyX_refines`).
+  [`Lowered.lean`](Inox/Lowered.lean) relates an expression of the input to
+  what Logos reads of its lowering, whose symbols have other names, whose
+  errors are assumptions that fail and whose sums and products of two integers
+  end in `+ 0` and `* 1`, and proves that where the expression evaluates to a
+  value, so does what it is lowered to (`lowers_eval`). `no_input_solution`
+  says that where `no_solution_of_reached` holds and the constraints after
+  their steps and the functions of the input are lowered to the query and the
+  program that Logos reads (`linkCheck`), no values of the variables of the
+  input, of their types, make all its constraints evaluate to `true` in its
+  program. It covers first-order inputs, with type parameters, over
+  integers, booleans, reals and datatypes, whose constructors, testers and
+  selectors have other names in the reading of Logos, and whose fields of
+  integers are known to be integers, with lets, which the lowering inlines or
+  drops, where each step of a constraint is of these rules, and variables of
+  datatypes, which the steps remove or which are of datatypes of Logos. A
+  construction of a sort with an
+  invariant is lowered to the assumption of the invariant of its arguments
+  (`instInv`), where the body of the invariant doesn't depend on the fuel or
+  the types, and a variable of a signed bit-vector to the signed view of the
+  unsigned variable of Logos. On the corpus, it holds of the 3 certificates
+  of `error-is-infeasible`, the 1st, 2nd, 3rd and 5th of
+  `lets-and-assumptions-around-partial-terms`, the first 5 of
+  `ground-terms-that-evaluate`, the first 3 of
+  `arithmetic-over-partial-operands`, the 1st, 3rd and 4th of
+  `selections-of-constructions-with-partial-fields`, the first of
+  `real-division-by-zero-is-infeasible` and the 1st and 3rd of
+  `constructions-under-invariants`, that of
+  `bitvector-division-by-zero-is-total`, the first of
+  `empty-function-codomains`, the first of
+  `quantifiers-in-connectives-over-partial-bodies`, that of `size-negative`
+  the 2nd, 3rd and 6th of `lambdas-with-partial-bodies-extensional`, the 4
+  of `functions-in-sets-and-fields-extensional` and the regression
+  certificate of `LambdaPointers-Issue115`, as `inox-solution --input` says.
+  The encoders aren't in this theorem yet.
 - **The link between the proof and the script.** The checker checks that each
   assumption of the proof is the text of an assert of the script, up to how
   cvc5 prints testers (`(is C e)` for `((_ is C) e)`), once the terms that the
