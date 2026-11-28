@@ -41,7 +41,7 @@ The rules that are checked here:
 namespace Inox.Simplified
 
 open Inox.Semantics
-open Inox.Lowered (exprEq exprEq_eq)
+open Inox.Lowered (exprEq exprEq_eq pick pick_eval construct_ok)
 
 mutual
 /-- `v` is a value of the type `T` for the constructors `cs`: an integer, a boolean, a real, or
@@ -1549,12 +1549,6 @@ end
 
 /-! ## The rules -/
 
-/-- The argument of the field `sel` among the arguments `args` of a construction whose fields
-are `fields`. -/
-def pick : List Param → List Expr → Id → Option Expr
-  | .Param f _ :: fs, a :: as, sel => if f = sel then some a else pick fs as sel
-  | _, _, _ => none
-
 /-- `select`: the selection of a field of a construction is the argument of the field. -/
 def selectCheck (cs : List Constructor) (t t' : Expr) : Bool :=
   match t with
@@ -1832,39 +1826,6 @@ theorem evaluated_eval {fuel : Int} {env : Env} {a : Expr} :
     · rw [exprEq_eq _ _ _ h]; exact ⟨v, hv⟩
     · obtain ⟨vk, hvk⟩ := strictKids_eval hv k hk
       exact evaluated_eval n k hka hvk
-
-theorem pick_eval {fuel : Int} {env : Env} :
-    ∀ (fields : List Param) (args : List Expr) (vs : List Value) (sel : Id) {v : Value}
-      {a : Expr}, select_field fields vs sel = .Ok v → eval_list O P fuel env args = .Ok vs →
-      pick fields args sel = some a → eval O P fuel env a = .Ok v
-  | .Param f _ :: fs, b :: bs, vs, sel, v, a, hs, hl, hp => by
-    rw [eval_list] at hl
-    split at hl
-    · next vb hb =>
-      split at hl
-      · next ws hws =>
-        cases hl
-        simp only [pick] at hp
-        simp only [select_field] at hs
-        by_cases hf : f = sel
-        · simp only [hf, if_true, Option.some.injEq] at hp
-          simp only [hf, dite_true, Result.Ok.injEq] at hs
-          subst hp; subst hs; exact hb
-        · simp only [hf, if_false] at hp
-          simp only [hf, dite_false] at hs
-          exact pick_eval fs bs ws sel hs hws hp
-      · cases hl
-      · cases hl
-    · cases hl
-    · cases hl
-  | [], _, _, _, _, _, _, _, hp => by simp [pick] at hp
-  | .Param _ _ :: _, [], _, _, _, _, _, _, hp => by simp [pick] at hp
-
-theorem construct_ok {fuel : Int} {env : Env} {c : Id} {tps : List Ty} {vs : List Value}
-    {w : Value} (h : construct O P fuel env c tps vs = .Ok w) : ∃ tps', w = .ADTV c tps' vs := by
-  rw [construct] at h
-  repeat' (split at h)
-  all_goals first | (cases h; exact ⟨_, rfl⟩) | cases h
 
 theorem selectCheck_refines {cs : List Constructor} {Fs : List Fact} {t t' : Expr}
     (hP : ∃ fs ss is eqm, P = .Program fs cs ss is eqm) (h : selectCheck cs t t' = true) :

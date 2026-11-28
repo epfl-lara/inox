@@ -295,6 +295,7 @@ def pairs : Nat → Expr → Expr → Names
     | .FunctionInvocation f _ es, .FunctionInvocation g _ es' =>
       ({ funs := [(f, g)] } : Names).app (all es es')
     | .ADT c _ es, .ADT c' _ es' => ({ ctors := [(c, c')] } : Names).app (all es es')
+    | .ADT c _ es, .Assume _ (.ADT c' _ es') => ({ ctors := [(c, c')] } : Names).app (all es es')
     | .IsConstructor a c, .IsConstructor a' c' =>
       ({ ctors := [(c, c')] } : Names).app (pairs n a a')
     | .ADTSelector a f, .ADTSelector a' f' =>
@@ -360,6 +361,13 @@ def Link.sig (L : Link) (R : InputRead) : LSig where
     | _, _ => none
   fieldKinds f := R.ctors.findSome? fun
     | .Constructor _ s fs => (fs.find? (paramName · == f)).map fun p => (s, fieldKindOf p)
+  invs c := match lookup_ctor R.ctors c with
+    | .Ok (.Constructor _ s fs) => match lookup_sort R.sorts s with
+      | .Ok (.Sort _ _ (some inv) _) => match lookup_fun R.funs inv with
+        | .Ok (.FunDef g _ [p] B) => if g = inv then some (p, fs, B) else none
+        | _ => none
+      | _ => none
+    | _ => none
 
 /-- The variables of the input that are matched, with their kinds. -/
 def Link.ctx (L : Link) (R : InputRead) : Id → Option (Expr × LK) := fun x =>
@@ -406,7 +414,7 @@ def ctorCheck (S : LSig) (cs : List Constructor) (ss : List ADTSort) (cs' : List
     (ss' : List ADTSort) (c c' : Id) : Bool :=
   match lookup_ctor cs c, lookup_ctor cs' c' with
   | .Ok (.Constructor c0 s fs), .Ok (.Constructor c1 s' fs') =>
-    c0 == c && c1 == c' && noInv ss s && noInv ss' s' &&
+    c0 == c && c1 == c' && noInv ss' s' &&
       fieldsOkB S.fields (fieldNames fs) (fieldNames fs')
   | _, _ => false
 
@@ -606,15 +614,15 @@ theorem no_input_solution {O : Oracle} (sound : LogosSound) (hO : O.Sound)
     · cases hf'
   have hC : Ctors R.program (programOf (dataOf r) r.equations) (L.sig R) := by
     refine ⟨fun c c' hc => ?_, fun c d c' hc hd => ?_, fun f g f' hf hg => ?_,
-      fun c s ks hk => ?_⟩
+      fun c s ks hk => ?_, fun c p fs B hv => ?_⟩
     · have hk := hctors (c, c') (Inox.Lowered.mem_of_lookup hc)
       simp only [show (L.sig R).ctors c = some c' from hc] at hk
       unfold ctorCheck at hk
       split at hk
       · next c0 s fs c1 s' fs' h1 h2 =>
         simp only [Bool.and_eq_true, beq_iff_eq] at hk
-        obtain ⟨⟨⟨⟨rfl, rfl⟩, hs⟩, hs'⟩, hfs⟩ := hk
-        exact ⟨fs, fs', ctorOf_of h1 hs, ctorOf_of h2 hs', fieldsOk_of hfs⟩
+        obtain ⟨⟨⟨rfl, rfl⟩, hs'⟩, hfs⟩ := hk
+        exact ⟨fs, fs', ⟨s, h1⟩, ctorOf_of h2 hs', fieldsOk_of hfs⟩
       · cases hk
     · have hk := hκ (c, c') (Inox.Lowered.mem_of_lookup hc) (d, c')
         (Inox.Lowered.mem_of_lookup hd)
@@ -641,10 +649,27 @@ theorem no_input_solution {O : Oracle} (sound : LogosSound) (hO : O.Sound)
         · next c2 s2 fs2 c1 s' fs' he _ =>
           cases he
           simp only [Bool.and_eq_true, beq_iff_eq] at hc
-          obtain ⟨⟨⟨⟨rfl, rfl⟩, hs⟩, _⟩, _⟩ := hc
-          exact ⟨fs, ctorOf_of h2 hs, fieldKinds_of hf⟩
+          obtain ⟨⟨⟨rfl, rfl⟩, _⟩, _⟩ := hc
+          exact ⟨fs, ⟨_, h2⟩, fieldKinds_of hf⟩
         · cases hc
       · cases hk'
+    · simp only [Link.sig] at hv
+      split at hv
+      · next c0 s fs0 h1 =>
+        split at hv
+        · next s0 tps inv eq h2 =>
+          split at hv
+          · next g tps' p0 B0 h3 =>
+            split at hv
+            · next hg =>
+              subst hg
+              simp only [Option.some.injEq, Prod.mk.injEq] at hv
+              obtain ⟨rfl, rfl, rfl⟩ := hv
+              exact ⟨_, _, _, _, _, c0, s, s0, tps, eq, g, tps', rfl, h1, h2, h3⟩
+            · cases hv
+          · cases hv
+        · cases hv
+      · cases hv
   -- the values of the variables of the query: those of the variables of the input
   let g : Id → Value := fun y => match L.pre y with
     | some x => match lookup_var bs x with

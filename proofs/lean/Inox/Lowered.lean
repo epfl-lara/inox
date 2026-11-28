@@ -15,8 +15,10 @@ functions are what those of the input are lowered to (`Funs`) and whose construc
 of the input (`Ctors`).
 
 The relation is of first-order expressions over integers, other primitive values and values
-of datatypes without invariants, with calls of functions without type parameters, and lets,
-which the lowering inlines or drops: no lambdas yet. It follows the kinds of the values, so that
+of datatypes, with calls of functions without type parameters, and lets, which the lowering
+inlines or drops: no lambdas yet. A construction of a sort with an invariant is lowered to the
+assumption of the invariant of its arguments (`instInv`), where its body doesn't depend on the
+fuel or the types. It follows the kinds of the values, so that
 a field of a value of a datatype is known to be an integer where the field is of the integers
 and the value is a construction of fields of their kinds (`Has`).
 -/
@@ -77,6 +79,9 @@ structure LSig where
   kinds : Id → Option (Id × List LK) := fun _ => none
   /-- the datatype of each field, with its kind -/
   fieldKinds : Id → Option (Id × LK) := fun _ => none
+  /-- the parameter of the invariant of each constructor of a sort with an invariant, its fields
+  and the body of the invariant -/
+  invs : Id → Option (Id × List Param × Expr) := fun _ => none
 
 mutual
 /-- The value `v` of the input is the value `v'` of the lowered program up to the names of
@@ -112,6 +117,50 @@ theorem vr_has {K : Id → Option Id} {T : Id → Option (Id × List LK)} {v v' 
 def bindCtx (Γ : Id → Option (Expr × LK)) (x : Id) (o : Option (Expr × LK)) :
     Id → Option (Expr × LK) :=
   fun z => if z = x then o else Γ z
+
+/-- The argument of the field `sel` among the arguments `args` of a construction whose fields
+are `fields`. -/
+def pick : List Param → List Expr → Id → Option Expr
+  | .Param f _ :: fs, a :: as, sel => if f = sel then some a else pick fs as sel
+  | _, _, _ => none
+
+/-- The body `e` of the invariant of a construction, of the parameter `p`, where the selection
+of each field of `p` is the argument `args` of the construction of the fields `fields`, `n`
+deep, for the bodies that don't depend on the fuel or the types: no calls, constructions or
+lets, and no other variables. -/
+def instInv (p : Id) (fields : List Param) (args : List Expr) : Nat → Expr → Option Expr
+  | 0, _ => none
+  | n + 1, e =>
+    let r := instInv p fields args n
+    match e with
+    | .IntegerLiteral i => some (.IntegerLiteral i)
+    | .BooleanLiteral b => some (.BooleanLiteral b)
+    | .FractionLiteral a b => some (.FractionLiteral a b)
+    | .Error => some .Error
+    | .Not a => (r a).map .Not
+    | .UMinus a => (r a).map .UMinus
+    | .IsConstructor a c => (r a).map (.IsConstructor · c)
+    | .ADTSelector a f =>
+      match a with
+      | .Variable q => if q = p then pick fields args f else none
+      | _ => (r a).map (.ADTSelector · f)
+    | .Plus a b => (r a).bind fun a' => (r b).map (.Plus a' ·)
+    | .Minus a b => (r a).bind fun a' => (r b).map (.Minus a' ·)
+    | .Times a b => (r a).bind fun a' => (r b).map (.Times a' ·)
+    | .Division a b => (r a).bind fun a' => (r b).map (.Division a' ·)
+    | .Remainder a b => (r a).bind fun a' => (r b).map (.Remainder a' ·)
+    | .Modulo a b => (r a).bind fun a' => (r b).map (.Modulo a' ·)
+    | .LessThan a b => (r a).bind fun a' => (r b).map (.LessThan a' ·)
+    | .GreaterThan a b => (r a).bind fun a' => (r b).map (.GreaterThan a' ·)
+    | .LessEquals a b => (r a).bind fun a' => (r b).map (.LessEquals a' ·)
+    | .GreaterEquals a b => (r a).bind fun a' => (r b).map (.GreaterEquals a' ·)
+    | .Equals a b => (r a).bind fun a' => (r b).map (.Equals a' ·)
+    | .Implies a b => (r a).bind fun a' => (r b).map (.Implies a' ·)
+    | .Assume a b => (r a).bind fun a' => (r b).map (.Assume a' ·)
+    | .IfExpr c a b => (r c).bind fun c' => (r a).bind fun a' => (r b).map (.IfExpr c' a' ·)
+    | .And es => (es.mapM r).map .And
+    | .Or es => (es.mapM r).map .Or
+    | _ => none
 
 /-- `Lowers S Γ e e' k`: the expression `e` of the input is lowered to `e'`, and its values are
 of the kind `k`, where each variable `x` of `Γ` is lowered to the expression `y` of
@@ -227,6 +276,16 @@ inductive Lowers (S : LSig) : (Id → Option (Expr × LK)) → Expr → Expr →
       {es es' : List Expr} (hc : S.ctors c = some c') (hk : S.kinds c = some (s, ks))
       (ha : Lowers S Γ (.Tuple es) (.Tuple es') (.tuple ks)) :
       Lowers S Γ (.ADT c tps es) (.ADT c' tps' es') (.data s)
+  /-- A construction of a constructor of a sort with an invariant, which holds of the arguments
+  where the construction has a value: any value, or one of the datatype of the constructor where
+  the arguments are of the kinds of its fields. -/
+  | adtInv {Γ : Id → Option (Expr × LK)} {c c' p : Id} {fields : List Param} {B I J : Expr}
+      {n : Nat} {ks : List LK} {k : LK} {tps tps' : List Ty} {es es' : List Expr}
+      (hc : S.ctors c = some c') (hv : S.invs c = some (p, fields, B))
+      (hI : instInv p fields es n B = some I) (hi : Lowers S Γ I J .any)
+      (ha : Lowers S Γ (.Tuple es) (.Tuple es') (.tuple ks))
+      (hk : k = .any ∨ ∃ s, k = .data s ∧ S.kinds c = some (s, ks)) :
+      Lowers S Γ (.ADT c tps es) (.Assume J (.ADT c' tps' es')) k
   /-- A selection of a field of a value of a datatype, of the kind of the field. -/
   | selData {Γ : Id → Option (Expr × LK)} {e e' : Expr} {f f' s : Id} {k : LK}
       (hf : S.fields f = some f') (hk : S.fieldKinds f = some (s, k))
@@ -251,6 +310,10 @@ def CtorOf (c : Id) (fs : List Param) : Program → Prop
   | .Program _ cs ss _ _ => ∃ s tps eq, lookup_ctor cs c = .Ok (.Constructor c s fs) ∧
       lookup_sort ss s = .Ok (.Sort s tps none eq)
 
+/-- The program has the constructor `c`, with the fields `fs`. -/
+def CtorIn (c : Id) (fs : List Param) : Program → Prop
+  | .Program _ cs _ _ _ => ∃ s, lookup_ctor cs c = .Ok (.Constructor c s fs)
+
 /-- The names of the fields. -/
 def fieldNames : List Param → List Id
   | [] => []
@@ -269,17 +332,21 @@ def FieldKinds (F : Id → Option (Id × LK)) (s : Id) : List Param → List LK 
   | .Param f _ :: fs, k :: ks => F f = some (s, k) ∧ FieldKinds F s fs ks
   | _, _ => False
 
-/-- The constructors of `S` are those of `Ps`, of sorts without invariants, and their
-constructors in `P` are too, with the fields of `S` at the same positions. The constructors and
-the fields of `S` are distinct, as their names in `P` are. The constructors of `S.kinds` are
-those of `Ps` too, whose fields are of the kinds of `S.fieldKinds`. -/
+/-- The constructors of `S` are those of `Ps`, and their constructors in `P` are of sorts
+without invariants, with the fields of `S` at the same positions. The constructors and the
+fields of `S` are distinct, as their names in `P` are. The constructors of `S.kinds` are those
+of `Ps` too, whose fields are of the kinds of `S.fieldKinds`, and the invariants of `S.invs` are
+those of the sorts of their constructors in `Ps`. -/
 structure Ctors (Ps P : Program) (S : LSig) : Prop where
-  ctor : ∀ c c', S.ctors c = some c' → ∃ fs fs', CtorOf c fs Ps ∧ CtorOf c' fs' P ∧
+  ctor : ∀ c c', S.ctors c = some c' → ∃ fs fs', CtorIn c fs Ps ∧ CtorOf c' fs' P ∧
     FieldsOk S.fields (fieldNames fs) (fieldNames fs')
   ctorInj : ∀ c d c', S.ctors c = some c' → S.ctors d = some c' → c = d
   fieldInj : ∀ f g f', S.fields f = some f' → S.fields g = some f' → f = g
   kinds : ∀ c s ks, S.kinds c = some (s, ks) →
-    ∃ fs, CtorOf c fs Ps ∧ FieldKinds S.fieldKinds s fs ks
+    ∃ fs, CtorIn c fs Ps ∧ FieldKinds S.fieldKinds s fs ks
+  inv : ∀ c p fs B, S.invs c = some (p, fs, B) → ∃ fns cs ss is eqm c0 s s0 tps eq inv tparams,
+    Ps = .Program fns cs ss is eqm ∧ lookup_ctor cs c = .Ok (.Constructor c0 s fs) ∧
+      lookup_sort ss s = .Ok (.Sort s0 tps (some inv) eq) ∧ FunIn inv tparams [p] B Ps
 
 /-! ## Values -/
 
@@ -491,6 +558,118 @@ theorem construct_of {O : Oracle} {Q : Program} {c : Id} {fs : List Param} (h : 
 
 section Evaluation
 variable {O : Oracle} {Ps P : Program} {S : LSig}
+
+theorem pick_eval {fuel : Int} {env : Env} :
+    ∀ (fields : List Param) (args : List Expr) (vs : List Value) (sel : Id) {v : Value}
+      {a : Expr}, select_field fields vs sel = .Ok v → eval_list O P fuel env args = .Ok vs →
+      pick fields args sel = some a → eval O P fuel env a = .Ok v
+  | .Param f _ :: fs, b :: bs, vs, sel, v, a, hs, hl, hp => by
+    rw [eval_list] at hl
+    split at hl
+    · next vb hb =>
+      split at hl
+      · next ws hws =>
+        cases hl
+        simp only [pick] at hp
+        simp only [select_field] at hs
+        by_cases hf : f = sel
+        · simp only [hf, if_true, Option.some.injEq] at hp
+          simp only [hf, dite_true, Result.Ok.injEq] at hs
+          subst hp; subst hs; exact hb
+        · simp only [hf, if_false] at hp
+          simp only [hf, dite_false] at hs
+          exact pick_eval fs bs ws sel hs hws hp
+      · cases hl
+      · cases hl
+    · cases hl
+    · cases hl
+  | [], _, _, _, _, _, _, _, hp => by simp [pick] at hp
+  | .Param _ _ :: _, [], _, _, _, _, _, _, hp => by simp [pick] at hp
+
+theorem construct_ok {fuel : Int} {env : Env} {c : Id} {tps : List Ty} {vs : List Value}
+    {w : Value} (h : construct O P fuel env c tps vs = .Ok w) : ∃ tps', w = .ADTV c tps' vs := by
+  rw [construct] at h
+  repeat' (split at h)
+  all_goals first | (cases h; exact ⟨_, rfl⟩) | cases h
+
+theorem pick_eq {fuel : Int} {env : Env} :
+    ∀ (fields : List Param) (args : List Expr) (vs : List Value) (sel : Id) {a : Expr},
+      eval_list O P fuel env args = .Ok vs → pick fields args sel = some a →
+      eval O P fuel env a = select_field fields vs sel
+  | .Param f _ :: fs, b :: bs, vs, sel, a, hl, hp => by
+    rw [eval_list] at hl
+    split at hl
+    · next vb hb =>
+      split at hl
+      · next ws hws =>
+        cases hl
+        simp only [pick] at hp
+        simp only [select_field]
+        by_cases hf : f = sel
+        · simp only [hf, if_true, Option.some.injEq] at hp
+          subst hp; simp [hf, hb]
+        · simp only [hf, if_false] at hp
+          simp only [hf, dite_false]
+          exact pick_eq fs bs ws sel hws hp
+      · cases hl
+      · cases hl
+    · cases hl
+    · cases hl
+  | [], _, _, _, _, _, hp => by simp [pick] at hp
+  | .Param _ _ :: _, [], _, _, _, _, hp => by simp [pick] at hp
+
+theorem eval_lists_eq {f1 f2 : Int} {env1 env2 : Env} {r : Expr → Option Expr}
+    (ih : ∀ e e', r e = some e' → eval O P f1 env1 e = eval O P f2 env2 e') :
+    ∀ (es es' : List Expr), es.mapM r = some es' →
+      eval_and O P f1 env1 es = eval_and O P f2 env2 es' ∧
+      eval_or O P f1 env1 es = eval_or O P f2 env2 es'
+  | [], es', h => by
+    simp at h; subst h
+    exact ⟨by rw [eval_and, eval_and], by rw [eval_or, eval_or]⟩
+  | a :: as, es', h => by
+    simp only [List.mapM_cons, Option.bind_eq_bind, Option.bind_eq_some_iff,
+      Option.pure_def, Option.some.injEq] at h
+    obtain ⟨a', ha, as', has, rfl⟩ := h
+    obtain ⟨h2, h3⟩ := eval_lists_eq ih as as' has
+    have hae := ih a a' ha
+    exact ⟨by rw [eval_and, eval_and, eval_bool, eval_bool, hae, h2],
+      by rw [eval_or, eval_or, eval_bool, eval_bool, hae, h3]⟩
+
+/-- Where `p` is a construction of `c` of the values `vs` of the arguments `args`, the body of
+an invariant has the value of what `instInv` makes of it, whatever the fuel and the types. -/
+theorem instInv_eval {p : Id} {fields : List Param} {args : List Expr} {f1 f2 : Int}
+    {env1 env2 : Env} {c s : Id} {tps : List Ty} {vs : List Value}
+    (hp : lookup_var (env_vars env1) p = .Ok (.ADTV c tps vs))
+    (hc : ∃ fns cs ss is eqm c0, P = .Program fns cs ss is eqm ∧
+      lookup_ctor cs c = .Ok (.Constructor c0 s fields))
+    (ha : eval_list O P f2 env2 args = .Ok vs) :
+    ∀ n e e', instInv p fields args n e = some e' → eval O P f1 env1 e = eval O P f2 env2 e'
+  | 0, _, _, h => by simp [instInv] at h
+  | n + 1, e, e', h => by
+    have ih := instInv_eval (f1 := f1) hp hc ha n
+    cases e <;> simp only [instInv, Option.bind_eq_some_iff, Option.map_eq_some_iff] at h
+    all_goals first
+      | (obtain ⟨a', h1, b', h2, rfl⟩ := h; simp only [eval, eval_bool, ih _ _ h1, ih _ _ h2])
+      | (obtain ⟨a', h1, rfl⟩ := h; simp only [eval, eval_bool, ih _ _ h1])
+      | (cases h; done)
+      | (cases h; simp only [eval]; done)
+      | (obtain ⟨c', h1, a', h2, b', h3, rfl⟩ := h
+         simp only [eval, eval_bool, ih _ _ h1, ih _ _ h2, ih _ _ h3])
+      | (obtain ⟨es', hes, rfl⟩ := h
+         simp only [eval]
+         first | exact (eval_lists_eq ih _ _ hes).1 | exact (eval_lists_eq ih _ _ hes).2)
+      | skip
+    split at h
+    · next q =>
+      by_cases hq : q = p
+      · subst hq
+        simp only [if_true] at h
+        obtain ⟨fns, cs, ss, is, eqm, c0, rfl, hcs⟩ := hc
+        simp only [eval, hp, hcs]
+        exact (pick_eq fields args vs _ ha h).symm
+      · simp [hq] at h
+    · obtain ⟨a', h1, rfl⟩ := Option.map_eq_some_iff.mp h
+      simp only [eval, ih _ _ h1]
 
 /-- The variables of `Γ` have values in `env` and `env'` that relate, of their kinds. -/
 def EnvOk (O : Oracle) (P : Program) (K : Id → Option Id) (T : Id → Option (Id × List LK))
@@ -1220,8 +1399,7 @@ theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) (hC : Ctors Ps P S) :
     simp only [eval] at hv
     split at hv
     · next vs hvs =>
-      rw [construct_of hS] at hv
-      cases hv
+      obtain ⟨tps0, rfl⟩ := construct_ok hv
       obtain ⟨_, t', n1, rt, e1⟩ :=
         iha env env' hΓ fuel hfn (.TupleV vs) (by simp only [eval, hvs])
       obtain ⟨vs', rfl, hvrs⟩ := vr_tuple_inv rt
@@ -1229,6 +1407,50 @@ theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) (hC : Ctors Ps P S) :
         fun f hf => ?_⟩
       simp only [eval, eval_tuple_inv (e1 f hf)]
       rw [construct_of hP]
+    · cases hv
+    · cases hv
+  | @adtInv _ c c' p fields B I J n0 ks k0 tps tps' es es' hc hv0 hI _ _ hk0 ihi iha =>
+    intro env env' hΓ fuel hfn v hv
+    obtain ⟨fs, fs', _, hP, _⟩ := hC.ctor c c' hc
+    obtain ⟨fns, cs, ss, is, eqm, c0, s, s0, tpsS, eq, inv, tparams, hPs, hcs, hss, hfun⟩ :=
+      hC.inv c p fields B hv0
+    simp only [eval] at hv
+    split at hv
+    · next vs hvs =>
+      have hw := hv
+      obtain ⟨tps0, rfl⟩ := construct_ok hw
+      subst hPs
+      rw [construct] at hv
+      simp only [hcs, hss] at hv
+      split at hv
+      · next holds hcall =>
+        split at hv
+        · obtain ⟨_, bs, hbs, hB⟩ := call_inv hfun hcall
+          simp only [bind_all, Result.Ok.injEq] at hbs
+          subst hbs
+          have hI' : eval O (.Program fns cs ss is eqm) fuel env I = .Ok (.BoolV true) := by
+            rw [← instInv_eval (f1 := fuel - 1) (tps := O.resolve_all (env_types env) tps)
+              (env1 := Env.Env (bind_types tparams tps (env_types env))
+                [.Binding p (.ADTV c (O.resolve_all (env_types env) tps) vs)])
+              (by simp [env_vars, lookup_var]) ⟨fns, cs, ss, is, eqm, c0, rfl, hcs⟩ hvs n0 B I hI]
+            exact hB
+          obtain ⟨_, w', n1, r1, e1⟩ := ihi env env' hΓ fuel hfn _ hI'
+          rw [vr_bool r1] at e1
+          obtain ⟨hks, t', n2, rt, e2⟩ :=
+            iha env env' hΓ fuel hfn (.TupleV vs) (by simp only [eval, hvs])
+          obtain ⟨vs', rfl, hvrs⟩ := vr_tuple_inv rt
+          have hk : Has S.kinds k0 (.ADTV c tps0 vs) := by
+            rcases hk0 with rfl | ⟨s1, rfl, hs1⟩
+            · exact .any _
+            · exact .data hs1 hks
+          refine ⟨hk, .ADTV c' (O.resolve_all (env_types env') tps') vs', max n1 n2,
+            .adt hc hvrs, fun f hf => ?_⟩
+          simp only [eval, eval_bool, e1 f (by omega), dite_true,
+            eval_tuple_inv (e2 f (by omega))]
+          rw [construct_of hP]
+        · cases hv
+      · cases hv
+      · cases hv
     · cases hv
     · cases hv
   | @isCtor _ e e' c c' hc _ ihe =>
@@ -1267,7 +1489,7 @@ theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) (hC : Ctors Ps P S) :
         | Program fns cs ss is eqs =>
         cases P with
         | Program fns' cs' ss' is' eqs' =>
-        obtain ⟨s, tp0, eq0, hcs, _⟩ := hS
+        obtain ⟨s, hcs⟩ := hS
         obtain ⟨s', tp0', eq0', hcs', _⟩ := hP
         simp only [hcs] at hv
         obtain ⟨v', hv', rv⟩ := select_lowered hC.fieldInj hfs hws hf hv
@@ -1281,8 +1503,7 @@ theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) (hC : Ctors Ps P S) :
     simp only [eval] at hv
     split at hv
     · next vs hvs =>
-      rw [construct_of hS] at hv
-      cases hv
+      obtain ⟨tps0, rfl⟩ := construct_ok hv
       obtain ⟨hks, t', n1, rt, e1⟩ :=
         iha env env' hΓ fuel hfn (.TupleV vs) (by simp only [eval, hvs])
       obtain ⟨vs', rfl, hvrs⟩ := vr_tuple_inv rt
@@ -1310,8 +1531,8 @@ theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) (hC : Ctors Ps P S) :
         | Program fns cs ss is eqs =>
         cases P with
         | Program fns' cs' ss' is' eqs' =>
-        obtain ⟨s, tp0, eq0, hcs, _⟩ := hS
-        obtain ⟨s1, tp1, eq1, hcs0, _⟩ := hS0
+        obtain ⟨s, hcs⟩ := hS
+        obtain ⟨s1, hcs0⟩ := hS0
         obtain ⟨s', tp0', eq0', hcs', _⟩ := hP
         rw [hcs] at hcs0
         cases hcs0
@@ -1526,6 +1747,17 @@ def lowersCheck (S : LSig) : Nat → (Id → Option (Expr × LK)) → Expr → E
           | none => false) ||
           (Sub .any k && lowersArgs S n Γ es es' (es.map fun _ => .any)))
       | none => false
+    | .ADT c _ es, .Assume J (.ADT c' _ es') =>
+      match S.ctors c, S.invs c with
+      | some c0, some (p, fields, B) => c0 == c' &&
+        (match instInv p fields es 1000 B with
+          | some I => lowersCheck S n Γ I J .any
+          | none => false) &&
+        ((match S.kinds c with
+          | some (s, ks) => Sub (.data s) k && lowersArgs S n Γ es es' ks
+          | none => false) ||
+          (Sub .any k && lowersArgs S n Γ es es' (es.map fun _ => .any)))
+      | _, _ => false
     | .IsConstructor a c, .IsConstructor a' c' =>
       match S.ctors c with
       | some c0 => c0 == c' && Sub .prim k && lowersCheck S n Γ a a' .any
@@ -1697,6 +1929,23 @@ theorem lowers_sound (S : LSig) : ∀ n : Nat,
             · cases h
           · obtain ⟨hs, ha⟩ := h
             exact .weaken (.adt hc (ihs _ _ _ _ ha)) hs
+        · cases h
+      · split at h
+        · next c0 p fields B hc hv =>
+          simp only [Bool.and_eq_true, Bool.or_eq_true, beq_iff_eq] at h
+          obtain ⟨⟨rfl, hI⟩, h⟩ := h
+          split at hI
+          · next I hI0 =>
+            rcases h with h | ⟨hs, ha⟩
+            · split at h
+              · next s0 ks hk =>
+                simp only [Bool.and_eq_true] at h
+                obtain ⟨hs, ha⟩ := h
+                exact .weaken (.adtInv hc hv hI0 (ih _ _ _ _ hI) (ihs _ _ _ _ ha)
+                  (.inr ⟨s0, rfl, hk⟩)) hs
+              · cases h
+            · exact .weaken (.adtInv hc hv hI0 (ih _ _ _ _ hI) (ihs _ _ _ _ ha) (.inl rfl)) hs
+          · cases hI
         · cases h
       · split at h
         · next hc =>

@@ -1276,18 +1276,20 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   program that Logos reads (`linkCheck`), no values of the variables of the
   input, of their types, make all its constraints evaluate to `true` in its
   program. It covers first-order inputs without type parameters, over
-  integers, booleans, reals and datatypes, without invariants where Logos
-  reads their constructions, whose constructors, testers and selectors have
-  other names in the reading of Logos, and whose fields of integers are known
-  to be integers, with lets, which the lowering inlines or drops, where each
-  step of a constraint is of these rules, and variables of datatypes where the
-  steps remove them: on the corpus, the 3 certificates of
+  integers, booleans, reals and datatypes, whose constructors, testers and
+  selectors have other names in the reading of Logos, and whose fields of
+  integers are known to be integers, with lets, which the lowering inlines or
+  drops, where each step of a constraint is of these rules, and variables of
+  datatypes where the steps remove them. A construction of a sort with an
+  invariant is lowered to the assumption of the invariant of its arguments
+  (`instInv`), where the body of the invariant doesn't depend on the fuel or
+  the types. On the corpus, it holds of the 3 certificates of
   `error-is-infeasible`, the 1st, 2nd, 3rd and 5th of
   `lets-and-assumptions-around-partial-terms`, the first 5 of
   `ground-terms-that-evaluate`, the first 3 of
   `arithmetic-over-partial-operands`, the 1st, 3rd and 4th of
   `selections-of-constructions-with-partial-fields`, the first of
-  `real-division-by-zero-is-infeasible` and the 3rd of
+  `real-division-by-zero-is-infeasible` and the 1st and 3rd of
   `constructions-under-invariants`, as `inox-solution --input` says. The
   encoders aren't in this theorem yet.
 - **The link between the proof and the script.** The checker checks that each
