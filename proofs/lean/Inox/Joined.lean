@@ -263,7 +263,7 @@ def InputSolution (O : Oracle) (R : InputRead) (vs : List Value) : Prop :=
 /-- What the constraint `q` is after the steps of its simplification, if they hold. -/
 def InputRead.finalOf (R : InputRead) (q : Expr) : Expr :=
   match R.simps.find? (fun p => exprEq 1000 p.1 q) with
-  | some (_, ss) => (Inox.Closures.stepsApplyX R.ctors R.sorts R.funs R.facts ss q).getD q
+  | some (_, ss) => (Inox.Closures.stepsApplyX R.ctors R.sorts R.funs R.extEq R.facts ss q).getD q
   | none => q
 
 /-- The constraints after their simplifications. -/
@@ -274,11 +274,12 @@ theorem finalOf_refines {O : Oracle} (hO : O.Sound) (R : InputRead) (q : Expr) :
   unfold InputRead.finalOf
   split
   · next ss _ =>
-    cases h : Inox.Closures.stepsApplyX R.ctors R.sorts R.funs R.facts ss q with
+    cases h : Inox.Closures.stepsApplyX R.ctors R.sorts R.funs R.extEq R.facts ss q with
     | none => exact Inox.Closures.refinesX_of Inox.Simplified.refines_refl
     | some e =>
       simp only [Option.getD_some]
-      exact Inox.Closures.stepsApplyX_refines (P := R.program) hO rfl R.facts ss q e h
+      exact Inox.Closures.stepsApplyX_refines (P := R.program) hO rfl
+        (fun h => by simp [InputRead.program, Inox.Closures.funEq, h]) R.facts ss q e h
   · exact Inox.Closures.refinesX_of Inox.Simplified.refines_refl
 
 /-- The expression that a source expression of the simplifications assumes the typing of its
@@ -351,6 +352,7 @@ def readInput (certificate : Sexp) : Except String InputRead := do
     | some T, _ => some (kindOfTy T)
     | none, .atom a =>
       if B.contains a then some .any else if t.kind a == "sort" then some (.data (t.id a)) else none
+    | none, .expr (.atom "->" :: _) => some .any
     | none, .expr (.atom a :: _ :: _) => if t.kind a == "sort" then some .any else none
     | none, _ => none
   let read ← fs.mapM fun f => do
