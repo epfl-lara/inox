@@ -1,49 +1,30 @@
 name: Install solvers
 description: >
-  Installs the solvers into .local/bin and puts them on the PATH. The solvers
-  only change with their versions and the install script, so they are cached
-  under those rather than downloaded again by every run.
+  Fetches and verifies the solvers pinned in solvers.json and puts them on PATH.
+  Caches the original downloads by manifest and installer content.
 inputs:
-  z3:
-    description: z3 version (empty for the default of scripts/install_solvers.sh).
-    default: ''
-  cvc4:
-    description: CVC4 version (empty for the default).
-    default: ''
-  cvc5:
-    description: cvc5 version (empty for the default).
-    default: ''
-  bitwuzla:
-    description: Bitwuzla version (empty for the default).
-    default: ''
   stainless-dir:
     description: >
-      A Stainless checkout, relative to the workspace. When set, the solvers
-      are installed by its stainless-ci.sh, with the versions Stainless sets,
-      instead of by scripts/install_solvers.sh.
+      A Stainless checkout, relative to the workspace. When set, its
+      stainless-ci.sh still owns solver installation.
     default: ''
 runs:
   using: composite
   steps:
-    - name: Restore solvers
+    - name: Restore solver downloads
       id: cache
       uses: actions/cache@v6
       with:
-        path: .local/bin
+        path: ${{ inputs.stainless-dir != '' && '.local/bin' || '.cache/inox-solvers' }}
         key: >-
           solvers-${{ runner.os }}-${{ runner.arch }}-${{
           inputs.stainless-dir != ''
           && format('stainless-{0}', hashFiles(format('{0}/stainless-ci.sh', inputs.stainless-dir)))
-          || format('inox-{0}-z3-{1}-cvc4-{2}-cvc5-{3}-bitwuzla-{4}', hashFiles('scripts/install_solvers.sh'), inputs.z3, inputs.cvc4, inputs.cvc5, inputs.bitwuzla) }}
-    - name: Install solvers
-      if: steps.cache.outputs.cache-hit != 'true' && inputs.stainless-dir == ''
+          || hashFiles('solvers.json', 'scripts/fetch-solvers.sh') }}
+    - name: Fetch and verify solvers
+      if: inputs.stainless-dir == ''
       shell: bash
-      env:
-        INSTALL_SOLVERS: 1
-        GITHUB_TOKEN: ${{ github.token }}
-      run: >
-        ./scripts/install_solvers.sh "$GITHUB_WORKSPACE/.local/bin"
-        "${{ inputs.z3 }}" "${{ inputs.cvc4 }}" "${{ inputs.cvc5 }}" "${{ inputs.bitwuzla }}"
+      run: ./scripts/fetch-solvers.sh "$GITHUB_WORKSPACE/.local/bin" "$GITHUB_WORKSPACE/.cache/inox-solvers"
     - name: Install solvers (Stainless)
       if: steps.cache.outputs.cache-hit != 'true' && inputs.stainless-dir != ''
       shell: bash

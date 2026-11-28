@@ -1,15 +1,14 @@
 #!/bin/sh
 # get-ethos.sh DIR: downloads and builds Ethos, and cvc5's CPC signature, at the
-# versions pinned below, into DIR: DIR/ethos/build/src/ethos and DIR/cpc/Cpc.eo.
+# versions in solvers.json, into DIR: DIR/ethos/build/src/ethos and DIR/cpc/Cpc.eo.
 # Needs cmake, a C++ compiler and GMP (libgmp-dev). It prints the two paths
 # on standard output, as ETHOS=... and CPC=..., and the build on standard error.
 #
-# The pins move together: CVC5 is the cvc5 that the tests run (CVC5_VER in
-# .github/workflows), and ETHOS the Ethos commit that its
-# contrib/get-ethos-checker names.
+# The Ethos commit is the one named by cvc5's contrib/get-ethos-checker.
 set -e
-CVC5=cvc5-1.4.2
-ETHOS=08e4aa40c4f8a6e00833f10e8d8985777e424027
+MANIFEST="$(dirname "$0")/../../solvers.json"
+CVC5=cvc5-$(jq -er '.cvc5.version' "$MANIFEST")
+ETHOS=$(jq -er '.cvc5.ethosCommit' "$MANIFEST")
 mkdir -p "$1"
 cd "$1"
 if [ ! -x ethos/build/src/ethos ]; then

@@ -92,7 +92,13 @@ The native libraries are extracted once to `~/.z3/native`
 (`-Dz3.nativeCacheDir=<dir>` moves that cache). On other platforms, the native
 API is unavailable and Inox falls back to the other solvers.
 
-To move to another version of Z3, release ScalaZ3 for it, and update `z3Version` in `build.sbt`.
+Executable pins for Linux x86_64 and macOS ARM64 live in [solvers.json](solvers.json).
+To bump one, update its version, exact release URL, executable archive member
+(null for a raw binary), and SHA-256 obtained with `shasum -a 256 DOWNLOAD`.
+Run `scripts/fetch-solvers.sh DEST [CACHE]` to install them; cached downloads are
+hash-checked on every use. CVC4 on macOS ARM64 requires Rosetta 2.
+ScalaZ3 is pinned separately in `build.sbt`; it matches executable Z3 by convention,
+not by requirement.
 
 ### Solver Defaults
 
