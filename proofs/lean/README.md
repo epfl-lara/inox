@@ -18,7 +18,9 @@ It accepts a certificate when:
 - its rules account for its script ([`Inox/Checker.lean`](Inox/Checker.lean)):
   each rule is an instance of its kind and builds the asserts that it names,
   every assert is named by a rule or is an assumption, each fresh symbol is
-  introduced once, and the proof only assumes asserts of the script. Clauses
+  introduced once (as in the Scala checker, also the lambdas whose bodies
+  templates are and the symbols that instances of expressions `(= p e)`
+  define), and the proof only assumes asserts of the script. Clauses
   are compared as text, up to how cvc5 prints testers (`(is C e)` for
   `((_ is C) e)`), and the clauses of an instance of a template once their
   conjunctions and disjunctions are built as the solver builds them, with

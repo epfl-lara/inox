@@ -13,7 +13,9 @@ import java.nio.file.{Files, Paths}
   *    asserts that it names. For a rule that instantiates a template, they are clauses of the
   *    template under the values of its symbols;
   *  - every assert of the script is a clause that a rule names, or an assumption;
-  *  - each fresh symbol that a `Define`, `Hypothesis` or `Root` rule introduces is introduced once;
+  *  - each fresh symbol is introduced once: those that a `Define`, `Hypothesis` or `Root` rule
+  *    introduces, the lambda whose body a template is, which only that template defines, and the
+  *    symbol that the instance of an expression `(= p e)` defines, where `p` is a parameter;
   *  - an assumption that an open conjunction or disjunction is complete is a literal;
   *  - the assumptions of the CPC proof are asserts of the script.
   *
@@ -359,12 +361,32 @@ object Checker {
         fail(s"$r is the rank of $f, and of a call of ${called.mkString(" or ")}")
       if (diverges.size > 1) fail(s"the calls diverge under ${diverges.mkString(", ")}")
 
+      // the symbol of each template that its instances introduce, if any: the lambda whose body the
+      // template is, `(@ f x1 .. xn)`, which must be a symbol of the template and not a parameter,
+      // as its instances define the lambda, and the parameter `p` of an expression `(= p e)` (under
+      // its assumptions), such as the result of a probe, which its instance defines as `e`
+      def defined(e: SExpr): Option[SExpr] = e match {
+        case SList(List(Atom("assume"), _, body)) => defined(body)
+        case SList(List(Atom("="), p: Atom, _)) => Some(p)
+        case _ => None
+      }
+      val freshSymbols: Vector[Option[(SExpr, Boolean)]] = templateLines.zipWithIndex.map {
+        case (SList(_ :: SList(Atom("params") :: params) :: Sources.Source(source) :: _), n) => source match {
+          case Sources.Function(SList(SList(List(Atom("as"), Atom("@"), _)) :: f :: _), _, _) =>
+            if (params.contains(f)) fail(s"the lambda $f whose body template $n is is one of its parameters")
+            Some(f -> true)
+          case Sources.Expression(e, _) => defined(e).filter(params.contains).map(_ -> false)
+          case _ => None
+        }
+        case _ => None
+      }.toVector
+
       val named = Array.fill(clauses.size)(false)
-      // the symbols that the rules introduce, with the rule that does
+      // the symbols that the rules and the instances introduce, with what does
       val introduced = scala.collection.mutable.Map[SExpr, String]()
-      def introduce(symbol: SExpr, by: String): Unit = {
-        if (!symbol.isInstanceOf[Atom]) fail(s"$symbol, which a $by rule introduces, is not a symbol")
-        for (other <- introduced.get(symbol)) fail(s"$symbol is introduced by both a $other and a $by rule")
+      def introduce(symbol: SExpr, by: String, again: Boolean = false): Unit = {
+        if (!symbol.isInstanceOf[Atom]) fail(s"$symbol, which $by introduces, is not a symbol")
+        for (other <- introduced.get(symbol) if !again || other != by) fail(s"$symbol is introduced by both $other and $by")
         introduced(symbol) = by
       }
       var instances = 0
@@ -402,6 +424,9 @@ object Checker {
               val normalized = instantiated.map(normal)
               for (i <- is if !instantiated(clauses(i)) && !normalized(normal(clauses(i))))
                 fail(s"assert $i, ${clauses(i)}, is not a clause of the instance that a $kind rule names")
+              // the instances of a lambda's template all define the same lambda
+              for ((symbol, lambda) <- freshSymbols(index(template, templates.size, "the templates")))
+                introduce(subst.getOrElse(symbol, symbol), s"an instance of template $template", again = lambda)
               instances += 1
 
             case ("Unfold" | "Instance", None) => fail(s"a $kind rule has no instance")
@@ -413,8 +438,8 @@ object Checker {
                 fail(s"assert $i, ${clauses(i)}, is not a clause of the $kind rule that names it" +
                   expected.headOption.map(e => s" ($e)").getOrElse(""))
               kind match {
-                case "Define" | "Hypothesis" => introduce(arguments.one("literal"), kind)
-                case "Root" => introduce(arguments.one("start"), kind)
+                case "Define" | "Hypothesis" => introduce(arguments.one("literal"), s"a $kind rule")
+                case "Root" => introduce(arguments.one("start"), "a Root rule")
                 case _ =>
               }
           }

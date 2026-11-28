@@ -235,8 +235,12 @@ apart from the solver. From the text of a certificate, it checks that:
   its arguments are the asserts that it names, and for an instance of a
   template, the template's clauses under the values of its symbols;
 - every assert is named by a rule, or is an assumption;
-- each fresh symbol that a `Define`, `Hypothesis` or `Root` rule introduces is
-  introduced once;
+- each fresh symbol is introduced once: those that a `Define`, `Hypothesis` or
+  `Root` rule introduces, the lambda whose body a template is (`(@ f x1 .. xn)`
+  as the call of a `function` source), which only the instances of that
+  template define and which is not one of its parameters, and the parameter `p`
+  of an `expression` source `(= p e)`, under its assumptions, such as the result
+  of a probe or of a comparison of lambdas, which its instance defines as `e`;
 - the clauses of each template are those of its source, once the source is
   lowered to the syntax of the script;
 - each encoded constraint of the input is what the named encoders make of its
