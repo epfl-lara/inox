@@ -2207,6 +2207,169 @@ theorem evaluateCheck_refines {Fs : List Fact} {t t' : Expr} (h : evaluateCheck 
 
 end
 
+/-! ## Quantifiers over variables that the body doesn't mention -/
+
+/-- Parameters of the types `Ts`. -/
+def witParams : List Ty → List Param
+  | [] => []
+  | T :: Ts => .Param "w" T :: witParams Ts
+
+/-- An expression whose value is of the type `T`: a literal. -/
+def baseWitness : Ty → Option Expr
+  | .IntegerType => some (.IntegerLiteral 0)
+  | .BooleanType => some (.BooleanLiteral true)
+  | _ => none
+
+/-- An expression whose value is of the type `T`: a literal, or a constant function. -/
+def witness : Ty → Option Expr
+  | .FunctionType Ts U => (baseWitness U).map (.Lambda (witParams Ts))
+  | T => baseWitness T
+
+/-- The types of the parameters have values. -/
+def inhabited : List Param → Bool
+  | [] => true
+  | .Param _ T :: ps => (witness T).isSome && inhabited ps
+
+/-- `unused`: a quantifier over parameters whose types have values, of a ground body, is the
+body. -/
+def unusedCheck (t t' : Expr) : Bool :=
+  match t with
+  | .Forall ps b => exprEq 1000 b t' && inhabited ps && (geval 1000 b).isSome
+  | _ => false
+
+section
+variable {O : Oracle} {P : Program}
+
+theorem same_arity_wit : ∀ Ts : List Ty, same_arity (witParams Ts) Ts = true
+  | [] => by simp [witParams, same_arity]
+  | T :: Ts => by simp [witParams, same_arity, same_arity_wit Ts]
+
+theorem have_types_length (hO : O.Sound) {env : Env} :
+    ∀ {vs : List Value} {Ts : List Ty}, O.have_types P env vs Ts = true → vs.length = Ts.length
+  | [], [], _ => rfl
+  | [], _ :: _, h => by rw [hO.have_types] at h; simp at h
+  | _ :: _, [], h => by rw [hO.have_types] at h; simp at h
+  | _ :: _, _ :: _, h => by
+    rw [hO.have_types] at h
+    simp only [Bool.and_eq_true] at h
+    simp [have_types_length hO h.2]
+
+theorem params_length (hO : O.Sound) :
+    ∀ {env : Env} {vs : List Value} {ps : List Param}, O.params_have_types P env vs ps = true →
+      vs.length = ps.length
+  | _, [], [], _ => rfl
+  | _, [], _ :: _, h => by rw [hO.params_have_types] at h; simp at h
+  | _, _ :: _, [], h => by rw [hO.params_have_types] at h; simp at h
+  | _, _ :: _, .Param _ _ :: _, h => by
+    rw [hO.params_have_types] at h
+    simp only [Bool.and_eq_true] at h
+    simp [params_length hO h.2]
+
+theorem bind_of_length : ∀ (ids : List Id) (vs : List Value), vs.length = ids.length →
+    ∃ bs, bind_all ids vs = .Ok bs
+  | [], [], _ => ⟨[], by simp [bind_all]⟩
+  | x :: ids, v :: vs, h => by
+    obtain ⟨bs, hbs⟩ := bind_of_length ids vs (by simpa using h)
+    exact ⟨.Binding x v :: bs, by simp [bind_all, hbs]⟩
+  | [], _ :: _, h => by simp at h
+  | _ :: _, [], h => by simp at h
+
+theorem param_ids_length : ∀ ps : List Param, (param_ids ps).length = ps.length
+  | [] => rfl
+  | .Param _ _ :: ps => by simp [param_ids, param_ids_length ps]
+
+theorem witParams_length : ∀ Ts : List Ty, (witParams Ts).length = Ts.length
+  | [] => rfl
+  | _ :: Ts => by simp [witParams, witParams_length Ts]
+
+theorem baseWitness_typed (hO : O.Sound) {T : Ty} {w : Expr} (h : baseWitness T = some w)
+    (fuel : Int) (env : Env) :
+    ∃ v, eval O P fuel env w = .Ok v ∧ ∀ env', O.has_type P env' v T = true := by
+  unfold baseWitness at h
+  split at h
+  · cases h; exact ⟨.IntV 0, by simp only [eval], fun env' => by rw [hO.has_type]⟩
+  · cases h; exact ⟨.BoolV true, by simp only [eval], fun env' => by rw [hO.has_type]⟩
+  · cases h
+
+/-- A witness has a value of its type. -/
+theorem witness_typed (hO : O.Sound) {T : Ty} {w : Expr} (h : witness T = some w)
+    (fuel : Int) (env : Env) :
+    ∃ v, eval O P fuel env w = .Ok v ∧ ∀ env', O.has_type P env' v T = true := by
+  unfold witness at h
+  split at h
+  · next Ts U =>
+    obtain ⟨wu, hu, rfl⟩ := Option.map_eq_some_iff.mp h
+    refine ⟨.ClosureV (witParams Ts) wu env, by simp only [eval], fun env' => ?_⟩
+    rw [hO.has_type]
+    simp only [same_arity_wit, Bool.true_and]
+    rw [hO.function_has_type]
+    simp only [decide_eq_true_eq, Bool.or_eq_true, Bool.not_eq_true', Bool.and_eq_true]
+    intro vs
+    by_cases hvs : O.have_types P env' vs Ts = true
+    · right
+      obtain ⟨bs, hbs⟩ := bind_of_length (param_ids (witParams Ts)) vs
+        (by rw [param_ids_length, witParams_length]; exact have_types_length hO hvs)
+      cases env with
+      | Env tys vars =>
+      obtain ⟨r, hr, hrt⟩ := baseWitness_typed hO hu 0 (Env.Env tys (append_env bs vars))
+      refine ⟨1, r, ?_, hrt env'⟩
+      simp only [apply, hbs]
+      simpa using hr
+    · left; simpa using hvs
+  · exact baseWitness_typed hO h fuel env
+
+/-- Parameters whose types have values have values of their types. -/
+theorem inhabited_vals (hO : O.Sound) : ∀ (ps : List Param), inhabited ps = true →
+    ∀ env, ∃ vs, O.params_have_types P env vs ps = true
+  | [], _, env => ⟨[], by rw [hO.params_have_types]⟩
+  | .Param x T :: ps, h, env => by
+    simp only [inhabited, Bool.and_eq_true, Option.isSome_iff_exists] at h
+    obtain ⟨⟨w, hw⟩, hps⟩ := h
+    obtain ⟨v, _, hv⟩ := witness_typed (P := P) hO hw 0 env
+    obtain ⟨vs, hvs⟩ := inhabited_vals hO ps hps (env_bind env x v)
+    exact ⟨v :: vs, by rw [hO.params_have_types]; simp [hv env, hvs]⟩
+
+theorem unusedCheck_refines (hO : O.Sound) {Fs : List Fact} {t t' : Expr}
+    (h : unusedCheck t t' = true) : Refines O P Fs t t' := by
+  intro fuel env v _ hv
+  unfold unusedCheck at h
+  split at h
+  · next ps b =>
+    simp only [Bool.and_eq_true, Option.isSome_iff_exists] at h
+    obtain ⟨⟨hb, hinh⟩, vb, hg⟩ := h
+    rw [← exprEq_eq _ _ _ hb, geval_eval 1000 b hg]
+    have hinst : ∀ vs, O.params_have_types P env vs ps = true →
+        instance_ O P fuel env ps vs b = .Ok vb := by
+      intro vs hvs
+      obtain ⟨bs, hbs⟩ := bind_of_length (param_ids ps) vs
+        (by rw [param_ids_length]; exact params_length hO hvs)
+      cases env
+      simp only [instance_, hbs]
+      exact geval_eval 1000 b hg
+    obtain ⟨vs0, hvs0⟩ := inhabited_vals hO ps hinh env
+    simp only [eval] at hv
+    rw [hO.forall_result] at hv
+    split at hv
+    · next hex =>
+      cases hv
+      simp only [decide_eq_true_eq, Bool.and_eq_true] at hex
+      obtain ⟨vs, hvs, hf⟩ := hex
+      rw [hinst vs hvs] at hf
+      exact hf
+    · split at hv
+      · cases hv
+      · split at hv
+        · next hall =>
+          cases hv
+          simp only [decide_eq_true_eq, Bool.or_eq_true, Bool.not_eq_true'] at hall
+          rcases hall vs0 with h0 | h0
+          · rw [hvs0] at h0; cases h0
+          · rw [hinst vs0 hvs0] at h0; exact h0
+        · cases hv
+  · cases h
+
+end
+
 /-! ## Values of datatypes -/
 
 /-- The variable `x` has a value of a type, under the facts `Fs`. -/
@@ -2552,6 +2715,7 @@ def ruleCheck (cs : List Constructor) (ss : List ADTSort) :
   | "arith", Fs, t, t' => arithCheck Fs t t' || reflCheck ss Fs t t'
   | "eta", Fs, t, t' => etaCheck cs ss Fs t t'
   | "evaluate", _, t, t' => evaluateCheck t t'
+  | "unused", _, t, t' => unusedCheck t t'
   | _, _, _, _ => false
 
 theorem ruleCheck_refines {O : Oracle} {P : Program} {cs : List Constructor}
@@ -2575,6 +2739,7 @@ theorem ruleCheck_refines {O : Oracle} {P : Program} {cs : List Constructor}
     · exact reflCheck_refines hO hP' h
   · exact etaCheck_refines hO hP' h
   · exact evaluateCheck_refines h
+  · exact unusedCheck_refines hO h
   · cases h
 
 /-- `e` after the steps `ss`, if each of them holds, in a program whose constructors are

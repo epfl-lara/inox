@@ -1262,8 +1262,10 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   `0`, a sum with an operand `0` is the other, and an equality of an expression
   of a primitive type, or a variable of a datatype, with itself is `true`),
   `evaluate` (a ground term of literals, arithmetic and concatenations of
-  strings is its value) and `eta` (the construction of the fields of a variable
-  of a datatype is the variable), and proves
+  strings is its value), `eta` (the construction of the fields of a variable
+  of a datatype is the variable) and `unused` (a quantifier over parameters
+  whose types have values, as integers, booleans and functions into them do,
+  of a ground body, is the body), and proves
   that what the steps rewrite a constraint into refines it: wherever the
   constraint has a value, what it becomes has the same (`stepsApply_refines`).
   [`Lowered.lean`](Inox/Lowered.lean) relates an expression of the input to
@@ -1291,8 +1293,9 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   `arithmetic-over-partial-operands`, the 1st, 3rd and 4th of
   `selections-of-constructions-with-partial-fields`, the first of
   `real-division-by-zero-is-infeasible` and the 1st and 3rd of
-  `constructions-under-invariants` and that of
-  `bitvector-division-by-zero-is-total`, as `inox-solution --input` says.
+  `constructions-under-invariants`, that of
+  `bitvector-division-by-zero-is-total` and the first of
+  `empty-function-codomains`, as `inox-solution --input` says.
   The encoders aren't in this theorem yet.
 - **The link between the proof and the script.** The checker checks that each
   assumption of the proof is the text of an assert of the script, up to how

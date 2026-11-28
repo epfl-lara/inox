@@ -1652,6 +1652,28 @@ end Evaluation
 
 /-! ## The check -/
 
+/-- Whether two types are the same, `n` deep, where they are of the fragment. -/
+def tyEq : Nat → Ty → Ty → Bool
+  | 0, _, _ => false
+  | n + 1, T, T' =>
+    let all (Ts Ts' : List Ty) : Bool :=
+      Ts.length == Ts'.length && (Ts.zip Ts').all fun p => tyEq n p.1 p.2
+    match T, T' with
+    | .IntegerType, .IntegerType | .BooleanType, .BooleanType | .RealType, .RealType => true
+    | .BVType s w, .BVType s' w' => s == s' && w == w'
+    | .TypeParameter a, .TypeParameter b => a == b
+    | .FunctionType Ts U, .FunctionType Ts' U' => all Ts Ts' && tyEq n U U'
+    | .ADTType s Ts, .ADTType s' Ts' => s == s' && all Ts Ts'
+    | _, _ => false
+
+/-- Whether two parameters are the same, with types of the fragment. -/
+def paramEq (n : Nat) : Param → Param → Bool
+  | .Param x T, .Param y U => x == y && tyEq n T U
+
+/-- Whether two lists of parameters are the same, with types of the fragment. -/
+def paramsEq (n : Nat) (ps ps' : List Param) : Bool :=
+  ps.length == ps'.length && (ps.zip ps').all fun p => paramEq n p.1 p.2
+
 /-- Whether two expressions are the same, `n` deep, where they are of the fragment. -/
 def exprEq : Nat → Expr → Expr → Bool
   | 0, _, _ => false
@@ -1693,10 +1715,11 @@ def exprEq : Nat → Expr → Expr → Bool
     | .FunctionInvocation f [] es, .FunctionInvocation g [] es' => f == g && all es es'
     | .ADT c [] es, .ADT c' [] es' => c == c' && all es es'
     | .Let x a b, .Let y a' b' => x == y && exprEq n a a' && exprEq n b b'
+    | .Forall ps b, .Forall ps' b' => paramsEq 1000 ps ps' && exprEq n b b'
     | _, _ => false
 
-theorem list_eq_of_all {r : Expr → Expr → Bool} (hr : ∀ a b, r a b = true → a = b) :
-    ∀ {es es' : List Expr}, es.length = es'.length → (∀ p ∈ es.zip es', r p.1 p.2 = true) →
+theorem list_eq_of_all {α : Type} {r : α → α → Bool} (hr : ∀ a b, r a b = true → a = b) :
+    ∀ {es es' : List α}, es.length = es'.length → (∀ p ∈ es.zip es', r p.1 p.2 = true) →
       es = es'
   | [], [], _, _ => rfl
   | [], _ :: _, hl, _ => by simp at hl
@@ -1704,6 +1727,30 @@ theorem list_eq_of_all {r : Expr → Expr → Bool} (hr : ∀ a b, r a b = true 
   | a :: as, b :: bs, hl, h => by
     simp only [List.zip_cons_cons, List.mem_cons, forall_eq_or_imp] at h
     rw [hr a b h.1, list_eq_of_all hr (by simpa using hl) h.2]
+
+theorem tyEq_eq : ∀ n T T', tyEq n T T' = true → T = T'
+  | 0, _, _, h => by simp [tyEq] at h
+  | n + 1, T, T', h => by
+    have ih := tyEq_eq n
+    unfold tyEq at h
+    split at h <;>
+      simp only [Bool.and_eq_true, beq_iff_eq, List.all_eq_true] at h <;>
+      first
+      | rfl
+      | (obtain ⟨rfl, rfl⟩ := h; rfl)
+      | (subst h; rfl)
+      | (obtain ⟨⟨h1, h2⟩, h3⟩ := h; rw [list_eq_of_all ih (by simpa using h1) h2, ih _ _ h3])
+      | (obtain ⟨rfl, h1, h2⟩ := h; rw [list_eq_of_all ih (by simpa using h1) h2])
+      | cases h
+
+theorem paramsEq_eq {n : Nat} {ps ps' : List Param} (h : paramsEq n ps ps' = true) : ps = ps' := by
+  unfold paramsEq at h
+  simp only [Bool.and_eq_true, beq_iff_eq, List.all_eq_true] at h
+  refine list_eq_of_all (r := paramEq n) ?_ h.1 h.2
+  intro p q hpq
+  cases p; cases q
+  simp only [paramEq, Bool.and_eq_true, beq_iff_eq] at hpq
+  rw [hpq.1, tyEq_eq _ _ _ hpq.2]
 
 theorem exprEq_eq : ∀ n e e', exprEq n e e' = true → e = e'
   | 0, _, _, h => by simp [exprEq] at h
@@ -1724,6 +1771,7 @@ theorem exprEq_eq : ∀ n e e', exprEq n e e' = true → e = e'
       | (rw [ih _ _ h])
       | (subst h; rfl)
       | (obtain ⟨⟨rfl, rfl⟩, rfl⟩ := h; rfl)
+      | (obtain ⟨h1, h2⟩ := h; rw [paramsEq_eq h1, ih _ _ h2])
       | cases h
 
 /-- The operations whose operands are matched position by position, by a tag. -/
