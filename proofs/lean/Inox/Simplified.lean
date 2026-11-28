@@ -2301,8 +2301,22 @@ def okOf : Result Value → Option Value
   | .Ok v => some v
   | _ => none
 
-/-- The value of a ground term of literals, arithmetic and concatenations of strings, which it
-has in every environment, `n` deep. -/
+/-- The Boolean of a result, if it has one. -/
+def okB : Result Bool → Option Bool
+  | .Ok b => some b
+  | _ => none
+
+/-- Whether two values are equal, where the first is an integer or a Boolean, which the
+semantics compares by their equality. -/
+def eqLit : Value → Value → Option Value
+  | .IntV a, .IntV b => some (.BoolV (a == b))
+  | .IntV _, _ => some (.BoolV false)
+  | .BoolV a, .BoolV b => some (.BoolV (a == b))
+  | .BoolV _, _ => some (.BoolV false)
+  | _, _ => none
+
+/-- The value of a ground term of literals, arithmetic, comparisons, conditionals and
+concatenations of strings, which it has in every environment, `n` deep. -/
 def geval : Nat → Expr → Option Value
   | 0, _ => none
   | n + 1, e =>
@@ -2322,6 +2336,19 @@ def geval : Nat → Expr → Option Value
         | _ => none
     | .Not a => (geval n a).bind fun
       | .BoolV b => some (.BoolV !b)
+      | _ => none
+    | .Equals a b => (geval n a).bind fun x => (geval n b).bind fun y => eqLit x y
+    | .LessThan a b =>
+      (geval n a).bind fun x => (geval n b).bind fun y => (okB (arith_lt x y)).map .BoolV
+    | .GreaterThan a b =>
+      (geval n a).bind fun x => (geval n b).bind fun y => (okB (arith_lt y x)).map .BoolV
+    | .LessEquals a b =>
+      (geval n a).bind fun x => (geval n b).bind fun y => (okB (arith_le x y)).map .BoolV
+    | .GreaterEquals a b =>
+      (geval n a).bind fun x => (geval n b).bind fun y => (okB (arith_le y x)).map .BoolV
+    | .IfExpr c a b => (geval n c).bind fun
+      | .BoolV true => geval n a
+      | .BoolV false => geval n b
       | _ => none
     | _ => none
 
@@ -2353,11 +2380,14 @@ theorem geval_not {n : Nat} {a : Expr} {b : Bool} (h : geval n a = some (.BoolV 
     geval (n + 1) (.Not a) = some (.BoolV !b) := by
   simp [geval, h]
 
-theorem geval_eval {fuel : Int} {env : Env} :
+theorem okB_eq {r : Result Bool} {b : Bool} (h : okB r = some b) : r = .Ok b := by
+  unfold okB at h; split at h <;> cases h; rfl
+
+theorem geval_eval (hO : O.Sound) {fuel : Int} {env : Env} :
     ∀ n e {v : Value}, geval n e = some v → eval O P fuel env e = .Ok v
   | 0, _, _, h => by simp [geval] at h
   | n + 1, e, v, h => by
-    have ih := @geval_eval fuel env n
+    have ih := @geval_eval hO fuel env n
     unfold geval at h
     split at h
     all_goals first
@@ -2390,17 +2420,159 @@ theorem geval_eval {fuel : Int} {env : Env} :
         rw [eval]
         simp [eval_bool, ih _ hx]
       · cases h
+    · obtain ⟨x, hx, y, hy, h⟩ : ∃ x, geval n _ = some x ∧ ∃ y, geval n _ = some y ∧ _ := by
+        simpa only [Option.bind_eq_some_iff] using h
+      rw [eval, ih _ hx, ih _ hy]
+      cases x <;> cases y <;> simp [eqLit] at h <;> subst h <;> simp [hO.value_eq] <;> rfl
+    · obtain ⟨x, hx, y, hy, h⟩ : ∃ x, geval n _ = some x ∧ ∃ y, geval n _ = some y ∧ _ := by
+        simpa only [Option.bind_eq_some_iff] using h
+      rw [eval, ih _ hx, ih _ hy]
+      obtain ⟨b, hb, rfl⟩ := Option.map_eq_some_iff.mp h
+      simp only [okB_eq hb]
+    · obtain ⟨x, hx, y, hy, h⟩ : ∃ x, geval n _ = some x ∧ ∃ y, geval n _ = some y ∧ _ := by
+        simpa only [Option.bind_eq_some_iff] using h
+      rw [eval, ih _ hx, ih _ hy]
+      obtain ⟨b, hb, rfl⟩ := Option.map_eq_some_iff.mp h
+      simp only [okB_eq hb]
+    · obtain ⟨x, hx, y, hy, h⟩ : ∃ x, geval n _ = some x ∧ ∃ y, geval n _ = some y ∧ _ := by
+        simpa only [Option.bind_eq_some_iff] using h
+      rw [eval, ih _ hx, ih _ hy]
+      obtain ⟨b, hb, rfl⟩ := Option.map_eq_some_iff.mp h
+      simp only [okB_eq hb]
+    · obtain ⟨x, hx, y, hy, h⟩ : ∃ x, geval n _ = some x ∧ ∃ y, geval n _ = some y ∧ _ := by
+        simpa only [Option.bind_eq_some_iff] using h
+      rw [eval, ih _ hx, ih _ hy]
+      obtain ⟨b, hb, rfl⟩ := Option.map_eq_some_iff.mp h
+      simp only [okB_eq hb]
+    · next c a b =>
+      obtain ⟨x, hx, h⟩ := Option.bind_eq_some_iff.mp h
+      split at h
+      · rw [eval]; simp [eval_bool, ih _ hx, ih _ h]
+      · rw [eval]; simp [eval_bool, ih _ hx, ih _ h]
+      · cases h
     · cases h
 
-theorem evaluateCheck_refines {Fs : List Fact} {t t' : Expr} (h : evaluateCheck t t' = true) :
-    Refines O P Fs t t' := by
+theorem evaluateCheck_refines (hO : O.Sound) {Fs : List Fact} {t t' : Expr}
+    (h : evaluateCheck t t' = true) : Refines O P Fs t t' := by
   intro fuel env v _ hv
   unfold evaluateCheck at h
   split at h
   · next v0 w h1 h2 =>
-    rw [geval_eval _ _ h1] at hv
+    rw [geval_eval hO _ _ h1] at hv
     cases hv
-    rw [geval_eval _ _ h2, litEq_eq h]
+    rw [geval_eval hO _ _ h2, litEq_eq h]
+  · cases h
+
+end
+
+/-! ## Lambdas that differ at a witness -/
+
+/-- The integer literals of `e`, `n` deep. -/
+def intLits : Nat → Expr → List Int
+  | 0, _ => []
+  | _ + 1, .IntegerLiteral i => [i]
+  | n + 1, e => match Inox.Lowered.kids e with
+    | some (_, es) => es.flatMap (intLits n)
+    | none => []
+
+/-- Two values that the semantics compares as different: integers or Booleans. -/
+def distinctLits : Value → Value → Bool
+  | .IntV a, .IntV b => a != b
+  | .BoolV a, .BoolV b => a != b
+  | _, _ => false
+
+/-- The body `b` of a lambda of the parameter `x` is the ground value `v` at the integer `i`. -/
+def bodyAt (x : Id) (b : Expr) (i : Int) : Option Value :=
+  (subst x (.IntegerLiteral i) 100 b).bind (geval 100)
+
+/-- `evaluate`: two lambdas of a parameter of the integers are different where their bodies
+are different values at an integer, which is looked for around the literals of the bodies. -/
+def lamNeCheck (t t' : Expr) : Bool :=
+  match t, t' with
+  | .Equals (.Lambda [.Param x .IntegerType] b) (.Lambda [.Param y .IntegerType] b'),
+      .BooleanLiteral false =>
+    ((0 :: intLits 100 b ++ intLits 100 b').flatMap fun i => [i - 1, i, i + 1]).any fun i =>
+      match bodyAt x b i, bodyAt y b' i with
+      | some v, some w => distinctLits v w
+      | _, _ => false
+  | _, _ => false
+
+section
+variable {O : Oracle} {P : Program}
+
+/-- A closure of a parameter of the integers, whose body is the ground value `w` at `i`, has
+that value at `i` wherever it has one, and with fuel. -/
+theorem apply_at (hO : O.Sound) {x : Id} {b : Expr} {i : Int} {w : Value} {tys : List TypeBinding}
+    {vars : List Binding} (h : bodyAt x b i = some w) :
+    apply O P 1 (.ClosureV [.Param x .IntegerType] b (.Env tys vars)) [.IntV i] = .Ok w ∧
+    ∀ fuel a, apply O P fuel (.ClosureV [.Param x .IntegerType] b (.Env tys vars)) [.IntV i] =
+      .Ok a → a = w := by
+  obtain ⟨e, he, hg⟩ := Option.bind_eq_some_iff.mp h
+  have key : ∀ fuel : Int, eval O P fuel (Env.Env tys (append_env [.Binding x (.IntV i)] vars)) b =
+      .Ok w := by
+    intro fuel
+    have hs := subst_eval (O := O) (P := P) (fuel := fuel) (env := .Env tys vars)
+      (x := x) (vw := .IntV i) (by rw [eval]) 100 b e he
+    simp only [env_bind] at hs
+    simp only [append_env]
+    rw [hs, geval_eval hO 100 e hg]
+  refine ⟨?_, fun fuel a ha => ?_⟩
+  · simp only [apply, param_ids, bind_all]
+    simpa using key 0
+  · simp only [apply, param_ids, bind_all] at ha
+    split at ha
+    · cases ha
+    · try simp only at ha
+      rw [key] at ha
+      cases ha; rfl
+
+theorem lamNeCheck_refines (hO : O.Sound) {Fs : List Fact} {t t' : Expr}
+    (h : lamNeCheck t t' = true) : Refines O P Fs t t' := by
+  intro fuel env v _ hv
+  unfold lamNeCheck at h
+  split at h
+  · next x b y b' =>
+    obtain ⟨i, -, hi⟩ := List.any_eq_true.mp h
+    split at hi
+    · next w w' h1 h2 =>
+      cases env with
+      | Env tys vars =>
+      simp only [eval] at hv
+      rw [hO.value_eq] at hv
+      cases P with
+      | Program fs cs ss is eqm =>
+      cases eqm
+      · cases hv
+      · obtain ⟨a1, a2⟩ := apply_at (P := .Program fs cs ss is .ExtensionalEquality) hO
+          (tys := tys) (vars := vars) h1
+        obtain ⟨b1, b2⟩ := apply_at (P := .Program fs cs ss is .ExtensionalEquality) hO
+          (tys := tys) (vars := vars) h2
+        have hce : O.closures_equal (.Program fs cs ss is .ExtensionalEquality)
+            (.ClosureV [.Param x .IntegerType] b (.Env tys vars))
+            (.ClosureV [.Param y .IntegerType] b' (.Env tys vars)) = false := by
+          rw [hO.closures_equal]
+          simp only [decide_eq_false_iff_not]
+          intro hall
+          have ht : O.params_have_types (.Program fs cs ss is .ExtensionalEquality) (.Env tys vars)
+              [.IntV i] [.Param x .IntegerType] = true := by
+            rw [hO.params_have_types]
+            simp only [Bool.and_eq_true]
+            rw [hO.params_have_types, hO.has_type]
+            simp
+          have h0 := hall [.IntV i]
+          simp only [ht, Bool.not_true, Bool.false_or, Bool.or_eq_true, decide_eq_true_eq] at h0
+          rcases h0 with h0 | h0
+          · simp only [Bool.and_eq_true, Bool.not_eq_true', decide_eq_false_iff_not] at h0
+            exact (h0 1 w).1 a1
+          · obtain ⟨f, a, c, hac⟩ := h0
+            simp only [Bool.and_eq_true, decide_eq_true_eq] at hac
+            obtain ⟨⟨ha, hc⟩, he⟩ := hac
+            rw [a2 f a ha, b2 f c hc] at he
+            cases w <;> cases w' <;> simp [distinctLits] at hi <;> simp [hO.value_eq, hi] at he
+        simp only [hce] at hv
+        cases hv
+        rw [eval]
+    · cases hi
   · cases h
 
 end
@@ -2574,8 +2746,8 @@ theorem unusedCheck_refines (hO : O.Sound) {Fs : List Fact} {t t' : Expr}
   · next ps b =>
     simp only [Bool.and_eq_true, Option.isSome_iff_exists] at h
     obtain ⟨⟨hb, hinh⟩, vb, hg⟩ := h
-    rw [← exprEq_eq _ _ _ hb, geval_eval 1000 b hg]
-    rw [forall_const hO (fun _ => geval_eval 1000 b hg) hinh hv]
+    rw [← exprEq_eq _ _ _ hb, geval_eval hO 1000 b hg]
+    rw [forall_const hO (fun _ => geval_eval hO 1000 b hg) hinh hv]
   · next ps b =>
     simp only [Bool.and_eq_true] at h
     obtain ⟨⟨hb, hinh⟩, hg⟩ := h
@@ -2587,10 +2759,10 @@ theorem unusedCheck_refines (hO : O.Sound) {Fs : List Fact} {t t' : Expr}
       split at hv
       · next w hw =>
         rw [eval_bool_ok] at hw
-        have := forall_const hO (fun _ => geval_eval 1001 (.Not b) hnb) hinh hw
+        have := forall_const hO (fun _ => geval_eval hO 1001 (.Not b) hnb) hinh hw
         cases this
         cases hv
-        rw [← exprEq_eq _ _ _ hb, geval_eval 1000 b hgb]
+        rw [← exprEq_eq _ _ _ hb, geval_eval hO 1000 b hgb]
         simp
       · cases hv
       · cases hv
@@ -2952,7 +3124,7 @@ def ruleCheck (cs : List Constructor) (ss : List ADTSort) :
   | "expand", Fs, t, t' => expandCheck Fs t t'
   | "arith", Fs, t, t' => arithCheck Fs t t' || reflCheck ss Fs t t'
   | "eta", Fs, t, t' => etaCheck cs ss Fs t t'
-  | "evaluate", _, t, t' => evaluateCheck t t'
+  | "evaluate", _, t, t' => evaluateCheck t t' || lamNeCheck t t'
   | "unused", _, t, t' => unusedCheck t t'
   | _, _, _, _ => false
 
@@ -2976,7 +3148,10 @@ theorem ruleCheck_refines {O : Oracle} {P : Program} {cs : List Constructor}
     · exact arithCheck_refines hO h
     · exact reflCheck_refines hO hP' h
   · exact etaCheck_refines hO hP' h
-  · exact evaluateCheck_refines h
+  · simp only [Bool.or_eq_true] at h
+    rcases h with h | h
+    · exact evaluateCheck_refines hO h
+    · exact lamNeCheck_refines hO h
   · exact unusedCheck_refines hO h
   · cases h
 

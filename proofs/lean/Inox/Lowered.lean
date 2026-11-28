@@ -1719,6 +1719,7 @@ def exprEq : Nat → Expr → Expr → Bool
     | .ADT c [] es, .ADT c' [] es' => c == c' && all es es'
     | .Let x a b, .Let y a' b' => x == y && exprEq n a a' && exprEq n b b'
     | .Forall ps b, .Forall ps' b' => paramsEq 1000 ps ps' && exprEq n b b'
+    | .Lambda ps b, .Lambda ps' b' => paramsEq 1000 ps ps' && exprEq n b b'
     | _, _ => false
 
 theorem list_eq_of_all {α : Type} {r : α → α → Bool} (hr : ∀ a b, r a b = true → a = b) :

@@ -1261,8 +1261,10 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   (a variable is the value of its let), `arith` (a product with a factor `0` is
   `0`, a sum with an operand `0` is the other, and an equality of an expression
   of a primitive type, or a variable of a datatype, with itself is `true`),
-  `evaluate` (a ground term of literals, arithmetic and concatenations of
-  strings is its value), `eta` (the construction of the fields of a variable
+  `evaluate` (a ground term of literals, arithmetic, comparisons, conditionals
+  and concatenations of strings is its value, and two lambdas of an integer
+  are different where their bodies are different values at an integer), `eta`
+  (the construction of the fields of a variable
   of a datatype is the variable) and `unused` (a quantifier over parameters
   whose types have values, as integers, booleans and functions into them do,
   of a ground body, is the body), also in the bodies of quantifiers, and proves
@@ -1297,8 +1299,9 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   `constructions-under-invariants`, that of
   `bitvector-division-by-zero-is-total`, the first of
   `empty-function-codomains`, the first of
-  `quantifiers-in-connectives-over-partial-bodies` and that of
-  `size-negative`, as `inox-solution --input` says.
+  `quantifiers-in-connectives-over-partial-bodies`, that of `size-negative`
+  and the 6th of `lambdas-with-partial-bodies-extensional`, as
+  `inox-solution --input` says.
   The encoders aren't in this theorem yet.
 - **The link between the proof and the script.** The checker checks that each
   assumption of the proof is the text of an assert of the script, up to how
