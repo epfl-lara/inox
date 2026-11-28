@@ -15,13 +15,14 @@ functions are what those of the input are lowered to (`Funs`) and whose construc
 of the input (`Ctors`).
 
 The relation is of first-order expressions over integers, other primitive values and values
-of datatypes, with calls of functions without type parameters, and lets, which the lowering
-inlines or drops: no lambdas yet. A construction of a sort with an invariant is lowered to the
-assumption of the invariant of its arguments (`instInv`), where its body doesn't depend on the
-fuel or the types. A signed bit-vector may be lowered to the signed view of an unsigned one,
-as Logos reads bit-vectors, whose unsigned view is then the unsigned one (`toUnsigned`). It follows the kinds of the values, so that
-a field of a value of a datatype is known to be an integer where the field is of the integers
-and the value is a construction of fields of their kinds (`Has`).
+of datatypes, with calls of functions, whose type parameters it ignores, as those that they are
+lowered to have none, and lets, which the lowering inlines or drops: no lambdas yet. A
+construction of a sort with an invariant is lowered to the assumption of the invariant of its
+arguments (`instInv`), where its body doesn't depend on the fuel or the types. A signed
+bit-vector may be lowered to the signed view of an unsigned one, as Logos reads bit-vectors,
+whose unsigned view is then the unsigned one (`toUnsigned`). It follows the kinds of the
+values, so that a field of a value of a datatype is known to be an integer where the field is
+of the integers and the value is a construction of fields of their kinds (`Has`).
 -/
 
 namespace Inox.Lowered
@@ -274,7 +275,7 @@ inductive Lowers (S : LSig) : (Id → Option (Expr × LK)) → Expr → Expr →
       {ks : List LK} (he : Lowers S Γ e e' k)
       (hr : Lowers S Γ (.Tuple es) (.Tuple es') (.tuple ks)) :
       Lowers S Γ (.Tuple (e :: es)) (.Tuple (e' :: es')) (.tuple (k :: ks))
-  /-- A call of a function without type parameters, whatever its type arguments. -/
+  /-- A call of a function, whatever its type arguments. -/
   | call {Γ : Id → Option (Expr × LK)} {f g : Id} {ks : List LK} {k : LK} {tps tps' : List Ty}
       {es es' : List Expr} (hf : S.funs f = some (g, ks, k))
       (ha : Lowers S Γ (.Tuple es) (.Tuple es') (.tuple ks)) :
@@ -313,11 +314,12 @@ inductive Lowers (S : LSig) : (Id → Option (Expr × LK)) → Expr → Expr →
 def paramsCtx (params params' : List Id) (ks : List LK) : Id → Option (Expr × LK) :=
   fun x => ((params.zip (params'.zip ks)).lookup x).map fun p => (.Variable p.1, p.2)
 
-/-- The functions of `S` are those of `Ps`, without type parameters, and their bodies are
-lowered to those of their functions in `P`, whose parameters are distinct. -/
+/-- The functions of `S` are those of `Ps`, whose type parameters the relation ignores, and
+their bodies are lowered to those of their functions in `P`, without type parameters, whose
+parameters are distinct. -/
 def Funs (Ps P : Program) (S : LSig) : Prop :=
-  ∀ f g ks k, S.funs f = some (g, ks, k) → ∃ params params' body body',
-    FunIn f [] params body Ps ∧ FunIn g [] params' body' P ∧ params'.Nodup ∧
+  ∀ f g ks k, S.funs f = some (g, ks, k) → ∃ tparams params params' body body',
+    FunIn f tparams params body Ps ∧ FunIn g [] params' body' P ∧ params'.Nodup ∧
       params.length = ks.length ∧ params'.length = ks.length ∧
       Lowers S (paramsCtx params params' ks) body body' k
 
@@ -1476,7 +1478,8 @@ theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) (hC : Ctors Ps P S) :
     · cases hv
   | @call _ f g ks k tps tps' es es' hf _ iha =>
     intro env env' hΓ fuel hfn v hv
-    obtain ⟨params, params', body, body', hFS, hFP, hnd, hl1, hl2, hlow⟩ := hF f g ks k hf
+    obtain ⟨tparams, params, params', body, body', hFS, hFP, hnd, hl1, hl2, hlow⟩ :=
+      hF f g ks k hf
     simp only [eval] at hv
     split at hv
     · next vs hvs =>
@@ -1489,7 +1492,7 @@ theorem lowers_eval (hO : O.Sound) (hF : Funs Ps P S) (hC : Ctors Ps P S) :
       | zero => omega
       | succ m =>
       obtain ⟨hk, v', m2, rv, e2⟩ := ihn m (Nat.lt_succ_self m) hlow
-        (Env.Env (bind_types [] tps (env_types env)) bs)
+        (Env.Env (bind_types tparams tps (env_types env)) bs)
         (Env.Env (bind_types [] tps' (env_types env')) bs') (envOk_params hl) (fuel - 1)
         (by omega) v hbody
       refine ⟨hk, v', max (max n1 (m2 + 1)) 1, rv, fun f' hf' => ?_⟩

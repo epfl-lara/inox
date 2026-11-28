@@ -16,17 +16,21 @@ the names of their symbols, which the check matches (`linkCheck`). Then no value
 variables of the input make all its constraints evaluate to `true` in its program
 (`no_input_solution`).
 
-The input is read where it is first-order, with datatypes without type parameters, and its
-variables are integers, booleans, reals, signed bit-vectors or values of datatypes, of their
-types (`InputSolution`). The variables that the query of Logos has are of primitive types: one of
-a datatype is only in constraints whose simplifications remove it, and one of a signed
-bit-vector is unsigned in the query, whose signed view is the variable of the input.
+The input is read where it is first-order, and its variables are integers, booleans, reals,
+signed bit-vectors or values of datatypes, of their types (`InputSolution`), where the type
+parameters of a datatype are its type arguments. A variable of a signed bit-vector is unsigned
+in the query, whose signed view is the variable of the input. A variable of a datatype is in
+the query where its type is lowered to a datatype of Logos, without type parameters, whose
+constructors are those of its sort, of fields of the types that those of the sort are lowered
+to (`dataMapOk`): its value in the query is then its value, with the constructors of Logos
+(`lowerV`).
 -/
 
 namespace Inox.Joined
 
 open Inox.Semantics Inox.Bridge Inox.Lowered Logos
-open Inox.Simplified (Fact Step stepsApply stepsApply_refines Refines primValue OfTy)
+open Inox.Simplified (Fact Step stepsApply stepsApply_refines Refines primValue OfTy OfTys
+  substParams lookup_ctor_mem)
 open Inox.Input (sectionOf Table Ctx funsOf readExpr)
 open Inox.Encoded (FunIn IsPrim)
 
@@ -69,15 +73,116 @@ def unsignedOf : Value → Value
   | .BVV _ w x => .BVV false w x
   | v => v
 
-/-- The type of a datatype without type arguments. -/
+/-- The type of a datatype. -/
 def isDataTy : Ty → Bool
-  | .ADTType _ [] => true
+  | .ADTType _ _ => true
   | _ => false
 
 /-- The kind of the values of a type. -/
 def kindOfTy : Ty → LK
   | .IntegerType => .int
+  | .ADTType _ _ => .any
   | _ => .prim
+
+mutual
+/-- The value of the query of a value of the input: its constructors are those that `K` matches
+them with, without type arguments, and its bit-vectors are unsigned, as Logos reads them. -/
+def lowerV (K : Id → Option Id) : Value → Value
+  | .BVV _ w x => .BVV false w x
+  | .ADTV c _ vs => .ADTV ((K c).getD c) [] (lowerVs K vs)
+  | v => v
+/-- `lowerV` of each value. -/
+def lowerVs (K : Id → Option Id) : List Value → List Value
+  | [] => []
+  | v :: vs => lowerV K v :: lowerVs K vs
+end
+
+/-- The sort of a type of a datatype. -/
+def sortOfTy : Ty → Option Id
+  | .ADTType s _ => some s
+  | _ => none
+
+/-- A field of the type `T` of the input is lowered to a field of the type `T'` of Logos: they
+are the same type of integers, booleans or reals, or `M` matches the type of a datatype `T`
+with the datatype `T'`. -/
+def fieldTyOk (M : List (Ty × Id)) (T T' : Ty) : Bool :=
+  match T, T' with
+  | .IntegerType, .IntegerType | .BooleanType, .BooleanType | .RealType, .RealType => true
+  | .ADTType _ _, .ADTType s' [] => M.any fun (U, t) => tyEq 100 U T && t == s'
+  | _, _ => false
+
+/-- The fields `fs` of the input are lowered to the fields `fs'` of Logos, position by
+position. -/
+def fieldsMatch (M : List (Ty × Id)) : List Param → List (Id × Ty) → Bool
+  | [], [] => true
+  | .Param _ T :: fs, (_, T') :: fs' => fieldTyOk M T T' && fieldsMatch M fs fs'
+  | _, _ => false
+
+/-- The types of datatypes of the input that `M` matches with datatypes of `D` are lowered to
+them: `K` matches each constructor of their sort with one of the datatype, of fields of the
+types of the fields of the constructor, where the type parameters of the sort are the type
+arguments, that are lowered to theirs. -/
+def dataMapOk (cs : List Constructor) (ss : List ADTSort) (K : Id → Option Id) (D : List Data)
+    (M : List (Ty × Id)) : Bool :=
+  M.all fun (T, s') => match T with
+    | .ADTType s tps => match lookup_sort ss s with
+      | .Ok (.Sort _ tparams _ _) => cs.all fun
+        | .Constructor c s1 fs => s1 != s || match K c with
+          | some c' => match findCtor D c' with
+            | some (d, _, fs') =>
+              d.name == s' && fieldsMatch M (substParams (tparams.zip tps) fs) fs'
+            | none => false
+          | none => false
+      | _ => false
+    | _ => false
+
+/-- The types of datatypes of the fields of the constructors of the types of `M` with the
+datatypes of the fields of the constructors that `K` matches them with, added to `M`, `n`
+times. -/
+def tyClosure (cs : List Constructor) (ss : List ADTSort) (K : Id → Option Id) (D : List Data) :
+    Nat → List (Ty × Id) → List (Ty × Id)
+  | 0, M => M
+  | n + 1, M =>
+    let more := M.flatMap fun (T, _) => match T with
+      | .ADTType s tps => match lookup_sort ss s with
+        | .Ok (.Sort _ tparams _ _) => cs.flatMap fun
+          | .Constructor c s1 fs => if s1 != s then [] else match K c with
+            | some c' => match findCtor D c' with
+              | some (_, _, fs') => ((substParams (tparams.zip tps) fs).zip fs').filterMap fun
+                | (.Param _ U, (_, .ADTType t' [])) => (sortOfTy U).map fun _ => (U, t')
+                | _ => none
+              | none => []
+            | none => []
+        | _ => []
+      | _ => []
+    let new := more.foldl (fun acc (U, t) =>
+      if (M ++ acc).any fun (V, u) => tyEq 100 V U && u == t then acc else acc ++ [(U, t)]) []
+    if new.isEmpty then M else tyClosure cs ss K D n (M ++ new)
+
+/-- The constructors of the sort `s` of the input with those of the datatype `s'` of `D`,
+position by position. -/
+def sortPairs (cs : List Constructor) (D : List Data) (s s' : Id) : List (Id × Id) :=
+  match findData D s' with
+  | some d => (cs.filterMap fun
+      | .Constructor c s0 _ => if s0 == s then some c else none).zip (d.ctors.map (·.1))
+  | none => []
+
+/-- The constructors that `κ` matches, with those of their sorts and of the sorts of their
+fields, position by position, `n` times. -/
+def ctorClosure (cs : List Constructor) (D : List Data) :
+    Nat → List (Id × Id) → List (Id × Id)
+  | 0, κ => κ
+  | n + 1, κ =>
+    let more := κ.flatMap fun (c, c') =>
+      match lookup_ctor cs c, findCtor D c' with
+      | .Ok (.Constructor _ s fs), some (d, _, fs') =>
+        sortPairs cs D s d.name ++ (fs.zip fs').flatMap fun
+          | (.Param _ T, (_, T')) => match sortOfTy T, sortOfTy T' with
+            | some t, some t' => sortPairs cs D t t'
+            | _, _ => []
+      | _, _ => []
+    let κ' := (κ ++ more).eraseDups
+    if κ'.length == κ.length then κ else ctorClosure cs D n κ'
 
 /-- The kind of a field of the type `T`: integers, other primitive values, values of a
 datatype, or any value. -/
@@ -150,7 +255,7 @@ def InputRead.facts (R : InputRead) : List Fact :=
 /-- Values of the variables of the input, of their types, that make all its constraints evaluate
 to `true` in its program. -/
 def InputSolution (O : Oracle) (R : InputRead) (vs : List Value) : Prop :=
-  List.Forall₂ (fun v T => OfTy R.ctors T v) vs (R.vars.map Prod.snd) ∧
+  List.Forall₂ (fun v T => OfTy R.ctors R.sorts T v) vs (R.vars.map Prod.snd) ∧
     ∃ bs, bind_all (R.vars.map Prod.fst) vs = .Ok bs ∧
       ∀ q ∈ R.query, ∃ n, eval O R.program n (Env.Env [] bs) q = .Ok (.BoolV true)
 
@@ -221,9 +326,8 @@ def orThrow {α : Type} (o : Option α) (why : String) : Except String α :=
   | none => .error why
 
 /-- The input of the certificate, or why it isn't read: every definition is that of a function
-without type parameters over the sorts that are read, that of a datatype without type
-parameters or that of the invariant of a datatype, which is the function `s$inv` of the datatype
-`s`, and every constraint is read. -/
+over the sorts that are read, that of a datatype or that of the invariant of a datatype, which
+is the function `s$inv` of the datatype `s`, and every constraint is read. -/
 def readInput (certificate : Sexp) : Except String InputRead := do
   let input := sectionOf certificate "input"
   let symbols := input.flatMap fun | .expr (.atom "symbols" :: rows) => rows | _ => []
@@ -241,19 +345,19 @@ def readInput (certificate : Sexp) : Except String InputRead := do
     | _ => none
   if fs.length + sorts.length + invs.length != definitions.length then
     throw "a definition of the input is not that of a function or a datatype that is read"
-  if sorts.any (fun s => !s.2.1.isEmpty) then throw "a datatype has type parameters"
   -- the kind of a sort: that of its type, or of the values of a datatype
-  let kindOf (s : Sexp) : Option LK := match primTy s, s with
+  let kindOf (B : List Id) (s : Sexp) : Option LK := match primTy s, s with
     | some T, _ => some (kindOfTy T)
-    | none, .atom a => if t.kind a == "sort" then some (.data (t.id a)) else none
+    | none, .atom a =>
+      if B.contains a then some .any else if t.kind a == "sort" then some (.data (t.id a)) else none
+    | none, .expr (.atom a :: _ :: _) => if t.kind a == "sort" then some .any else none
     | none, _ => none
   let read ← fs.mapM fun f => do
-    if !f.tparams.isEmpty then throw s!"the function {f.name} has type parameters"
     let body ← (readExpr f.ctx 1000 f.body).mapError (s!"the body of {f.name} has `{·}`")
     let ks ← f.sorts.mapM fun s =>
-      orThrow (kindOf s) s!"a parameter of {f.name} is of a sort that isn't read"
-    let k ← orThrow (kindOf f.ret) s!"{f.name} is of a sort that isn't read"
-    pure (FunDef.FunDef f.name [] f.params body, (f.name, ks, k))
+      orThrow (kindOf f.tparams s) s!"a parameter of {f.name} is of a sort that isn't read"
+    let k ← orThrow (kindOf f.tparams f.ret) s!"{f.name} is of a sort that isn't read"
+    pure (FunDef.FunDef f.name f.tparams f.params body, (f.name, ks, k))
   -- the invariant of the datatype `s` is the function `s$inv`, of no other name
   let invFuns ← invs.mapM fun (s, p, body) => do
     if fs.any (·.name == s ++ "$inv") || (invs.filter (·.1 == s)).length != 1 then
@@ -267,15 +371,15 @@ def readInput (certificate : Sexp) : Except String InputRead := do
     | _ => none).mapM fun (x, s) =>
       match primTy s, s with
       | some T, _ => pure (x, T)
-      | none, .atom a =>
-        if t.kind a == "sort" then pure (x, .ADTType (t.id a) [])
-        else throw s!"the variable {x} is of a sort that isn't read"
-      | none, _ => throw s!"the variable {x} is of a sort that isn't read"
+      | none, _ =>
+        match Inox.Input.readSortTy c [] 100 s with
+        | some (.ADTType a tps) => pure (x, .ADTType a tps)
+        | _ => throw s!"the variable {x} is of a sort that isn't read"
   pure
     { funs := read.map (·.1) ++ invFuns, sigs := read.map (·.2), query, vars
       ctors := sorts.flatMap fun (s, _, cs) => cs.map fun (c, ps) => .Constructor c s ps
-      sorts := sorts.map fun (s, _, _) =>
-        .Sort s [] (if invs.any (·.1 == s) then some (s ++ "$inv") else none) none
+      sorts := sorts.map fun (s, tps, _) =>
+        .Sort s tps (if invs.any (·.1 == s) then some (s ++ "$inv") else none) none
       extEq := !(sectionOf certificate "simplifications").contains
         (.expr [.atom "function-equality", .atom "none"])
       simps := readSimps certificate }
@@ -354,18 +458,35 @@ structure Link where
   κ : List (Id × Id)
   /-- the fields of the input, with those of the program of Logos -/
   σ : List (Id × Id)
+  /-- the types of datatypes of the input, with the datatypes of Logos -/
+  μ : List (Ty × Id)
 
 def Link.of (R : InputRead) (r : TermSteps) : Link :=
   let P := r.equations.map funOf
   let N0 := ((R.final.zip (queryOf r.query)).map fun (q, q') => pairs 1000 q q').foldl
     Names.app {}
   let N := funPairs R P (R.funs.length + 1) N0
-  let κ := N.ctors.eraseDups
-  let cs := (dataOf r).flatMap ctorsOfData
+  let D := dataOf r
+  let Γt := varsOf (sigsOf r.equations) r.query
+  -- the constructors of the sorts of the variables of the query, and of their fields
+  let κ0 := N.ctors ++ N.vars.flatMap fun (x, y) =>
+    match (R.vars.lookup x).bind sortOfTy, (Γt.lookup y).bind sortOfTy with
+    | some s, some s' => sortPairs R.ctors D s s'
+    | _, _ => []
+  let κ := ctorClosure R.ctors D (R.ctors.length + 1) κ0.eraseDups
+  let cs := D.flatMap ctorsOfData
   -- the fields of the constructors, position by position
   let σ := (N.fields ++
     κ.flatMap fun (c, c') => (fieldsOf R.ctors c).zip (fieldsOf cs c')).eraseDups
-  ⟨N.vars.eraseDups, N.funs.eraseDups, κ, σ⟩
+  -- the types of the datatypes of the variables of the query, and of their fields
+  let ρ := N.vars.eraseDups
+  let μ0 := Γt.filterMap fun (y, T') => match (ρ.find? (·.2 == y)).map (·.1) with
+    | some x => match R.vars.lookup x, T' with
+      | some (.ADTType s tps), .ADTType s' [] => some (.ADTType s tps, s')
+      | _, _ => none
+    | none => none
+  ⟨ρ, N.funs.eraseDups, κ, σ,
+    tyClosure R.ctors R.sorts (fun c => κ.lookup c) D (R.ctors.length + 1) μ0⟩
 
 /-- The signature of the names of the input that are matched. -/
 def Link.sig (L : Link) (R : InputRead) : LSig where
@@ -414,7 +535,7 @@ def Link.pre (L : Link) (y : Id) : Option Id := (L.ρ.find? (·.2 == y)).map (·
 def funCheck (S : LSig) (fs P : List FunDef) (f g : Id) (ks : List LK) (k : LK) : Bool :=
   match lookup_fun fs f, lookup_fun P g with
   | .Ok (.FunDef f0 tp ps b), .Ok (.FunDef g0 tp' ps' b') =>
-    f0 == f && tp.isEmpty && g0 == g && tp'.isEmpty && decide ps'.Nodup &&
+    f0 == f && g0 == g && tp'.isEmpty && decide ps'.Nodup &&
       ps.length == ks.length && ps'.length == ks.length &&
       lowersCheck S 1000 (paramsCtx ps ps' ks) b b' k
   | _, _ => false
@@ -488,7 +609,7 @@ def linkCheck (R : InputRead) (r : TermSteps) : Bool :=
     Γt.all (fun (y, T) => match L.pre y with
       | some x =>
         (match R.vars.lookup x with
-          | some T' => primEq T' T
+          | some T' => primEq T' T || fieldTyOk L.μ T' T
           | none => false) &&
         (match Γ x with
           | some (e, _) => ctxVar e == some y
@@ -507,7 +628,8 @@ def linkCheck (R : InputRead) (r : TermSteps) : Bool :=
     L.σ.all (fun (f, _) => L.σ.all fun (g, _) => !(S.fields f == S.fields g) || f == g) &&
     L.κ.all (fun (c, _) => match lookup_ctor R.ctors c with
       | .Ok (.Constructor _ s fs) => fs.all (fieldKindOk S.fieldKinds s)
-      | _ => true)
+      | _ => true) &&
+    dataMapOk R.ctors R.sorts S.ctors (dataOf r) L.μ
 
 /-! ## The theorem -/
 
@@ -515,28 +637,32 @@ theorem hasV_prim {D : List Data} {T : Ty} (hT : isPrimTy T = true) {v : Value}
     (h : HasV [] v T) : HasV D v T := by
   cases T <;> simp [isPrimTy] at hT <;> cases v <;> exact h
 
-theorem hasV_of_typed {cs : List Constructor} {T : Ty} (hT : isPrimTy T = true) {v : Value}
-    (h : OfTy cs T v) : HasV [] v T := by
+theorem hasV_of_typed {cs : List Constructor} {ss : List ADTSort} {T : Ty}
+    (hT : isPrimTy T = true) {v : Value}
+    (h : OfTy cs ss T v) : HasV [] v T := by
   cases h <;> simp [isPrimTy] at hT <;> simp only [HasV]
   next h => exact h
   next h => exact ⟨trivial, trivial, h⟩
 
 /-- The value of a variable of the query is of its type. -/
-theorem hasV_query {cs : List Constructor} {D : List Data} {T' T : Ty} {v : Value}
-    (h : primEq T' T = true) (hv : OfTy cs T' v) : HasV D (unsignedOf v) T := by
+theorem hasV_query {cs : List Constructor} {ss : List ADTSort} {D : List Data} {T' T : Ty}
+    {v : Value}
+    (h : primEq T' T = true) (hv : OfTy cs ss T' v) : HasV D (unsignedOf v) T := by
   cases T' <;> cases T <;> simp [primEq] at h
   all_goals cases hv
   all_goals simp_all [unsignedOf, HasV]
 
-theorem primValue_of_typed {cs : List Constructor} {T : Ty} (hT : isPrimTy T = true)
-    {v : Value} (h : OfTy cs T v) : primValue v = true := by
+theorem primValue_of_typed {cs : List Constructor} {ss : List ADTSort} {T : Ty}
+    (hT : isPrimTy T = true)
+    {v : Value} (h : OfTy cs ss T v) : primValue v = true := by
   cases h <;> simp [isPrimTy] at hT <;> rfl
 
 /-- The values of the variables, of their types, by their names. -/
-theorem bind_lookup_typed {cs : List Constructor} : ∀ (ps : List (Id × Ty)) (vs : List Value)
+theorem bind_lookup_typed {cs : List Constructor} {ss : List ADTSort} :
+    ∀ (ps : List (Id × Ty)) (vs : List Value)
     (bs : List Binding), bind_all (ps.map Prod.fst) vs = .Ok bs →
-    List.Forall₂ (fun v T => OfTy cs T v) vs (ps.map Prod.snd) →
-    ∀ x T, ps.lookup x = some T → ∃ v, lookup_var bs x = .Ok v ∧ OfTy cs T v
+    List.Forall₂ (fun v T => OfTy cs ss T v) vs (ps.map Prod.snd) →
+    ∀ x T, ps.lookup x = some T → ∃ v, lookup_var bs x = .Ok v ∧ OfTy cs ss T v
   | [], _, _, _, _, x, T, hx => by simp at hx
   | (y, U) :: ps, v :: vs, bs, h, .cons hv hvs, x, T, hx => by
     simp only [List.map_cons] at h
@@ -589,9 +715,94 @@ theorem has_of_hasV {D : List Data} {K : Id → Option (Id × List LK)} {T : Ty}
   · exact .prim rfl
   · exact .prim rfl
 
-theorem prim_of_kind {K : Id → Option (Id × List LK)} {T : Ty} {v : Value}
-    (h : Has K (kindOfTy T) v) : IsPrim v = true := by
-  cases T <;> simp only [kindOfTy] at h <;> cases h <;> first | rfl | assumption
+theorem prim_of_kind {K : Id → Option (Id × List LK)} {T : Ty} (hT : isPrimTy T = true)
+    {v : Value} (h : Has K (kindOfTy T) v) : IsPrim v = true := by
+  cases T <;> simp [isPrimTy] at hT <;> simp only [kindOfTy] at h <;> cases h <;>
+    first | rfl | assumption
+
+/-- A value of a type has the kind of the type. -/
+theorem has_of_typed {K : Id → Option (Id × List LK)} {cs : List Constructor}
+    {ss : List ADTSort} {T : Ty} {v : Value} (h : OfTy cs ss T v) : Has K (kindOfTy T) v := by
+  cases h
+  · exact .int _
+  · exact .prim rfl
+  · exact .prim rfl
+  · exact .any _
+  · exact .prim rfl
+
+/-- A value of a primitive type is lowered to its unsigned view. -/
+theorem lowerV_prim {K : Id → Option Id} {cs : List Constructor} {ss : List ADTSort} {T : Ty}
+    (hT : isPrimTy T = true) {v : Value} (h : OfTy cs ss T v) : lowerV K v = unsignedOf v := by
+  cases h <;> simp [isPrimTy] at hT <;> rfl
+
+theorem fieldTyOk_adt {M : List (Ty × Id)} {s : Id} {tps : List Ty} {T' : Ty}
+    (h : fieldTyOk M (.ADTType s tps) T' = true) :
+    ∃ s', T' = .ADTType s' [] ∧ (Ty.ADTType s tps, s') ∈ M := by
+  cases T' with
+  | ADTType s' args =>
+    cases args with
+    | nil =>
+      simp only [fieldTyOk, List.any_eq_true, Bool.and_eq_true, beq_iff_eq] at h
+      obtain ⟨⟨U, t⟩, hm, he, rfl⟩ := h
+      have hU := Inox.Lowered.tyEq_eq _ _ _ he
+      simp only at hU
+      subst hU
+      exact ⟨t, rfl, hm⟩
+    | cons _ _ => simp [fieldTyOk] at h
+  | _ => simp [fieldTyOk] at h
+
+section
+variable {cs : List Constructor} {ss : List ADTSort} {K : Id → Option Id} {D : List Data}
+  {M : List (Ty × Id)}
+
+mutual
+/-- A value of a type of the input that is lowered to a type of Logos is related to its
+lowering, which is of that type. -/
+theorem lower_ty (hM : dataMapOk cs ss K D M = true) : ∀ {T : Ty} {v : Value} {T' : Ty},
+    OfTy cs ss T v → fieldTyOk M T T' = true → VR K v (lowerV K v) ∧ HasV D (lowerV K v) T'
+  | _, _, T', .int _, h => by
+    cases T' <;> simp [fieldTyOk] at h
+    exact ⟨.prim rfl, trivial⟩
+  | _, _, T', .bool _, h => by
+    cases T' <;> simp [fieldTyOk] at h
+    exact ⟨.prim rfl, trivial⟩
+  | _, _, T', .real hr, h => by
+    cases T' <;> simp [fieldTyOk] at h
+    exact ⟨.prim rfl, hr⟩
+  | _, _, T', .bv _, h => by cases T' <;> simp [fieldTyOk] at h
+  | _, _, T', @OfTy.adt _ _ c s tps fs vs tparams inv eq hc hs _ hvs, h => by
+    obtain ⟨s', rfl, hm⟩ := fieldTyOk_adt h
+    have hd := List.all_eq_true.mp hM _ hm
+    simp only [hs] at hd
+    have hk := List.all_eq_true.mp hd _ (lookup_ctor_mem hc).1
+    simp only [bne_self_eq_false, Bool.false_or] at hk
+    split at hk
+    · next c' hK =>
+      split at hk
+      · next d i fs' hf =>
+        simp only [Bool.and_eq_true, beq_iff_eq] at hk
+        obtain ⟨hn, hfs⟩ := hk
+        obtain ⟨hr, hv⟩ := lower_tys hM hvs hfs
+        have hl : lowerV K (.ADTV c tps vs) = .ADTV c' [] (lowerVs K vs) := by
+          simp only [lowerV, hK, Option.getD_some]
+        rw [hl]
+        exact ⟨.adt hK hr, by simp only [HasV, true_and]; exact ⟨d, i, fs', hf, hn, hv⟩⟩
+      · cases hk
+    · cases hk
+/-- `lower_ty` of each field. -/
+theorem lower_tys (hM : dataMapOk cs ss K D M = true) : ∀ {fs : List Param} {vs : List Value}
+    {fs' : List (Id × Ty)}, OfTys cs ss fs vs → fieldsMatch M fs fs' = true →
+    VRs K vs (lowerVs K vs) ∧ HasVs D (lowerVs K vs) (fs'.map Prod.snd)
+  | _, _, [], .nil, _ => ⟨.nil, by simp [lowerVs, HasVs]⟩
+  | _, _, _ :: _, .nil, h => by simp [fieldsMatch] at h
+  | _, _, [], .cons _ _, h => by simp [fieldsMatch] at h
+  | _, _, (_, _) :: _, .cons hv hr, h => by
+    simp only [fieldsMatch, Bool.and_eq_true] at h
+    obtain ⟨h1, h2⟩ := lower_ty hM hv h.1
+    obtain ⟨h3, h4⟩ := lower_tys hM hr h.2
+    exact ⟨.cons h1 h3, by simp only [lowerVs, List.map_cons, HasVs]; exact ⟨h2, h4⟩⟩
+end
+end
 
 /-- Binding the names `ys` to the values that `g` gives them. -/
 theorem bind_map (g : Id → Value) : ∀ ys : List Id,
@@ -636,8 +847,9 @@ theorem no_input_solution {O : Oracle} (sound : LogosSound) (hO : O.Sound)
   intro vs ⟨hvs, bs, hbs, hsol⟩
   unfold linkCheck at hlink
   simp only [Bool.and_eq_true, List.all_eq_true, beq_iff_eq] at hlink
-  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨hprim, hlen⟩, hq⟩, hfuns⟩, hvars⟩, hρ⟩, hctors⟩, hκ⟩, hσ⟩, hfk⟩ := hlink
-  generalize hL : Link.of R r = L at hq hfuns hvars hρ hctors hκ hσ hfk
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨hprim, hlen⟩, hq⟩, hfuns⟩, hvars⟩, hρ⟩, hctors⟩, hκ⟩, hσ⟩, hfk⟩, hdm⟩ :=
+    hlink
+  generalize hL : Link.of R r = L at hq hfuns hvars hρ hctors hκ hσ hfk hdm
   have hF : Funs R.program (programOf (dataOf r) r.equations) (L.sig R) := by
     intro f g ks k hf
     have hf' := hf
@@ -651,8 +863,8 @@ theorem no_input_solution {O : Oracle} (sound : LogosSound) (hO : O.Sound)
       split at hc
       · next f0 tp ps b g1 tp' ps' b' hb hb' =>
         simp only [Bool.and_eq_true, beq_iff_eq, List.isEmpty_iff, decide_eq_true_eq] at hc
-        obtain ⟨⟨⟨⟨⟨⟨⟨rfl, rfl⟩, rfl⟩, rfl⟩, hnd⟩, hl1⟩, hl2⟩, hl⟩ := hc
-        exact ⟨ps, ps', b, b', hb, hb', hnd, hl1, hl2, (lowers_sound _ 1000).1 _ _ _ _ hl⟩
+        obtain ⟨⟨⟨⟨⟨⟨rfl, rfl⟩, rfl⟩, hnd⟩, hl1⟩, hl2⟩, hl⟩ := hc
+        exact ⟨tp, ps, ps', b, b', hb, hb', hnd, hl1, hl2, (lowers_sound _ 1000).1 _ _ _ _ hl⟩
       · cases hc
     · cases hf'
   have hC : Ctors R.program (programOf (dataOf r) r.equations) (L.sig R) := by
@@ -717,11 +929,12 @@ theorem no_input_solution {O : Oracle} (sound : LogosSound) (hO : O.Sound)
   -- reads them
   let g : Id → Value := fun y => match L.pre y with
     | some x => match lookup_var bs x with
-      | .Ok v => unsignedOf v
+      | .Ok v => lowerV (L.sig R).ctors v
       | _ => .UnitV
     | none => .UnitV
   have hg : ∀ x T y, R.vars.lookup x = some T → L.pre y = some x →
-      ∃ v, lookup_var bs x = .Ok v ∧ OfTy R.ctors T v ∧ g y = unsignedOf v := by
+      ∃ v, lookup_var bs x = .Ok v ∧ OfTy R.ctors R.sorts T v ∧
+        g y = lowerV (L.sig R).ctors v := by
     intro x T y hx hy
     obtain ⟨v, hv1, hv2⟩ := bind_lookup_typed R.vars vs bs hbs hvs x T hx
     exact ⟨v, hv1, hv2, by simp only [g, hy, hv1]⟩
@@ -740,15 +953,12 @@ theorem no_input_solution {O : Oracle} (sound : LogosSound) (hO : O.Sound)
       simp only [hx, hyv, Bool.and_eq_true, beq_iff_eq, List.any_eq_true] at hc
       obtain ⟨hpre, y1, hy1, hy⟩ := hc
       obtain ⟨v, hv1, hv2, hgv⟩ := hg x T y0 h2 hpre
-      have hTp : isPrimTy T = true := by
-        have hc := hvars y1 hy1
-        rw [hy, hpre] at hc
-        simp only [h2, Bool.and_eq_true] at hc
-        exact primEq_prim hc.1
-      have hk := has_of_hasV (K := (L.sig R).kinds) hTp (hasV_of_typed hTp hv2)
+      have hc' := hvars y1 hy1
+      rw [hy, hpre] at hc'
+      simp only [h2, Bool.and_eq_true, Bool.or_eq_true] at hc'
       have hl := hl' y0 (List.mem_map.mpr ⟨y1, hy1, hy⟩)
       refine ⟨v, hv1, ?_⟩
-      have hlv : lookup_var (env_vars (Env.Env [] bs')) y0 = .Ok (unsignedOf v) := by
+      have hlv : lookup_var (env_vars (Env.Env [] bs')) y0 = .Ok (lowerV (L.sig R).ctors v) := by
         rw [← hgv]; exact hl
       unfold ctxOf at hyk
       split at hyk
@@ -757,13 +967,19 @@ theorem no_input_solution {O : Oracle} (sound : LogosSound) (hO : O.Sound)
         cases hv2 <;> simp [isSignedTy] at hs
         subst hs
         refine ⟨.prim rfl, _, 0, .prim rfl, fun _ _ => ?_⟩
-        simp only [eval, hlv, unsignedOf]
+        simp only [eval, hlv, lowerV]
       · next hs =>
         cases hyk
-        refine ⟨hk, v, 0, .prim (prim_of_kind hk), fun _ _ => ?_⟩
-        have hu : unsignedOf v = v := by
-          cases hv2 <;> simp_all [isSignedTy, unsignedOf, isPrimTy]
-        simp only [eval, hlv, hu]
+        have hk := has_of_typed (K := (L.sig R).kinds) hv2
+        refine ⟨hk, lowerV (L.sig R).ctors v, 0, ?_, fun _ _ => by simp only [eval, hlv]⟩
+        rcases hc'.1 with hp | hd
+        · have hTp := primEq_prim hp
+          have hu : lowerV (L.sig R).ctors v = v := by
+            rw [lowerV_prim hTp hv2]
+            cases hv2 <;> simp_all [isSignedTy, unsignedOf, isPrimTy]
+          rw [hu]
+          exact .prim (prim_of_kind hTp hk)
+        · exact (lower_ty hdm hv2 hd).1
     · cases hx'
   have hvs' : List.Forall₂ (HasV (dataOf r))
       (((varsOf (sigsOf r.equations) r.query).map Prod.fst).map g)
@@ -778,7 +994,10 @@ theorem no_input_solution {O : Oracle} (sound : LogosSound) (hO : O.Sound)
       · next T' hx =>
         obtain ⟨v, _, hv, hgv⟩ := hg x T' p.1 hx hpre
         rw [hgv]
-        exact hasV_query hT hv
+        rcases Bool.or_eq_true _ _ ▸ hT with hT | hT
+        · rw [lowerV_prim (primEq_prim hT) hv]
+          exact hasV_query hT hv
+        · exact (lower_ty hdm hv hT).2
       · cases hT
     · cases hc
   refine no_solution_of_reached sound hO hty hAccept hr hcheck hsrc hreached _

@@ -50,27 +50,76 @@ open Inox.Semantics
 open Inox.Lowered (exprEq exprEq_eq pick pick_eval construct_ok)
 
 mutual
-/-- `v` is a value of the type `T` for the constructors `cs`: an integer, a boolean, a real, or
-a construction without type arguments of a datatype, whose fields are of their types. -/
-inductive OfTy (cs : List Constructor) : Ty → Value → Prop where
-  | int (i : Int) : OfTy cs .IntegerType (.IntV i)
-  | bool (b : Bool) : OfTy cs .BooleanType (.BoolV b)
-  | real {n d : Int} (h : ∃ q : _root_.Rat, n = q.num ∧ d = q.den) : OfTy cs .RealType (.RealV n d)
-  | adt {c s : Id} {fs : List Param} {vs : List Value}
-      (hc : lookup_ctor cs c = .Ok (.Constructor c s fs)) (hvs : OfTys cs fs vs) :
-      OfTy cs (.ADTType s []) (.ADTV c [] vs)
+/-- The type `T` where the type parameters of `σ` are their types. -/
+def substTy (σ : List (Id × Ty)) : Ty → Ty
+  | .TypeParameter a => (σ.lookup a).getD (.TypeParameter a)
+  | .ADTType s args => .ADTType s (substTys σ args)
+  | T => T
+/-- The types `Ts` where the type parameters of `σ` are their types. -/
+def substTys (σ : List (Id × Ty)) : List Ty → List Ty
+  | [] => []
+  | T :: Ts => substTy σ T :: substTys σ Ts
+end
+
+/-- The fields `fs` where the type parameters of `σ` are their types. -/
+def substParams (σ : List (Id × Ty)) : List Param → List Param
+  | [] => []
+  | .Param f T :: fs => .Param f (substTy σ T) :: substParams σ fs
+
+mutual
+theorem substTy_nil : ∀ T : Ty, substTy [] T = T
+  | .TypeParameter a => by simp [substTy]
+  | .ADTType s args => by simp only [substTy, substTys_nil args]
+  | .IntegerType | .BooleanType | .UnitType | .CharType | .RealType | .StringType
+  | .BVType _ _ | .FPType _ _ | .RoundingModeType | .TupleType _ | .SetType _ | .BagType _
+  | .MapType _ _ | .FunctionType _ _ | .RefinementType _ _ _ | .PropType | .PiType _ _
+  | .SigmaType _ _ => rfl
+theorem substTys_nil : ∀ Ts : List Ty, substTys [] Ts = Ts
+  | [] => rfl
+  | T :: Ts => by simp only [substTys, substTy_nil T, substTys_nil Ts]
+end
+
+theorem substParams_nil : ∀ fs : List Param, substParams [] fs = fs
+  | [] => rfl
+  | .Param _ T :: fs => by simp [substParams, substTy_nil T, substParams_nil fs]
+
+theorem substParams_length (σ : List (Id × Ty)) :
+    ∀ fs : List Param, (substParams σ fs).length = fs.length
+  | [] => rfl
+  | .Param _ _ :: fs => by simp [substParams, substParams_length σ fs]
+
+mutual
+/-- `v` is a value of the type `T` for the constructors `cs` and the sorts `ss`: an integer, a
+boolean, a real, a bit-vector, or a construction of a datatype, of the type arguments of the
+type, whose fields are of their types, where the type parameters of the datatype are its type
+arguments. -/
+inductive OfTy (cs : List Constructor) (ss : List ADTSort) : Ty → Value → Prop where
+  | int (i : Int) : OfTy cs ss .IntegerType (.IntV i)
+  | bool (b : Bool) : OfTy cs ss .BooleanType (.BoolV b)
+  | real {n d : Int} (h : ∃ q : _root_.Rat, n = q.num ∧ d = q.den) :
+      OfTy cs ss .RealType (.RealV n d)
+  | adt {c s : Id} {tps : List Ty} {fs : List Param} {vs : List Value} {tparams : List Id}
+      {inv eq : Option Id} (hc : lookup_ctor cs c = .Ok (.Constructor c s fs))
+      (hs : lookup_sort ss s = .Ok (.Sort s tparams inv eq)) (hl : tparams.length = tps.length)
+      (hvs : OfTys cs ss (substParams (tparams.zip tps) fs) vs) :
+      OfTy cs ss (.ADTType s tps) (.ADTV c tps vs)
   | bv {s : Bool} {w x : Int} (h : 0 < w ∧ 0 ≤ x ∧ x < 2 ^ w.toNat) :
-      OfTy cs (.BVType s w) (.BVV s w x)
+      OfTy cs ss (.BVType s w) (.BVV s w x)
 /-- The values `vs` are of the types of the fields `fs`, position by position. -/
-inductive OfTys (cs : List Constructor) : List Param → List Value → Prop where
-  | nil : OfTys cs [] []
-  | cons {f : Id} {T : Ty} {fs : List Param} {v : Value} {vs : List Value} (h : OfTy cs T v)
-      (hr : OfTys cs fs vs) : OfTys cs (.Param f T :: fs) (v :: vs)
+inductive OfTys (cs : List Constructor) (ss : List ADTSort) :
+    List Param → List Value → Prop where
+  | nil : OfTys cs ss [] []
+  | cons {f : Id} {T : Ty} {fs : List Param} {v : Value} {vs : List Value} (h : OfTy cs ss T v)
+      (hr : OfTys cs ss fs vs) : OfTys cs ss (.Param f T :: fs) (v :: vs)
 end
 
 /-- The constructors of a program. -/
 def ctorsOf : Program → List Constructor
   | .Program _ cs _ _ _ => cs
+
+/-- The sorts of a program. -/
+def sortsOf : Program → List ADTSort
+  | .Program _ _ ss _ _ => ss
 
 /-- A fact that holds where evaluation reaches a position: an expression is `true`, the
 variable `x` has the value of the expression `v`, that of its let, the variable `x` has a
@@ -100,7 +149,7 @@ def Fact.Holds (fuel : Int) (env : Env) : Fact → Prop
   | .holds e => eval O P fuel env e = .Ok (.BoolV true)
   | .binds x v => ∃ w, lookup_var (env_vars env) x = .Ok w ∧ eval O P fuel env v = .Ok w
   | .prim x => ∃ w, lookup_var (env_vars env) x = .Ok w ∧ primValue w = true
-  | .typed x T => ∃ w, lookup_var (env_vars env) x = .Ok w ∧ OfTy (ctorsOf P) T w
+  | .typed x T => ∃ w, lookup_var (env_vars env) x = .Ok w ∧ OfTy (ctorsOf P) (sortsOf P) T w
 
 /-- `t'` refines `t` under the facts `Fs`: in every environment where the facts hold, wherever
 `t` has a value, `t'` has the same value with the same fuel. -/
@@ -2564,7 +2613,7 @@ def noEq (ss : List ADTSort) : Bool :=
 /-- The datatype `s` of `ss` has no invariant. -/
 def noInvOf (ss : List ADTSort) (s : Id) : Bool :=
   match lookup_sort ss s with
-  | .Ok (.Sort _ _ none _) => true
+  | .Ok (.Sort _ [] none _) => true
   | _ => false
 
 /-- The name of a field. -/
@@ -2630,17 +2679,19 @@ variable {O : Oracle} {P : Program}
 
 mutual
 theorem typed_refl (hO : O.Sound) (hEq : ∀ c, sort_equality P c = none)
-    {cs : List Constructor} : ∀ {T : Ty} {v : Value}, OfTy cs T v → O.value_eq P v v = .Ok true
+    {cs : List Constructor} {ss : List ADTSort} :
+    ∀ {T : Ty} {v : Value}, OfTy cs ss T v → O.value_eq P v v = .Ok true
   | _, _, .int _ => by rw [hO.value_eq]; simp
   | _, _, .bool _ => by rw [hO.value_eq]; simp
   | _, _, .real _ => by rw [hO.value_eq]; simp
   | _, _, .bv _ => by rw [hO.value_eq]; simp
-  | _, _, .adt _ hvs => by
+  | _, _, .adt _ _ _ hvs => by
     rw [hO.value_eq]
     simp only [hEq, dite_true]
     exact fields_refl hO hEq hvs
 theorem fields_refl (hO : O.Sound) (hEq : ∀ c, sort_equality P c = none)
-    {cs : List Constructor} : ∀ {fs : List Param} {vs : List Value}, OfTys cs fs vs →
+    {cs : List Constructor} {ss : List ADTSort} :
+    ∀ {fs : List Param} {vs : List Value}, OfTys cs ss fs vs →
       O.values_eq P vs vs = .Ok true
   | _, _, .nil => by rw [hO.values_eq]
   | _, _, .cons h hr => by
@@ -2649,8 +2700,9 @@ theorem fields_refl (hO : O.Sound) (hEq : ∀ c, sort_equality P c = none)
     exact fields_refl hO hEq hr
 end
 
-theorem fields_length {cs : List Constructor} : ∀ {fs : List Param} {vs : List Value},
-    OfTys cs fs vs → vs.length = fs.length
+theorem fields_length {cs : List Constructor} {ss : List ADTSort} :
+    ∀ {fs : List Param} {vs : List Value},
+    OfTys cs ss fs vs → vs.length = fs.length
   | _, _, .nil => rfl
   | _, _, .cons _ hr => by simp [fields_length hr]
 
@@ -2719,7 +2771,7 @@ theorem eval_sels {fuel : Int} {env : Env} {x c s : Id} {fs : List Param} {w : L
 
 theorem typedVar_holds {Fs : List Fact} {x : Id} {fuel : Int} {env : Env}
     (h : typedVar Fs x = true) (hF : ∀ f ∈ Fs, f.Holds O P fuel env) :
-    ∃ T w, lookup_var (env_vars env) x = .Ok w ∧ OfTy (ctorsOf P) T w := by
+    ∃ T w, lookup_var (env_vars env) x = .Ok w ∧ OfTy (ctorsOf P) (sortsOf P) T w := by
   obtain ⟨f, hf, hm⟩ := List.any_eq_true.mp h
   cases f with
   | typed y T =>
@@ -2730,10 +2782,10 @@ theorem typedVar_holds {Fs : List Fact} {x : Id} {fuel : Int} {env : Env}
   | _ => simp at hm
 
 theorem noInvOf_eq {ss : List ADTSort} {s : Id} (h : noInvOf ss s = true) :
-    ∃ t tps eq, lookup_sort ss s = .Ok (.Sort t tps none eq) := by
+    ∃ t eq, lookup_sort ss s = .Ok (.Sort t [] none eq) := by
   unfold noInvOf at h
   split at h
-  · next t tps eq hs => exact ⟨t, tps, eq, hs⟩
+  · next t eq hs => exact ⟨t, eq, hs⟩
   · cases h
 
 /-- `arith` on the equality of a variable of a datatype without an equality of its own with
@@ -2815,7 +2867,7 @@ theorem etaCheck_refines (hO : O.Sound) {fns : List FunDef} {cs : List Construct
           | bool _ => simp at hw0
           | real _ => simp at hw0
           | bv _ => simp at hw0
-          | @adt c0 s0 fs0 vs0 hc0 hvs0 =>
+          | @adt c0 s0 tps0 fs0 vs0 tparams0 inv0 eq0 hc0 hs0 hl0 hvs0 =>
             simp only [ctorsOf] at hc0
             simp only [hc0] at hw0
             have hm := select_mem hw0
@@ -2828,12 +2880,19 @@ theorem etaCheck_refines (hO : O.Sound) {fns : List FunDef} {cs : List Construct
             subst hcc
             rw [hc0] at hc
             cases hc
+            obtain ⟨t0, eq0', hs0'⟩ := noInvOf_eq hinv
+            simp only [sortsOf] at hs0
+            rw [hs0'] at hs0
+            cases hs0
+            cases tps0 with
+            | cons _ _ => simp at hl0
+            | nil =>
+            simp only [List.zip_nil_left, substParams_nil] at hvs0
             have hl := eval_sels (O := O) (P := .Program fns cs ss is eqm) (fuel := fuel) hx hc0
               hnd (fields_length hvs0) [] (p :: fs') [] vs0 _ rfl rfl rfl hle hall
             rw [hl] at hws
             cases hws
-            obtain ⟨t0, tps0, eq0, hs0⟩ := noInvOf_eq hinv
-            simp only [construct, hc0, hs0, hO.resolve_all] at hv
+            simp only [construct, hc0, hs0', hO.resolve_all] at hv
             cases hv
             rw [eval]
             exact hx

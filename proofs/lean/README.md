@@ -1277,12 +1277,13 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   their steps and the functions of the input are lowered to the query and the
   program that Logos reads (`linkCheck`), no values of the variables of the
   input, of their types, make all its constraints evaluate to `true` in its
-  program. It covers first-order inputs without type parameters, over
+  program. It covers first-order inputs, with type parameters, over
   integers, booleans, reals and datatypes, whose constructors, testers and
   selectors have other names in the reading of Logos, and whose fields of
   integers are known to be integers, with lets, which the lowering inlines or
   drops, where each step of a constraint is of these rules, and variables of
-  datatypes where the steps remove them. A construction of a sort with an
+  datatypes, which the steps remove or which are of datatypes of Logos. A
+  construction of a sort with an
   invariant is lowered to the assumption of the invariant of its arguments
   (`instInv`), where the body of the invariant doesn't depend on the fuel or
   the types, and a variable of a signed bit-vector to the signed view of the
@@ -1295,9 +1296,9 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   `real-division-by-zero-is-infeasible` and the 1st and 3rd of
   `constructions-under-invariants`, that of
   `bitvector-division-by-zero-is-total`, the first of
-  `empty-function-codomains` and the first of
-  `quantifiers-in-connectives-over-partial-bodies`, as `inox-solution --input`
-  says.
+  `empty-function-codomains`, the first of
+  `quantifiers-in-connectives-over-partial-bodies` and that of
+  `size-negative`, as `inox-solution --input` says.
   The encoders aren't in this theorem yet.
 - **The link between the proof and the script.** The checker checks that each
   assumption of the proof is the text of an assert of the script, up to how
