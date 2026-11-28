@@ -15,7 +15,9 @@ starts from (`stepsApply_refines`). The facts of a position are the conditions t
 evaluation reaches it, and in the body of a let, that its variable has the value of its binding.
 In the body of a quantifier, whose instances refine those of the body that it is rewritten from
 (`refines_Forall`), they are that its parameters of integers and booleans have primitive values
-(`paramFacts`).
+(`paramFacts`). In the body of a lambda that is an operand of an equality, a step must also have
+its converse, so that the body has the same values as the one that it is rewritten from
+(`revCheck`, `rewriteAt_rev`): functions are compared by their values (`refines_EqLam`).
 
 The rules that are checked here:
 - `logic`, three-valued propositional reasoning over the atoms of the subterm, under the facts
@@ -35,8 +37,11 @@ The rules that are checked here:
   the semantics compares by identity (`value_eq_refl`): a literal, an arithmetic operation, an
   equality, or a free variable of the input (a fact `prim`), and an equality of a variable of
   a datatype without an equality of its own with itself is `true` (`typed_refl`).
-- `evaluate`, a ground term of literals, arithmetic, negations and concatenations of strings is
-  its value.
+- `evaluate`, a ground term of literals, arithmetic, comparisons, negations, conditionals and
+  concatenations of strings is its value, two lambdas of a parameter of the integers are
+  different where their bodies are different values at an integer around their literals
+  (`lamNeCheck`), and two lambdas whose bodies are the same up to the name of their parameter,
+  of the integers or the Booleans, of a primitive value, are equal (`alphaCheck`).
 - `eta`, the construction of the fields of a variable of a datatype, in their order, is the
   variable, where its first field is of no other constructor: a free variable of the input has a
   value of its type (a fact `typed`), and the selections of its fields are its fields.
@@ -47,7 +52,7 @@ The rules that are checked here:
 namespace Inox.Simplified
 
 open Inox.Semantics
-open Inox.Lowered (exprEq exprEq_eq pick pick_eval construct_ok)
+open Inox.Lowered (exprEq exprEq_eq pick pick_eval pick_eq construct_ok)
 
 mutual
 /-- The type `T` where the type parameters of `σ` are their types. -/
@@ -730,24 +735,26 @@ theorem subst_list {x : Id} {w : Expr} {n : Nat} {fuel : Int} {env env' : Env}
     · rw [eval_and, eval_and, eval_bool, eval_bool, hae, h2]
     · rw [eval_or, eval_or, eval_bool, eval_bool, hae, h3]
 
-/-- Where `w` has the value `vw`, an expression where the variable `x` is `vw` has the value of
-the expression where `x` is `w`. -/
-theorem subst_eval {x : Id} {w : Expr} {fuel : Int} {env : Env} {vw : Value}
-    (hw : eval O P fuel env w = .Ok vw) :
-    ∀ n e e', subst x w n e = some e' → eval O P fuel (env_bind env x vw) e = eval O P fuel env e'
+theorem construct_types (fuel : Int) {env env' : Env} (h : env_types env' = env_types env)
+    (c : Id) (tps : List Ty) (vs : List Value) :
+    construct O P fuel env' c tps vs = construct O P fuel env c tps vs := by
+  rw [construct, construct, h]
+
+/-- Where the variables of `env'` are those of `env`, other than `x`, which is the value of `w`
+in `env`, an expression has in `env'` the value of the expression where `x` is `w` in `env`. -/
+theorem subst_eval_gen {x : Id} {w : Expr} {fuel : Int} {env env' : Env}
+    (htys : env_types env' = env_types env)
+    (hvar : ∀ y, eval O P fuel env' (.Variable y) =
+      eval O P fuel env (if y = x then w else .Variable y)) :
+    ∀ n e e', subst x w n e = some e' → eval O P fuel env' e = eval O P fuel env e'
   | 0, _, _, h => by simp [subst] at h
   | n + 1, e, e', h => by
-    have ih := subst_eval (x := x) hw n
+    have ih := subst_eval_gen (x := x) htys hvar n
     unfold subst at h
     split at h
     · next y =>
       cases h
-      by_cases hy : y = x
-      · subst hy
-        cases env
-        simp [eval, env_bind, env_vars, lookup_var, hw]
-      · cases env
-        simp [eval, env_bind, env_vars, lookup_var, hy]
+      exact hvar y
     all_goals first
       | (cases h; simp only [eval]; done)
       | skip
@@ -809,10 +816,25 @@ theorem subst_eval {x : Id} {w : Expr} {fuel : Int} {env : Env} {vw : Value}
       simp only [eval]
       exact (subst_list ih _ _ hes).2.2
     · obtain ⟨es', hes, rfl⟩ := Option.map_eq_some_iff.mp h
-      simp only [eval, (subst_list ih _ _ hes).1, env_types_bind]
+      simp only [eval, (subst_list ih _ _ hes).1, htys]
     · obtain ⟨es', hes, rfl⟩ := Option.map_eq_some_iff.mp h
-      simp only [eval, (subst_list ih _ _ hes).1, construct_bind]
+      simp only [eval, (subst_list ih _ _ hes).1, construct_types fuel htys]
     · cases h
+
+
+/-- Where `w` has the value `vw`, an expression where the variable `x` is `vw` has the value of
+the expression where `x` is `w`. -/
+theorem subst_eval {x : Id} {w : Expr} {fuel : Int} {env : Env} {vw : Value}
+    (hw : eval O P fuel env w = .Ok vw) :
+    ∀ n e e', subst x w n e = some e' →
+      eval O P fuel (env_bind env x vw) e = eval O P fuel env e' :=
+  subst_eval_gen (env_types_bind env x vw) fun y => by
+    by_cases hy : y = x
+    · subst hy
+      cases env
+      simp [eval, env_bind, env_vars, lookup_var, hw]
+    · cases env
+      simp [eval, env_bind, env_vars, lookup_var, hy]
 
 end
 
@@ -835,73 +857,82 @@ def paramFacts (ps : List Param) : List Fact :=
 hold in the environment of `e`, with those of the path to the position. The positions are those
 of the S-expressions that the certificate writes: the operands of an application are at `1` and
 after, and the value of `(let ((x v)) b)` is at `1 0 1`. -/
-def rewriteAt (r : List Fact → Expr → Option Expr) : List Fact → List Nat → Expr → Option Expr
+def rewriteAt (r : List Fact → Expr → Option Expr) (qr : List Fact → Expr → Expr → Bool) :
+    List Fact → List Nat → Expr → Option Expr
   | Fs, [], e => r Fs e
   | Fs, i :: p, e =>
     match i, e with
-    | 1, .Not a => (rewriteAt r Fs p a).map .Not
-    | 1, .Plus a b => (rewriteAt r Fs p a).map (.Plus · b)
-    | 2, .Plus a b => (rewriteAt r Fs p b).map (.Plus a ·)
-    | 1, .Minus a b => (rewriteAt r Fs p a).map (.Minus · b)
-    | 2, .Minus a b => (rewriteAt r Fs p b).map (.Minus a ·)
-    | 1, .Times a b => (rewriteAt r Fs p a).map (.Times · b)
-    | 2, .Times a b => (rewriteAt r Fs p b).map (.Times a ·)
-    | 1, .Division a b => (rewriteAt r Fs p a).map (.Division · b)
-    | 2, .Division a b => (rewriteAt r Fs p b).map (.Division a ·)
-    | 1, .Remainder a b => (rewriteAt r Fs p a).map (.Remainder · b)
-    | 2, .Remainder a b => (rewriteAt r Fs p b).map (.Remainder a ·)
-    | 1, .Modulo a b => (rewriteAt r Fs p a).map (.Modulo · b)
-    | 2, .Modulo a b => (rewriteAt r Fs p b).map (.Modulo a ·)
-    | 1, .LessThan a b => (rewriteAt r Fs p a).map (.LessThan · b)
-    | 2, .LessThan a b => (rewriteAt r Fs p b).map (.LessThan a ·)
-    | 1, .GreaterThan a b => (rewriteAt r Fs p a).map (.GreaterThan · b)
-    | 2, .GreaterThan a b => (rewriteAt r Fs p b).map (.GreaterThan a ·)
-    | 1, .LessEquals a b => (rewriteAt r Fs p a).map (.LessEquals · b)
-    | 2, .LessEquals a b => (rewriteAt r Fs p b).map (.LessEquals a ·)
-    | 1, .GreaterEquals a b => (rewriteAt r Fs p a).map (.GreaterEquals · b)
-    | 2, .GreaterEquals a b => (rewriteAt r Fs p b).map (.GreaterEquals a ·)
-    | 1, .Equals a b => (rewriteAt r Fs p a).map (.Equals · b)
-    | 2, .Equals a b => (rewriteAt r Fs p b).map (.Equals a ·)
-    | 1, .UMinus a => (rewriteAt r Fs p a).map .UMinus
-    | 1, .IsConstructor a c => (rewriteAt r Fs p a).map (.IsConstructor · c)
-    | 1, .ADTSelector a f => (rewriteAt r Fs p a).map (.ADTSelector · f)
-    | 1, .Implies a b => (rewriteAt r Fs p a).map (.Implies · b)
-    | 2, .Implies a b => (rewriteAt r (Fs ++ [.holds a]) p b).map (.Implies a ·)
-    | 1, .IfExpr c a b => (rewriteAt r Fs p c).map (.IfExpr · a b)
-    | 2, .IfExpr c a b => (rewriteAt r (Fs ++ [.holds c]) p a).map (.IfExpr c · b)
-    | 3, .IfExpr c a b => (rewriteAt r (Fs ++ [.holds (.Not c)]) p b).map (.IfExpr c a ·)
-    | 1, .Assume q a => (rewriteAt r Fs p q).map (.Assume · a)
-    | 2, .Assume q a => (rewriteAt r (Fs ++ [.holds q]) p a).map (.Assume q ·)
-    | 2, .Let x v b => (rewriteAt r (letFacts x v) p b).map (.Let x v ·)
+    | 1, .Not a => (rewriteAt r qr Fs p a).map .Not
+    | 1, .Plus a b => (rewriteAt r qr Fs p a).map (.Plus · b)
+    | 2, .Plus a b => (rewriteAt r qr Fs p b).map (.Plus a ·)
+    | 1, .Minus a b => (rewriteAt r qr Fs p a).map (.Minus · b)
+    | 2, .Minus a b => (rewriteAt r qr Fs p b).map (.Minus a ·)
+    | 1, .Times a b => (rewriteAt r qr Fs p a).map (.Times · b)
+    | 2, .Times a b => (rewriteAt r qr Fs p b).map (.Times a ·)
+    | 1, .Division a b => (rewriteAt r qr Fs p a).map (.Division · b)
+    | 2, .Division a b => (rewriteAt r qr Fs p b).map (.Division a ·)
+    | 1, .Remainder a b => (rewriteAt r qr Fs p a).map (.Remainder · b)
+    | 2, .Remainder a b => (rewriteAt r qr Fs p b).map (.Remainder a ·)
+    | 1, .Modulo a b => (rewriteAt r qr Fs p a).map (.Modulo · b)
+    | 2, .Modulo a b => (rewriteAt r qr Fs p b).map (.Modulo a ·)
+    | 1, .LessThan a b => (rewriteAt r qr Fs p a).map (.LessThan · b)
+    | 2, .LessThan a b => (rewriteAt r qr Fs p b).map (.LessThan a ·)
+    | 1, .GreaterThan a b => (rewriteAt r qr Fs p a).map (.GreaterThan · b)
+    | 2, .GreaterThan a b => (rewriteAt r qr Fs p b).map (.GreaterThan a ·)
+    | 1, .LessEquals a b => (rewriteAt r qr Fs p a).map (.LessEquals · b)
+    | 2, .LessEquals a b => (rewriteAt r qr Fs p b).map (.LessEquals a ·)
+    | 1, .GreaterEquals a b => (rewriteAt r qr Fs p a).map (.GreaterEquals · b)
+    | 2, .GreaterEquals a b => (rewriteAt r qr Fs p b).map (.GreaterEquals a ·)
+    | 1, .Equals (.Lambda ps b) c =>
+      match hp : p with
+      | 2 :: p' =>
+        (rewriteAt (fun Fs t => (r Fs t).filter (qr Fs t)) qr (paramFacts ps) p' b).map fun b' =>
+          .Equals (.Lambda ps b') c
+      | _ => (rewriteAt r qr Fs p (.Lambda ps b)).map (.Equals · c)
+    | 1, .Equals a b => (rewriteAt r qr Fs p a).map (.Equals · b)
+    | 2, .Equals a b => (rewriteAt r qr Fs p b).map (.Equals a ·)
+    | 1, .UMinus a => (rewriteAt r qr Fs p a).map .UMinus
+    | 1, .IsConstructor a c => (rewriteAt r qr Fs p a).map (.IsConstructor · c)
+    | 1, .ADTSelector a f => (rewriteAt r qr Fs p a).map (.ADTSelector · f)
+    | 1, .Implies a b => (rewriteAt r qr Fs p a).map (.Implies · b)
+    | 2, .Implies a b => (rewriteAt r qr (Fs ++ [.holds a]) p b).map (.Implies a ·)
+    | 1, .IfExpr c a b => (rewriteAt r qr Fs p c).map (.IfExpr · a b)
+    | 2, .IfExpr c a b => (rewriteAt r qr (Fs ++ [.holds c]) p a).map (.IfExpr c · b)
+    | 3, .IfExpr c a b => (rewriteAt r qr (Fs ++ [.holds (.Not c)]) p b).map (.IfExpr c a ·)
+    | 1, .Assume q a => (rewriteAt r qr Fs p q).map (.Assume · a)
+    | 2, .Assume q a => (rewriteAt r qr (Fs ++ [.holds q]) p a).map (.Assume q ·)
+    | 2, .Let x v b => (rewriteAt r qr (letFacts x v) p b).map (.Let x v ·)
     | 1, .Let x v b =>
       match p with
-      | 0 :: 1 :: p' => (rewriteAt r Fs p' v).map (.Let x · b)
+      | 0 :: 1 :: p' => (rewriteAt r qr Fs p' v).map (.Let x · b)
       | _ => none
     | i + 1, .And es =>
       match es.drop i with
       | t :: post =>
-        (rewriteAt r (Fs ++ (es.take i).map .holds) p t).map fun t' =>
+        (rewriteAt r qr (Fs ++ (es.take i).map .holds) p t).map fun t' =>
           .And (es.take i ++ t' :: post)
       | [] => none
     | i + 1, .Or es =>
       match es.drop i with
       | t :: post =>
-        (rewriteAt r (Fs ++ (es.take i).map fun e => .holds (.Not e)) p t).map fun t' =>
+        (rewriteAt r qr (Fs ++ (es.take i).map fun e => .holds (.Not e)) p t).map fun t' =>
           .Or (es.take i ++ t' :: post)
       | [] => none
     | i + 1, .FunctionInvocation f tps es =>
       match es.drop i with
       | t :: post =>
-        (rewriteAt r Fs p t).map fun t' => .FunctionInvocation f tps (es.take i ++ t' :: post)
+        (rewriteAt r qr Fs p t).map fun t' => .FunctionInvocation f tps (es.take i ++ t' :: post)
       | [] => none
     | i + 1, .ADT c tps es =>
       match es.drop i with
-      | t :: post => (rewriteAt r Fs p t).map fun t' => .ADT c tps (es.take i ++ t' :: post)
+      | t :: post => (rewriteAt r qr Fs p t).map fun t' => .ADT c tps (es.take i ++ t' :: post)
       | [] => none
-    | 2, .Forall ps b => (rewriteAt r (paramFacts ps) p b).map (.Forall ps ·)
+    | 2, .Forall ps b => (rewriteAt r qr (paramFacts ps) p b).map (.Forall ps ·)
     | 2, .Not (.Forall ps (.Not b)) =>
-      (rewriteAt r (paramFacts ps) p b).map fun b' => .Not (.Forall ps (.Not b'))
+      (rewriteAt r qr (paramFacts ps) p b).map fun b' => .Not (.Forall ps (.Not b'))
     | _, _ => none
+termination_by _ p _ => p.length
+
 
 section
 variable {O : Oracle} {P : Program}
@@ -1567,94 +1598,176 @@ theorem refines_Forall (hO : O.Sound) {Fs : List Fact} {ps : List Param} {b b' :
           rw [hall' vs hvs] at h0; cases h0
       · cases hv
 
+/-- An equality of a lambda, whose body has the same values as another, has the value of the
+equality of the lambda of the other: the closures are compared by their values. -/
+theorem refines_EqLam (hO : O.Sound) {Fs : List Fact} {ps : List Param} {b b' c : Expr}
+    (h1 : Refines O P (paramFacts ps) b b') (h2 : Refines O P (paramFacts ps) b' b) :
+    Refines O P Fs (.Equals (.Lambda ps b) c) (.Equals (.Lambda ps b') c) := by
+  intro fuel env v _ hv
+  have key : ∀ vs, O.params_have_types P env vs ps = true → ∀ f a,
+      apply O P f (.ClosureV ps b env) vs = .Ok a ↔
+        apply O P f (.ClosureV ps b' env) vs = .Ok a := by
+    intro vs hvs f a
+    cases env with
+    | Env tys vars =>
+    simp only [apply]
+    split
+    · simp
+    · split
+      · next bs hbs =>
+        exact ⟨h1 _ _ a (paramFacts_hold hO hvs hbs), h2 _ _ a (paramFacts_hold hO hvs hbs)⟩
+      · simp
+      · simp
+  have hce : ∀ d, O.closures_equal P (.ClosureV ps b env) d =
+      O.closures_equal P (.ClosureV ps b' env) d := by
+    intro d
+    rw [hO.closures_equal, hO.closures_equal]
+    apply Bool.eq_iff_iff.mpr
+    simp only [decide_eq_true_eq, Bool.or_eq_true, Bool.not_eq_true', Bool.and_eq_true,
+      decide_eq_false_iff_not]
+    refine forall_congr' fun vs => ?_
+    by_cases hvs : O.params_have_types P env vs ps = true
+    · simp only [hvs, key vs hvs]
+    · simp [hvs]
+  have hL : ∀ bb, eval O P fuel env (.Lambda ps bb) = .Ok (.ClosureV ps bb env) := by
+    intro bb; rw [eval]
+  rw [eval, hL] at hv
+  rw [eval, hL]
+  revert hv
+  cases eval O P fuel env c with
+  | Ok d =>
+    simp only
+    rw [hO.value_eq, hO.value_eq]
+    cases P with
+    | Program fs cs ss is eqm =>
+      cases eqm
+      · simp
+      · simp only [hce d]; exact id
+  | _ => simp
+
+theorem filter_some {o : Option Expr} {f : Expr → Bool} {t' : Expr} (h : o.filter f = some t') :
+    o = some t' ∧ f t' = true := by
+  cases o with
+  | none => simp at h
+  | some a =>
+    simp only [Option.filter] at h
+    split at h
+    · next hf => cases h; exact ⟨rfl, hf⟩
+    · cases h
+
+theorem filter_fwd {r : List Fact → Expr → Option Expr} {q : List Fact → Expr → Expr → Bool}
+    (hr : ∀ Fs t t', r Fs t = some t' → Refines O P Fs t t') :
+    ∀ Fs t t', (r Fs t).filter (q Fs t) = some t' → Refines O P Fs t t' :=
+  fun Fs t t' h => hr Fs t t' (filter_some h).1
+
+theorem filter_bwd {r : List Fact → Expr → Option Expr} {q : List Fact → Expr → Expr → Bool}
+    (hq : ∀ Fs t t', r Fs t = some t' → q Fs t t' = true → Refines O P Fs t' t) :
+    ∀ Fs t t', (r Fs t).filter (q Fs t) = some t' → Refines O P Fs t' t :=
+  fun Fs t t' h => hq Fs t t' (filter_some h).1 (filter_some h).2
+
+theorem filter_q {r : List Fact → Expr → Option Expr} {q : List Fact → Expr → Expr → Bool}
+    (hq : ∀ Fs t t', r Fs t = some t' → q Fs t t' = true → Refines O P Fs t' t) :
+    ∀ Fs t t', (r Fs t).filter (q Fs t) = some t' → q Fs t t' = true → Refines O P Fs t' t :=
+  fun Fs t t' h hq' => hq Fs t t' (filter_some h).1 hq'
+
+set_option maxHeartbeats 2000000 in
+mutual
 /-- Rewriting the subterm at a position into one that refines it refines the expression. -/
 theorem rewriteAt_refines (hO : O.Sound) {r : List Fact → Expr → Option Expr}
-    (hr : ∀ Fs t t', r Fs t = some t' → Refines O P Fs t t') :
-    ∀ (Fs : List Fact) (p : List Nat) (e e' : Expr), rewriteAt r Fs p e = some e' →
+    {q : List Fact → Expr → Expr → Bool} (hr : ∀ Fs t t', r Fs t = some t' → Refines O P Fs t t')
+    (hq : ∀ Fs t t', r Fs t = some t' → q Fs t t' = true → Refines O P Fs t' t) :
+    ∀ (Fs : List Fact) (p : List Nat) (e e' : Expr), rewriteAt r q Fs p e = some e' →
       Refines O P Fs e e'
   | Fs, [], e, e', h => hr Fs e e' (by simpa [rewriteAt] using h)
   | Fs, i :: p, e, e', h => by
     unfold rewriteAt at h
     split at h
     · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
-      exact refines_Not (rewriteAt_refines hO hr _ _ _ _ ht)
+      exact refines_Not (rewriteAt_refines hO hr hq _ _ _ _ ht)
     · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
-      exact refines_Plus_1 (rewriteAt_refines hO hr _ _ _ _ ht)
+      exact refines_Plus_1 (rewriteAt_refines hO hr hq _ _ _ _ ht)
     · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
-      exact refines_Plus_2 (rewriteAt_refines hO hr _ _ _ _ ht)
+      exact refines_Plus_2 (rewriteAt_refines hO hr hq _ _ _ _ ht)
     · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
-      exact refines_Minus_1 (rewriteAt_refines hO hr _ _ _ _ ht)
+      exact refines_Minus_1 (rewriteAt_refines hO hr hq _ _ _ _ ht)
     · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
-      exact refines_Minus_2 (rewriteAt_refines hO hr _ _ _ _ ht)
+      exact refines_Minus_2 (rewriteAt_refines hO hr hq _ _ _ _ ht)
     · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
-      exact refines_Times_1 (rewriteAt_refines hO hr _ _ _ _ ht)
+      exact refines_Times_1 (rewriteAt_refines hO hr hq _ _ _ _ ht)
     · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
-      exact refines_Times_2 (rewriteAt_refines hO hr _ _ _ _ ht)
+      exact refines_Times_2 (rewriteAt_refines hO hr hq _ _ _ _ ht)
     · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
-      exact refines_Division_1 (rewriteAt_refines hO hr _ _ _ _ ht)
+      exact refines_Division_1 (rewriteAt_refines hO hr hq _ _ _ _ ht)
     · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
-      exact refines_Division_2 (rewriteAt_refines hO hr _ _ _ _ ht)
+      exact refines_Division_2 (rewriteAt_refines hO hr hq _ _ _ _ ht)
     · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
-      exact refines_Remainder_1 (rewriteAt_refines hO hr _ _ _ _ ht)
+      exact refines_Remainder_1 (rewriteAt_refines hO hr hq _ _ _ _ ht)
     · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
-      exact refines_Remainder_2 (rewriteAt_refines hO hr _ _ _ _ ht)
+      exact refines_Remainder_2 (rewriteAt_refines hO hr hq _ _ _ _ ht)
     · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
-      exact refines_Modulo_1 (rewriteAt_refines hO hr _ _ _ _ ht)
+      exact refines_Modulo_1 (rewriteAt_refines hO hr hq _ _ _ _ ht)
     · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
-      exact refines_Modulo_2 (rewriteAt_refines hO hr _ _ _ _ ht)
+      exact refines_Modulo_2 (rewriteAt_refines hO hr hq _ _ _ _ ht)
     · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
-      exact refines_LessThan_1 (rewriteAt_refines hO hr _ _ _ _ ht)
+      exact refines_LessThan_1 (rewriteAt_refines hO hr hq _ _ _ _ ht)
     · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
-      exact refines_LessThan_2 (rewriteAt_refines hO hr _ _ _ _ ht)
+      exact refines_LessThan_2 (rewriteAt_refines hO hr hq _ _ _ _ ht)
     · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
-      exact refines_GreaterThan_1 (rewriteAt_refines hO hr _ _ _ _ ht)
+      exact refines_GreaterThan_1 (rewriteAt_refines hO hr hq _ _ _ _ ht)
     · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
-      exact refines_GreaterThan_2 (rewriteAt_refines hO hr _ _ _ _ ht)
+      exact refines_GreaterThan_2 (rewriteAt_refines hO hr hq _ _ _ _ ht)
     · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
-      exact refines_LessEquals_1 (rewriteAt_refines hO hr _ _ _ _ ht)
+      exact refines_LessEquals_1 (rewriteAt_refines hO hr hq _ _ _ _ ht)
     · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
-      exact refines_LessEquals_2 (rewriteAt_refines hO hr _ _ _ _ ht)
+      exact refines_LessEquals_2 (rewriteAt_refines hO hr hq _ _ _ _ ht)
     · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
-      exact refines_GreaterEquals_1 (rewriteAt_refines hO hr _ _ _ _ ht)
+      exact refines_GreaterEquals_1 (rewriteAt_refines hO hr hq _ _ _ _ ht)
     · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
-      exact refines_GreaterEquals_2 (rewriteAt_refines hO hr _ _ _ _ ht)
+      exact refines_GreaterEquals_2 (rewriteAt_refines hO hr hq _ _ _ _ ht)
+    · next ps b c =>
+      split at h
+      · obtain ⟨b', hb, rfl⟩ := Option.map_eq_some_iff.mp h
+        exact refines_EqLam hO (rewriteAt_refines hO (filter_fwd hr) (filter_q hq) _ _ _ _ hb)
+          (rewriteAt_rev hO (filter_fwd hr) (filter_bwd hq) (filter_q hq) _ _ _ _ hb)
+      · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+        exact refines_Equals_1 (rewriteAt_refines hO hr hq _ _ _ _ ht)
     · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
-      exact refines_Equals_1 (rewriteAt_refines hO hr _ _ _ _ ht)
+      exact refines_Equals_1 (rewriteAt_refines hO hr hq _ _ _ _ ht)
     · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
-      exact refines_Equals_2 (rewriteAt_refines hO hr _ _ _ _ ht)
+      exact refines_Equals_2 (rewriteAt_refines hO hr hq _ _ _ _ ht)
     · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
-      exact refines_UMinus (rewriteAt_refines hO hr _ _ _ _ ht)
+      exact refines_UMinus (rewriteAt_refines hO hr hq _ _ _ _ ht)
     · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
-      exact refines_IsConstructor (rewriteAt_refines hO hr _ _ _ _ ht)
+      exact refines_IsConstructor (rewriteAt_refines hO hr hq _ _ _ _ ht)
     · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
-      exact refines_ADTSelector (rewriteAt_refines hO hr _ _ _ _ ht)
+      exact refines_ADTSelector (rewriteAt_refines hO hr hq _ _ _ _ ht)
     · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
-      exact refines_Implies_1 (rewriteAt_refines hO hr _ _ _ _ ht)
+      exact refines_Implies_1 (rewriteAt_refines hO hr hq _ _ _ _ ht)
     · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
-      exact refines_Implies_2 (rewriteAt_refines hO hr _ _ _ _ ht)
+      exact refines_Implies_2 (rewriteAt_refines hO hr hq _ _ _ _ ht)
     · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
-      exact refines_IfExpr_1 (rewriteAt_refines hO hr _ _ _ _ ht)
+      exact refines_IfExpr_1 (rewriteAt_refines hO hr hq _ _ _ _ ht)
     · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
-      exact refines_IfExpr_2 (rewriteAt_refines hO hr _ _ _ _ ht)
+      exact refines_IfExpr_2 (rewriteAt_refines hO hr hq _ _ _ _ ht)
     · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
-      exact refines_IfExpr_3 (rewriteAt_refines hO hr _ _ _ _ ht)
+      exact refines_IfExpr_3 (rewriteAt_refines hO hr hq _ _ _ _ ht)
     · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
-      exact refines_Assume_1 (rewriteAt_refines hO hr _ _ _ _ ht)
+      exact refines_Assume_1 (rewriteAt_refines hO hr hq _ _ _ _ ht)
     · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
-      exact refines_Assume_2 (rewriteAt_refines hO hr _ _ _ _ ht)
+      exact refines_Assume_2 (rewriteAt_refines hO hr hq _ _ _ _ ht)
     · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
-      exact refines_Let_2 (rewriteAt_refines hO hr _ _ _ _ ht)
+      exact refines_Let_2 (rewriteAt_refines hO hr hq _ _ _ _ ht)
     · next x v b =>
       split at h
       · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
-        exact refines_Let_1 (rewriteAt_refines hO hr _ _ _ _ ht)
+        exact refines_Let_1 (rewriteAt_refines hO hr hq _ _ _ _ ht)
       · cases h
     · next j es =>
       split at h
       · next t post hd =>
         obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
         have hes : es = es.take j ++ t :: post := by rw [← hd, List.take_append_drop]
-        have := refines_And (post := post) (es.take j) Fs (rewriteAt_refines hO hr _ _ _ _ ht)
+        have := refines_And (post := post) (es.take j) Fs (rewriteAt_refines hO hr hq _ _ _ _ ht)
         rwa [← hes] at this
       · cases h
     · next j es =>
@@ -1662,7 +1775,7 @@ theorem rewriteAt_refines (hO : O.Sound) {r : List Fact → Expr → Option Expr
       · next t post hd =>
         obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
         have hes : es = es.take j ++ t :: post := by rw [← hd, List.take_append_drop]
-        have := refines_Or (post := post) (es.take j) Fs (rewriteAt_refines hO hr _ _ _ _ ht)
+        have := refines_Or (post := post) (es.take j) Fs (rewriteAt_refines hO hr hq _ _ _ _ ht)
         rwa [← hes] at this
       · cases h
     · next j f tps es =>
@@ -1671,7 +1784,7 @@ theorem rewriteAt_refines (hO : O.Sound) {r : List Fact → Expr → Option Expr
         obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
         have hes : es = es.take j ++ t :: post := by rw [← hd, List.take_append_drop]
         have := refines_call (f := f) (tps := tps) (pre := es.take j) (post := post)
-          (rewriteAt_refines hO hr _ _ _ _ ht)
+          (rewriteAt_refines hO hr hq _ _ _ _ ht)
         rwa [← hes] at this
       · cases h
     · next j c tps es =>
@@ -1680,14 +1793,149 @@ theorem rewriteAt_refines (hO : O.Sound) {r : List Fact → Expr → Option Expr
         obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
         have hes : es = es.take j ++ t :: post := by rw [← hd, List.take_append_drop]
         have := refines_adt (c := c) (tps := tps) (pre := es.take j) (post := post)
-          (rewriteAt_refines hO hr _ _ _ _ ht)
+          (rewriteAt_refines hO hr hq _ _ _ _ ht)
         rwa [← hes] at this
       · cases h
     · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
-      exact refines_Forall hO (rewriteAt_refines hO hr _ _ _ _ ht)
+      exact refines_Forall hO (rewriteAt_refines hO hr hq _ _ _ _ ht)
     · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
-      exact refines_Not (refines_Forall hO (refines_Not (rewriteAt_refines hO hr _ _ _ _ ht)))
+      exact refines_Not (refines_Forall hO (refines_Not (rewriteAt_refines hO hr hq _ _ _ _ ht)))
     · cases h
+
+/-- Rewriting the subterm at a position into one that it refines makes the expression refine the
+expression after the rewriting. -/
+theorem rewriteAt_rev (hO : O.Sound) {r : List Fact → Expr → Option Expr}
+    {q : List Fact → Expr → Expr → Bool} (hr : ∀ Fs t t', r Fs t = some t' → Refines O P Fs t t')
+    (hb : ∀ Fs t t', r Fs t = some t' → Refines O P Fs t' t)
+    (hq : ∀ Fs t t', r Fs t = some t' → q Fs t t' = true → Refines O P Fs t' t) :
+    ∀ (Fs : List Fact) (p : List Nat) (e e' : Expr), rewriteAt r q Fs p e = some e' →
+      Refines O P Fs e' e
+  | Fs, [], e, e', h => hb Fs e e' (by simpa [rewriteAt] using h)
+  | Fs, i :: p, e, e', h => by
+    unfold rewriteAt at h
+    split at h
+    · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact refines_Not (rewriteAt_rev hO hr hb hq _ _ _ _ ht)
+    · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact refines_Plus_1 (rewriteAt_rev hO hr hb hq _ _ _ _ ht)
+    · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact refines_Plus_2 (rewriteAt_rev hO hr hb hq _ _ _ _ ht)
+    · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact refines_Minus_1 (rewriteAt_rev hO hr hb hq _ _ _ _ ht)
+    · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact refines_Minus_2 (rewriteAt_rev hO hr hb hq _ _ _ _ ht)
+    · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact refines_Times_1 (rewriteAt_rev hO hr hb hq _ _ _ _ ht)
+    · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact refines_Times_2 (rewriteAt_rev hO hr hb hq _ _ _ _ ht)
+    · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact refines_Division_1 (rewriteAt_rev hO hr hb hq _ _ _ _ ht)
+    · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact refines_Division_2 (rewriteAt_rev hO hr hb hq _ _ _ _ ht)
+    · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact refines_Remainder_1 (rewriteAt_rev hO hr hb hq _ _ _ _ ht)
+    · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact refines_Remainder_2 (rewriteAt_rev hO hr hb hq _ _ _ _ ht)
+    · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact refines_Modulo_1 (rewriteAt_rev hO hr hb hq _ _ _ _ ht)
+    · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact refines_Modulo_2 (rewriteAt_rev hO hr hb hq _ _ _ _ ht)
+    · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact refines_LessThan_1 (rewriteAt_rev hO hr hb hq _ _ _ _ ht)
+    · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact refines_LessThan_2 (rewriteAt_rev hO hr hb hq _ _ _ _ ht)
+    · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact refines_GreaterThan_1 (rewriteAt_rev hO hr hb hq _ _ _ _ ht)
+    · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact refines_GreaterThan_2 (rewriteAt_rev hO hr hb hq _ _ _ _ ht)
+    · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact refines_LessEquals_1 (rewriteAt_rev hO hr hb hq _ _ _ _ ht)
+    · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact refines_LessEquals_2 (rewriteAt_rev hO hr hb hq _ _ _ _ ht)
+    · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact refines_GreaterEquals_1 (rewriteAt_rev hO hr hb hq _ _ _ _ ht)
+    · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact refines_GreaterEquals_2 (rewriteAt_rev hO hr hb hq _ _ _ _ ht)
+    · next ps b c =>
+      split at h
+      · obtain ⟨b', hb, rfl⟩ := Option.map_eq_some_iff.mp h
+        exact refines_EqLam hO
+          (rewriteAt_rev hO (filter_fwd hr) (filter_bwd hq) (filter_q hq) _ _ _ _ hb)
+          (rewriteAt_refines hO (filter_fwd hr) (filter_q hq) _ _ _ _ hb)
+      · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+        exact refines_Equals_1 (rewriteAt_rev hO hr hb hq _ _ _ _ ht)
+    · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact refines_Equals_1 (rewriteAt_rev hO hr hb hq _ _ _ _ ht)
+    · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact refines_Equals_2 (rewriteAt_rev hO hr hb hq _ _ _ _ ht)
+    · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact refines_UMinus (rewriteAt_rev hO hr hb hq _ _ _ _ ht)
+    · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact refines_IsConstructor (rewriteAt_rev hO hr hb hq _ _ _ _ ht)
+    · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact refines_ADTSelector (rewriteAt_rev hO hr hb hq _ _ _ _ ht)
+    · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact refines_Implies_1 (rewriteAt_rev hO hr hb hq _ _ _ _ ht)
+    · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact refines_Implies_2 (rewriteAt_rev hO hr hb hq _ _ _ _ ht)
+    · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact refines_IfExpr_1 (rewriteAt_rev hO hr hb hq _ _ _ _ ht)
+    · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact refines_IfExpr_2 (rewriteAt_rev hO hr hb hq _ _ _ _ ht)
+    · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact refines_IfExpr_3 (rewriteAt_rev hO hr hb hq _ _ _ _ ht)
+    · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact refines_Assume_1 (rewriteAt_rev hO hr hb hq _ _ _ _ ht)
+    · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact refines_Assume_2 (rewriteAt_rev hO hr hb hq _ _ _ _ ht)
+    · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact refines_Let_2 (rewriteAt_rev hO hr hb hq _ _ _ _ ht)
+    · next x v b =>
+      split at h
+      · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+        exact refines_Let_1 (rewriteAt_rev hO hr hb hq _ _ _ _ ht)
+      · cases h
+    · next j es =>
+      split at h
+      · next t post hd =>
+        obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+        have hes : es = es.take j ++ t :: post := by rw [← hd, List.take_append_drop]
+        have := refines_And (post := post) (es.take j) Fs (rewriteAt_rev hO hr hb hq _ _ _ _ ht)
+        rwa [← hes] at this
+      · cases h
+    · next j es =>
+      split at h
+      · next t post hd =>
+        obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+        have hes : es = es.take j ++ t :: post := by rw [← hd, List.take_append_drop]
+        have := refines_Or (post := post) (es.take j) Fs (rewriteAt_rev hO hr hb hq _ _ _ _ ht)
+        rwa [← hes] at this
+      · cases h
+    · next j f tps es =>
+      split at h
+      · next t post hd =>
+        obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+        have hes : es = es.take j ++ t :: post := by rw [← hd, List.take_append_drop]
+        have := refines_call (f := f) (tps := tps) (pre := es.take j) (post := post)
+          (rewriteAt_rev hO hr hb hq _ _ _ _ ht)
+        rwa [← hes] at this
+      · cases h
+    · next j c tps es =>
+      split at h
+      · next t post hd =>
+        obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+        have hes : es = es.take j ++ t :: post := by rw [← hd, List.take_append_drop]
+        have := refines_adt (c := c) (tps := tps) (pre := es.take j) (post := post)
+          (rewriteAt_rev hO hr hb hq _ _ _ _ ht)
+        rwa [← hes] at this
+      · cases h
+    · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact refines_Forall hO (rewriteAt_rev hO hr hb hq _ _ _ _ ht)
+    · obtain ⟨t', ht, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact refines_Not (refines_Forall hO (refines_Not (rewriteAt_rev hO hr hb hq _ _ _ _ ht)))
+    · cases h
+
+end
 
 theorem refines_trans {Fs : List Fact} {a b c : Expr} (h1 : Refines O P Fs a b)
     (h2 : Refines O P Fs b c) : Refines O P Fs a c :=
@@ -2100,7 +2348,8 @@ def isTrue : Expr → Bool
 /-- The value of `e`, if it has one, is of a primitive type, under the facts `Fs`. -/
 def primShaped (Fs : List Fact) : Expr → Bool
   | .IntegerLiteral _ | .BooleanLiteral _ | .StringLiteral _ | .BVLiteral _ _ _ | .CharLiteral _
-  | .UnitLiteral | .Equals _ _ | .Plus _ _ | .Minus _ _ | .Times _ _ => true
+  | .UnitLiteral | .Equals _ _ | .Plus _ _ | .Minus _ _ | .Times _ _ | .LessThan _ _
+  | .GreaterThan _ _ | .LessEquals _ _ | .GreaterEquals _ _ | .Not _ => true
   | .Variable x => Fs.any fun
     | .prim y => y == x
     | _ => false
@@ -2235,6 +2484,14 @@ theorem primShaped_prim {Fs : List Fact} {fuel : Int} {env : Env} {a : Expr} {v 
   case Plus => obtain ⟨x, y, -, -, h⟩ := eval_plus_ok hv; exact arith_prim (.inl rfl) h
   case Minus => obtain ⟨x, y, -, -, h⟩ := eval_minus_ok hv; exact arith_prim (.inr (.inl rfl)) h
   case Times => obtain ⟨x, y, -, -, h⟩ := eval_times_ok hv; exact arith_prim (.inr (.inr rfl)) h
+  case LessThan | GreaterThan | LessEquals | GreaterEquals =>
+    rw [eval] at hv
+    repeat' split at hv
+    all_goals first | (cases hv; rfl) | cases hv
+  case Not =>
+    rw [eval] at hv
+    repeat' split at hv
+    all_goals first | (cases hv; rfl) | cases hv
   all_goals first
     | (rw [eval] at hv; cases hv; rfl)
     | simp [primShaped] at hs
@@ -2573,6 +2830,138 @@ theorem lamNeCheck_refines (hO : O.Sound) {Fs : List Fact} {t t' : Expr}
         cases hv
         rw [eval]
     · cases hi
+  · cases h
+
+end
+
+/-! ## Lambdas that are the same up to the names of their parameters -/
+
+/-- `evaluate`: two lambdas of a parameter of the integers or the Booleans whose bodies are the
+same up to the name of the parameter, of a primitive value, are equal. -/
+def alphaCheck (t t' : Expr) : Bool :=
+  match t, t' with
+  | .Equals (.Lambda [.Param x T] b) (.Lambda [.Param y T'] b'), .BooleanLiteral true =>
+    (match T with
+      | .IntegerType | .BooleanType => true
+      | _ => false) && Inox.Lowered.tyEq 100 T T' && primShaped [.prim x] b &&
+      (subst x (.Variable y) 100 b).any (exprEq 1000 · b') &&
+      (subst y (.Variable x) 100 b).any (exprEq 1000 · b)
+  | _, _ => false
+
+section
+variable {O : Oracle} {P : Program}
+
+/-- The body of a lambda and its renaming have the same values. -/
+theorem alpha_eval {x y : Id} {b b' : Expr} {fuel : Int} {tys : List TypeBinding}
+    {vars : List Binding} {v : Value} (h1 : subst x (.Variable y) 100 b = some b')
+    (h2 : subst y (.Variable x) 100 b = some b) :
+    eval O P fuel (.Env tys (.Binding x v :: vars)) b =
+      eval O P fuel (.Env tys (.Binding y v :: vars)) b' := by
+  have hA := subst_eval_gen (O := O) (P := P) (fuel := fuel)
+    (env' := .Env tys (.Binding x v :: .Binding y v :: vars))
+    (env := .Env tys (.Binding y v :: vars))
+    (x := x) (w := .Variable y) rfl (fun z => by
+      by_cases hzx : z = x
+      · subst hzx; simp [eval, env_vars, lookup_var]
+      · by_cases hzy : z = y
+        · subst hzy; simp [eval, env_vars, lookup_var, hzx]
+        · simp [eval, env_vars, lookup_var, hzx, hzy]) 100 b b' h1
+  have hB := subst_eval_gen (O := O) (P := P) (fuel := fuel)
+    (env' := .Env tys (.Binding x v :: .Binding y v :: vars))
+    (env := .Env tys (.Binding x v :: vars))
+    (x := y) (w := .Variable x) rfl (fun z => by
+      by_cases hzx : z = x
+      · subst hzx
+        by_cases hzy : z = y
+        · subst hzy; simp [eval, env_vars, lookup_var]
+        · simp [eval, env_vars, lookup_var, hzy]
+      · by_cases hzy : z = y
+        · subst hzy; simp [eval, env_vars, lookup_var, hzx]
+        · simp [eval, env_vars, lookup_var, hzx, hzy]) 100 b b h2
+  rw [← hB, hA]
+
+theorem alphaCheck_refines (hO : O.Sound) {Fs : List Fact} {t t' : Expr}
+    (h : alphaCheck t t' = true) : Refines O P Fs t t' := by
+  intro fuel env v _ hv
+  unfold alphaCheck at h
+  split at h
+  · next x T b y T' b' =>
+    simp only [Bool.and_eq_true, Option.any_eq_true] at h
+    obtain ⟨⟨⟨⟨hT, hTT⟩, hp⟩, ⟨b1, hb1, he1⟩⟩, ⟨b2, hb2, he2⟩⟩ := h
+    rw [exprEq_eq _ _ _ he1] at hb1
+    rw [exprEq_eq _ _ _ he2] at hb2
+    rw [← Inox.Lowered.tyEq_eq _ _ _ hTT] at hv
+    cases env with
+    | Env tys vars =>
+    simp only [eval] at hv
+    rw [hO.value_eq] at hv
+    cases P with
+    | Program fs cs ss is eqm =>
+    cases eqm
+    · cases hv
+    · have hap : ∀ fuel vs, apply O (.Program fs cs ss is .ExtensionalEquality) fuel
+          (.ClosureV [.Param x T] b (.Env tys vars)) vs =
+          apply O (.Program fs cs ss is .ExtensionalEquality) fuel
+          (.ClosureV [.Param y T] b' (.Env tys vars)) vs := by
+        intro fuel vs
+        simp only [apply, param_ids]
+        split
+        · rfl
+        · cases vs with
+          | nil => simp [bind_all]
+          | cons v vs =>
+            cases vs with
+            | nil => simp only [bind_all, append_env]; exact alpha_eval hb1 hb2
+            | cons _ _ => simp [bind_all]
+      have hce : O.closures_equal (.Program fs cs ss is .ExtensionalEquality)
+          (.ClosureV [.Param x T] b (.Env tys vars))
+          (.ClosureV [.Param y T] b' (.Env tys vars)) = true := by
+        rw [hO.closures_equal]
+        simp only [decide_eq_true_eq]
+        intro vs
+        simp only [Bool.or_eq_true, Bool.not_eq_true', decide_eq_true_eq]
+        by_cases hty : O.params_have_types (.Program fs cs ss is .ExtensionalEquality)
+          (.Env tys vars) vs [.Param x T] = true
+        · right
+          by_cases hex : ∃ fuel a, apply O (.Program fs cs ss is .ExtensionalEquality) fuel
+              (.ClosureV [.Param x T] b (.Env tys vars)) vs = .Ok a
+          · right
+            obtain ⟨f, a, ha⟩ := hex
+            refine ⟨f, a, a, ?_⟩
+            simp only [Bool.and_eq_true, decide_eq_true_eq]
+            refine ⟨⟨ha, by rw [← hap]; exact ha⟩, value_eq_refl hO _ ?_⟩
+            -- the value of the body is primitive
+            rw [hO.params_have_types] at hty
+            cases vs with
+            | nil => simp at hty
+            | cons w ws =>
+              simp only [Bool.and_eq_true] at hty
+              obtain ⟨hw, -⟩ := hty
+              simp only [apply] at ha
+              split at ha
+              · cases ha
+              · cases ws with
+                | cons _ _ =>
+                  simp [param_ids, bind_all] at ha
+                | nil =>
+                  simp only [param_ids, bind_all, append_env] at ha
+                  refine primShaped_prim hp (fun f hf => ?_) ha
+                  simp only [List.mem_singleton] at hf
+                  subst hf
+                  refine ⟨w, by simp [env_vars, lookup_var], ?_⟩
+                  rw [hO.has_type] at hw
+                  split at hT <;> simp at hT
+                  all_goals (cases w <;> simp at hw <;> rfl)
+          · left
+            intro f a
+            simp only [Bool.and_eq_true, Bool.not_eq_true', decide_eq_false_iff_not]
+            have hn : ¬ apply O (.Program fs cs ss is .ExtensionalEquality) f
+                (.ClosureV [.Param x T] b (.Env tys vars)) vs = .Ok a := fun h => hex ⟨f, a, h⟩
+            exact ⟨hn, by rw [← hap]; exact hn⟩
+        · first | (left; left; simpa using hty) | (left; simpa using hty) | simp [hty]
+      simp only [hce] at hv
+      cases hv
+      rw [eval]
   · cases h
 
 end
@@ -3124,7 +3513,7 @@ def ruleCheck (cs : List Constructor) (ss : List ADTSort) :
   | "expand", Fs, t, t' => expandCheck Fs t t'
   | "arith", Fs, t, t' => arithCheck Fs t t' || reflCheck ss Fs t t'
   | "eta", Fs, t, t' => etaCheck cs ss Fs t t'
-  | "evaluate", _, t, t' => evaluateCheck t t' || lamNeCheck t t'
+  | "evaluate", _, t, t' => evaluateCheck t t' || lamNeCheck t t' || alphaCheck t t'
   | "unused", _, t, t' => unusedCheck t t'
   | _, _, _, _ => false
 
@@ -3149,11 +3538,120 @@ theorem ruleCheck_refines {O : Oracle} {P : Program} {cs : List Constructor}
     · exact reflCheck_refines hO hP' h
   · exact etaCheck_refines hO hP' h
   · simp only [Bool.or_eq_true] at h
-    rcases h with h | h
+    rcases h with (h | h) | h
     · exact evaluateCheck_refines hO h
     · exact lamNeCheck_refines hO h
+    · exact alphaCheck_refines hO h
   · exact unusedCheck_refines hO h
   · cases h
+
+/-! ## Steps that keep the values both ways -/
+
+/-- An expression that always has the same value: a literal, or a construction of them of a sort
+without invariants, `n` deep. -/
+def closedLit (cs : List Constructor) (ss : List ADTSort) : Nat → Expr → Bool
+  | 0, _ => false
+  | _ + 1, .IntegerLiteral _ | _ + 1, .BooleanLiteral _ => true
+  | n + 1, .ADT c _ es => (match lookup_ctor cs c with
+      | .Ok (.Constructor _ s _) => noInvOf ss s
+      | _ => false) && es.all (closedLit cs ss n)
+  | _ + 1, _ => false
+
+/-- `select`, where the subterm also has a value wherever the selected argument has: the other
+arguments always have values, and the sort has no invariant. -/
+def selectRev (cs : List Constructor) (ss : List ADTSort) (t t' : Expr) : Bool :=
+  match t with
+  | .ADTSelector (.ADT c _ args) sel =>
+    match lookup_ctor cs c with
+    | .Ok (.Constructor _ s fields) =>
+      noInvOf ss s && (pick fields args sel).any (exprEq 1000 · t') &&
+        args.all fun a => exprEq 1000 a t' || closedLit cs ss 100 a
+    | _ => false
+  | _ => false
+
+/-- Whether the step of the rule `rule` that rewrites `t` into `t'` also has the converse: `t`
+has the value of `t'` wherever `t'` has one, as the steps in the bodies of lambdas need. -/
+def revCheck (cs : List Constructor) (ss : List ADTSort) :
+    String → List Fact → Expr → Expr → Bool
+  | "logic", Fs, t, t' => exprEq 1000 t t' || logicCheck (Fs.filterMap Fact.expr?) t' t
+  | "select", _, t, t' => selectRev cs ss t t'
+  | _, _, _, _ => false
+
+section
+variable {O : Oracle} {P : Program}
+
+theorem eval_list_all {fuel : Int} {env : Env} : ∀ (es : List Expr),
+    (∀ a ∈ es, ∃ v, eval O P fuel env a = .Ok v) → ∃ vs, eval_list O P fuel env es = .Ok vs
+  | [], _ => ⟨[], by rw [eval_list]⟩
+  | a :: es, h => by
+    obtain ⟨v, hv⟩ := h a List.mem_cons_self
+    obtain ⟨vs, hvs⟩ := eval_list_all es fun b hb => h b (List.mem_cons_of_mem _ hb)
+    exact ⟨v :: vs, by rw [eval_list, hv, hvs]⟩
+
+theorem closedLit_eval {fns : List FunDef} {cs : List Constructor} {ss : List ADTSort}
+    {is : List Interpretation} {eqm : FunctionEquality} {fuel : Int} {env : Env} :
+    ∀ n e, closedLit cs ss n e = true →
+      ∃ v, eval O (.Program fns cs ss is eqm) fuel env e = .Ok v
+  | 0, _, h => by simp [closedLit] at h
+  | n + 1, e, h => by
+    cases e
+    case IntegerLiteral => exact ⟨_, by rw [eval]⟩
+    case BooleanLiteral => exact ⟨_, by rw [eval]⟩
+    case ADT c tps es =>
+      simp only [closedLit, Bool.and_eq_true, List.all_eq_true] at h
+      obtain ⟨hc, hes⟩ := h
+      split at hc
+      · next d s fs hl =>
+        obtain ⟨t0, eq0, hs⟩ := noInvOf_eq hc
+        obtain ⟨vs, hvs⟩ := eval_list_all (O := O) (P := .Program fns cs ss is eqm) (fuel := fuel)
+          (env := env) es fun a ha => closedLit_eval n a (hes a ha)
+        refine ⟨.ADTV c (O.resolve_all (env_types env) tps) vs, ?_⟩
+        rw [eval, hvs]
+        simp only [construct, hl, hs]
+      · cases hc
+    all_goals simp [closedLit] at h
+
+theorem selectRev_refines {fns : List FunDef} {cs : List Constructor} {ss : List ADTSort}
+    {is : List Interpretation} {eqm : FunctionEquality} {Fs : List Fact} {t t' : Expr}
+    (hP : P = .Program fns cs ss is eqm) (h : selectRev cs ss t t' = true) :
+    Refines O P Fs t' t := by
+  subst hP
+  intro fuel env v _ hv
+  unfold selectRev at h
+  split at h
+  · next c tps args sel =>
+    split at h
+    · next d s fields hl =>
+      simp only [Bool.and_eq_true, Option.any_eq_true, List.all_eq_true, Bool.or_eq_true] at h
+      obtain ⟨⟨hinv, a, hp, he⟩, hall⟩ := h
+      rw [exprEq_eq _ _ _ he] at hp
+      obtain ⟨vs, hvs⟩ := eval_list_all (O := O) (P := .Program fns cs ss is eqm) (fuel := fuel)
+        (env := env) args fun b hb => by
+          rcases hall b hb with hb' | hb'
+          · rw [exprEq_eq _ _ _ hb']; exact ⟨v, hv⟩
+          · exact closedLit_eval 100 b hb'
+      obtain ⟨t0, eq0, hs⟩ := noInvOf_eq hinv
+      have hsel := pick_eq fields args vs sel hvs hp
+      rw [hv] at hsel
+      rw [eval, eval, hvs]
+      simp only [construct, hl, hs, ← hsel]
+    · cases h
+  · cases h
+
+theorem revCheck_refines {fns : List FunDef} {cs : List Constructor} {ss : List ADTSort}
+    {is : List Interpretation} {eqm : FunctionEquality} (hP : P = .Program fns cs ss is eqm)
+    {rule : String} {Fs : List Fact} {t t' : Expr} (h : revCheck cs ss rule Fs t t' = true) :
+    Refines O P Fs t' t := by
+  unfold revCheck at h
+  split at h
+  · simp only [Bool.or_eq_true] at h
+    rcases h with h | h
+    · rw [exprEq_eq _ _ _ h]; exact refines_refl
+    · exact logicCheck_refines h
+  · exact selectRev_refines hP h
+  · cases h
+
+end
 
 /-- `e` after the steps `ss`, if each of them holds, in a program whose constructors are
 `cs`, where the facts `Fs` hold. -/
@@ -3162,7 +3660,7 @@ def stepsApply (cs : List Constructor) (ss : List ADTSort) (Fs : List Fact) :
   | [], e => some e
   | s :: steps, e =>
     (rewriteAt (fun Fs t => if ruleCheck cs ss s.rule Fs t s.result then some s.result else none)
-      Fs s.pos e).bind (stepsApply cs ss Fs steps)
+      (fun Fs t t' => revCheck cs ss s.rule Fs t t') Fs s.pos e).bind (stepsApply cs ss Fs steps)
 
 /-- The steps that hold refine the expression that they start from. -/
 theorem stepsApply_refines {O : Oracle} {P : Program} {cs : List Constructor}
@@ -3174,11 +3672,16 @@ theorem stepsApply_refines {O : Oracle} {P : Program} {cs : List Constructor}
   | s :: steps, e, e', h => by
     simp only [stepsApply, Option.bind_eq_some_iff] at h
     obtain ⟨e1, h1, h2⟩ := h
-    refine refines_trans (rewriteAt_refines hO ?_ Fs s.pos e e1 h1)
+    refine refines_trans (rewriteAt_refines hO ?_ ?_ Fs s.pos e e1 h1)
       (stepsApply_refines hO hP Fs steps e1 e' h2)
-    intro Fs t t' ht
-    split at ht
-    · next hc => cases ht; exact ruleCheck_refines hO hP hc
-    · cases ht
+    · intro Fs t t' ht
+      split at ht
+      · next hc => cases ht; exact ruleCheck_refines hO hP hc
+      · cases ht
+    · intro Fs t t' ht hq
+      obtain ⟨fns, is, eqm, hP'⟩ := hP
+      split at ht
+      · cases ht; exact revCheck_refines hP' hq
+      · cases ht
 
 end Inox.Simplified

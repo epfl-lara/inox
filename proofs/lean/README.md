@@ -1263,7 +1263,9 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   of a primitive type, or a variable of a datatype, with itself is `true`),
   `evaluate` (a ground term of literals, arithmetic, comparisons, conditionals
   and concatenations of strings is its value, and two lambdas of an integer
-  are different where their bodies are different values at an integer), `eta`
+  are different where their bodies are different values at an integer, and
+  equal where their bodies are the same up to the names of their parameters),
+  `eta`
   (the construction of the fields of a variable
   of a datatype is the variable) and `unused` (a quantifier over parameters
   whose types have values, as integers, booleans and functions into them do,
@@ -1300,7 +1302,7 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   `bitvector-division-by-zero-is-total`, the first of
   `empty-function-codomains`, the first of
   `quantifiers-in-connectives-over-partial-bodies`, that of `size-negative`
-  and the 6th of `lambdas-with-partial-bodies-extensional`, as
+  and the 2nd, 3rd and 6th of `lambdas-with-partial-bodies-extensional`, as
   `inox-solution --input` says.
   The encoders aren't in this theorem yet.
 - **The link between the proof and the script.** The checker checks that each
