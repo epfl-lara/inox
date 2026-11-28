@@ -1280,9 +1280,10 @@ without type parameters, but only a lemma (`call_tenv`) shows it.
   reads their constructions, whose constructors, testers and selectors have
   other names in the reading of Logos, and whose fields of integers are known
   to be integers, with lets, which the lowering inlines or drops, where each
-  step of a constraint is of these rules, and variables of datatypes where the steps remove them: on the
-  corpus, the 3 certificates of `error-is-infeasible`, the 1st, 2nd, 3rd and
-  5th of `lets-and-assumptions-around-partial-terms`, the first 5 of
+  step of a constraint is of these rules, and variables of datatypes where the
+  steps remove them: on the corpus, the 3 certificates of
+  `error-is-infeasible`, the 1st, 2nd, 3rd and 5th of
+  `lets-and-assumptions-around-partial-terms`, the first 5 of
   `ground-terms-that-evaluate`, the first 3 of
   `arithmetic-over-partial-operands`, the 1st, 3rd and 4th of
   `selections-of-constructions-with-partial-fields`, the first of
